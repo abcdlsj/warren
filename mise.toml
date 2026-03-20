@@ -1,0 +1,38 @@
+min_version = "2025.10.0"
+
+[tools]
+xcbeautify = "latest"
+tmux = "latest"
+
+[env]
+PROJECT_NAME = "Den"
+
+[tasks.dev]
+description = "Build and run Den"
+depends = ["build"]
+run = "swift run Den"
+
+[tasks.build]
+description = "Debug build"
+run = "swift build 2>&1 | xcbeautify"
+
+[tasks."build:release"]
+description = "Release build"
+run = "swift build -c release 2>&1 | xcbeautify"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:core", "test:tmux", "test:git"]
+
+[tasks."test:core"]
+run = "cd Packages/DenCore && swift run DenCoreTests"
+
+[tasks."test:tmux"]
+run = "cd Packages/DenTmux && swift run DenTmuxTests"
+
+[tasks."test:git"]
+run = "cd Packages/DenGit && swift run DenGitTests"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "swift package clean && rm -rf .build Den.app"
