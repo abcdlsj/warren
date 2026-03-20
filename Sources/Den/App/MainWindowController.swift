@@ -1,0 +1,98 @@
+import AppKit
+import DenTerminal
+
+final class MainWindowController: NSWindowController {
+
+    // MARK: - Toolbar
+
+    private enum ToolbarID {
+        static let main = NSToolbar.Identifier("DenMainToolbar")
+        static let toggleSidebar = NSToolbarItem.Identifier("toggleSidebar")
+    }
+
+    var onToggleSidebar: (() -> Void)?
+
+    // MARK: - Init
+
+    init(themeInfo: GhosttyThemeInfo = .fallback) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.minSize = NSSize(width: 800, height: 500)
+        window.title = "Den"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = themeInfo.background
+        window.appearance = NSAppearance(named: themeInfo.isDark ? .darkAqua : .aqua)
+        window.setFrameAutosaveName("DenMainWindow")
+        if !window.setFrameUsingName("DenMainWindow") {
+            window.center()
+        }
+
+        super.init(window: window)
+
+        configureToolbar()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Public
+
+    func updateTitle(projectName: String?, worktreeName: String? = nil) {
+        var parts: [String] = []
+        if let worktreeName { parts.append(worktreeName) }
+        if let projectName { parts.append(projectName) }
+        parts.append("Den")
+        window?.title = parts.joined(separator: " — ")
+    }
+
+    // MARK: - Toolbar
+
+    private func configureToolbar() {
+        let toolbar = NSToolbar(identifier: ToolbarID.main)
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.showsBaselineSeparator = false
+        window?.toolbar = toolbar
+        window?.toolbarStyle = .unifiedCompact
+    }
+
+    @objc private func toggleSidebarClicked() {
+        onToggleSidebar?()
+    }
+}
+
+// MARK: - NSToolbarDelegate
+
+extension MainWindowController: NSToolbarDelegate {
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [ToolbarID.toggleSidebar, .flexibleSpace]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [ToolbarID.toggleSidebar, .flexibleSpace]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard itemIdentifier == ToolbarID.toggleSidebar else { return nil }
+        let item = NSToolbarItem(itemIdentifier: ToolbarID.toggleSidebar)
+        item.label = "Toggle Sidebar"
+        item.paletteLabel = "Toggle Sidebar"
+        item.toolTip = "Show or hide the sidebar"
+        item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+        item.target = self
+        item.action = #selector(toggleSidebarClicked)
+        return item
+    }
+}
