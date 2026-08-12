@@ -49,15 +49,15 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
         VStack(spacing: BurrowSpacing.medium) {
             VStack(spacing: BurrowSpacing.xs) {
                 Text("Welcome to Burrow")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(BurrowTypography.screenTitle)
                 Text("Add a project folder, then start a shell or an agent CLI.")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(BurrowTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
                     .multilineTextAlignment(.center)
             }
             Button(action: onAddProject) {
-                Label("Add Project…", systemImage: "folder.badge.plus")
-                    .font(.system(size: 13, weight: .medium))
+                Text("Add Project…")
+                    .font(BurrowTypography.bodyEmphasis)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
@@ -69,7 +69,7 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
             )
             Button(action: onImportSuperset) {
                 Text("Import from Superset…")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(BurrowTypography.bodyEmphasis)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
@@ -82,14 +82,14 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
             HStack(spacing: BurrowSpacing.xs) {
                 Text("Or press")
                 Text("⌘K")
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .font(BurrowTypography.compactCode)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
                     .background(tokens.fillHover)
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                 Text("to open the command palette.")
             }
-            .font(.system(size: 11, weight: .regular))
+            .font(BurrowTypography.supporting)
             .foregroundStyle(tokens.mutedForeground)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,17 +100,17 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
         VStack(spacing: BurrowSpacing.medium) {
             VStack(spacing: BurrowSpacing.xs) {
                 Text(workspace.name)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(BurrowTypography.screenTitle)
                 if let branch = workspace.branch {
                     Text(branch)
-                        .font(.system(size: 12, weight: .regular, design: .monospaced))
+                        .font(BurrowTypography.code)
                         .foregroundStyle(tokens.highlight)
                 }
             }
 
             if branchSessions.isEmpty {
                 Text("No sessions in this branch")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(BurrowTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
             } else {
                 VStack(spacing: 2) {
@@ -120,11 +120,11 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
                         } label: {
                             HStack(spacing: BurrowSpacing.compact) {
                                 Text(session.title)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(BurrowTypography.bodyEmphasis)
                                     .foregroundStyle(tokens.foreground)
                                 Spacer()
                                 Text(session.kind.displayName)
-                                    .font(.system(size: 10, weight: .regular))
+                                    .font(BurrowTypography.badge)
                                     .foregroundStyle(tokens.mutedForeground)
                             }
                             .padding(.horizontal, BurrowSpacing.medium)
@@ -139,8 +139,8 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
             }
 
             Button(action: onNewSession) {
-                Label("New Session…", systemImage: "plus")
-                    .font(.system(size: 13, weight: .medium))
+                Text("New Session…")
+                    .font(BurrowTypography.bodyEmphasis)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
@@ -210,7 +210,7 @@ struct BurrowDesktopTerminalPlaceholder: View {
             Text("Preview terminal surface")
                 .font(BurrowTypography.emptyState)
             Text("Session content for \(workspace.name) will appear when the terminal renderer is connected.")
-                .font(.footnote)
+                .font(BurrowTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
                 .multilineTextAlignment(.center)
         }
@@ -233,7 +233,7 @@ struct BurrowDesktopInspectorSlot: View {
                 .font(BurrowTypography.paneHeader)
                 .accessibilityAddTraits(.isHeader)
             Text(content.detail)
-                .font(.footnote)
+                .font(BurrowTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

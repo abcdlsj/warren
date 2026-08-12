@@ -29,7 +29,7 @@ struct BurrowDesktopCommandPalette: View {
                     .accessibilityHidden(true)
                 TextField("Search sessions, workspaces, actions…", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(BurrowTypography.body)
                     .focused($searchFocused)
                 if !query.isEmpty {
                     Button {
@@ -63,11 +63,11 @@ struct BurrowDesktopCommandPalette: View {
                                     .accessibilityHidden(true)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(row.title)
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(BurrowTypography.bodyEmphasis)
                                         .foregroundStyle(.primary)
                                     if !row.subtitle.isEmpty {
                                         Text(row.subtitle)
-                                            .font(.system(size: 11, weight: .regular))
+                                            .font(BurrowTypography.supporting)
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -86,11 +86,8 @@ struct BurrowDesktopCommandPalette: View {
 
             if filteredRows.isEmpty {
                 VStack(spacing: 4) {
-                    Image(systemName: "questionmark.circle")
-                        .font(.system(size: 18, weight: .light))
-                        .foregroundStyle(.secondary)
                     Text("No results for “\(query)”")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(BurrowTypography.tabTitle)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -101,11 +98,11 @@ struct BurrowDesktopCommandPalette: View {
 
             HStack {
                 Text("↑↓ to browse   ↵ to open")
-                    .font(.system(size: 11, weight: .regular))
+                    .font(BurrowTypography.supporting)
                     .foregroundStyle(.tertiary)
                 Spacer()
                 Text("esc to close")
-                    .font(.system(size: 11, weight: .regular))
+                    .font(BurrowTypography.supporting)
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, BurrowSpacing.standard)

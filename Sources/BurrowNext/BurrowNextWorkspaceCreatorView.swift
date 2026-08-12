@@ -1,6 +1,7 @@
 import SwiftUI
 import BurrowApplication
 import BurrowDomain
+import BurrowDesignSystem
 
 struct BurrowNextWorkspaceCreatorView: View {
     let project: Project
@@ -14,8 +15,9 @@ struct BurrowNextWorkspaceCreatorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("New Workspace")
-                .font(.system(size: 20, weight: .semibold))
+                .font(BurrowTypography.dialogTitle)
             Text("Create a Git worktree for \(project.name).")
+                .font(BurrowTypography.body)
                 .foregroundStyle(.secondary)
 
             TextField("Branch", text: $branch)

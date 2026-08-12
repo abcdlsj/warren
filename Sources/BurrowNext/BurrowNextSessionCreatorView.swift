@@ -1,6 +1,7 @@
 import SwiftUI
 import BurrowDesktop
 import BurrowDomain
+import BurrowDesignSystem
 
 /// A small, opinionated launcher for the kinds of sessions Burrow is built
 /// around: an interactive shell, Claude Code, Codex, or an arbitrary command.
@@ -18,9 +19,9 @@ struct BurrowNextSessionCreatorView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("New Session")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(BurrowTypography.dialogTitle)
                 Text(workspaceName)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(BurrowTypography.tabTitle)
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 20)
@@ -37,7 +38,7 @@ struct BurrowNextSessionCreatorView: View {
                 if selectedKind == .custom {
                     TextField("Command, e.g. npm run dev", text: $customCommand)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .font(BurrowTypography.code)
                         .padding(.horizontal, 10)
                         .frame(height: 34)
                         .background(Color.secondary.opacity(0.08))
@@ -52,7 +53,7 @@ struct BurrowNextSessionCreatorView: View {
 
             HStack {
                 Text("Agents run as real CLIs in the terminal.")
-                    .font(.system(size: 11, weight: .regular))
+                    .font(BurrowTypography.supporting)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") {
@@ -85,9 +86,9 @@ struct BurrowNextSessionCreatorView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(preset.title)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(BurrowTypography.bodyEmphasis)
                     Text(preset.subtitle)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(BurrowTypography.supporting)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

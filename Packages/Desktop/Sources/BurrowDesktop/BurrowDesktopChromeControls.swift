@@ -60,7 +60,7 @@ struct BurrowDesktopOfflineBadge: View {
 
     var body: some View {
         let tokens = BurrowColorTokens.resolved(for: colorScheme)
-        Label("Offline", systemImage: "wifi.slash")
+        Text("Offline")
             .font(BurrowTypography.badge)
             .foregroundStyle(tokens.mutedForeground)
             .padding(.horizontal, BurrowSpacing.compact)
