@@ -14,6 +14,7 @@
 - shell、Codex 和 Claude 在 Ghostty 中可以可靠输入、显示颜色、调整尺寸、切换和恢复。
 - App 关闭或崩溃后 tmux Session 继续存在；重新打开后恢复。
 - App 不会在初始化、切换或重试时生成重复 shell。
+- 用户首次选择没有 Tab 的 Workspace 时自动获得一个默认 Shell。
 - 自动测试可在不截图、不移动鼠标、不抢焦点的条件下验收以上能力。
 
 ## 2. 发布门槛
@@ -76,6 +77,7 @@
 - 普通输入使用唯一 buffer 的 load/paste，每 Session 保序。
 - 输出保留原始 ANSI/OSC/Unicode 字节，并同时进入内存恢复环和持久日志。
 - Runtime 退出产生明确事件和生命周期状态。
+- 所有受管 Session 共用一个批量生命周期 watcher；轮询进程数不随 Session 数增长。
 - App 退出只关闭观察与连接，不 kill tmux。
 - 恢复时 adopt 存活 tmux；缺失 tmux 标记 ended。
 
@@ -88,6 +90,7 @@
 - 显式 terminate 后 tmux 消失，Session 保留可检查的 ended 记录。
 - 手动 kill tmux 后重启 App 不停留在 connecting。
 - 一个 Runtime 故障不会冻结其他 Session。
+- 管理多个 Session 时，每轮只调用一次 `list-sessions`，不按 Session 调用 `has-session`。
 
 ### G4：启动、退出和单实例（P0）
 
@@ -153,8 +156,9 @@
 交付：
 
 - 保持 Superset 风格的信息密度、字体层级、Sidebar、Top Bar、Preset Bar 和 Tab Bar。
-- Project 展开 Workspace；Project 新增创建 Workspace。
+- Project 默认收缩，用户展开后显示 Workspace；Project 新增创建 Workspace。
 - Workspace、Preset 和 Tab 新增创建 Session。
+- 选择没有 Tab 的 Workspace 时幂等创建一个默认 Shell；重复点击最多产生一个 Tab 和一个 Session。
 - 删除无动作、含义重复或无法解释的图标。
 - 所有控件拥有稳定 Accessibility 语义。
 - 空态、loading、失败、离线和 ended 状态有明确反馈。
@@ -165,6 +169,7 @@
 - 每个可交互元素可通过 Accessibility Identifier 唯一定位。
 - 控件 frame 无重叠，hit target 与可见区域一致。
 - Project、Workspace、Tab、Preset 连续快速点击不会冻结 UI。
+- Project 初始语义状态为 `Collapsed`；展开后 Workspace 动作才进入语义树。
 - Tab 删除后新增按钮 frame 紧随最后 Tab。
 - Terminal Surface frame 与内容容器一致，允许的误差不超过 1 point。
 - 字体 token、字号、行高、颜色和间距符合设计 token 合约。
@@ -236,7 +241,7 @@
 ### J2：本地终端日常使用
 
 1. 选择 Workspace A。
-2. 创建 Shell 并输入彩色 Unicode fixture。
+2. 断言自动创建且只创建一个 Shell，并输入彩色 Unicode fixture。
 3. 创建 Codex Tab。
 4. 在 Tabs 间快速切换。
 5. 切到 Workspace B 创建 Claude Tab。

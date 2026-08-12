@@ -116,9 +116,10 @@ Terminal Session
 10. Project 的新增动作创建 Workspace；Workspace 或 Tab 条的新增动作创建 Session。
 11. 创建 Session 必须携带固定 Workspace ID 和 Request ID；相同 Request ID 最多创建一个 Session。
 12. App 初始化不得自动创建 shell、Codex 或 Claude Session。
-13. App 同时只允许一个前台 Client Instance；重复启动应激活已有实例后退出。
-14. App 退出必须结束 Client 进程，但不得 kill 已创建的 tmux Session。
-15. 导入不得修改 Superset 数据、Git 仓库、worktree 或 tmux。
+13. 用户选择没有 Tab 的 Workspace 时，必须幂等创建一个默认 Shell Tab；重复选择不得重复创建。
+14. App 同时只允许一个前台 Client Instance；重复启动应激活已有实例后退出。
+15. App 退出必须结束 Client 进程，但不得 kill 已创建的 tmux Session。
+16. 导入不得修改 Superset 数据、Git 仓库、worktree 或 tmux。
 
 ## 6. 模块边界
 
@@ -291,6 +292,8 @@ Resize 按 Session 使用单一 worker，latest wins；激活 Surface 后强制�
 - Quit Client：停止 UI、连接和观察任务；tmux 保持运行。
 - Relaunch：Host Store 恢复资源，Runtime Adapter 检测并 adopt 存活 tmux；缺失 Runtime 被标记 ended，不得卡在 connecting。
 
+Runtime 使用单一生命周期 watcher。每轮以一次 `list-sessions` 获取 tmux 存活集合，再与全部受管 Session 比对；不得为每个 Session 启动独立轮询进程。瞬时命令失败不产生 ended 事件。没有受管 Session 时 watcher 必须停止。
+
 ## 10. macOS 交互设计
 
 界面信息架构沿用 Superset 已验证的基础关系，但不复制其领域实现：
@@ -310,8 +313,10 @@ Window
 行为要求：
 
 - 初始空状态只展示导入或添加 Project，不创建任何 Session。
+- Project 默认收缩；用户明确展开后才显示其 Workspace，新增 Project 同样默认收缩。
 - 点击 Project 选中其最近 Workspace；没有 Workspace 时展示创建入口。
 - 点击 Workspace 必须立即切换，不等待 tmux、Git 或磁盘操作。
+- 点击没有 Tab 的 Workspace 后，在该 Workspace 的串行命令队列中创建一个默认 Shell Tab。快速重复点击共享同一在途操作；若用户已切换到别处，创建结果不得抢回选择。
 - 点击 Tab 必须立即切换 Active Session，并把焦点交给 Ghostty。
 - Preset 在当前捕获的 Workspace 创建 Session；切换 Workspace 不得改变在途请求目标。
 - Tab 新增按钮紧随最后一个 Tab；没有 Tab 时位于起始位置。
@@ -322,6 +327,7 @@ Window
 性能目标：
 
 - 本地导航和 Tab 切换在同一主线程事务内完成，不等待 I/O。
+- tmux 生命周期观察每轮最多启动一个查询进程，查询频率不随 Session 数增长。
 - 输入到 Runtime 写入不得被持久化或全局 Snapshot 阻塞。
 - PTY 输出不得因数据库写入产生背压。
 - 单个 Workspace 的失败不得冻结其他 Workspace 或整个窗口。
