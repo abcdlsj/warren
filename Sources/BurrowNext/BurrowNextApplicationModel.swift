@@ -42,7 +42,9 @@ final class BurrowNextApplicationModel {
     }
 
     static func live() -> BurrowNextApplicationModel {
+        let tmuxSocketName = ProcessInfo.processInfo.environment["BURROW_TMUX_SOCKET_NAME"]
         let runtime = TmuxRuntime(
+            executor: ProcessTmuxCommandExecutor(socketName: tmuxSocketName),
             outputDirectory: BurrowApplicationDefaults.runtimeOutputDirectory()
         )
         let repository: SQLiteHostStateRepository

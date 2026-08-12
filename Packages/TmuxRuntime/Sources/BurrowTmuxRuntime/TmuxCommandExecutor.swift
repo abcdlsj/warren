@@ -132,16 +132,27 @@ public extension TmuxCommandExecuting {
 public actor ProcessTmuxCommandExecutor: TmuxCommandExecuting {
     private let configuredPath: String?
     private let environment: [String: String]
+    private let serverArguments: [String]
     private var resolvedPath: String?
 
     public init(
         tmuxPath: String? = nil,
-        environment: [String: String]? = nil
+        environment: [String: String]? = nil,
+        socketName: String? = nil
     ) {
         self.configuredPath = tmuxPath
         self.environment = BurrowTerminalEnvironment.sanitized(
             from: environment ?? ProcessInfo.processInfo.environment
         )
+        if let socketName, !socketName.isEmpty {
+            precondition(
+                Self.isValidSocketName(socketName),
+                "tmux socket name must contain only letters, numbers, dot, underscore, or hyphen."
+            )
+            self.serverArguments = ["-L", socketName]
+        } else {
+            self.serverArguments = []
+        }
     }
 
     public func execute(
@@ -151,10 +162,15 @@ public actor ProcessTmuxCommandExecutor: TmuxCommandExecuting {
         let path = try resolvePath()
         return try await runProcess(
             executablePath: path,
-            arguments: arguments,
+            arguments: serverArguments + arguments,
             standardInput: standardInput,
             environment: environment
         )
+    }
+
+    private static func isValidSocketName(_ value: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        return value.unicodeScalars.allSatisfy(allowed.contains)
     }
 
     private func resolvePath() throws -> String {

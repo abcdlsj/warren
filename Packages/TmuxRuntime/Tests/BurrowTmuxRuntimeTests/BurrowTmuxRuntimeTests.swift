@@ -50,6 +50,39 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
         }
     }
 
+    func testProcessExecutorKeepsConfiguredTmuxSocketsIsolated() async throws {
+        let firstSocket = "burrow-test-\(UUID().uuidString.lowercased())"
+        let secondSocket = "burrow-test-\(UUID().uuidString.lowercased())"
+        let sessionName = "socket-isolation"
+        let first = ProcessTmuxCommandExecutor(socketName: firstSocket)
+        let second = ProcessTmuxCommandExecutor(socketName: secondSocket)
+        do {
+            _ = try await first.execute(arguments: ["-V"])
+        } catch let error as TmuxCommandExecutorError {
+            throw XCTSkip("tmux is unavailable: \(error.localizedDescription)")
+        }
+        defer {
+            Task {
+                _ = try? await first.execute(arguments: ["kill-server"])
+                _ = try? await second.execute(arguments: ["kill-server"])
+            }
+        }
+
+        let created = try await first.execute(arguments: [
+            "new-session", "-d", "-s", sessionName,
+        ])
+        XCTAssertEqual(created.exitCode, 0, created.stderrText)
+        let visibleInFirst = try await first.execute(arguments: [
+            "has-session", "-t", sessionName,
+        ])
+        let visibleInSecond = try await second.execute(arguments: [
+            "has-session", "-t", sessionName,
+        ])
+
+        XCTAssertEqual(visibleInFirst.exitCode, 0)
+        XCTAssertNotEqual(visibleInSecond.exitCode, 0)
+    }
+
     func testCreateDeclaresHostedTerminalIdentityWithoutOverridingTerm() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()
@@ -174,7 +207,7 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
     }
 
     func testConcurrentWritesStayOrderedAndUseIndependentBuffers() async throws {
-        let executor = YieldingTmuxExecutor()
+        let executor = YieldingTmuxExecutor(blockFirstLoad: true)
         let outputDirectory = try temporaryDirectory()
         let runtime = TmuxRuntime(
             executor: executor,
@@ -194,13 +227,14 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
                 data: Data("first".utf8)
             )
         }
-        await Task.yield()
+        try await executor.waitUntilFirstLoadStarts()
         let second = Task {
             try await runtime.write(
                 sessionID: sessionID,
                 data: Data("second".utf8)
             )
         }
+        await executor.releaseFirstLoad()
         try await first.value
         try await second.value
 
@@ -572,11 +606,24 @@ private actor RecordingTmuxExecutor: TmuxCommandExecuting {
 private actor YieldingTmuxExecutor: TmuxCommandExecuting {
     private(set) var calls: [RecordingTmuxExecutor.Call] = []
     private var sessions: Set<String> = []
+    private let blockFirstLoad: Bool
+    private var firstLoadStarted = false
+    private var firstLoadReleased = false
+
+    init(blockFirstLoad: Bool = false) {
+        self.blockFirstLoad = blockFirstLoad
+    }
 
     func execute(arguments: [String], standardInput: Data?) async throws -> TmuxCommandResult {
         calls.append(.init(arguments: arguments, standardInput: standardInput))
         await Task.yield()
         guard let command = arguments.first else { return TmuxCommandResult(exitCode: 0) }
+        if command == "load-buffer", blockFirstLoad, !firstLoadStarted {
+            firstLoadStarted = true
+            while !firstLoadReleased {
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+        }
         switch command {
         case "has-session":
             return TmuxCommandResult(exitCode: sessions.contains(arguments.last ?? "") ? 0 : 1)
@@ -590,6 +637,18 @@ private actor YieldingTmuxExecutor: TmuxCommandExecuting {
         default:
             return TmuxCommandResult(exitCode: 0)
         }
+    }
+
+    func waitUntilFirstLoadStarts() async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !firstLoadStarted, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        guard firstLoadStarted else { throw RuntimeTestError.timeout }
+    }
+
+    func releaseFirstLoad() {
+        firstLoadReleased = true
     }
 }
 

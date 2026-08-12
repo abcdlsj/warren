@@ -600,6 +600,78 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertEqual(after.tabs(in: secondWorkspace.id).map(\.id), [secondTabID])
     }
 
+    func testWorkspaceTabSessionStressKeepsEveryResourceInItsOwner() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let firstFolder = try temporaryFolder()
+        let secondFolder = try temporaryFolder()
+        defer {
+            try? FileManager.default.removeItem(at: firstFolder)
+            try? FileManager.default.removeItem(at: secondFolder)
+        }
+        let firstProject = try await service.addProject(folder: firstFolder)
+        let secondProject = try await service.addProject(folder: secondFolder)
+        let initial = await service.snapshot()
+        let firstWorkspace = try XCTUnwrap(
+            initial.workspaces.first { $0.projectID == firstProject.id }
+        )
+        let secondWorkspace = try XCTUnwrap(
+            initial.workspaces.first { $0.projectID == secondProject.id }
+        )
+        let workspaceIDs = [firstWorkspace.id, secondWorkspace.id]
+
+        for round in 0..<100 {
+            let target = workspaceIDs[round % workspaceIDs.count]
+            let other = workspaceIDs[(round + 1) % workspaceIDs.count]
+            let request = TerminalSessionLaunchRequest(
+                requestID: UUID(),
+                kind: .shell,
+                title: "Stress \(round)"
+            )
+            async let createdTab = service.addTab(workspaceID: target, request: request)
+            async let switchedAway: Void = service.selectWorkspace(other)
+            let (tabID, _) = try await (createdTab, switchedAway)
+
+            let snapshot = await service.snapshot()
+            let sessionID = try XCTUnwrap(
+                snapshot.tabs(in: target).first { $0.id == tabID }?.sessionID
+            )
+            XCTAssertEqual(snapshot.session(id: sessionID)?.workspaceID, target)
+            XCTAssertFalse(snapshot.tabs(in: other).contains { $0.id == tabID })
+            XCTAssertEqual(
+                snapshot.windowLayout.workspaceView(for: target)?.tabs
+                    .compactMap(\.sessionID)
+                    .filter { $0 == sessionID }.count,
+                1
+            )
+
+            if round % 3 == 0 {
+                try await service.closeTabIfPresent(tabID: tabID, workspaceID: target)
+                let closed = await service.snapshot()
+                XCTAssertFalse(closed.tabs(in: target).contains { $0.id == tabID })
+                XCTAssertNotNil(closed.session(id: sessionID))
+                let runtimeAlive = await runtime.exists(sessionID: sessionID)
+                XCTAssertTrue(runtimeAlive)
+            }
+        }
+
+        let final = await service.snapshot()
+        for view in final.windowLayout.workspaceViews {
+            XCTAssertEqual(Set(view.tabs.map(\.id)).count, view.tabs.count)
+            for tab in view.tabs {
+                let sessionID = try XCTUnwrap(tab.sessionID)
+                XCTAssertEqual(final.session(id: sessionID)?.workspaceID, view.workspaceID)
+            }
+        }
+        let persisted = await service.persistedState()
+        XCTAssertEqual(persisted.terminalSessions.count, 100)
+        XCTAssertEqual(
+            persisted.requestReceipts.filter { $0.commandKind == "create_session" }.count,
+            100
+        )
+    }
+
     func testAttachControlInputResizeAndOutputUseOneTransportProjection() async throws {
         let runtime = RestorableRuntime()
         let service = makeService(runtime: runtime)

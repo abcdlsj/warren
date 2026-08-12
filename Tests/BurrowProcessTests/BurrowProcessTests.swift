@@ -35,6 +35,32 @@ final class BurrowProcessTests: XCTestCase {
         let repository = try SQLiteHostStateRepository(databaseURL: fixture.databaseURL)
         let state = try await repository.load()
         XCTAssertTrue(state.terminalSessions.isEmpty)
+        XCTAssertTrue(fixture.tmuxSessionNames().isEmpty)
+    }
+
+    func testTwentyHeadlessLaunchesExitCleanlyWithoutCreatingShells() async throws {
+        guard let executable = ProcessInfo.processInfo.environment["BURROW_APP_EXECUTABLE"] else {
+            throw XCTSkip("BURROW_APP_EXECUTABLE is provided by scripts/verify.sh")
+        }
+        let fixture = try ProcessFixture()
+        defer { fixture.cleanup() }
+
+        for cycle in 1...20 {
+            let result = try await fixture.run(executable: executable)
+            XCTAssertEqual(result.status, 0, "cycle \(cycle): \(result.stderr)")
+            XCTAssertFalse(
+                fixture.processExists(pid: result.processID),
+                "cycle \(cycle) left product process \(result.processID) alive"
+            )
+            XCTAssertTrue(
+                fixture.tmuxSessionNames().isEmpty,
+                "cycle \(cycle) created an unexpected tmux shell"
+            )
+        }
+
+        let repository = try SQLiteHostStateRepository(databaseURL: fixture.databaseURL)
+        let state = try await repository.load()
+        XCTAssertTrue(state.terminalSessions.isEmpty)
     }
 
     func testHeadlessProductRejectsSecondInstanceAndQuitKeepsTmuxAlive() async throws {
@@ -79,6 +105,7 @@ private final class ProcessFixture: @unchecked Sendable {
     struct Result {
         let status: Int32
         let stderr: String
+        let processID: Int32
     }
 
     let root: URL
@@ -87,6 +114,7 @@ private final class ProcessFixture: @unchecked Sendable {
     let lockURL: URL
     let reportURL: URL
     let workspaceURL: URL
+    let tmuxSocketName: String
 
     init() throws {
         root = FileManager.default.temporaryDirectory
@@ -96,6 +124,7 @@ private final class ProcessFixture: @unchecked Sendable {
         lockURL = root.appendingPathComponent("application.lock")
         reportURL = root.appendingPathComponent("report.json")
         workspaceURL = root.appendingPathComponent("workspace", isDirectory: true)
+        tmuxSocketName = "burrow-test-\(UUID().uuidString.lowercased())"
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
     }
 
@@ -111,6 +140,7 @@ private final class ProcessFixture: @unchecked Sendable {
             "BURROW_RUNTIME_OUTPUT_DIRECTORY": runtimeURL.path,
             "BURROW_INSTANCE_LOCK": lockURL.path,
             "BURROW_HEADLESS_REPORT": reportURL.path,
+            "BURROW_TMUX_SOCKET_NAME": tmuxSocketName,
         ].merging(extraEnvironment) { _, new in new }) { _, new in new }
         process.standardOutput = Pipe()
         process.standardError = Pipe()
@@ -125,12 +155,31 @@ private final class ProcessFixture: @unchecked Sendable {
             ?? Data()
         return Result(
             status: process.terminationStatus,
-            stderr: String(decoding: stderr, as: UTF8.self)
+            stderr: String(decoding: stderr, as: UTF8.self),
+            processID: process.processIdentifier
         )
     }
 
     func tmuxSessionExists(sessionID: String) -> Bool {
         runTmux(["has-session", "-t", "burrow-\(sessionID)"]) == 0
+    }
+
+    func tmuxSessionNames() -> [String] {
+        let process = makeTmuxProcess(["list-sessions", "-F", "#{session_name}"])
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        do { try process.run() } catch { return [] }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return [] }
+        return String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .split(whereSeparator: { $0.isNewline })
+            .map(String.init)
+    }
+
+    func processExists(pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        return Darwin.kill(pid, 0) == 0 || errno == EPERM
     }
 
     func killTmuxSession(sessionID: String) {
@@ -159,13 +208,18 @@ private final class ProcessFixture: @unchecked Sendable {
     }
 
     private func runTmux(_ arguments: [String]) -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["tmux"] + arguments
+        let process = makeTmuxProcess(arguments)
         process.standardOutput = Pipe()
         process.standardError = Pipe()
         do { try process.run() } catch { return -1 }
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private func makeTmuxProcess(_ arguments: [String]) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux", "-L", tmuxSocketName] + arguments
+        return process
     }
 }
