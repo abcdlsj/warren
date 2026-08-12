@@ -14,7 +14,7 @@ import Security
 /// health checks, so the same port must speak both protocols.
 @MainActor
 public final class WebRelayServer {
-    public static let defaultPort: UInt16 = 8788
+    nonisolated public static let defaultPort: UInt16 = 8788
     public static let startTunnel = Notification.Name("WebRelay.startTunnel")
     public static let stopTunnel = Notification.Name("WebRelay.stopTunnel")
     public static let copyWebURL = Notification.Name("WebRelay.copyWebURL")
@@ -237,6 +237,7 @@ public final class WebRelayServer {
         guard let binary = Self.cloudflaredBinary else { return }
         let process = Process()
         process.executableURL = binary
+        process.environment = Self.sanitizedProcessEnvironment
         process.arguments = [
             "tunnel",
             "--url",
@@ -404,6 +405,7 @@ public final class WebRelayServer {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = binary
+            process.environment = Self.sanitizedProcessEnvironment
             process.arguments = arguments
             let pipe = Pipe()
             process.standardOutput = pipe
@@ -418,6 +420,14 @@ public final class WebRelayServer {
                 continuation.resume(returning: nil)
             }
         }
+    }
+
+    private nonisolated static var sanitizedProcessEnvironment: [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_URL")
+        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_HOST_ID")
+        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_HOST_TOKEN")
+        return environment
     }
 
     // MARK: - Relay logic

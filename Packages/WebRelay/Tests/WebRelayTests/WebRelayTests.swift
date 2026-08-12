@@ -7,6 +7,33 @@ import BurrowStateStore
 @testable import WebRelay
 
 final class WebRelayTests: XCTestCase {
+    func testRelayEnvelopeRoundTripAndAuthRewriteStaysAtHostEdge() throws {
+        let connectionID = RelayHostConnector.ConnectionID(
+            bytes: Data((0..<16).map(UInt8.init))
+        )
+        let original = RelayHostConnector.RelayFrame(
+            kind: .binary,
+            connectionID: connectionID,
+            payload: Data([0, 1, 2, 255])
+        )
+        let decoded = try XCTUnwrap(RelayHostConnector.decode(RelayHostConnector.encode(original)))
+        XCTAssertEqual(decoded.kind, .binary)
+        XCTAssertEqual(decoded.connectionID, connectionID)
+        XCTAssertEqual(decoded.payload, original.payload)
+        XCTAssertNil(RelayHostConnector.decode(Data("BRLY".utf8)))
+
+        let remoteAuth = Data(#"{"t":"auth","token":"remote-access-token"}"#.utf8)
+        let rewritten = try XCTUnwrap(RelayHostConnector.rewrittenAuthPayload(
+            remoteAuth,
+            localPairingToken: "local-pairing-token"
+        ))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: rewritten) as? [String: String]
+        )
+        XCTAssertEqual(object["token"], "local-pairing-token")
+        XCTAssertFalse(String(decoding: rewritten, as: UTF8.self).contains("remote-access-token"))
+    }
+
     @MainActor
     func testLoopbackHTTPHookAndWebSocketAuthentication() async throws {
         let service = BurrowApplicationService(
@@ -73,6 +100,10 @@ final class WebRelayTests: XCTestCase {
         XCTAssertTrue(html.contains("ready:\"Ready\""))
         XCTAssertTrue(html.contains("location.search || location.hash"))
         XCTAssertTrue(html.contains("__BURROW_INJECTED_PARAMS__"))
+        XCTAssertTrue(html.contains("__BURROW_RELAY_HOST_ID__"))
+        XCTAssertTrue(html.contains("burrow.accessToken.${relayHostID}"))
+        XCTAssertTrue(html.contains("/v1/client/connect?host_id="))
+        XCTAssertFalse(html.contains("access_token=${encodeURIComponent(token)}"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "service-worker", extension: "js"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "icon", extension: "svg"))

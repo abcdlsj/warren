@@ -1,0 +1,12 @@
+{
+  "state_version": 1,
+  "change": "20260813-remote-relay-control-plane",
+  "workflow": "default",
+  "status": "active",
+  "current_step": "implement",
+  "completed_steps": [
+    "clarify",
+    "plan"
+  ],
+  "updated_at": "2026-08-12T16:17:19Z"
+}

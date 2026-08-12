@@ -27,6 +27,9 @@ run_package_tests() {
 echo "==> swift build"
 swift build --package-path "$repository_root"
 
+echo "==> relay control plane"
+(cd "$repository_root" && go vet ./RelayService/... && go test -race ./RelayService/...)
+
 for package in \
     Domain Protocol StateStore Host LocalTransport ClientCore Transport \
     TerminalRenderer TmuxRuntime Application DesignSystem Desktop \

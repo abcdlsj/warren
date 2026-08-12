@@ -52,6 +52,14 @@ run = "bash scripts/verify.sh"
 description = "Launch app and verify HTTP page + WebSocket auth/roster"
 run = "bash scripts/verify-web.sh"
 
+[tasks."relay:run"]
+description = "Run the remote Relay control plane"
+run = "go run ./RelayService/cmd/burrow-relay"
+
+[tasks."relay:test"]
+description = "Run Relay auth, persistence and forwarding tests"
+run = "go test -race ./RelayService/..."
+
 [tasks.accept]
 description = "Run local phase-one acceptance without screenshots or focus changes"
 run = "bash scripts/acceptance-smoke.sh"

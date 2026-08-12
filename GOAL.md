@@ -241,6 +241,25 @@
 - 移动布局包含 Sidebar 抽屉、横向 Tabs、底部安全区快捷键栏；方向键发送 ANSI sequence。
 - PWA 安装后从 `/` 启动仍能使用已配对 token，离线时只显示缓存壳和断线状态。
 
+### G11：Relay Service 远端控制面（P0）
+
+交付：
+
+- 独立 Go 服务提供 Host provision、在线发现、一次性配对、撤销和 WebSocket Relay。
+- 每台 Host 使用独立 credential，只发起出站 WSS；默认未配置时桌面仍为 loopback-only。
+- Web/PWA 同一份 bundle 可在直连与 Relay 模式运行；Relay access token 不暴露本地 pairing token。
+- Client token 绑定 Host 和 credential generation；Host 撤销或轮换使旧 token 立即失效。
+- Relay registry 原子持久化 credential hash 与控制面元数据，不落盘 Terminal 内容。
+- 容器镜像、运行配置和完整运维文档可独立部署。
+
+验收：
+
+- Host credential 不能跨 Host 使用，服务重启后仍可认证；registry 文件权限为 `0600`。
+- pairing code 过期或使用一次后拒绝重放。
+- 文本和二进制 WebSocket 帧按虚拟 connection ID 双向转发。
+- 慢客户端队列有界，Host 或 Client 断开会清理虚拟连接。
+- 撤销 Host 同时拒绝 Host credential 和此前签发的 client access token。
+
 ## 4. 测试矩阵
 
 | 层级 | 目的 | 必测内容 |
@@ -378,3 +397,9 @@ Commit: 本次 `feat: add agent activity and responsive web client` 提交
 Tests: WebRelay 5；Desktop 18；Application 28；TmuxRuntime 15；BurrowNext build；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
 Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `./Burrow.app`
 Known limitations: PWA 离线时只保留静态 UI 壳，Host roster 与 Terminal 必须在 macOS Host 和显式 HTTPS 可达入口在线时使用；Cloudflare/Tailscale 的外部网络连通性不在无网络副作用的自动验收中启动。
+
+Goal: Relay Service 远端控制面
+Commit: 本次 `feat: add remote relay control plane` 提交
+Tests: Go Relay race test（Host provision/credential 隔离、registry 持久化与权限、pairing 过期/防重放、generation 撤销、PWA scope、文本/二进制双向转发）；WebRelay 6；TmuxRuntime 15；BurrowNext build；全部 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
+Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `./Burrow.app`, `RelayService/Dockerfile`
+Known limitations: 当前 registry 与 Host tunnel 是单 Relay 实例设计；横向扩容需要共享 registry/presence/routing。容器定义已提供，但本机 Docker daemon 未运行，因此本轮未执行镜像构建；Go 静态二进制、HTTP/WS 协议和 Docker build inputs 均已在测试或编译中验证。

@@ -157,9 +157,11 @@ Host Service or Host Daemon
 
 macOS Client 使用进程内组合；Web Client 通过 loopback WebSocket Adapter 连接同一 Host。后续将 Host 移入 daemon 时，不改变 Project、Workspace、Session、Client Layout 或 Host Protocol。
 
-Tailscale、局域网、Cloudflare Tunnel 只提供网络可达性，不进入业务模型。未来中心 Server 只提供账号、Host 发现、配对、撤销、信令和 Relay；Session 与进程仍由 Host 持有。
+Tailscale、局域网、Cloudflare Tunnel 只提供网络可达性，不进入业务模型。中心 Relay Service 只提供 Host 注册、发现、配对、撤销、信令和 WebSocket Relay；Session 与进程仍由 Host 持有。
 
 WebRelay 默认只绑定 `127.0.0.1`。移动端访问和 PWA 安装使用用户显式启动的 Cloudflare Tunnel 或 Tailscale Serve HTTPS 地址；访问 URL 携带随机配对 token，WebSocket 握手后仍须认证。慢 Web Client 使用有界非阻塞发送队列，不能阻塞 macOS 主线程或 Host 输出。
+
+远端控制面是独立可部署进程。每台 Host 由管理员签发独立 credential，只向 Relay 建立出站 WSS；Relay 以 connection ID 多路复用 Web Client，不连接 macOS 入站端口。短期一次性 pairing code 换取绑定 Host 与 credential generation 的 HMAC access token；撤销或轮换 Host credential 必须立即断开 Host 并使旧 token 失效。Relay 持久化 credential hash、generation 和在线元数据，不保存 Project/Workspace/Session、Terminal 输出或用户输入。公网部署必须在 TLS 后、配置严格 Origin、强随机 Secret 和持久数据卷。
 
 Session 分享通过 Principal、Share Grant、Capability 和多个 Attachment 增量实现，不改变资源树。
 
@@ -410,8 +412,8 @@ artifacts/<run-id>/
 
 ## 13. 第一期开外范围
 
-- 中心 Server、账号系统、Relay 和公网发现。
-- 自动启动的公网入口和中心 Relay。
+- 多用户账号、组织、计费与跨组织 Host 目录。
+- 自动注册 Host 或自动打开公网入口。
 - iOS 原生客户端。
 - 多人分享和权限 UI。
 - Automation 调度器。

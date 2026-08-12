@@ -10,6 +10,7 @@ import BurrowProtocol
 import BurrowStateStore
 import BurrowTmuxRuntime
 import WebRelay
+import Darwin
 
 @MainActor
 @Observable
@@ -24,6 +25,8 @@ final class BurrowNextApplicationModel {
     @ObservationIgnored private let runtime: TmuxRuntime
     @ObservationIgnored private let renderer: BurrowRendererCoordinator
     @ObservationIgnored private var webRelay: WebRelayServer?
+    @ObservationIgnored private var relayHostConnector: RelayHostConnector?
+    @ObservationIgnored private var relayStopTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     /// Host mutations are ordered per Workspace. A slow agent launch in one
     /// project must never block navigation or operations in another project.
@@ -48,6 +51,14 @@ final class BurrowNextApplicationModel {
         let isHeadlessAcceptance = ProcessInfo.processInfo.environment[
             "BURROW_HEADLESS_ACCEPTANCE"
         ] == "1"
+        if !isHeadlessAcceptance {
+            _ = BurrowControlPlaneCredentialStore.loadOrImport(
+                environment: ProcessInfo.processInfo.environment
+            )
+            unsetenv("BURROW_CONTROL_PLANE_URL")
+            unsetenv("BURROW_CONTROL_PLANE_HOST_ID")
+            unsetenv("BURROW_CONTROL_PLANE_HOST_TOKEN")
+        }
         // Headless verification must not read/write real pairing preferences
         // or rewrite real user agent config.
         let hookEnvironment = isHeadlessAcceptance
@@ -162,11 +173,17 @@ final class BurrowNextApplicationModel {
         renderer.shutdown()
         webRelay?.stop()
         webRelay = nil
+        if let relayHostConnector {
+            self.relayHostConnector = nil
+            relayStopTask = Task { await relayHostConnector.stop() }
+        }
     }
 
     func shutdown() async {
         beginShutdown()
         guard !shutdownFinished else { return }
+        await relayStopTask?.value
+        relayStopTask = nil
         await service.shutdown()
         await runtime.shutdown()
         shutdownFinished = true
@@ -199,6 +216,27 @@ final class BurrowNextApplicationModel {
         let relay = WebRelayServer(service: service)
         relay.start()
         webRelay = relay
+        guard relay.listeningPort == WebRelayServer.defaultPort else { return }
+        startControlPlaneConnectorIfConfigured()
+    }
+
+    /// Remote control is opt-in. Defining both environment values creates one
+    /// outbound Host tunnel; ordinary launches remain loopback-only.
+    private func startControlPlaneConnectorIfConfigured() {
+        guard ProcessInfo.processInfo.environment["BURROW_HEADLESS_ACCEPTANCE"] != "1",
+              relayHostConnector == nil,
+              let configuration = BurrowControlPlaneCredentialStore.loadOrImport(
+                environment: ProcessInfo.processInfo.environment
+              ) else { return }
+        let connector = RelayHostConnector(configuration: .init(
+            relayURL: configuration.url,
+            hostID: configuration.hostID,
+            hostName: snapshot.host.name,
+            bootstrapToken: configuration.credential,
+            localPairingToken: WebRelayServer.accessToken
+        ))
+        relayHostConnector = connector
+        Task { await connector.start() }
     }
 
     func copyLocalWebURL() {

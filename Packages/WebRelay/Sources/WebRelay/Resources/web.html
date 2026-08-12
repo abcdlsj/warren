@@ -119,14 +119,24 @@
       ? (location.search || location.hash)
       : injectedParams;
     const params = new URLSearchParams(rawParams.replace(/^[?#]/, ""));
+    const relayHostID = "__BURROW_RELAY_HOST_ID__";
+    const usesControlPlane = !relayHostID.startsWith("__BURROW_");
+    const tokenStorageKey = usesControlPlane
+      ? `burrow.accessToken.${relayHostID}`
+      : "burrow.accessToken";
     const suppliedToken = params.get("t") || "";
-    if (suppliedToken) localStorage.setItem("burrow.accessToken", suppliedToken);
-    const token = suppliedToken || localStorage.getItem("burrow.accessToken") || "";
+    if (suppliedToken) localStorage.setItem(tokenStorageKey, suppliedToken);
+    const token = suppliedToken || localStorage.getItem(tokenStorageKey) || "";
     const hostParam = params.get("host");
-    const wsProtocol = hostParam ? "wss:" : (location.protocol === "https:" ? "wss:" : "ws:");
-    const wsHost = hostParam || location.hostname || "127.0.0.1";
-    const wsPort = hostParam ? "" : (location.port || "8788");
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}${wsPort ? ":" + wsPort : ""}/ws`);
+    const wsProtocol = usesControlPlane
+      ? (location.protocol === "https:" ? "wss:" : "ws:")
+      : (hostParam ? "wss:" : (location.protocol === "https:" ? "wss:" : "ws:"));
+    const wsHost = usesControlPlane ? location.host : (hostParam || location.hostname || "127.0.0.1");
+    const wsPort = usesControlPlane || hostParam ? "" : (location.port || "8788");
+    const wsPath = usesControlPlane
+      ? `/v1/client/connect?host_id=${encodeURIComponent(relayHostID)}`
+      : "/ws";
+    const ws = new WebSocket(`${wsProtocol}//${wsHost}${wsPort ? ":" + wsPort : ""}${wsPath}`);
     ws.binaryType = "arraybuffer";
     const term = new Terminal({
       theme: { background: "#151110", foreground: "#eae8e6", cursor: "#eae8e6", selectionBackground: "#3a3837" },
@@ -292,7 +302,10 @@
       term.resize(Math.max(20, Math.floor(container.clientWidth / cellWidth)), Math.max(6, Math.floor(container.clientHeight / cellHeight)));
     }
     new ResizeObserver(() => activeSession && fitTerminal()).observe(document.getElementById("terminal"));
-    if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    const serviceWorkerPath = usesControlPlane
+      ? `/h/${encodeURIComponent(relayHostID)}/service-worker.js`
+      : "/service-worker.js";
+    if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register(serviceWorkerPath).catch(() => {});
     render();
   </script>
 </body>

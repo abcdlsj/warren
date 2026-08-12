@@ -33,6 +33,9 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
             "VSCODE_INJECTION": "1",
             "CLAUDE_CODE_SSE_PORT": "1234",
             "GHOSTTY_RESOURCES_DIR": "/tmp/ghostty",
+            "BURROW_CONTROL_PLANE_URL": "https://relay.example.com",
+            "BURROW_CONTROL_PLANE_HOST_ID": "00000000-0000-4000-8000-000000000001",
+            "BURROW_CONTROL_PLANE_HOST_TOKEN": "secret",
         ])
 
         XCTAssertEqual(environment["PATH"], "/usr/bin:/bin")
@@ -45,6 +48,8 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
             "NO_COLOR", "FORCE_COLOR", "CLICOLOR", "CLICOLOR_FORCE",
             "TMUX", "TMUX_PANE", "VSCODE_INJECTION", "CLAUDE_CODE_SSE_PORT",
             "GHOSTTY_RESOURCES_DIR",
+            "BURROW_CONTROL_PLANE_URL", "BURROW_CONTROL_PLANE_HOST_ID",
+            "BURROW_CONTROL_PLANE_HOST_TOKEN",
         ] {
             XCTAssertNil(environment[key], "Expected \(key) to be removed")
         }

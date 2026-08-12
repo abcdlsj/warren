@@ -20,6 +20,8 @@ enum BurrowTerminalEnvironment {
             "TMUX", "TMUX_PANE", "STY", "INSIDE_EMACS", "LC_TERMINAL",
             "LC_TERMINAL_VERSION", "KONSOLE_VERSION", "GNOME_TERMINAL_SERVICE",
             "WT_SESSION", "NO_COLOR", "FORCE_COLOR", "CLICOLOR", "CLICOLOR_FORCE",
+            "BURROW_CONTROL_PLANE_URL", "BURROW_CONTROL_PLANE_HOST_ID",
+            "BURROW_CONTROL_PLANE_HOST_TOKEN",
         ]
         let droppedPrefixes = [
             "TERM_PROGRAM", "VSCODE_", "CLAUDE_CODE_", "ITERM_", "GHOSTTY_",
