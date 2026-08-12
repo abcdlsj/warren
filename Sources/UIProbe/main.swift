@@ -83,9 +83,14 @@ private enum UIProbe {
         guard !snapshot.nodes.isEmpty else { throw UIProbeError.noSemanticNodes }
 
         let initialWorkspace = BurrowDesktopFixture.preview.projection.groups[0].workspaces[0]
+        let initialProject = BurrowDesktopFixture.preview.projection.groups[0].project
         try recorder.perform(
             .press,
             on: "workspace.project-list.\(initialWorkspace.id.description).new-session"
+        )
+        try recorder.perform(
+            .press,
+            on: "project.\(initialProject.id.description).new-workspace"
         )
 
         let after = BurrowInteractionGuard.capture()

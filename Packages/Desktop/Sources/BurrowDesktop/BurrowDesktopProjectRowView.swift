@@ -13,6 +13,7 @@ struct BurrowDesktopProjectRow: View {
     let isExpanded: Bool
     let onSelect: () -> Void
     let onToggleExpansion: () -> Void
+    let onAddWorkspace: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
@@ -97,6 +98,24 @@ struct BurrowDesktopProjectRow: View {
                     onToggleExpansion()
                     onSelect()
                 }
+            )
+
+            Button(action: onAddWorkspace) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .medium))
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(.plain)
+            .frame(width: BurrowLayoutMetrics.sidebarActionButtonSize,
+                   height: BurrowLayoutMetrics.sidebarActionButtonSize)
+            .contentShape(.rect)
+            .opacity(isHovered ? 1 : 0.65)
+            .accessibilityLabel("New workspace in \(project.name)")
+            .burrowSemanticElement(
+                id: "project.\(project.id.description).new-workspace",
+                role: .button,
+                label: "New workspace in \(project.name)",
+                action: onAddWorkspace
             )
         }
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarProjectRowHeight)

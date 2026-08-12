@@ -15,6 +15,9 @@ public enum BurrowApplicationError: Error, Hashable, Sendable, LocalizedError {
     case projectNotFound(ProjectID)
     case projectWorkspaceMissing(ProjectID)
     case workspaceNotFound(WorkspaceID)
+    case workspacePathAlreadyExists(String)
+    case workspaceBranchInvalid(String)
+    case gitWorktree(String)
     case sessionNotFound(TerminalSessionID)
     case attachmentNotFound(TerminalAttachmentID)
     case tabNotFound(String)
@@ -42,6 +45,12 @@ public enum BurrowApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Project has no root workspace."
         case .workspaceNotFound:
             return "Target workspace not found."
+        case let .workspacePathAlreadyExists(path):
+            return "Workspace already exists: \(path)."
+        case let .workspaceBranchInvalid(branch):
+            return "Invalid workspace branch: \(branch)."
+        case let .gitWorktree(reason):
+            return "Git worktree operation failed: \(reason)"
         case .sessionNotFound:
             return "Target terminal session not found."
         case .attachmentNotFound:
@@ -75,6 +84,12 @@ public enum BurrowApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Refresh the window and select an existing project."
         case .workspaceNotFound:
             return "Refresh the window and select a workspace."
+        case .workspacePathAlreadyExists:
+            return "Select the existing workspace or choose another destination."
+        case .workspaceBranchInvalid:
+            return "Use a valid Git branch name without spaces or revision syntax."
+        case .gitWorktree:
+            return "Check the branch name, destination path, and Git repository state, then retry."
         case .sessionNotFound, .attachmentNotFound, .tabNotFound:
             return "Refresh the window; if the issue persists, reopen the tab."
         case .repository:

@@ -12,6 +12,7 @@ struct BurrowNextCompositionRoot: View {
     @State private var isSupersetDatabaseImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var sessionCreatorWorkspaceID: WorkspaceID?
+    @State private var workspaceCreatorProjectID: ProjectID?
 
     @MainActor
     init(model: BurrowNextApplicationModel = .live()) {
@@ -62,6 +63,14 @@ struct BurrowNextCompositionRoot: View {
                 }
             }
         }
+        .sheet(isPresented: workspaceCreatorBinding) {
+            if let projectID = workspaceCreatorProjectID,
+               let project = model.desktopProjection.projectGroup(id: projectID)?.project {
+                BurrowNextWorkspaceCreatorView(project: project) { request in
+                    model.createWorkspace(projectID: projectID, request: request)
+                }
+            }
+        }
     }
 
     private func handle(_ action: BurrowDesktopAction) {
@@ -69,6 +78,8 @@ struct BurrowNextCompositionRoot: View {
             isProjectImporterPresented = true
         } else if action == .importSuperset {
             beginSupersetImport()
+        } else if case .requestNewWorkspace(let projectID) = action {
+            workspaceCreatorProjectID = projectID
         } else if case .requestNewSession(let workspaceID) = action {
             // Project/workspace plus buttons carry an explicit destination.
             // Select it before presenting the launcher so the visible tab
@@ -118,6 +129,15 @@ struct BurrowNextCompositionRoot: View {
             get: { sessionCreatorWorkspaceID != nil },
             set: { isPresented in
                 if !isPresented { sessionCreatorWorkspaceID = nil }
+            }
+        )
+    }
+
+    private var workspaceCreatorBinding: Binding<Bool> {
+        Binding(
+            get: { workspaceCreatorProjectID != nil },
+            set: { isPresented in
+                if !isPresented { workspaceCreatorProjectID = nil }
             }
         )
     }

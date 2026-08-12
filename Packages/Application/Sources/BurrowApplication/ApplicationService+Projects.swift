@@ -1,4 +1,5 @@
 import BurrowDomain
+import BurrowStateStore
 import Foundation
 
 extension BurrowApplicationService {
@@ -23,6 +24,76 @@ extension BurrowApplicationService {
             throw BurrowApplicationError.projectNotFound(projectID)
         }
         return state.workspaces.filter { $0.projectID == projectID }
+    }
+
+    /// Creates a new Git worktree and only then publishes it as a Workspace.
+    /// If persistence fails, the adapter removes the just-created worktree so
+    /// Git and Burrow cannot disagree about ownership.
+    public func createWorkspace(
+        projectID: ProjectID,
+        request: WorkspaceCreationRequest
+    ) async throws -> Workspace {
+        do {
+            let workspace = try await withPersistenceMutation {
+                try requireReady()
+                if let receipt = state.requestReceipts.first(where: {
+                    $0.requestID == request.requestID && $0.commandKind == "create_workspace"
+                }), let workspaceID = WorkspaceID(uuidString: receipt.resourceID),
+                   let workspace = state.workspaces.first(where: { $0.id == workspaceID }) {
+                    return workspace
+                }
+                guard let project = state.projects.first(where: { $0.id == projectID }) else {
+                    throw BurrowApplicationError.projectNotFound(projectID)
+                }
+                let branch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard Self.isValidBranchName(branch) else {
+                    throw BurrowApplicationError.workspaceBranchInvalid(branch)
+                }
+                let path = try normalizeNewWorkspacePath(request.path)
+                guard !state.workspaces.contains(where: {
+                    normalizeStoredPath($0.path) == path
+                }) else {
+                    throw BurrowApplicationError.workspacePathAlreadyExists(path)
+                }
+                let creation = GitWorktreeCreation(
+                    repositoryPath: project.rootPath,
+                    worktreePath: path,
+                    branch: branch
+                )
+                try await gitWorktreeManager.create(creation)
+                let workspace = Workspace(
+                    projectID: project.id,
+                    name: branch,
+                    path: path,
+                    branch: branch
+                )
+                var candidate = state
+                candidate.workspaces.append(workspace)
+                candidate.requestReceipts.append(PersistedRequestReceipt(
+                    requestID: request.requestID,
+                    commandKind: "create_workspace",
+                    resourceID: workspace.id.description,
+                    completedAt: clock()
+                ))
+                do {
+                    try await save(candidate)
+                } catch {
+                    try? await gitWorktreeManager.remove(creation)
+                    throw error
+                }
+                mergePendingSequences(into: &candidate)
+                state = candidate
+                return workspace
+            }
+            try await layoutStore.selectWorkspace(workspace.id, in: windowID)
+            await publish()
+            return workspace
+        } catch {
+            let appError = error.asApplicationError
+            report(appError, id: "workspace.create.\(projectID)")
+            await publish()
+            throw appError
+        }
     }
 
     /// Adds one local folder and its root Workspace as one serialized state
@@ -117,5 +188,30 @@ extension BurrowApplicationService {
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
+    }
+
+    private func normalizeNewWorkspacePath(_ path: String) throws -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw BurrowApplicationError.projectPathInvalid(path)
+        }
+        let expanded = NSString(string: trimmed).expandingTildeInPath
+        return URL(fileURLWithPath: expanded)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+    }
+
+    private static func isValidBranchName(_ branch: String) -> Bool {
+        guard !branch.isEmpty,
+              !branch.hasPrefix("-"),
+              !branch.hasSuffix("."),
+              !branch.hasSuffix("/"),
+              !branch.contains(".."),
+              !branch.contains("@{"),
+              !branch.unicodeScalars.contains(where: {
+                  $0.value < 0x20 || $0.value == 0x7f || " ~^:?*[\\".unicodeScalars.contains($0)
+              }) else { return false }
+        return true
     }
 }

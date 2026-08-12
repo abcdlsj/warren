@@ -153,6 +153,25 @@ final class BurrowNextApplicationModel {
         }
     }
 
+    func createWorkspace(projectID: ProjectID, request: WorkspaceCreationRequest) {
+        guard acceptingActions else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let workspace = try await service.createWorkspace(
+                    projectID: projectID,
+                    request: request
+                )
+                navigation = BurrowDesktopNavigationState(
+                    selection: .workspace(workspace.id),
+                    selectedTabID: nil
+                )
+            } catch {
+                present(error)
+            }
+        }
+    }
+
     func createSession(
         workspaceID: WorkspaceID,
         request: TerminalSessionLaunchRequest
@@ -183,7 +202,8 @@ final class BurrowNextApplicationModel {
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .openSession:
             reconcileSurfaces(with: snapshot)
-        case .addProject, .importSuperset, .requestNewSession, .launchSession,
+        case .addProject, .importSuperset, .requestNewWorkspace,
+             .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
              .toggleInspector, .toggleSidebar:
             break
@@ -238,7 +258,8 @@ final class BurrowNextApplicationModel {
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
             return selectedWorkspaceID
-        case .addProject, .importSuperset, .selectProject, .selectTab,
+        case .addProject, .importSuperset, .requestNewWorkspace,
+             .selectProject, .selectTab,
              .toggleInspector, .toggleSidebar:
             return nil
         }
@@ -281,7 +302,8 @@ private extension BurrowNextApplicationModel {
             } catch {
                 present(error)
             }
-        case .addProject, .importSuperset, .selectProject, .selectWorkspace, .selectTab,
+        case .addProject, .importSuperset, .requestNewWorkspace,
+             .selectProject, .selectWorkspace, .selectTab,
              .toggleInspector, .toggleSidebar:
             break
         }
@@ -420,7 +442,8 @@ private extension BurrowDesktopAction {
         case .closeTab, .closeOtherTabs, .closeAllTabs,
              .openSession, .launchSession:
             true
-        case .addProject, .importSuperset, .requestNewSession, .selectProject,
+        case .addProject, .importSuperset, .requestNewWorkspace,
+             .requestNewSession, .selectProject,
              .selectWorkspace, .selectTab, .toggleInspector, .toggleSidebar:
             false
         }

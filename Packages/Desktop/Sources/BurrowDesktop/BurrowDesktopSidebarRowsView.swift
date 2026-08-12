@@ -79,7 +79,10 @@ struct BurrowDesktopSidebarRows: View {
                         isSelected: selection == .project(group.project.id),
                         isExpanded: !collapsedProjectIDs.contains(group.project.id),
                         onSelect: { select(.project(group.project.id)) },
-                        onToggleExpansion: { toggleProject(group.project.id) }
+                        onToggleExpansion: { toggleProject(group.project.id) },
+                        onAddWorkspace: {
+                            onAction(.requestNewWorkspace(group.project.id))
+                        }
                     )
                     if isCollapsed || !collapsedProjectIDs.contains(group.project.id) {
                         ForEach(group.workspaces) { workspace in

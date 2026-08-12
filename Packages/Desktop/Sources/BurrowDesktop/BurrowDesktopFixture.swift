@@ -401,6 +401,7 @@ public enum BurrowDesktopSidebarSelection: Hashable, Sendable {
 public enum BurrowDesktopAction: Hashable, Sendable {
     case addProject
     case importSuperset
+    case requestNewWorkspace(ProjectID)
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
     case openSession(TerminalSessionID)

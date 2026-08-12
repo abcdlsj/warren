@@ -99,11 +99,13 @@ final class BurrowDesktopTests: XCTestCase {
         )
 
         let fixture = BurrowDesktopFixture.preview
+        let projectID = fixture.groups[0].project.id
         let workspaceID = fixture.groups[0].workspaces[0].id
         let sessionID = fixture.sessions[0].id
 
         actions(.addProject)
         actions(.importSuperset)
+        actions(.requestNewWorkspace(projectID))
         actions(.selectWorkspace(workspaceID))
         actions(.openSession(sessionID))
         actions(.requestNewSession(workspaceID))
@@ -118,6 +120,7 @@ final class BurrowDesktopTests: XCTestCase {
             [
                 .addProject,
                 .importSuperset,
+                .requestNewWorkspace(projectID),
                 .selectWorkspace(workspaceID),
                 .openSession(sessionID),
                 .requestNewSession(workspaceID),

@@ -190,11 +190,36 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     )
                 }
 
+                let requestReceipts = try Row.fetchAll(
+                    database,
+                    sql: """
+                    SELECT request_id, command_kind, resource_id, completed_at
+                    FROM request_receipts
+                    ORDER BY completed_at, request_id
+                    """
+                ).map { row in
+                    let rawRequestID: String = row["request_id"]
+                    guard let requestID = UUID(uuidString: rawRequestID) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "request_receipts",
+                            column: "request_id",
+                            value: rawRequestID
+                        )
+                    }
+                    return PersistedRequestReceipt(
+                        requestID: requestID,
+                        commandKind: row["command_kind"],
+                        resourceID: row["resource_id"],
+                        completedAt: row["completed_at"]
+                    )
+                }
+
                 return PersistedHostState(
                     hosts: hosts,
                     projects: projects,
                     workspaces: workspaces,
-                    terminalSessions: terminalSessions
+                    terminalSessions: terminalSessions,
+                    requestReceipts: requestReceipts
                 )
             }
         } catch let error as HostStateRepositoryError {
@@ -211,6 +236,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         try HostStateRepositoryError.validateSupportedSchema(state)
         do {
             try await database.write { database in
+                try database.execute(sql: "DELETE FROM request_receipts")
                 try database.execute(sql: "DELETE FROM runtime_bindings")
                 try database.execute(sql: "DELETE FROM terminal_sessions")
                 try database.execute(sql: "DELETE FROM workspaces")
@@ -298,6 +324,21 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             ]
                         )
                     }
+                }
+                for receipt in state.requestReceipts {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO request_receipts (
+                            request_id, command_kind, resource_id, completed_at
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            receipt.requestID.uuidString.lowercased(),
+                            receipt.commandKind,
+                            receipt.resourceID,
+                            receipt.completedAt,
+                        ]
+                    )
                 }
             }
         } catch {

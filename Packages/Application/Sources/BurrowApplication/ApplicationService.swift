@@ -43,6 +43,7 @@ public actor BurrowApplicationService {
     internal let hostName: String
     internal let clock: @Sendable () -> Date
     internal let gitMetadataReader: any GitMetadataReader
+    internal let gitWorktreeManager: any GitWorktreeManaging
     internal let coordinator: TerminalSessionCoordinator
     internal let transport: InProcessHostTransport
     internal let persistenceGate = BurrowApplicationPersistenceGate()
@@ -82,7 +83,8 @@ public actor BurrowApplicationService {
         clientID: ClientID = BurrowApplicationDefaults.localClientID,
         hostName: String = "Local Mac",
         clock: @escaping @Sendable () -> Date = { Date() },
-        gitMetadataReader: any GitMetadataReader = NoopGitMetadataReader()
+        gitMetadataReader: any GitMetadataReader = NoopGitMetadataReader(),
+        gitWorktreeManager: any GitWorktreeManaging = LocalGitWorktreeManager()
     ) {
         self.repository = repository
         self.runtime = runtime
@@ -92,6 +94,7 @@ public actor BurrowApplicationService {
             : hostName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.clock = clock
         self.gitMetadataReader = gitMetadataReader
+        self.gitWorktreeManager = gitWorktreeManager
         self.windowID = BurrowApplicationDefaults.mainWindowID
         self.layoutStore = try! ClientLayoutStore(
             clientID: clientID,

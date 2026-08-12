@@ -128,6 +128,79 @@ final class BurrowApplicationTests: XCTestCase {
         }
     }
 
+    func testCreateWorkspaceUsesGitAdapterAndRequestReceiptIsIdempotent() async throws {
+        let repository = InMemoryHostStateRepository()
+        let worktrees = WorktreeManagerSpy()
+        let service = BurrowApplicationService(
+            repository: repository,
+            runtime: RestorableRuntime(),
+            gitWorktreeManager: worktrees
+        )
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let destination = folder.deletingLastPathComponent()
+            .appendingPathComponent("burrow-worktree-\(UUID().uuidString)")
+        let request = WorkspaceCreationRequest(
+            requestID: UUID(),
+            branch: "feature/renderer",
+            path: destination.path
+        )
+
+        let first = try await service.createWorkspace(projectID: project.id, request: request)
+        let replay = try await service.createWorkspace(projectID: project.id, request: request)
+
+        XCTAssertEqual(first, replay)
+        XCTAssertEqual(first.branch, "feature/renderer")
+        let calls = await worktrees.creations
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.repositoryPath, project.rootPath)
+        XCTAssertEqual(calls.first?.worktreePath, destination.path)
+        let persisted = await service.persistedState()
+        XCTAssertEqual(persisted.workspaces.filter { $0.id == first.id }.count, 1)
+        XCTAssertEqual(
+            persisted.requestReceipts.filter { $0.requestID == request.requestID }.count,
+            1
+        )
+        let finalSnapshot = await service.snapshot()
+        XCTAssertEqual(finalSnapshot.windowLayout.activeWorkspaceID, first.id)
+    }
+
+    func testLocalGitWorktreeManagerCreatesRealWorktree() async throws {
+        let repository = try temporaryFolder()
+        let worktree = repository.deletingLastPathComponent()
+            .appendingPathComponent("burrow-real-worktree-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: worktree)
+            try? FileManager.default.removeItem(at: repository)
+        }
+        try runGit(["init", "-b", "main", repository.path])
+        try Data("fixture\n".utf8).write(to: repository.appendingPathComponent("README.md"))
+        try runGit(["-C", repository.path, "add", "README.md"])
+        try runGit([
+            "-C", repository.path,
+            "-c", "user.name=Burrow Test",
+            "-c", "user.email=burrow@example.invalid",
+            "commit", "-m", "fixture",
+        ])
+        let manager = LocalGitWorktreeManager()
+        let request = GitWorktreeCreation(
+            repositoryPath: repository.path,
+            worktreePath: worktree.path,
+            branch: "feature/real-worktree"
+        )
+
+        try await manager.create(request)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: worktree.path))
+        XCTAssertEqual(
+            try gitOutput(["-C", worktree.path, "branch", "--show-current"]),
+            "feature/real-worktree"
+        )
+        try await manager.remove(request)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: worktree.path))
+    }
+
     func testCreatePersistsRuntimeDescriptorImmediately() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()
@@ -801,6 +874,38 @@ final class BurrowApplicationTests: XCTestCase {
         return folder
     }
 
+    private func runGit(_ arguments: [String]) throws {
+        _ = try gitOutput(arguments)
+    }
+
+    private func gitOutput(_ arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = arguments
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "BurrowApplicationTests.Git",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: String(
+                        decoding: stderr.fileHandleForReading.readDataToEndOfFile(),
+                        as: UTF8.self
+                    ),
+                ]
+            )
+        }
+        return String(
+            decoding: stdout.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func nextSnapshot(
         from stream: AsyncStream<BurrowApplicationSnapshot>,
         matching predicate: @escaping @Sendable (BurrowApplicationSnapshot) -> Bool
@@ -840,4 +945,17 @@ private final class AdvancingClock: @unchecked Sendable {
         }
     }
 
+}
+
+private actor WorktreeManagerSpy: GitWorktreeManaging {
+    private(set) var creations: [GitWorktreeCreation] = []
+    private(set) var removals: [GitWorktreeCreation] = []
+
+    func create(_ request: GitWorktreeCreation) async throws {
+        creations.append(request)
+    }
+
+    func remove(_ request: GitWorktreeCreation) async throws {
+        removals.append(request)
+    }
 }
