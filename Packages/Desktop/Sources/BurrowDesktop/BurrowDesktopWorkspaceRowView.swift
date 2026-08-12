@@ -1,12 +1,14 @@
 import SwiftUI
 import BurrowDesignSystem
 import BurrowDomain
+import BurrowObservation
 
 /// A workspace row keeps the dense 28pt Superset rhythm. Its marker lives in a
 /// stable slot and the secondary action is a sibling control, never a nested
 /// button, so selection and add-session clicks have deterministic routing.
 struct BurrowDesktopWorkspaceRow: View {
     let workspace: Workspace
+    let semanticScope: String
     let sessionCount: Int
     let isCollapsed: Bool
     let isSelected: Bool
@@ -42,6 +44,14 @@ struct BurrowDesktopWorkspaceRow: View {
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .burrowSemanticElement(
+            id: "workspace.\(semanticScope).\(workspace.id.description)",
+            role: .button,
+            label: "Workspace \(workspace.name)",
+            value: isSelected ? "Selected" : "Not selected",
+            isSelected: isSelected,
+            action: onSelect
+        )
         .onHover { isHovered = $0 }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, BurrowSpacing.compact)
@@ -94,6 +104,14 @@ struct BurrowDesktopWorkspaceRow: View {
             .accessibilityLabel("Workspace \(workspace.name)")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .burrowSemanticElement(
+                id: "workspace.\(semanticScope).\(workspace.id.description)",
+                role: .button,
+                label: "Workspace \(workspace.name)",
+                value: isSelected ? "Selected" : "Not selected",
+                isSelected: isSelected,
+                action: onSelect
+            )
 
             Button(action: onAddSession) {
                 Image(systemName: "plus")
@@ -110,6 +128,13 @@ struct BurrowDesktopWorkspaceRow: View {
             .allowsHitTesting(isHovered || forceHover)
             .accessibilityHidden(!(isHovered || forceHover))
             .accessibilityLabel("New session in \(workspace.name)")
+            .burrowSemanticElement(
+                id: "workspace.\(semanticScope).\(workspace.id.description).new-session",
+                role: .button,
+                label: "New session in \(workspace.name)",
+                isEnabled: isHovered || forceHover,
+                action: onAddSession
+            )
         }
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarWorkspaceRowHeight)
         .padding(.leading, BurrowSpacing.medium)

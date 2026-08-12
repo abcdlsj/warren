@@ -1,6 +1,7 @@
 import SwiftUI
 import BurrowClientCore
 import BurrowDesignSystem
+import BurrowObservation
 
 struct BurrowDesktopTabItem: View {
     let tab: ClientTab
@@ -46,6 +47,14 @@ struct BurrowDesktopTabItem: View {
             .accessibilityLabel("Tab \(tab.title)")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .burrowSemanticElement(
+                id: "tab.\(tab.id)",
+                role: .tab,
+                label: "Tab \(tab.title)",
+                value: isSelected ? "Selected" : "Not selected",
+                isSelected: isSelected,
+                action: onSelect
+            )
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -70,6 +79,13 @@ struct BurrowDesktopTabItem: View {
             .onHover { isCloseHovered = $0 }
             .accessibilityHidden(!exposesClose)
             .accessibilityLabel("Close tab \(tab.title)")
+            .burrowSemanticElement(
+                id: "tab.\(tab.id).close",
+                role: .button,
+                label: "Close tab \(tab.title)",
+                isEnabled: exposesClose,
+                action: onClose
+            )
             .padding(.trailing, BurrowSpacing.xs)
         }
         .frame(width: BurrowLayoutMetrics.tabWidth, height: BurrowLayoutMetrics.tabBarHeight)
@@ -131,6 +147,13 @@ struct BurrowDesktopTabAddSlot: View {
             .clipShape(.rect(cornerRadius: BurrowRadius.small))
             .opacity(isEnabled ? 1 : 0.45)
             .accessibilityLabel("New tab")
+            .burrowSemanticElement(
+                id: "tab.new",
+                role: .button,
+                label: "New tab",
+                isEnabled: isEnabled,
+                action: action
+            )
         }
         .frame(width: BurrowLayoutMetrics.tabAddButtonSlotWidth, height: BurrowLayoutMetrics.tabBarHeight)
         .padding(.leading, BurrowSpacing.xs)

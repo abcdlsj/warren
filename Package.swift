@@ -8,13 +8,6 @@ let package = Package(
         .macOS(.v14),
     ],
     dependencies: [
-        .package(path: "Packages/Legacy/Config"),
-        .package(path: "Packages/Legacy/Core"),
-        .package(path: "Packages/Legacy/Persistence"),
-        .package(path: "Packages/Legacy/Tmux"),
-        .package(path: "Packages/Legacy/Git"),
-        .package(path: "Packages/Legacy/Terminal"),
-        .package(path: "Packages/Legacy/UI"),
         .package(path: "Packages/Desktop"),
         .package(path: "Packages/GhosttyAdapter"),
         .package(path: "Packages/WebRelay"),
@@ -24,21 +17,9 @@ let package = Package(
         .package(path: "Packages/Domain"),
         .package(path: "Packages/ClientCore"),
         .package(path: "Packages/Protocol"),
+        .package(path: "Packages/Observation"),
     ],
     targets: [
-        .executableTarget(
-            name: "Den",
-            dependencies: [
-                .product(name: "DenConfig", package: "Config"),
-                .product(name: "DenCore", package: "Core"),
-                .product(name: "DenPersistence", package: "Persistence"),
-                .product(name: "DenTmux", package: "Tmux"),
-                .product(name: "DenGit", package: "Git"),
-                .product(name: "DenTerminal", package: "Terminal"),
-                .product(name: "DenUI", package: "UI"),
-            ],
-            path: "Sources/Den"
-        ),
         .executableTarget(
             name: "BurrowNext",
             dependencies: [
@@ -59,6 +40,7 @@ let package = Package(
             dependencies: [
                 .product(name: "BurrowDesktop", package: "Desktop"),
                 .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "BurrowObservation", package: "Observation"),
             ],
             path: "Sources/UIProbe"
         ),

@@ -4,6 +4,7 @@
 *.xcodeproj/xcuserdata/
 DerivedData/
 xcuserdata/
+.vscode/
 Den.app/
 Burrow.app/
 Frameworks/

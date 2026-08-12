@@ -37,12 +37,12 @@ run = "swift test --package-path Packages/TmuxRuntime"
 run = "swift test --package-path Packages/Application"
 
 [tasks."ui:observe"]
-description = "Render the desktop shell headlessly and emit OCR/pixel layout report"
+description = "Observe the desktop semantic tree without screenshots or stealing focus"
 run = "bash scripts/observe-ui.sh"
 
 [tasks."accept:ui"]
-description = "Click every visible control in the desktop shell and verify each action channel"
-run = "bash scripts/click-probe.sh"
+description = "Verify semantic UI and typed actions without screenshots or stealing focus"
+run = "bash scripts/observe-ui.sh"
 
 [tasks."accept:input"]
 description = "Mount a real Ghostty surface and verify typed bytes reach the host input channel"
@@ -57,7 +57,7 @@ description = "Launch app and verify HTTP page + WebSocket auth/roster"
 run = "bash scripts/verify-web.sh"
 
 [tasks.accept]
-description = "Run full acceptance smoke: tests + web relay + UI observation"
+description = "Run local phase-one acceptance without screenshots or focus changes"
 run = "bash scripts/acceptance-smoke.sh"
 
 [tasks."accept:agent"]

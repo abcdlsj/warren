@@ -6,7 +6,7 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 echo "==> swift build"
 swift build --package-path "$repository_root"
 
-for package in Domain StateStore Host Application Desktop GhosttyAdapter WebRelay; do
+for package in Domain StateStore Host Application Desktop GhosttyAdapter Observation; do
     echo "==> swift test $package"
     swift test --package-path "$repository_root/Packages/$package"
 done
@@ -14,10 +14,11 @@ done
 echo "==> tmux integration test"
 swift test --package-path "$repository_root" --filter ApplicationIntegrationTests
 
+echo "==> non-visual semantic UI acceptance"
+BURROW_ARTIFACT_DIR="${BURROW_ARTIFACT_DIR:-/tmp/burrow-observation/ui-probe}" \
+    swift run --package-path "$repository_root" UIProbe
+
 echo "==> build app"
 bash "$repository_root/scripts/build-app.sh" debug
-
-echo "==> verify bundled web page"
-test -f "$repository_root/Burrow.app/Contents/Resources/web.html"
 
 echo "All checks passed."

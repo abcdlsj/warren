@@ -32,6 +32,7 @@ struct BurrowDesktopSidebarRows: View {
                 ForEach(sessionWorkspaces) { workspace in
                     BurrowDesktopWorkspaceRow(
                         workspace: workspace,
+                        semanticScope: "session-list",
                         sessionCount: sessions.filter { $0.workspaceID == workspace.id }.count,
                         isCollapsed: false,
                         isSelected: selection == .workspace(workspace.id),
@@ -87,6 +88,7 @@ struct BurrowDesktopSidebarRows: View {
                             }
                             BurrowDesktopWorkspaceRow(
                                 workspace: workspace,
+                                semanticScope: "project-list",
                                 sessionCount: workspaceSessions.count,
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),

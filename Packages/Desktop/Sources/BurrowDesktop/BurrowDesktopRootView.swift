@@ -2,6 +2,7 @@ import SwiftUI
 import BurrowClientCore
 import BurrowDesignSystem
 import BurrowDomain
+import BurrowObservation
 
 /// Production macOS shell.
 ///
@@ -21,6 +22,7 @@ public struct BurrowDesktopRoot<TerminalSurface: View>: View {
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
+    @Environment(\.burrowSemanticRecorder) private var semanticRecorder
 
     public init(
         projection: BurrowDesktopProjection,
@@ -169,6 +171,7 @@ public struct BurrowDesktopRoot<TerminalSurface: View>: View {
             )
             .padding(40)
         }
+        .burrowSemanticObservationRoot(recorder: semanticRecorder)
     }
 
     private var selectedWorkspace: Workspace? {

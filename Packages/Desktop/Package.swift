@@ -14,6 +14,7 @@ let package = Package(
         .package(path: "../Domain"),
         .package(path: "../ClientCore"),
         .package(path: "../DesignSystem"),
+        .package(path: "../Observation"),
     ],
     targets: [
         .target(
@@ -22,6 +23,7 @@ let package = Package(
                 .product(name: "BurrowDomain", package: "Domain"),
                 .product(name: "BurrowClientCore", package: "ClientCore"),
                 .product(name: "BurrowDesignSystem", package: "DesignSystem"),
+                .product(name: "BurrowObservation", package: "Observation"),
             ],
             path: "Sources/BurrowDesktop"
         ),

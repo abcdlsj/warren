@@ -1,6 +1,7 @@
 import SwiftUI
 import BurrowDesignSystem
 import BurrowDomain
+import BurrowObservation
 
     /// A project row mirrors Superset's `DashboardSidebarProjectRow`: the icon and
 /// disclosure affordance share a 20pt slot, while the new-workspace action is
@@ -39,6 +40,14 @@ struct BurrowDesktopProjectRow: View {
         .accessibilityLabel("Project \(project.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .burrowSemanticElement(
+            id: "project.\(project.id.description)",
+            role: .button,
+            label: "Project \(project.name)",
+            value: isSelected ? "Selected" : "Not selected",
+            isSelected: isSelected,
+            action: onSelect
+        )
         .onHover { isHovered = $0 }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, BurrowSpacing.compact)
@@ -78,6 +87,17 @@ struct BurrowDesktopProjectRow: View {
             .accessibilityLabel("Project \(project.name)")
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .burrowSemanticElement(
+                id: "project.\(project.id.description)",
+                role: .button,
+                label: "Project \(project.name)",
+                value: isExpanded ? "Expanded" : "Collapsed",
+                isSelected: isSelected,
+                action: {
+                    onToggleExpansion()
+                    onSelect()
+                }
+            )
         }
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarProjectRowHeight)
         .padding(.leading, BurrowSpacing.compact)

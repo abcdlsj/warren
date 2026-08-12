@@ -6,6 +6,6 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 swift run --package-path "$repository_root" UIProbe
 
 echo
-echo "Open the report with:"
-echo "  cat /tmp/burrow-ui-report/report.json"
-echo "  open /tmp/burrow-ui-report"
+echo "Read the non-visual semantic report with:"
+echo "  cat /tmp/burrow-observation/ui-probe/result.json"
+echo "  cat /tmp/burrow-observation/ui-probe/semantic-ui.json"
