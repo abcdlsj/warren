@@ -311,19 +311,25 @@ Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
 Known limitations: 第一期只创建新 branch worktree；不接管或删除用户已有 worktree。
 
 Goal: 无截图、无焦点终端颜色与单实例验收
-Commit: 待本次提交
+Commit: `e6a9694`, `d3ce8fc`
 Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；真实 BurrowNext headless 空启动/退出；第二实例拒绝；退出后 tmux 保活；全量 `scripts/verify.sh`
 Artifacts: `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `/tmp/burrow-observation/ui-probe/result.json`
 Known limitations: Process E2E 使用真实产品入口的测试专用 headless 模式，不创建 NSApplication 或窗口；AppKit 前台窗口的系统 Quit 仍由同一 shutdown path 驱动，但不在自动测试中抢用户焦点。
 
 Goal: Superset 风格的字体层级和克制图标
-Commit: 待本次提交
+Commit: `7d67f1a`
 Tests: Desktop 15；UIProbe 18 个语义节点；BurrowNext product build
 Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
 Known limitations: 只统一产品级文字 token；终端字体仍由 Ghostty terminal configuration 独立管理。
 
 Goal: CreateSession Request ID 幂等
-Commit: 待本次提交
+Commit: `4ede507`
 Tests: 相同 Request ID 连续创建只产生一个 Session、一个 runtime 和一条 receipt；Application、Desktop、BurrowNext build
 Artifacts: SQLite `request_receipts` 中的 `create_session` 记录
 Known limitations: Request Receipt 当前无自动过期；一期保留完整历史以优先保证重试安全。
+
+Goal: 一期隔离压力与无干扰验收收口
+Commit: `0f06ada`, `3514c12`
+Tests: Workspace/Tab/Session 跨 Workspace 并发 100 轮；Renderer resize burst 100 次；真实产品 headless 启停 20 次；独立 tmux socket；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
+Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
+Known limitations: Ghostty 上游尚未公开最终 GPU cell attribute dump；TerminalProbe 在送入 Ghostty 的同一 ANSI/Unicode 输出边界验证样式语义。测试模式不启动 AppKit 前台窗口，因此不会覆盖系统窗口服务器本身的聚焦行为。
