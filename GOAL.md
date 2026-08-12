@@ -338,3 +338,9 @@ Commit: `0f06ada`, `3514c12`
 Tests: Workspace/Tab/Session 跨 Workspace 并发 100 轮；Renderer resize burst 100 次；真实产品 headless 启停 20 次；独立 tmux socket；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
 Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
 Known limitations: Ghostty 上游尚未公开最终 GPU cell attribute dump；TerminalProbe 在送入 Ghostty 的同一 ANSI/Unicode 输出边界验证样式语义。测试模式不启动 AppKit 前台窗口，因此不会覆盖系统窗口服务器本身的聚焦行为。
+
+Goal: 默认 Shell、tmux 批量观察与高密度 Sidebar
+Commit: `6beda2d`, `e316032`, `6e5ba98`, `5d5b00b`
+Tests: 多 Session 单次 `list-sessions`；空 Workspace 三次并发选择只创建一个 Shell；Application 26；TmuxRuntime 14；Desktop 15；DesignSystem 3；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
+Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
+Known limitations: Project 展开状态当前是 Window View 的瞬时 UI 状态，App 重启后按默认策略重新收缩。
