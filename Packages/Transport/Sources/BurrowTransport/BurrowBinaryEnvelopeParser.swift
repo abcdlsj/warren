@@ -1,0 +1,109 @@
+import Foundation
+import BurrowDomain
+import BurrowProtocol
+
+extension BurrowWireCodec {
+    struct ParsedEnvelope: Sendable {
+        let direction: BinaryFrameDirection
+        let kind: BinaryFrameKind
+        let headerBytes: Data
+        let payload: Data
+        let payloadLength: Int
+    }
+
+    struct RawOutputHeader: Decodable {
+        let sessionID: TerminalSessionID
+        let epoch: UInt64
+        let sequence: UInt64
+        let payloadLength: Int
+    }
+
+    struct RawInputHeader: Decodable {
+        let version: ProtocolVersion
+        let sessionID: TerminalSessionID
+        let attachmentID: TerminalAttachmentID
+        let payloadLength: Int
+        let sequence: UInt64?
+    }
+
+    func parseEnvelope(_ bytes: [UInt8]) throws -> ParsedEnvelope {
+        guard bytes.count >= Self.binaryPrefixLength else {
+            throw BurrowWireCodecError.truncatedFrame
+        }
+        guard Array(bytes.prefix(Self.binaryMagic.count)) == Self.binaryMagic else {
+            throw BurrowWireCodecError.invalidMagic
+        }
+        let versionOffset = Self.binaryMagic.count
+        guard bytes[versionOffset] == Self.binaryVersion else {
+            throw BurrowWireCodecError.invalidVersion(received: bytes[versionOffset])
+        }
+
+        let directionRaw = bytes[versionOffset + 1]
+        guard let direction = BinaryFrameDirection(rawValue: directionRaw) else {
+            throw BurrowWireCodecError.invalidDirectionValue(received: directionRaw)
+        }
+        let kindRaw = bytes[versionOffset + 2]
+        guard let kind = BinaryFrameKind(rawValue: kindRaw) else {
+            throw BurrowWireCodecError.invalidKindValue(received: kindRaw)
+        }
+        guard kind.direction == direction else {
+            throw BurrowWireCodecError.kindDirectionMismatch(kind: kind, direction: direction)
+        }
+
+        let headerLength = try checkedLength(readUInt32(bytes, at: versionOffset + 3))
+        let payloadLength = try checkedLength(readUInt32(bytes, at: versionOffset + 7))
+        guard headerLength <= maxHeader else {
+            throw BurrowWireCodecError.headerTooLarge(actual: headerLength, limit: maxHeader)
+        }
+        guard payloadLength <= maxPayload else {
+            throw BurrowWireCodecError.payloadTooLarge(actual: payloadLength, limit: maxPayload)
+        }
+
+        let (payloadOffset, headerOverflow) = Self.binaryPrefixLength.addingReportingOverflow(headerLength)
+        guard !headerOverflow else { throw BurrowWireCodecError.integerOverflow }
+        guard bytes.count >= payloadOffset else {
+            throw BurrowWireCodecError.truncatedFrame
+        }
+        let (expectedLength, payloadOverflow) = payloadOffset.addingReportingOverflow(payloadLength)
+        guard !payloadOverflow else { throw BurrowWireCodecError.integerOverflow }
+        guard bytes.count >= expectedLength else {
+            throw BurrowWireCodecError.truncatedFrame
+        }
+        guard bytes.count == expectedLength else {
+            throw BurrowWireCodecError.trailingBytes
+        }
+
+        return ParsedEnvelope(
+            direction: direction,
+            kind: kind,
+            headerBytes: Data(bytes[Self.binaryPrefixLength..<payloadOffset]),
+            payload: Data(bytes[payloadOffset..<expectedLength]),
+            payloadLength: payloadLength
+        )
+    }
+
+    private func checkedLength(_ value: UInt32) throws -> Int {
+        guard let length = Int(exactly: value) else {
+            throw BurrowWireCodecError.integerOverflow
+        }
+        return length
+    }
+
+    func appendUInt32(_ value: UInt32, to bytes: inout [UInt8]) {
+        bytes.append(UInt8((value >> 24) & 0xFF))
+        bytes.append(UInt8((value >> 16) & 0xFF))
+        bytes.append(UInt8((value >> 8) & 0xFF))
+        bytes.append(UInt8(value & 0xFF))
+    }
+
+    private func readUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        (UInt32(bytes[offset]) << 24)
+            | (UInt32(bytes[offset + 1]) << 16)
+            | (UInt32(bytes[offset + 2]) << 8)
+            | UInt32(bytes[offset + 3])
+    }
+
+    static var binaryPrefixLength: Int {
+        binaryMagic.count + 1 + 1 + 1 + MemoryLayout<UInt32>.size + MemoryLayout<UInt32>.size
+    }
+}

@@ -1,0 +1,24 @@
+{
+  "originHash" : "3e42b3400c061934c98f35618dc6f43ca45fd2e1ae9d1632a1bac819daef7669",
+  "pins" : [
+    {
+      "identity" : "libghostty-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jiweiyuan/libghostty-swift",
+      "state" : {
+        "revision" : "ffc7c068e89b12b2b1a1375dd0d7e6ef82403f62",
+        "version" : "1.0.15"
+      }
+    },
+    {
+      "identity" : "msdisplaylink",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Lakr233/MSDisplayLink.git",
+      "state" : {
+        "revision" : "87eb0af130744c8cbe2e31b6e1a5bcd659f1c220",
+        "version" : "2.2.0"
+      }
+    }
+  ],
+  "version" : 3
+}

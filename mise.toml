@@ -5,34 +5,69 @@ xcbeautify = "latest"
 tmux = "latest"
 
 [env]
-PROJECT_NAME = "Den"
+PROJECT_NAME = "Burrow"
 
 [tasks.dev]
-description = "Build and run Den"
-depends = ["build"]
-run = "swift run Den"
+description = "Build and run the macOS app"
+run = "bash scripts/run-app.sh debug"
+
+[tasks."dev:release"]
+description = "Build and run the optimized macOS app"
+run = "bash scripts/run-app.sh release"
 
 [tasks.build]
-description = "Debug build"
-run = "swift build 2>&1 | xcbeautify"
+description = "Build the macOS app"
+run = "bash scripts/build-app.sh debug"
 
 [tasks."build:release"]
 description = "Release build"
-run = "swift build -c release 2>&1 | xcbeautify"
+run = "bash scripts/build-app.sh release"
 
 [tasks.test]
-description = "Run all tests"
-depends = ["test:core", "test:tmux", "test:git"]
+description = "Run the macOS end-to-end test"
+run = "swift test --filter ApplicationIntegrationTests"
 
 [tasks."test:core"]
-run = "cd Packages/DenCore && swift run DenCoreTests"
+run = "swift test --package-path Packages/Domain"
 
 [tasks."test:tmux"]
-run = "cd Packages/DenTmux && swift run DenTmuxTests"
+run = "swift test --package-path Packages/TmuxRuntime"
 
-[tasks."test:git"]
-run = "cd Packages/DenGit && swift run DenGitTests"
+[tasks."test:application"]
+run = "swift test --package-path Packages/Application"
+
+[tasks."ui:observe"]
+description = "Render the desktop shell headlessly and emit OCR/pixel layout report"
+run = "bash scripts/observe-ui.sh"
+
+[tasks."accept:ui"]
+description = "Click every visible control in the desktop shell and verify each action channel"
+run = "bash scripts/click-probe.sh"
+
+[tasks."accept:input"]
+description = "Mount a real Ghostty surface and verify typed bytes reach the host input channel"
+run = "bash scripts/input-probe.sh"
+
+[tasks.verify]
+description = "Build, run all package tests, build app, verify web bundle"
+run = "bash scripts/verify.sh"
+
+[tasks."verify:web"]
+description = "Launch app and verify HTTP page + WebSocket auth/roster"
+run = "bash scripts/verify-web.sh"
+
+[tasks.accept]
+description = "Run full acceptance smoke: tests + web relay + UI observation"
+run = "bash scripts/acceptance-smoke.sh"
+
+[tasks."accept:agent"]
+description = "Automated Codex multi-round acceptance through burrow CLI"
+run = "bash scripts/acceptance-agent.sh"
+
+[tasks.package]
+description = "Build release app and package a zip"
+run = "bash scripts/package.sh"
 
 [tasks.clean]
 description = "Clean build artifacts"
-run = "swift package clean && rm -rf .build Den.app"
+run = "swift package clean && rm -rf .build Burrow.app"
