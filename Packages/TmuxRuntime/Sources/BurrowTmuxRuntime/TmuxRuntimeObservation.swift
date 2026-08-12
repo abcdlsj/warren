@@ -34,7 +34,6 @@ extension TmuxRuntime {
             spoolURL: spoolURL,
             inputBufferName: inputBufferName,
             watcher: watcher,
-            monitorTask: nil,
             isRunning: true
         )
 
@@ -55,18 +54,21 @@ extension TmuxRuntime {
                     recovery: "Ensure the login shell can start; check SHELL and retry."
                 )
             }
-            startMonitor(sessionID: sessionID, name: descriptor.identifier)
+            startLifecycleMonitorIfNeeded()
         } catch {
             await removeManagedSession(sessionID)
             throw error
         }
     }
 
-    func startMonitor(sessionID: TerminalSessionID, name: String) {
-        guard var managed = sessions[sessionID], managed.isRunning else { return }
-        managed.monitorTask?.cancel()
+    /// One Runtime-level watcher observes every managed session with one tmux
+    /// command per tick. Its process cost therefore stays constant as session
+    /// count grows.
+    func startLifecycleMonitorIfNeeded() {
+        guard lifecycleMonitorTask == nil,
+              sessions.values.contains(where: \.isRunning) else { return }
         let interval = exitPollIntervalNanoseconds
-        managed.monitorTask = Task { [weak self] in
+        lifecycleMonitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(nanoseconds: interval)
@@ -75,14 +77,30 @@ extension TmuxRuntime {
                 }
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
-                let alive = await self.probeSession(name: name)
-                if !alive {
-                    await self.finishSession(sessionID: sessionID, exitCode: nil)
+                if !(await self.observeManagedSessions()) {
                     return
                 }
             }
         }
-        sessions[sessionID] = managed
+    }
+
+    /// Returns false when no live managed sessions remain and the watcher can
+    /// stop. A failed tmux invocation is treated as transient.
+    func observeManagedSessions() async -> Bool {
+        let running = sessions.filter { $0.value.isRunning }
+        guard !running.isEmpty else {
+            lifecycleMonitorTask = nil
+            return false
+        }
+        guard let liveNames = await probeManagedSessionNames() else { return true }
+        for (sessionID, managed) in running where !liveNames.contains(managed.descriptor.identifier) {
+            finishSession(sessionID: sessionID, exitCode: nil)
+        }
+        if !sessions.values.contains(where: \.isRunning) {
+            lifecycleMonitorTask = nil
+            return false
+        }
+        return true
     }
 
     func receiveOutput(_ data: Data, for sessionID: TerminalSessionID) {
@@ -93,8 +111,6 @@ extension TmuxRuntime {
     func finishSession(sessionID: TerminalSessionID, exitCode: Int?) {
         guard var managed = sessions[sessionID], managed.isRunning else { return }
         managed.isRunning = false
-        managed.monitorTask?.cancel()
-        managed.monitorTask = nil
         managed.watcher.cancel()
         sessions[sessionID] = managed
         broadcast(.exited(sessionID: sessionID, exitCode: exitCode), for: sessionID)

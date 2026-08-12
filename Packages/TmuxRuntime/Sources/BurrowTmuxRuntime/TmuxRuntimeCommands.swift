@@ -14,13 +14,20 @@ extension TmuxRuntime {
         )
     }
 
-    func probeSession(name: String) async -> Bool {
+    func probeManagedSessionNames() async -> Set<String>? {
         do {
-            return try await hasSession(named: name)
+            let arguments = ["list-sessions", "-F", "#{session_name}"]
+            let result = try await execute(arguments: arguments)
+            // tmux exits 1 when no server/sessions exist. That is a valid
+            // empty snapshot; higher exit codes and executor failures remain
+            // transient observation errors.
+            if result.exitCode == 1 { return [] }
+            guard result.exitCode == 0 else { return nil }
+            return Set(result.stdoutText.split(whereSeparator: \.isNewline).map(String.init))
         } catch {
             // A transient tmux invocation failure must not immediately report
             // an exit. The next monitor tick gets another chance.
-            return true
+            return nil
         }
     }
 

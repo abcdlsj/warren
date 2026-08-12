@@ -7,8 +7,9 @@ extension TmuxRuntime {
     public func shutdown() {
         for tail in writeTails.values { tail.completion.cancel() }
         writeTails.removeAll()
+        lifecycleMonitorTask?.cancel()
+        lifecycleMonitorTask = nil
         for managed in sessions.values {
-            managed.monitorTask?.cancel()
             managed.watcher.cancel()
         }
         // Drop only adapter observation state. The tmux sessions remain

@@ -171,6 +171,39 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
         XCTAssertFalse(stillExists)
     }
 
+    func testLifecycleObservationUsesOneBatchCommandForMultipleSessions() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 60_000_000_000
+        )
+        let secondSessionID = TerminalSessionID(
+            rawValue: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+        )
+        _ = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+        _ = try await runtime.create(
+            sessionID: secondSessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+        let callsBeforeObservation = await executor.calls.count
+
+        let shouldContinue = await runtime.observeManagedSessions()
+
+        let observationCalls = await executor.calls.dropFirst(callsBeforeObservation)
+        XCTAssertTrue(shouldContinue)
+        XCTAssertEqual(observationCalls.map(\.arguments), [
+            ["list-sessions", "-F", "#{session_name}"],
+        ])
+        await runtime.shutdown()
+    }
+
     func testCreateAndWriteUsesBinarySafeTmuxBuffer() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()
@@ -585,6 +618,12 @@ private actor RecordingTmuxExecutor: TmuxCommandExecuting {
         case "has-session":
             let name = arguments.last ?? ""
             return TmuxCommandResult(exitCode: sessions.contains(name) ? 0 : 1)
+        case "list-sessions":
+            let output = sessions.sorted().joined(separator: "\n")
+            return TmuxCommandResult(
+                stdout: Data((output.isEmpty ? output : output + "\n").utf8),
+                exitCode: sessions.isEmpty ? 1 : 0
+            )
         case "new-session":
             if let index = arguments.firstIndex(of: "-s"), arguments.indices.contains(index + 1) {
                 sessions.insert(arguments[index + 1])
@@ -627,6 +666,12 @@ private actor YieldingTmuxExecutor: TmuxCommandExecuting {
         switch command {
         case "has-session":
             return TmuxCommandResult(exitCode: sessions.contains(arguments.last ?? "") ? 0 : 1)
+        case "list-sessions":
+            let output = sessions.sorted().joined(separator: "\n")
+            return TmuxCommandResult(
+                stdout: Data((output.isEmpty ? output : output + "\n").utf8),
+                exitCode: sessions.isEmpty ? 1 : 0
+            )
         case "new-session":
             if let index = arguments.firstIndex(of: "-s"), arguments.indices.contains(index + 1) {
                 sessions.insert(arguments[index + 1])

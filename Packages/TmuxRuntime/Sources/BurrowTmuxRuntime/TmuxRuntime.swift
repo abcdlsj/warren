@@ -15,7 +15,6 @@ public actor TmuxRuntime: TerminalRuntime {
         let spoolURL: URL
         let inputBufferName: String
         let watcher: OutputSpoolWatcher
-        var monitorTask: Task<Void, Never>?
         var isRunning: Bool
     }
 
@@ -30,6 +29,7 @@ public actor TmuxRuntime: TerminalRuntime {
     var sessions: [TerminalSessionID: ManagedSession] = [:]
     var continuations: [TerminalSessionID: [UUID: AsyncStream<TerminalRuntimeEvent>.Continuation]] = [:]
     var writeTails: [TerminalSessionID: WriteTail] = [:]
+    var lifecycleMonitorTask: Task<Void, Never>?
 
     public init(
         executor: any TmuxCommandExecuting = ProcessTmuxCommandExecutor(),

@@ -96,8 +96,11 @@ extension TmuxRuntime {
     func removeManagedSession(_ sessionID: TerminalSessionID) async {
         writeTails.removeValue(forKey: sessionID)?.completion.cancel()
         guard let managed = sessions.removeValue(forKey: sessionID) else { return }
-        managed.monitorTask?.cancel()
         managed.watcher.cancel()
+        if !sessions.values.contains(where: \.isRunning) {
+            lifecycleMonitorTask?.cancel()
+            lifecycleMonitorTask = nil
+        }
     }
 
     func bestEffortKill(name: String) async {
