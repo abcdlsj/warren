@@ -429,7 +429,6 @@ public final class WebRelayServer {
         command: String?,
         kind: TerminalSessionKind,
         title: String?,
-        visible: Bool,
         to peer: SocketConnection
     ) async {
         do {
@@ -438,8 +437,7 @@ public final class WebRelayServer {
                 workspaceID: workspaceID,
                 launchCommand: command,
                 kind: kind,
-                title: title,
-                isTabVisible: visible
+                title: title
             )
             WebRelayServer.log("create done \(session.id)")
             peer.sendText(Self.json([
@@ -578,7 +576,6 @@ private struct RelayEnvelope: Decodable {
     let data: String?
     let cols: Int?
     let rows: Int?
-    let visible: Bool?
 }
 
 @MainActor
@@ -739,7 +736,6 @@ private final class SocketConnection {
                 command: envelope.command,
                 kind: kind,
                 title: envelope.title,
-                visible: envelope.visible ?? false,
                 to: self
             ) }
         case "input":

@@ -23,7 +23,7 @@ final class BurrowDesktopTests: XCTestCase {
         XCTAssertEqual(defaultMode, .workspace)
     }
 
-    func testReferenceFrameRendersAtSupersetDesktopSize() throws {
+    func testRootLayoutMountsAtSupersetDesktopSizeWithoutPixelCapture() {
         let root = BurrowDesktopRoot(
             projection: BurrowDesktopFixture.preview.projection,
             actions: BurrowDesktopActions()
@@ -35,19 +35,21 @@ final class BurrowDesktopTests: XCTestCase {
         let hostingView = NSHostingView(rootView: root)
         hostingView.frame = NSRect(x: 0, y: 0, width: 1280, height: 800)
         hostingView.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(
-            hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds)
-        )
-        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
         XCTAssertEqual(hostingView.bounds.width, 1280)
         XCTAssertEqual(hostingView.bounds.height, 800)
-        XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, 1280)
-        XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, 800)
-
-        if ProcessInfo.processInfo.environment["DEN_CAPTURE_UI"] == "1" {
-            let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-            try data.write(to: URL(fileURLWithPath: "/tmp/burrow-reference-frame.png"))
-        }
+        XCTAssertLessThanOrEqual(hostingView.fittingSize.width, hostingView.bounds.width)
+        XCTAssertLessThanOrEqual(hostingView.fittingSize.height, hostingView.bounds.height)
+        XCTAssertGreaterThanOrEqual(
+            hostingView.fittingSize.width,
+            BurrowLayoutMetrics.sidebarExpandedWidth + BurrowLayoutMetrics.paneMinimumWidth
+        )
+        XCTAssertGreaterThanOrEqual(
+            hostingView.fittingSize.height,
+            BurrowLayoutMetrics.tabBarHeight
+                + BurrowLayoutMetrics.presetBarHeight
+                + BurrowLayoutMetrics.paneHeaderHeight
+                + BurrowLayoutMetrics.paneMinimumHeight
+        )
     }
 
     func testSidebarStateUsesSupersetSnapAndRestoreValues() {

@@ -26,8 +26,9 @@ final class BurrowClientCoreTests: XCTestCase {
 
         let window = await layouts.window(id: windowID)
         XCTAssertTrue(window.sidebarCollapsed)
-        XCTAssertEqual(window.activeWorkspaceView?.activeTabID, "tab-1")
-        XCTAssertEqual(window.activeWorkspaceView?.tabs.map(\.id), ["tab-1"])
+        XCTAssertNil(window.activeWorkspaceID)
+        XCTAssertEqual(window.workspaceView(for: workspaceID)?.activeTabID, "tab-1")
+        XCTAssertEqual(window.workspaceView(for: workspaceID)?.tabs.map(\.id), ["tab-1"])
         let messages = await transport.sentMessages
         XCTAssertTrue(messages.isEmpty)
     }

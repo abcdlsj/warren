@@ -1,7 +1,7 @@
 import CoreGraphics
 
 /// Superset parity measurements and the small set of shared layout values used
-/// by both clients. Keep these values in one place so a screenshot comparison
+/// by both clients. Keep these values in one place so semantic frame contracts
 /// can change a token instead of chasing literals through view code.
 public enum BurrowLayoutMetrics {
     // Superset workspace sidebar state.

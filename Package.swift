@@ -51,22 +51,6 @@ let package = Package(
             path: "Sources/TerminalProbe"
         ),
         .executableTarget(
-            name: "ClickProbe",
-            dependencies: [
-                .product(name: "BurrowDesktop", package: "Desktop"),
-                .product(name: "BurrowDomain", package: "Domain"),
-            ],
-            path: "Sources/ClickProbe"
-        ),
-        .executableTarget(
-            name: "InputProbe",
-            dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
-            ],
-            path: "Sources/InputProbe"
-        ),
-        .executableTarget(
             name: "burrow",
             path: "Sources/burrow"
         ),

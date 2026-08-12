@@ -44,10 +44,6 @@ run = "bash scripts/observe-ui.sh"
 description = "Verify semantic UI and typed actions without screenshots or stealing focus"
 run = "bash scripts/observe-ui.sh"
 
-[tasks."accept:input"]
-description = "Mount a real Ghostty surface and verify typed bytes reach the host input channel"
-run = "bash scripts/input-probe.sh"
-
 [tasks.verify]
 description = "Build, run all package tests, build app, verify web bundle"
 run = "bash scripts/verify.sh"
@@ -59,10 +55,6 @@ run = "bash scripts/verify-web.sh"
 [tasks.accept]
 description = "Run local phase-one acceptance without screenshots or focus changes"
 run = "bash scripts/acceptance-smoke.sh"
-
-[tasks."accept:agent"]
-description = "Automated Codex multi-round acceptance through burrow CLI"
-run = "bash scripts/acceptance-agent.sh"
 
 [tasks.package]
 description = "Build release app and package a zip"
