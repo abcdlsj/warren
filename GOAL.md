@@ -297,3 +297,21 @@ Known limitations:
 ```
 
 不得用“测试大体通过”“肉眼正常”或“以后再看”作为完成证据。
+
+Goal: tmux Runtime、Session lifecycle 与 Renderer Coordinator 基线
+Commit: `5760922`, `d71d490`
+Tests: Host 7；TmuxRuntime 12；Application 23；Renderer Coordinator 3；真实 tmux 恢复 1
+Artifacts: `/tmp/burrow-observation/ui-probe/result.json`
+Known limitations: Ghostty 上游尚未公开最终 cell attribute dump；当前颜色验收使用同一输出边界的 ANSI 状态。
+
+Goal: Project 下创建 Git worktree Workspace
+Commit: `49b9857`
+Tests: Request Receipt 幂等、Git adapter contract、真实临时 Git worktree 创建与删除、Desktop typed action、UI semantic action
+Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
+Known limitations: 第一期只创建新 branch worktree；不接管或删除用户已有 worktree。
+
+Goal: 无截图、无焦点终端颜色与单实例验收
+Commit: 待本次提交
+Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；全量 `scripts/verify.sh`
+Artifacts: `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `/tmp/burrow-observation/ui-probe/result.json`
+Known limitations: Process contract 覆盖锁与 tmux 保活；尚未用真实前台 App 自动发 Quit，因为该操作会违反不抢用户焦点约束。

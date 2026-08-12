@@ -16,6 +16,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let state: TerminalViewState
     public let inMemory: InMemoryTerminalSession
     private let onViewportResize: @Sendable (Int, Int) -> Void
+    private let ansiObserver = TerminalANSIObserver()
     public private(set) var renderedSequence: UInt64
     public private(set) var renderedEpoch: UInt64
 
@@ -71,7 +72,12 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     }
 
     public func receive(_ payload: Data) {
+        ansiObserver.receive(payload)
         inMemory.receive(payload)
+    }
+
+    public func semanticSnapshot() -> TerminalSemanticSnapshot {
+        ansiObserver.snapshot()
     }
 
     /// Re-submit Ghostty's current grid even when the renderer's pixel size

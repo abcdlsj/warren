@@ -43,6 +43,14 @@ let package = Package(
             path: "Sources/UIProbe"
         ),
         .executableTarget(
+            name: "TerminalProbe",
+            dependencies: [
+                .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
+            ],
+            path: "Sources/TerminalProbe"
+        ),
+        .executableTarget(
             name: "ClickProbe",
             dependencies: [
                 .product(name: "BurrowDesktop", package: "Desktop"),
@@ -81,6 +89,11 @@ let package = Package(
                 .product(name: "BurrowDomain", package: "Domain"),
             ],
             path: "Tests/BurrowNextTests"
+        ),
+        .testTarget(
+            name: "BurrowProcessTests",
+            dependencies: ["BurrowNext"],
+            path: "Tests/BurrowProcessTests"
         ),
     ]
 )

@@ -14,9 +14,16 @@ done
 echo "==> tmux integration test"
 swift test --package-path "$repository_root" --filter ApplicationIntegrationTests
 
+echo "==> process lifecycle contracts"
+swift test --package-path "$repository_root" --filter BurrowProcessTests
+
 echo "==> non-visual semantic UI acceptance"
 BURROW_ARTIFACT_DIR="${BURROW_ARTIFACT_DIR:-/tmp/burrow-observation/ui-probe}" \
     swift run --package-path "$repository_root" UIProbe
+
+echo "==> headless terminal color semantics"
+BURROW_ARTIFACT_DIR="${BURROW_TERMINAL_ARTIFACT_DIR:-/tmp/burrow-observation/terminal-probe}" \
+    swift run --package-path "$repository_root" TerminalProbe
 
 echo "==> build app"
 bash "$repository_root/scripts/build-app.sh" debug
