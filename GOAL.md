@@ -321,3 +321,9 @@ Commit: 待本次提交
 Tests: Desktop 15；UIProbe 18 个语义节点；BurrowNext product build
 Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
 Known limitations: 只统一产品级文字 token；终端字体仍由 Ghostty terminal configuration 独立管理。
+
+Goal: CreateSession Request ID 幂等
+Commit: 待本次提交
+Tests: 相同 Request ID 连续创建只产生一个 Session、一个 runtime 和一条 receipt；Application、Desktop、BurrowNext build
+Artifacts: SQLite `request_receipts` 中的 `create_session` 记录
+Known limitations: Request Receipt 当前无自动过期；一期保留完整历史以优先保证重试安全。

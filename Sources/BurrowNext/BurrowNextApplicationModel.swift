@@ -200,7 +200,7 @@ final class BurrowNextApplicationModel {
             do {
                 let tabID = try await self.service.addTab(
                     workspaceID: workspaceID,
-                    request: request
+                    request: request.identified()
                 )
                 self.selectCreatedTab(tabID, workspaceID: workspaceID)
             } catch {
@@ -315,7 +315,10 @@ private extension BurrowNextApplicationModel {
             }
         case .launchSession(let workspaceID, let request):
             do {
-                let tabID = try await service.addTab(workspaceID: workspaceID, request: request)
+                let tabID = try await service.addTab(
+                    workspaceID: workspaceID,
+                    request: request.identified()
+                )
                 selectCreatedTab(tabID, workspaceID: workspaceID)
             } catch {
                 present(error)

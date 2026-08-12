@@ -205,17 +205,20 @@ public enum TerminalSessionKind: String, Codable, CaseIterable, Hashable, Sendab
 /// explicit because future user-defined presets may share a kind while using
 /// different commands. No UI callback or runtime handle crosses this boundary.
 public struct TerminalSessionLaunchRequest: Hashable, Sendable {
+    public let requestID: UUID?
     public let kind: TerminalSessionKind
     public let command: String?
     public let title: String?
 
     public init(
+        requestID: UUID? = nil,
         kind: TerminalSessionKind,
         command: String? = nil,
         title: String? = nil
     ) {
         let normalizedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.requestID = requestID
         self.kind = kind
         self.command = normalizedCommand?.isEmpty == false ? normalizedCommand : nil
         self.title = normalizedTitle?.isEmpty == false ? normalizedTitle : nil
@@ -224,4 +227,13 @@ public struct TerminalSessionLaunchRequest: Hashable, Sendable {
     public static let shell = Self(kind: .shell)
     public static let claude = Self(kind: .claude, command: "claude", title: "Claude Code")
     public static let codex = Self(kind: .codex, command: "codex", title: "Codex")
+
+    public func identified(by requestID: UUID = UUID()) -> Self {
+        Self(
+            requestID: self.requestID ?? requestID,
+            kind: kind,
+            command: command,
+            title: title
+        )
+    }
 }

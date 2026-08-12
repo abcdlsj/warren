@@ -114,13 +114,14 @@ struct BurrowNextSessionCreatorView: View {
         if selectedKind == .custom {
             let trimmed = customCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             request = TerminalSessionLaunchRequest(
+                requestID: UUID(),
                 kind: .custom,
                 command: trimmed,
                 title: trimmed.split(separator: " ").first.map(String.init)
             )
         } else {
             guard let preset = selectedPreset else { return }
-            request = preset.request
+            request = preset.request.identified()
         }
         onCreate(request)
         dismiss()

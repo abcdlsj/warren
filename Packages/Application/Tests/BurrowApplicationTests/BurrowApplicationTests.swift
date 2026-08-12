@@ -289,6 +289,40 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertTrue(projected.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
     }
 
+    func testCreateSessionRequestReceiptPreventsDuplicateRuntime() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let projectSnapshot = await service.snapshot()
+        let workspace = try XCTUnwrap(
+            projectSnapshot.workspaces.first { $0.projectID == project.id }
+        )
+        let request = TerminalSessionLaunchRequest(
+            requestID: UUID(),
+            kind: .codex,
+            command: "codex",
+            title: "Codex"
+        )
+
+        let first = try await service.createSession(workspaceID: workspace.id, request: request)
+        let replay = try await service.createSession(workspaceID: workspace.id, request: request)
+
+        XCTAssertEqual(first.id, replay.id)
+        let runtimeRecords = await runtime.allRecords()
+        XCTAssertEqual(runtimeRecords.count, 1)
+        let persisted = await service.persistedState()
+        XCTAssertEqual(persisted.terminalSessions.count, 1)
+        XCTAssertEqual(
+            persisted.requestReceipts.filter {
+                $0.requestID == request.requestID && $0.commandKind == "create_session"
+            }.count,
+            1
+        )
+    }
+
     func testRestoreMarksMissingRuntimeEndedWithoutCreatingAShell() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()

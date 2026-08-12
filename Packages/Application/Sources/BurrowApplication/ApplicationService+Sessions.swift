@@ -13,11 +13,19 @@ extension BurrowApplicationService {
         workspaceID: WorkspaceID,
         launchCommand: String? = nil,
         kind: TerminalSessionKind = .shell,
-        title: String? = nil
+        title: String? = nil,
+        requestID: UUID? = nil
     ) async throws -> TerminalSession {
         do {
             let session = try await withPersistenceMutation {
                 try requireReady()
+                if let requestID,
+                   let receipt = state.requestReceipts.first(where: {
+                       $0.requestID == requestID && $0.commandKind == "create_session"
+                   }), let sessionID = TerminalSessionID(uuidString: receipt.resourceID),
+                   let persisted = state.terminalSessions.first(where: { $0.id == sessionID }) {
+                    return persisted.terminalSession
+                }
                 guard let workspace = state.workspaces.first(where: { $0.id == workspaceID }) else {
                     throw BurrowApplicationError.workspaceNotFound(workspaceID)
                 }
@@ -43,7 +51,20 @@ extension BurrowApplicationService {
                 var candidate = state
                 candidate.terminalSessions.removeAll { $0.id == persisted.id }
                 candidate.terminalSessions.append(persisted)
-                try await save(candidate)
+                if let requestID {
+                    candidate.requestReceipts.append(PersistedRequestReceipt(
+                        requestID: requestID,
+                        commandKind: "create_session",
+                        resourceID: persisted.id.description,
+                        completedAt: clock()
+                    ))
+                }
+                do {
+                    try await save(candidate)
+                } catch {
+                    try? await runtime.terminate(sessionID: binding.session.id)
+                    throw error
+                }
                 mergePendingSequences(into: &candidate)
                 state = candidate
                 insertConnection(
@@ -94,16 +115,47 @@ extension BurrowApplicationService {
     }
 
     @discardableResult
+    public func createSession(
+        workspaceID: WorkspaceID,
+        request: TerminalSessionLaunchRequest
+    ) async throws -> TerminalSession {
+        let identified = request.identified()
+        return try await createSession(
+            workspaceID: workspaceID,
+            launchCommand: identified.command,
+            kind: identified.kind,
+            title: identified.title,
+            requestID: identified.requestID
+        )
+    }
+
+    @discardableResult
     public func addTab(
         workspaceID: WorkspaceID,
         request: TerminalSessionLaunchRequest
     ) async throws -> String {
-        try await addTab(
+        let identified = request.identified()
+        let session = try await createSession(workspaceID: workspaceID, request: identified)
+        let tabID = tabID(for: session.id)
+        let resolvedTitle = state.terminalSessions.first(where: { $0.id == session.id })?.title
+            ?? identified.kind.displayName
+        try await layoutStore.upsertTab(
+            ClientTab(
+                id: tabID,
+                title: resolvedTitle,
+                sessionID: session.id,
+                kind: identified.kind
+            ),
             workspaceID: workspaceID,
-            launchCommand: request.command,
-            kind: request.kind,
-            title: request.title
+            select: true,
+            in: windowID
         )
+        if connections[session.id]?.attachmentID == nil {
+            let attachmentID = try await attach(sessionID: session.id)
+            try await requestControl(sessionID: session.id, attachmentID: attachmentID)
+        }
+        await publish()
+        return tabID
     }
 
     public func selectWorkspace(_ workspaceID: WorkspaceID) async throws {
