@@ -1,0 +1,569 @@
+import BurrowDomain
+import Foundation
+import GRDB
+
+/// The production Host store.
+///
+/// Resource relationships are represented by SQLite foreign keys. Runtime
+/// metadata remains JSON because it is an opaque adapter descriptor, not a
+/// queryable Host resource. Saving replaces one complete application snapshot
+/// in a single transaction, preserving the current repository contract while
+/// the application migrates to finer-grained commands.
+public actor SQLiteHostStateRepository: HostStateRepository {
+    public let databaseURL: URL
+    private let database: DatabaseQueue
+
+    public init(databaseURL: URL) throws {
+        self.databaseURL = databaseURL.standardizedFileURL
+        let directory = self.databaseURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw HostStateRepositoryError.directoryCreationFailed(
+                path: directory.path,
+                reason: String(describing: error)
+            )
+        }
+
+        var configuration = Configuration()
+        configuration.prepareDatabase { database in
+            try database.execute(sql: "PRAGMA foreign_keys = ON")
+            try database.execute(sql: "PRAGMA journal_mode = WAL")
+            try database.execute(sql: "PRAGMA busy_timeout = 5000")
+        }
+        do {
+            database = try DatabaseQueue(
+                path: self.databaseURL.path,
+                configuration: configuration
+            )
+            try Self.migrator.migrate(database)
+        } catch {
+            throw HostStateRepositoryError.databaseOpenFailed(
+                path: self.databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    public func load() async throws -> PersistedHostState {
+        do {
+            return try await database.read { database in
+                let hosts = try Row.fetchAll(
+                    database,
+                    sql: "SELECT id, name FROM hosts ORDER BY created_at, id"
+                ).map { row in
+                    Host(
+                        id: try Self.domainID(row: row, table: "hosts", column: "id"),
+                        name: row["name"]
+                    )
+                }
+
+                let projects = try Row.fetchAll(
+                    database,
+                    sql: "SELECT id, host_id, name, repository_path FROM projects ORDER BY created_at, id"
+                ).map { row in
+                    Project(
+                        id: try Self.domainID(row: row, table: "projects", column: "id"),
+                        hostID: try Self.domainID(row: row, table: "projects", column: "host_id"),
+                        name: row["name"],
+                        rootPath: row["repository_path"]
+                    )
+                }
+
+                let workspaces = try Row.fetchAll(
+                    database,
+                    sql: "SELECT id, project_id, name, path, branch FROM workspaces ORDER BY created_at, id"
+                ).map { row in
+                    Workspace(
+                        id: try Self.domainID(row: row, table: "workspaces", column: "id"),
+                        projectID: try Self.domainID(row: row, table: "workspaces", column: "project_id"),
+                        name: row["name"],
+                        path: row["path"],
+                        branch: row["branch"]
+                    )
+                }
+
+                let sessionRows = try Row.fetchAll(
+                    database,
+                    sql: """
+                    SELECT s.id, s.workspace_id, s.epoch, s.sequence,
+                           s.working_directory, s.columns, s.rows, s.kind,
+                           s.title, s.is_tab_visible,
+                           r.adapter, r.runtime_identifier, r.metadata_json
+                    FROM terminal_sessions s
+                    LEFT JOIN runtime_bindings r ON r.session_id = s.id
+                    ORDER BY s.created_at, s.id
+                    """
+                )
+                let terminalSessions = try sessionRows.map { row in
+                    let columns: Int = row["columns"]
+                    let rows: Int = row["rows"]
+                    guard let terminalSize = TerminalSize(columns: columns, rows: rows) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "terminal_sessions",
+                            column: "columns/rows",
+                            value: "\(columns)x\(rows)"
+                        )
+                    }
+                    let kindValue: String = row["kind"]
+                    guard let kind = TerminalSessionKind(rawValue: kindValue) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "terminal_sessions",
+                            column: "kind",
+                            value: kindValue
+                        )
+                    }
+                    let adapter: String? = row["adapter"]
+                    let runtimeIdentifier: String? = row["runtime_identifier"]
+                    let metadataJSON: String? = row["metadata_json"]
+                    let descriptor: RuntimeAdoptionDescriptor?
+                    if let adapter, let runtimeIdentifier {
+                        let metadata: [String: String]
+                        if let metadataJSON {
+                            do {
+                                metadata = try JSONDecoder().decode(
+                                    [String: String].self,
+                                    from: Data(metadataJSON.utf8)
+                                )
+                            } catch {
+                                throw HostStateRepositoryError.invalidDatabaseValue(
+                                    table: "runtime_bindings",
+                                    column: "metadata_json",
+                                    value: metadataJSON
+                                )
+                            }
+                        } else {
+                            metadata = [:]
+                        }
+                        descriptor = RuntimeAdoptionDescriptor(
+                            runtime: adapter,
+                            identifier: runtimeIdentifier,
+                            metadata: metadata
+                        )
+                    } else {
+                        descriptor = nil
+                    }
+                    let epochString: String = row["epoch"]
+                    let sequenceString: String = row["sequence"]
+                    guard let epoch = UInt64(epochString) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "terminal_sessions",
+                            column: "epoch",
+                            value: epochString
+                        )
+                    }
+                    guard let sequence = UInt64(sequenceString) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "terminal_sessions",
+                            column: "sequence",
+                            value: sequenceString
+                        )
+                    }
+                    return PersistedTerminalSession(
+                        id: try Self.domainID(row: row, table: "terminal_sessions", column: "id"),
+                        workspaceID: try Self.domainID(
+                            row: row,
+                            table: "terminal_sessions",
+                            column: "workspace_id"
+                        ),
+                        epoch: epoch,
+                        sequence: sequence,
+                        workingDirectory: row["working_directory"],
+                        terminalSize: terminalSize,
+                        runtimeAdoptionDescriptor: descriptor,
+                        kind: kind,
+                        title: row["title"],
+                        isTabVisible: row["is_tab_visible"]
+                    )
+                }
+
+                return PersistedHostState(
+                    hosts: hosts,
+                    projects: projects,
+                    workspaces: workspaces,
+                    terminalSessions: terminalSessions
+                )
+            }
+        } catch let error as HostStateRepositoryError {
+            throw error
+        } catch {
+            throw HostStateRepositoryError.databaseReadFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    public func save(_ state: PersistedHostState) async throws {
+        try HostStateRepositoryError.validateSupportedSchema(state)
+        do {
+            try await database.write { database in
+                try database.execute(sql: "DELETE FROM runtime_bindings")
+                try database.execute(sql: "DELETE FROM terminal_sessions")
+                try database.execute(sql: "DELETE FROM workspaces")
+                try database.execute(sql: "DELETE FROM projects")
+                try database.execute(sql: "DELETE FROM hosts")
+
+                for host in state.hosts {
+                    try database.execute(
+                        sql: "INSERT INTO hosts (id, name) VALUES (?, ?)",
+                        arguments: [host.id.description, host.name]
+                    )
+                }
+                for project in state.projects {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO projects (id, host_id, name, repository_path, repository_identity)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            project.id.description,
+                            project.hostID.description,
+                            project.name,
+                            project.rootPath,
+                            Self.normalizedPath(project.rootPath),
+                        ]
+                    )
+                }
+                for workspace in state.workspaces {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            workspace.id.description,
+                            workspace.projectID.description,
+                            workspace.name,
+                            workspace.path,
+                            Self.normalizedPath(workspace.path),
+                            workspace.branch,
+                            workspace.path == state.projects.first(where: {
+                                $0.id == workspace.projectID
+                            })?.rootPath ? "main_checkout" : "worktree",
+                        ]
+                    )
+                }
+                for session in state.terminalSessions {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO terminal_sessions (
+                            id, workspace_id, epoch, sequence, working_directory,
+                            columns, rows, kind, title, is_tab_visible, lifecycle
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')
+                        """,
+                        arguments: [
+                            session.id.description,
+                            session.workspaceID.description,
+                            String(session.epoch),
+                            String(session.sequence),
+                            session.workingDirectory,
+                            session.terminalSize.columns,
+                            session.terminalSize.rows,
+                            session.kind.rawValue,
+                            session.title,
+                            session.isTabVisible,
+                        ]
+                    )
+                    if let descriptor = session.runtimeAdoptionDescriptor {
+                        let metadata = try String(
+                            decoding: JSONEncoder().encode(descriptor.metadata),
+                            as: UTF8.self
+                        )
+                        try database.execute(
+                            sql: """
+                            INSERT INTO runtime_bindings (
+                                session_id, adapter, runtime_identifier, metadata_json
+                            ) VALUES (?, ?, ?, ?)
+                            """,
+                            arguments: [
+                                session.id.description,
+                                descriptor.runtime,
+                                descriptor.identifier,
+                                metadata,
+                            ]
+                        )
+                    }
+                }
+            }
+        } catch {
+            throw HostStateRepositoryError.databaseWriteFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    /// Atomically copies a read-only Superset preview into Burrow-owned rows.
+    /// Source identifiers are recorded only in the receipt summary; Burrow
+    /// resources always receive new domain IDs.
+    public func importSuperset(
+        _ preview: SupersetImportPreview,
+        into hostID: HostID
+    ) async throws -> SupersetImportCommitResult {
+        let sourceIdentity = Self.normalizedPath(preview.sourcePath)
+        do {
+            return try await database.write { database in
+                guard try Bool.fetchOne(
+                    database,
+                    sql: "SELECT EXISTS(SELECT 1 FROM hosts WHERE id = ?)",
+                    arguments: [hostID.description]
+                ) == true else {
+                    throw HostStateRepositoryError.invalidDatabaseValue(
+                        table: "hosts",
+                        column: "id",
+                        value: hostID.description
+                    )
+                }
+                if try Bool.fetchOne(
+                    database,
+                    sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM import_receipts
+                        WHERE source_kind = 'superset' AND source_identity = ?
+                    )
+                    """,
+                    arguments: [sourceIdentity]
+                ) == true {
+                    return SupersetImportCommitResult(
+                        importedProjectIDs: [],
+                        importedWorkspaceIDs: [],
+                        skippedProjectCount: preview.projects.count,
+                        skippedWorkspaceCount: preview.projects.flatMap(\.workspaces).count,
+                        wasAlreadyImported: true
+                    )
+                }
+
+                var importedProjects: [String] = []
+                var importedWorkspaces: [String] = []
+                var skippedProjects = 0
+                var skippedWorkspaces = 0
+
+                for candidate in preview.projects {
+                    guard candidate.status == .ready else {
+                        skippedProjects += 1
+                        skippedWorkspaces += candidate.workspaces.count
+                        continue
+                    }
+                    let repositoryIdentity = Self.normalizedPath(candidate.repositoryPath)
+                    let existingProjectID = try String.fetchOne(
+                        database,
+                        sql: """
+                        SELECT id FROM projects
+                        WHERE host_id = ? AND repository_identity = ?
+                        """,
+                        arguments: [hostID.description, repositoryIdentity]
+                    )
+                    let projectID: String
+                    if let existingProjectID {
+                        projectID = existingProjectID
+                        skippedProjects += 1
+                    } else {
+                        projectID = ProjectID().description
+                        try database.execute(
+                            sql: """
+                            INSERT INTO projects (
+                                id, host_id, name, repository_path, repository_identity
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            arguments: [
+                                projectID,
+                                hostID.description,
+                                candidate.name,
+                                candidate.repositoryPath,
+                                repositoryIdentity,
+                            ]
+                        )
+                        importedProjects.append(projectID)
+                    }
+
+                    for workspace in candidate.workspaces {
+                        guard workspace.status == .ready else {
+                            skippedWorkspaces += 1
+                            continue
+                        }
+                        let normalizedPath = Self.normalizedPath(workspace.path)
+                        if try Bool.fetchOne(
+                            database,
+                            sql: "SELECT EXISTS(SELECT 1 FROM workspaces WHERE normalized_path = ?)",
+                            arguments: [normalizedPath]
+                        ) == true {
+                            skippedWorkspaces += 1
+                            continue
+                        }
+                        let workspaceID = WorkspaceID().description
+                        try database.execute(
+                            sql: """
+                            INSERT INTO workspaces (
+                                id, project_id, name, path, normalized_path, branch, kind
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            arguments: [
+                                workspaceID,
+                                projectID,
+                                workspace.name,
+                                workspace.path,
+                                normalizedPath,
+                                workspace.branch,
+                                workspace.kind,
+                            ]
+                        )
+                        importedWorkspaces.append(workspaceID)
+                    }
+                }
+
+                let result = SupersetImportCommitResult(
+                    importedProjectIDs: importedProjects,
+                    importedWorkspaceIDs: importedWorkspaces,
+                    skippedProjectCount: skippedProjects,
+                    skippedWorkspaceCount: skippedWorkspaces,
+                    wasAlreadyImported: false
+                )
+                let receiptSummary = try String(
+                    decoding: JSONEncoder().encode(result),
+                    as: UTF8.self
+                )
+                try database.execute(
+                    sql: """
+                    INSERT INTO import_receipts (
+                        source_kind, source_identity, source_version, summary_json
+                    ) VALUES ('superset', ?, ?, ?)
+                    """,
+                    arguments: [
+                        sourceIdentity,
+                        preview.schemaVersion.map(String.init),
+                        receiptSummary,
+                    ]
+                )
+                return result
+            }
+        } catch let error as HostStateRepositoryError {
+            throw error
+        } catch {
+            throw HostStateRepositoryError.databaseWriteFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    public func hasSupersetImportReceipt(sourceURL: URL) async throws -> Bool {
+        let identity = Self.normalizedPath(sourceURL.standardizedFileURL.path)
+        do {
+            return try await database.read { database in
+                try Bool.fetchOne(
+                    database,
+                    sql: """
+                    SELECT EXISTS(
+                        SELECT 1 FROM import_receipts
+                        WHERE source_kind = 'superset' AND source_identity = ?
+                    )
+                    """,
+                    arguments: [identity]
+                ) ?? false
+            }
+        } catch {
+            throw HostStateRepositoryError.databaseReadFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    private static let migrator: DatabaseMigrator = {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1_resource_authority") { database in
+            try database.create(table: "hosts") { table in
+                table.column("id", .text).primaryKey()
+                table.column("name", .text).notNull()
+                table.column("kind", .text).notNull().defaults(to: "local")
+                table.column("created_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+            }
+            try database.create(table: "projects") { table in
+                table.column("id", .text).primaryKey()
+                table.column("host_id", .text).notNull()
+                    .references("hosts", onDelete: .cascade)
+                table.column("name", .text).notNull()
+                table.column("repository_path", .text).notNull()
+                table.column("repository_identity", .text).notNull()
+                table.column("created_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.column("updated_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.uniqueKey(["host_id", "repository_identity"])
+            }
+            try database.create(table: "workspaces") { table in
+                table.column("id", .text).primaryKey()
+                table.column("project_id", .text).notNull()
+                    .references("projects", onDelete: .cascade)
+                table.column("name", .text).notNull()
+                table.column("path", .text).notNull()
+                table.column("normalized_path", .text).notNull().unique()
+                table.column("branch", .text)
+                table.column("kind", .text).notNull()
+                table.column("created_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.column("updated_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+            }
+            try database.create(table: "terminal_sessions") { table in
+                table.column("id", .text).primaryKey()
+                table.column("workspace_id", .text).notNull()
+                    .references("workspaces", onDelete: .restrict)
+                table.column("epoch", .text).notNull()
+                table.column("sequence", .text).notNull()
+                table.column("working_directory", .text).notNull()
+                table.column("columns", .integer).notNull().check { $0 > 0 }
+                table.column("rows", .integer).notNull().check { $0 > 0 }
+                table.column("kind", .text).notNull()
+                table.column("title", .text)
+                table.column("is_tab_visible", .boolean).notNull().defaults(to: true)
+                table.column("lifecycle", .text).notNull()
+                table.column("created_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.column("ended_at", .datetime)
+            }
+            try database.create(table: "runtime_bindings") { table in
+                table.column("session_id", .text).primaryKey()
+                    .references("terminal_sessions", onDelete: .cascade)
+                table.column("adapter", .text).notNull()
+                table.column("runtime_identifier", .text).notNull().unique()
+                table.column("metadata_json", .text).notNull().defaults(to: "{}")
+            }
+            try database.create(table: "import_receipts") { table in
+                table.autoIncrementedPrimaryKey("id")
+                table.column("source_kind", .text).notNull()
+                table.column("source_identity", .text).notNull()
+                table.column("source_version", .text)
+                table.column("summary_json", .text).notNull()
+                table.column("completed_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.uniqueKey(["source_kind", "source_identity"])
+            }
+            try database.create(table: "request_receipts") { table in
+                table.column("request_id", .text).primaryKey()
+                table.column("command_kind", .text).notNull()
+                table.column("resource_id", .text).notNull()
+                table.column("completed_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+            }
+        }
+        return migrator
+    }()
+
+    private static func normalizedPath(_ value: String) -> String {
+        URL(fileURLWithPath: value).standardizedFileURL.path
+    }
+
+    private static func domainID<Tag: Sendable>(
+        row: Row,
+        table: String,
+        column: String
+    ) throws -> DomainID<Tag> {
+        let value: String = row[column]
+        guard let id = DomainID<Tag>(uuidString: value) else {
+            throw HostStateRepositoryError.invalidDatabaseValue(
+                table: table,
+                column: column,
+                value: value
+            )
+        }
+        return id
+    }
+}

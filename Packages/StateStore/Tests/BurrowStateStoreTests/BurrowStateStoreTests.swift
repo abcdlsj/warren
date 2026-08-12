@@ -4,6 +4,85 @@ import XCTest
 import BurrowDomain
 
 final class BurrowStateStoreTests: XCTestCase {
+    func testSQLiteRoundTripPreservesNormalizedResourceGraph() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        let state = try makeRecoverableState()
+
+        try await repository.save(state)
+        let loaded = try await repository.load()
+
+        XCTAssertEqual(loaded, state)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: database.url.path))
+    }
+
+    func testSQLiteConstraintFailureRollsBackWholeSave() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        let original = try makeRecoverableState()
+        try await repository.save(original)
+
+        let project = try XCTUnwrap(original.projects.first)
+        let duplicatePath = try XCTUnwrap(original.workspaces.first).path
+        let invalid = PersistedHostState(
+            hosts: original.hosts,
+            projects: original.projects,
+            workspaces: original.workspaces + [
+                Workspace(
+                    projectID: project.id,
+                    name: "duplicate",
+                    path: duplicatePath,
+                    branch: "duplicate"
+                ),
+            ],
+            terminalSessions: original.terminalSessions
+        )
+
+        do {
+            try await repository.save(invalid)
+            XCTFail("Expected duplicate normalized workspace path to fail")
+        } catch let error as HostStateRepositoryError {
+            guard case .databaseWriteFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        let recovered = try await repository.load()
+        XCTAssertEqual(recovered, original)
+    }
+
+    func testSQLiteRejectsOrphanedWorkspaceAndKeepsPreviousState() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        let original = try makeRecoverableState()
+        try await repository.save(original)
+        let orphan = Workspace(
+            projectID: ProjectID(),
+            name: "orphan",
+            path: "/tmp/burrow-orphan"
+        )
+
+        do {
+            try await repository.save(
+                PersistedHostState(
+                    hosts: original.hosts,
+                    projects: original.projects,
+                    workspaces: original.workspaces + [orphan],
+                    terminalSessions: original.terminalSessions
+                )
+            )
+            XCTFail("Expected foreign key violation")
+        } catch let error as HostStateRepositoryError {
+            guard case .databaseWriteFailed = error else {
+                return XCTFail("Unexpected error: \(error)")
+            }
+        }
+        let recovered = try await repository.load()
+        XCTAssertEqual(recovered, original)
+    }
+
     func testJSONRoundTripPreservesRecoverableState() async throws {
         let host = Host(name: "Mac")
         let project = Project(hostID: host.id, name: "Burrow", rootPath: "/tmp/burrow")
@@ -143,6 +222,38 @@ final class BurrowStateStoreTests: XCTestCase {
         XCTAssertEqual(session.sequence, 12)
         XCTAssertEqual(session.terminalSize.columns, 120)
     }
+
+    private func makeRecoverableState() throws -> PersistedHostState {
+        let host = Host(name: "Mac")
+        let project = Project(hostID: host.id, name: "Burrow", rootPath: "/tmp/burrow")
+        let workspace = Workspace(
+            projectID: project.id,
+            name: "main",
+            path: "/tmp/burrow",
+            branch: "main"
+        )
+        let persistedSession = PersistedTerminalSession(
+            workspaceID: workspace.id,
+            epoch: 4,
+            sequence: 19,
+            workingDirectory: "/tmp/burrow",
+            terminalSize: try XCTUnwrap(TerminalSize(columns: 120, rows: 40)),
+            runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor(
+                runtime: "tmux",
+                identifier: "burrow-main-\(UUID().uuidString)",
+                metadata: ["window": "0"]
+            ),
+            kind: .codex,
+            title: "Codex",
+            isTabVisible: false
+        )
+        return PersistedHostState(
+            hosts: [host],
+            projects: [project],
+            workspaces: [workspace],
+            terminalSessions: [persistedSession]
+        )
+    }
 }
 
 private struct TemporaryStateFile {
@@ -153,6 +264,22 @@ private struct TemporaryStateFile {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BurrowStateStoreTests-\(UUID().uuidString)", isDirectory: true)
         url = directory.appendingPathComponent("host-state.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    func cleanup() throws {
+        try FileManager.default.removeItem(at: directory)
+    }
+}
+
+private struct TemporaryStateDatabase {
+    let directory: URL
+    let url: URL
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BurrowSQLiteTests-\(UUID().uuidString)", isDirectory: true)
+        url = directory.appendingPathComponent("state.sqlite3")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 

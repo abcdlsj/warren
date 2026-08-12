@@ -49,9 +49,14 @@ final class BurrowNextApplicationModel {
 
     static func live() -> BurrowNextApplicationModel {
         let runtime = TmuxRuntime()
-        let repository = JSONFileHostStateRepository(
-            fileURL: BurrowApplicationDefaults.stateFileURL()
-        )
+        let repository: SQLiteHostStateRepository
+        do {
+            repository = try SQLiteHostStateRepository(
+                databaseURL: BurrowApplicationDefaults.stateDatabaseURL()
+            )
+        } catch {
+            fatalError("Could not open Burrow state database: \(error)")
+        }
         let service = BurrowApplicationService(
             repository: repository,
             runtime: runtime,

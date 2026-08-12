@@ -12,6 +12,10 @@ public enum HostStateRepositoryError: Error, Equatable, Sendable, CustomStringCo
     case directoryCreationFailed(path: String, reason: String)
     case encodingFailed(reason: String)
     case atomicWriteFailed(path: String, reason: String)
+    case databaseOpenFailed(path: String, reason: String)
+    case databaseReadFailed(path: String, reason: String)
+    case databaseWriteFailed(path: String, reason: String)
+    case invalidDatabaseValue(table: String, column: String, value: String)
 
     public var description: String {
         switch self {
@@ -27,6 +31,14 @@ public enum HostStateRepositoryError: Error, Equatable, Sendable, CustomStringCo
             return "Could not encode Host state: \(reason)"
         case let .atomicWriteFailed(path, reason):
             return "Could not atomically write Host state at \(path): \(reason)"
+        case let .databaseOpenFailed(path, reason):
+            return "Could not open Host database at \(path): \(reason)"
+        case let .databaseReadFailed(path, reason):
+            return "Could not read Host database at \(path): \(reason)"
+        case let .databaseWriteFailed(path, reason):
+            return "Could not write Host database at \(path): \(reason)"
+        case let .invalidDatabaseValue(table, column, value):
+            return "Invalid value in \(table).\(column): \(value)"
         }
     }
 }

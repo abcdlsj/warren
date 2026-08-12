@@ -182,9 +182,9 @@ public enum BurrowApplicationDefaults {
         rawValue: UUID(uuidString: "A0000000-0000-4000-8000-000000000010")!
     )
 
-    public static func stateFileURL(fileManager: FileManager = .default) -> URL {
+    public static func stateDatabaseURL(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        return base.appendingPathComponent("Burrow/host-state.json", isDirectory: false)
+        return base.appendingPathComponent("Burrow/state.sqlite3", isDirectory: false)
     }
 }

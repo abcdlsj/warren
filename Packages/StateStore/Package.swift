@@ -13,18 +13,23 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Domain"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.8.0"),
     ],
     targets: [
         .target(
             name: "BurrowStateStore",
             dependencies: [
                 .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/BurrowStateStore"
         ),
         .testTarget(
             name: "BurrowStateStoreTests",
-            dependencies: ["BurrowStateStore"],
+            dependencies: [
+                "BurrowStateStore",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Tests/BurrowStateStoreTests"
         ),
     ]
