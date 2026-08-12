@@ -10,7 +10,9 @@ struct BurrowDesktopSidebarRows: View {
     let onAddProject: () -> Void
     let onAction: (BurrowDesktopAction) -> Void
 
-    @State private var collapsedProjectIDs: Set<ProjectID> = []
+    /// Project trees start closed. An allow-list makes newly imported projects
+    /// closed by construction instead of requiring fragile state migration.
+    @State private var expandedProjectIDs: Set<ProjectID> = []
     @State private var projectsCollapsed = false
 
     var body: some View {
@@ -77,14 +79,14 @@ struct BurrowDesktopSidebarRows: View {
                         project: group.project,
                         isCollapsed: isCollapsed,
                         isSelected: selection == .project(group.project.id),
-                        isExpanded: !collapsedProjectIDs.contains(group.project.id),
+                        isExpanded: expandedProjectIDs.contains(group.project.id),
                         onSelect: { select(.project(group.project.id)) },
                         onToggleExpansion: { toggleProject(group.project.id) },
                         onAddWorkspace: {
                             onAction(.requestNewWorkspace(group.project.id))
                         }
                     )
-                    if isCollapsed || !collapsedProjectIDs.contains(group.project.id) {
+                    if isCollapsed || expandedProjectIDs.contains(group.project.id) {
                         ForEach(group.workspaces) { workspace in
                             let workspaceSessions = sessions.filter {
                                 $0.workspaceID == workspace.id
@@ -121,10 +123,10 @@ struct BurrowDesktopSidebarRows: View {
 
     private func toggleProject(_ projectID: ProjectID) {
         withAnimation(.easeOut(duration: 0.15)) {
-            if collapsedProjectIDs.contains(projectID) {
-                collapsedProjectIDs.remove(projectID)
+            if expandedProjectIDs.contains(projectID) {
+                expandedProjectIDs.remove(projectID)
             } else {
-                collapsedProjectIDs.insert(projectID)
+                expandedProjectIDs.insert(projectID)
             }
         }
     }

@@ -79,11 +79,26 @@ private enum UIProbe {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         hostingView.layoutSubtreeIfNeeded()
 
-        let snapshot = recorder.snapshot()
-        guard !snapshot.nodes.isEmpty else { throw UIProbeError.noSemanticNodes }
-
         let initialWorkspace = BurrowDesktopFixture.preview.projection.groups[0].workspaces[0]
         let initialProject = BurrowDesktopFixture.preview.projection.groups[0].project
+        let collapsedSnapshot = recorder.snapshot()
+        guard !collapsedSnapshot.nodes.isEmpty else { throw UIProbeError.noSemanticNodes }
+        guard collapsedSnapshot.nodes.first(where: {
+            $0.id == "project.\(initialProject.id.description)"
+        })?.value == "Collapsed" else {
+            throw NSError(
+                domain: "Burrow.UIProbe",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Project rows must be collapsed initially."]
+            )
+        }
+        try recorder.perform(
+            .press,
+            on: "project.\(initialProject.id.description)"
+        )
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        hostingView.layoutSubtreeIfNeeded()
         try recorder.perform(
             .press,
             on: "workspace.project-list.\(initialWorkspace.id.description).new-session"
@@ -92,6 +107,7 @@ private enum UIProbe {
             .press,
             on: "project.\(initialProject.id.description).new-workspace"
         )
+        let snapshot = recorder.snapshot()
 
         let after = BurrowInteractionGuard.capture()
         var violations: [String] = []

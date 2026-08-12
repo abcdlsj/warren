@@ -3,7 +3,7 @@ import BurrowDesignSystem
 import BurrowDomain
 import BurrowObservation
 
-/// A workspace row keeps the dense 28pt Superset rhythm. Its marker lives in a
+/// A workspace row uses a compact 26pt desktop rhythm. Its marker lives in a
 /// stable slot and the secondary action is a sibling control, never a nested
 /// button, so selection and add-session clicks have deterministic routing.
 struct BurrowDesktopWorkspaceRow: View {
@@ -61,7 +61,7 @@ struct BurrowDesktopWorkspaceRow: View {
         let tokens = BurrowColorTokens.resolved(for: colorScheme)
         return HStack(spacing: 0) {
             Button(action: onSelect) {
-                HStack(spacing: BurrowSpacing.medium) {
+                HStack(spacing: BurrowSpacing.compact) {
                     workspaceGlyph(tokens: tokens)
                         .frame(width: BurrowLayoutMetrics.sidebarRowIconSlotSize,
                                height: BurrowLayoutMetrics.sidebarRowIconSlotSize)
@@ -76,7 +76,7 @@ struct BurrowDesktopWorkspaceRow: View {
                            !branch.isEmpty,
                            branch != workspace.name {
                             Text(branch)
-                                .font(.system(size: 9, weight: .regular))
+                                .font(.system(size: 10, weight: .regular))
                                 .foregroundStyle(tokens.mutedForeground)
                                 .lineLimit(1)
                         }
@@ -137,7 +137,7 @@ struct BurrowDesktopWorkspaceRow: View {
             )
         }
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarWorkspaceRowHeight)
-        .padding(.leading, BurrowSpacing.medium)
+        .padding(.leading, BurrowSpacing.compact)
         .padding(.trailing, BurrowSpacing.compact)
         .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
         .clipShape(.rect(cornerRadius: BurrowRadius.row))
