@@ -159,6 +159,9 @@
 - Project 默认收缩，用户展开后显示 Workspace；Project 新增创建 Workspace。
 - Workspace、Preset 和 Tab 新增创建 Session。
 - 选择没有 Tab 的 Workspace 时幂等创建一个默认 Shell；重复点击最多产生一个 Tab 和一个 Session。
+- Project 和 Workspace 主动作分别覆盖整行；嵌套新增按钮不能缩小或抢占主热区。
+- 默认 Shell 创建期间显示带进度指示的 `Starting Shell…` Tab，不显示空白 Terminal。
+- 顶部空白 chrome 可以拖动 borderless Window，Terminal 和行控件仍保留自身鼠标行为。
 - 删除无动作、含义重复或无法解释的图标。
 - 所有控件拥有稳定 Accessibility 语义。
 - 空态、loading、失败、离线和 ended 状态有明确反馈。
@@ -170,6 +173,7 @@
 - 控件 frame 无重叠，hit target 与可见区域一致。
 - Project、Workspace、Tab、Preset 连续快速点击不会冻结 UI。
 - Project 初始语义状态为 `Collapsed`；展开后 Workspace 动作才进入语义树。
+- Project 主热区不少于 264×28 point；Workspace 主热区不少于 248×26 point。
 - Tab 删除后新增按钮 frame 紧随最后 Tab。
 - Terminal Surface frame 与内容容器一致，允许的误差不超过 1 point。
 - 字体 token、字号、行高、颜色和间距符合设计 token 合约。

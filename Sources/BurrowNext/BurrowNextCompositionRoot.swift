@@ -81,10 +81,6 @@ struct BurrowNextCompositionRoot: View {
         } else if case .requestNewWorkspace(let projectID) = action {
             workspaceCreatorProjectID = projectID
         } else if case .requestNewSession(let workspaceID) = action {
-            // Project/workspace plus buttons carry an explicit destination.
-            // Select it before presenting the launcher so the visible tab
-            // strip and the eventual Session share one workspace owner.
-            model.perform(.selectWorkspace(workspaceID))
             sessionCreatorWorkspaceID = workspaceID
         } else {
             model.perform(action)

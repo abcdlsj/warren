@@ -101,7 +101,7 @@ private enum UIProbe {
         hostingView.layoutSubtreeIfNeeded()
         try recorder.perform(
             .press,
-            on: "workspace.project-list.\(initialWorkspace.id.description).new-session"
+            on: "workspace.project-list.\(initialWorkspace.id.description)"
         )
         try recorder.perform(
             .press,
@@ -128,6 +128,21 @@ private enum UIProbe {
         }.map(\.id)
         if !invalidFrames.isEmpty {
             violations.append("Non-positive semantic frames: \(invalidFrames.joined(separator: ", "))")
+        }
+        let undersizedSidebarRows = snapshot.nodes.filter {
+            if $0.id.hasPrefix("project.") && !$0.id.hasSuffix(".new-workspace") {
+                return $0.frame.width < 250 || $0.frame.height < 28
+            }
+            if $0.id.hasPrefix("workspace.project-list.") {
+                return $0.frame.width < 240 || $0.frame.height < 26
+            }
+            return false
+        }.map(\.id)
+        if !undersizedSidebarRows.isEmpty {
+            violations.append(
+                "Sidebar navigation targets do not cover their rows: " +
+                    undersizedSidebarRows.joined(separator: ", ")
+            )
         }
 
         try BurrowArtifactWriter.writeJSON(

@@ -34,7 +34,7 @@ public actor TmuxRuntime: TerminalRuntime {
     public init(
         executor: any TmuxCommandExecuting = ProcessTmuxCommandExecutor(),
         outputDirectory: URL = TmuxRuntime.defaultOutputDirectory,
-        exitPollIntervalNanoseconds: UInt64 = 250_000_000
+        exitPollIntervalNanoseconds: UInt64 = 1_000_000_000
     ) {
         precondition(exitPollIntervalNanoseconds > 0, "Exit polling interval must be positive.")
         self.executor = executor

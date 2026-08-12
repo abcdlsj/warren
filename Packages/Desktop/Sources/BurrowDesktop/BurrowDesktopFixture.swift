@@ -122,6 +122,7 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
     public let sessions: [BurrowDesktopSession]
     public let tabs: [ClientTab]
     public let sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID]
+    public let tabWorkspaceIDs: [String: WorkspaceID]
     public let inspector: BurrowDesktopInspectorContent?
     public let connectionState: BurrowDesktopConnectionState
 
@@ -139,6 +140,7 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
         sessions: [BurrowDesktopSession] = [],
         tabs: [ClientTab] = [],
         sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID] = [:],
+        tabWorkspaceIDs: [String: WorkspaceID] = [:],
         inspector: BurrowDesktopInspectorContent? = nil,
         connectionState: BurrowDesktopConnectionState = .attached
     ) {
@@ -147,6 +149,12 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
         self.sessions = sessions
         self.tabs = tabs
         self.sessionWorkspaceIDs = sessionWorkspaceIDs
+        self.tabWorkspaceIDs = tabWorkspaceIDs.merging(
+            Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
+                tab.sessionID.flatMap { sessionWorkspaceIDs[$0] }.map { (tab.id, $0) }
+            }),
+            uniquingKeysWith: { explicit, _ in explicit }
+        )
         self.inspector = inspector
         self.connectionState = connectionState
     }
@@ -160,6 +168,7 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
         sessions: [BurrowDesktopSession] = [],
         tabs: [ClientTab] = [],
         sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID] = [:],
+        tabWorkspaceIDs: [String: WorkspaceID] = [:],
         inspector: BurrowDesktopInspectorContent? = nil,
         connectionState: BurrowDesktopConnectionState = .attached
     ) {
@@ -175,6 +184,7 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
             sessions: sessions,
             tabs: tabs,
             sessionWorkspaceIDs: sessionWorkspaceIDs,
+            tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
             connectionState: connectionState
         )
@@ -206,14 +216,15 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
         return workspace(id: workspaceID)
     }
 
+    public func workspaceID(forTabID tabID: String) -> WorkspaceID? {
+        tabWorkspaceIDs[tabID]
+    }
+
     /// Tabs are workspace-local UI. The Host may keep tabs from several
     /// workspaces open, but a workspace chrome must never render siblings
     /// owned by another project/branch.
     public func tabs(in workspaceID: WorkspaceID) -> [ClientTab] {
-        tabs.filter { tab in
-            guard let sessionID = tab.sessionID else { return false }
-            return sessionWorkspaceIDs[sessionID] == workspaceID
-        }
+        tabs.filter { tabWorkspaceIDs[$0.id] == workspaceID }
     }
 }
 

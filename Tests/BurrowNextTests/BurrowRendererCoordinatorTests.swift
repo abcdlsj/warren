@@ -7,6 +7,18 @@ import BurrowDomain
 
 final class BurrowRendererCoordinatorTests: XCTestCase {
     @MainActor
+    func testPendingShellTabIDIsStablePerWorkspace() {
+        let workspaceID = WorkspaceID(
+            rawValue: UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!
+        )
+
+        XCTAssertEqual(
+            BurrowNextApplicationModel.pendingShellTabID(for: workspaceID),
+            "pending-shell-cccccccc-cccc-cccc-cccc-cccccccccccc"
+        )
+    }
+
+    @MainActor
     func testOnlyActiveWorkspaceAndTabCanSendInputOrResize() async throws {
         let fixture = Fixture()
         let service = RendererServiceSpy()

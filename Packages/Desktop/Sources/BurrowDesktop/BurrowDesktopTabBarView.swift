@@ -67,7 +67,7 @@ struct BurrowDesktopTabBar: View {
                 // The drag filler lives outside the scroll view, exactly like
                 // Superset's TabBar: tabs scroll independently and the remaining
                 // empty leaf is the only window-drag target.
-                Color.clear
+                BurrowDesktopWindowDragRegion()
                     .frame(minWidth: BurrowSpacing.standard, maxWidth: .infinity)
                     .accessibilityHidden(true)
 

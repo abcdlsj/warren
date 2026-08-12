@@ -4,6 +4,7 @@ import AppKit
 @testable import BurrowDesktop
 import BurrowDesignSystem
 import BurrowDomain
+import BurrowClientCore
 
 private struct TestTerminalSurface: View {
     let context: BurrowDesktopTerminalContext
@@ -50,6 +51,12 @@ final class BurrowDesktopTests: XCTestCase {
                 + BurrowLayoutMetrics.paneHeaderHeight
                 + BurrowLayoutMetrics.paneMinimumHeight
         )
+    }
+
+    func testWindowDragRegionUsesDedicatedAppKitView() {
+        let view = BurrowDesktopWindowDragView()
+
+        XCTAssertFalse(view.acceptsFirstResponder)
     }
 
     func testSidebarStateUsesSupersetSnapAndRestoreValues() {
@@ -240,6 +247,32 @@ final class BurrowDesktopTests: XCTestCase {
             BurrowDesktopNavigationReducer.reconcile(selected, with: fixture.projection),
             selected
         )
+    }
+
+    func testPendingShellTabBelongsToWorkspaceBeforeSessionExists() {
+        let fixture = BurrowDesktopFixture.preview
+        let workspaceID = fixture.groups[0].workspaces[1].id
+        let pendingTab = ClientTab(
+            id: "pending-shell-\(workspaceID.description)",
+            title: "Starting Shell…",
+            kind: .shell
+        )
+        let projection = BurrowDesktopProjection(
+            host: fixture.host,
+            groups: fixture.groups,
+            sessions: fixture.sessions,
+            tabs: fixture.tabs + [pendingTab],
+            sessionWorkspaceIDs: fixture.projection.sessionWorkspaceIDs,
+            tabWorkspaceIDs: [pendingTab.id: workspaceID]
+        )
+
+        XCTAssertEqual(projection.tabs(in: workspaceID), [pendingTab])
+        let selected = BurrowDesktopNavigationReducer.reduce(
+            .init(selection: nil, selectedTabID: nil),
+            action: .selectWorkspace(workspaceID),
+            in: projection
+        )
+        XCTAssertEqual(selected.selectedTabID, pendingTab.id)
     }
 
     func testSelectingTabSynchronizesSidebarWorkspace() {

@@ -18,7 +18,7 @@ struct BurrowDesktopTabItem: View {
     @State private var isCloseHovered = false
 
     private var exposesClose: Bool {
-        isHovered || isCloseFocused || forceHover
+        tab.sessionID != nil && (isHovered || isCloseFocused || forceHover)
     }
 
     var body: some View {
@@ -26,6 +26,11 @@ struct BurrowDesktopTabItem: View {
         ZStack(alignment: .trailing) {
             Button(action: onSelect) {
                 HStack(spacing: BurrowSpacing.small) {
+                    if tab.sessionID == nil {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .accessibilityHidden(true)
+                    }
                     Text(tab.title)
                         .font(isSelected ? BurrowTypography.activeTabTitle : BurrowTypography.tabTitle)
                         .lineLimit(1)
@@ -43,6 +48,7 @@ struct BurrowDesktopTabItem: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .disabled(tab.sessionID == nil)
             .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
             .accessibilityLabel("Tab \(tab.title)")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
@@ -110,9 +116,11 @@ struct BurrowDesktopTabItem: View {
         .contentShape(.rect)
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button("Close Tab", action: onClose)
-            Button("Close Other Tabs", action: onCloseOthers)
-            Button("Close All Tabs", action: onCloseAll)
+            if tab.sessionID != nil {
+                Button("Close Tab", action: onClose)
+                Button("Close Other Tabs", action: onCloseOthers)
+                Button("Close All Tabs", action: onCloseAll)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tab \(tab.title)")

@@ -314,15 +314,17 @@ Window
 
 - 初始空状态只展示导入或添加 Project，不创建任何 Session。
 - Project 默认收缩；用户明确展开后才显示其 Workspace，新增 Project 同样默认收缩。
-- 点击 Project 选中其最近 Workspace；没有 Workspace 时展示创建入口。
+- Project 行除独立新增按钮外，整行是展开和收缩热区；展开动作不隐式创建 Session。
+- Workspace 行整行是选择和进入 Session 的热区，不再放置容易误点的小型新增按钮。
 - 点击 Workspace 必须立即切换，不等待 tmux、Git 或磁盘操作。
-- 点击没有 Tab 的 Workspace 后，在该 Workspace 的串行命令队列中创建一个默认 Shell Tab。快速重复点击共享同一在途操作；若用户已切换到别处，创建结果不得抢回选择。
+- 点击没有 Tab 的 Workspace 后，立即显示不可交互的 `Starting Shell…` Loading Tab 和内容进度态，再在该 Workspace 的串行命令队列中创建默认 Shell。快速重复点击共享同一在途操作；完成后原位替换为真实 Tab，失败时移除 Loading 并显示可恢复错误。若用户已切换到别处，创建结果不得抢回选择。
 - 点击 Tab 必须立即切换 Active Session，并把焦点交给 Ghostty。
 - Preset 在当前捕获的 Workspace 创建 Session；切换 Workspace 不得改变在途请求目标。
 - Tab 新增按钮紧随最后一个 Tab；没有 Tab 时位于起始位置。
 - 无意义、无动作或重复表达的图标不展示。
 - 字体、密度、间距、层级和 hover/selected 状态以 Superset macOS Desktop 为第一期视觉基准；终端本体使用等宽字体和 Ghostty 主题能力。
 - 所有可交互元素必须有稳定 Accessibility Identifier、Role、Label、Value 和可执行 Action。
+- 自绘无标题窗口只允许顶部明确的空白 chrome 叶节点调用 AppKit `performDrag`；Tab、按钮和 Terminal 不继承窗口拖动行为。
 
 性能目标：
 

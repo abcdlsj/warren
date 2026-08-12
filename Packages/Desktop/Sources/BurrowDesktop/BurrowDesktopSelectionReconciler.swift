@@ -192,10 +192,7 @@ public enum BurrowDesktopNavigationReducer {
         for tabID: String,
         in projection: BurrowDesktopProjection
     ) -> Workspace? {
-        guard let sessionID = projection.tabs.first(where: { $0.id == tabID })?.sessionID else {
-            return nil
-        }
-        return projection.workspace(for: sessionID)
+        projection.workspaceID(forTabID: tabID).flatMap(projection.workspace(id:))
     }
 
     private static func isValid(

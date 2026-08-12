@@ -17,6 +17,7 @@ final class BurrowNextApplicationModel {
     private(set) var desktopProjection: BurrowDesktopProjection
     private(set) var navigation: BurrowDesktopNavigationState
     private(set) var presentedIssue: BurrowApplicationIssue?
+    private(set) var pendingDefaultShellWorkspaceIDs: Set<WorkspaceID> = []
 
     @ObservationIgnored private let service: BurrowApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
@@ -72,7 +73,7 @@ final class BurrowNextApplicationModel {
                 detail: "\($0.detail)\n\n\($0.recoverySuggestion)"
             )
         }
-        let tabs = snapshot.windowLayout.workspaceViews.flatMap(\.tabs)
+        var tabs = snapshot.windowLayout.workspaceViews.flatMap(\.tabs)
         let visibleSessionIDs = Set(tabs.compactMap(\.sessionID))
         let visibleSessions = snapshot.sessions.filter {
             visibleSessionIDs.contains($0.id)
@@ -80,6 +81,19 @@ final class BurrowNextApplicationModel {
         let workspaceIDs = Dictionary(
             uniqueKeysWithValues: visibleSessions.map { ($0.id, $0.workspaceID) }
         )
+        var tabWorkspaceIDs = Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
+            tab.sessionID.flatMap { workspaceIDs[$0] }.map { (tab.id, $0) }
+        })
+        for workspaceID in pendingDefaultShellWorkspaceIDs
+            where !tabs.contains(where: { tabWorkspaceIDs[$0.id] == workspaceID }) {
+            let pending = ClientTab(
+                id: Self.pendingShellTabID(for: workspaceID),
+                title: "Starting Shell…",
+                kind: .shell
+            )
+            tabs.append(pending)
+            tabWorkspaceIDs[pending.id] = workspaceID
+        }
         return BurrowDesktopProjection(
             host: snapshot.host,
             projects: snapshot.projects,
@@ -96,6 +110,7 @@ final class BurrowNextApplicationModel {
             },
             tabs: tabs,
             sessionWorkspaceIDs: workspaceIDs,
+            tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
             connectionState: desktopConnectionState
         )
@@ -213,6 +228,11 @@ final class BurrowNextApplicationModel {
 
     func perform(_ action: BurrowDesktopAction) {
         guard acceptingActions else { return }
+        if case .selectWorkspace(let workspaceID) = action,
+           desktopProjection.tabs(in: workspaceID).isEmpty {
+            pendingDefaultShellWorkspaceIDs.insert(workspaceID)
+            refreshDesktopProjection()
+        }
         navigation = BurrowDesktopNavigationReducer.reduce(
             navigation,
             action: action,
@@ -298,6 +318,8 @@ private extension BurrowNextApplicationModel {
             let tabID = try await service.ensureDefaultShellTab(workspaceID: workspaceID)
             selectCreatedTab(tabID, workspaceID: workspaceID)
         } catch {
+            pendingDefaultShellWorkspaceIDs.remove(workspaceID)
+            refreshDesktopProjection()
             present(error)
         }
     }
@@ -398,6 +420,9 @@ private extension BurrowNextApplicationModel {
 
     func apply(_ value: BurrowApplicationSnapshot) async {
         snapshot = value
+        pendingDefaultShellWorkspaceIDs = pendingDefaultShellWorkspaceIDs.filter {
+            value.tabs(in: $0).isEmpty
+        }
         if presentedIssue == nil {
             presentedIssue = value.issues.last
         }
@@ -465,12 +490,15 @@ private extension BurrowNextApplicationModel {
     }
 
     func workspaceID(forTabID tabID: String) -> WorkspaceID? {
-        guard let sessionID = desktopProjection.tabs.first(where: { $0.id == tabID })?.sessionID else {
-            return nil
-        }
-        return desktopProjection.sessionWorkspaceIDs[sessionID]
+        desktopProjection.workspaceID(forTabID: tabID)
     }
 
+}
+
+extension BurrowNextApplicationModel {
+    static func pendingShellTabID(for workspaceID: WorkspaceID) -> String {
+        "pending-shell-\(workspaceID.description)"
+    }
 }
 
 private extension BurrowDesktopAction {

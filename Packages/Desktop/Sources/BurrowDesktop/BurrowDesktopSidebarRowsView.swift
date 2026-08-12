@@ -38,10 +38,7 @@ struct BurrowDesktopSidebarRows: View {
                         sessionCount: sessions.filter { $0.workspaceID == workspace.id }.count,
                         isCollapsed: false,
                         isSelected: selection == .workspace(workspace.id),
-                        onSelect: { select(.workspace(workspace.id)) },
-                        onAddSession: {
-                            onAction(.requestNewSession(workspace.id))
-                        }
+                        onSelect: { select(.workspace(workspace.id)) }
                     )
                     .id("sessions-\(workspace.id)")
                     .transition(.opacity)
@@ -97,10 +94,7 @@ struct BurrowDesktopSidebarRows: View {
                                 sessionCount: workspaceSessions.count,
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),
-                                onSelect: { select(.workspace(workspace.id)) },
-                                onAddSession: {
-                                    onAction(.requestNewSession(workspace.id))
-                                }
+                                onSelect: { select(.workspace(workspace.id)) }
                             )
                             .id(workspace.id)
                             .transition(.opacity)

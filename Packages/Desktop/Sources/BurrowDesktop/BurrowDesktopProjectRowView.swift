@@ -56,11 +56,8 @@ struct BurrowDesktopProjectRow: View {
 
     private var expandedRow: some View {
         let tokens = BurrowColorTokens.resolved(for: colorScheme)
-        return HStack(spacing: BurrowSpacing.xs) {
-            Button(action: {
-                onToggleExpansion()
-                onSelect()
-            }) {
+        return ZStack(alignment: .trailing) {
+            Button(action: onToggleExpansion) {
                 HStack(spacing: BurrowSpacing.compact) {
                     ZStack {
                         projectAvatar(tokens: tokens)
@@ -80,10 +77,13 @@ struct BurrowDesktopProjectRow: View {
 
                     Spacer(minLength: 0)
                 }
+                .padding(.leading, BurrowSpacing.compact)
+                .padding(.trailing, BurrowLayoutMetrics.sidebarActionButtonSize + BurrowSpacing.xs)
+                .frame(minHeight: BurrowLayoutMetrics.sidebarProjectRowHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
             .accessibilityLabel("Project \(project.name)")
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
@@ -94,10 +94,7 @@ struct BurrowDesktopProjectRow: View {
                 label: "Project \(project.name)",
                 value: isExpanded ? "Expanded" : "Collapsed",
                 isSelected: isSelected,
-                action: {
-                    onToggleExpansion()
-                    onSelect()
-                }
+                action: onToggleExpansion
             )
 
             Button(action: onAddWorkspace) {
@@ -117,10 +114,9 @@ struct BurrowDesktopProjectRow: View {
                 label: "New workspace in \(project.name)",
                 action: onAddWorkspace
             )
+            .padding(.trailing, BurrowSpacing.xs)
         }
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarProjectRowHeight)
-        .padding(.leading, BurrowSpacing.compact)
-        .padding(.trailing, BurrowSpacing.xs)
         .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
         .clipShape(.rect(cornerRadius: BurrowRadius.row))
         .contentShape(.rect)

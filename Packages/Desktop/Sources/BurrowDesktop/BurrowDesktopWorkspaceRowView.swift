@@ -4,8 +4,8 @@ import BurrowDomain
 import BurrowObservation
 
 /// A workspace row uses a compact 26pt desktop rhythm. Its marker lives in a
-/// stable slot and the secondary action is a sibling control, never a nested
-/// button, so selection and add-session clicks have deterministic routing.
+/// stable slot. The complete row is one navigation/session target; there is no
+/// tiny nested add button competing with branch selection.
 struct BurrowDesktopWorkspaceRow: View {
     let workspace: Workspace
     let semanticScope: String
@@ -13,10 +13,8 @@ struct BurrowDesktopWorkspaceRow: View {
     let isCollapsed: Bool
     let isSelected: Bool
     let onSelect: () -> Void
-    let onAddSession: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.burrowForceHover) private var forceHover
     @FocusState private var isFocused: Bool
     @State private var isHovered = false
 
@@ -59,83 +57,50 @@ struct BurrowDesktopWorkspaceRow: View {
 
     private var expandedRow: some View {
         let tokens = BurrowColorTokens.resolved(for: colorScheme)
-        return HStack(spacing: 0) {
-            Button(action: onSelect) {
-                HStack(spacing: BurrowSpacing.compact) {
-                    workspaceGlyph(tokens: tokens)
-                        .frame(width: BurrowLayoutMetrics.sidebarRowIconSlotSize,
-                               height: BurrowLayoutMetrics.sidebarRowIconSlotSize)
+        return Button(action: onSelect) {
+            HStack(spacing: BurrowSpacing.compact) {
+                workspaceGlyph(tokens: tokens)
+                    .frame(width: BurrowLayoutMetrics.sidebarRowIconSlotSize,
+                           height: BurrowLayoutMetrics.sidebarRowIconSlotSize)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(workspace.name.isEmpty ? (workspace.branch ?? "Workspace") : workspace.name)
-                            .font(BurrowTypography.sidebarRow)
-                            .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let branch = workspace.branch,
-                           !branch.isEmpty,
-                           branch != workspace.name {
-                            Text(branch)
-                                .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(tokens.mutedForeground)
-                                .lineLimit(1)
-                        }
-                    }
+                Text(workspace.branch?.isEmpty == false
+                     ? workspace.branch!
+                     : (workspace.name.isEmpty ? "Workspace" : workspace.name))
+                    .font(BurrowTypography.workspaceRow)
+                    .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
-                    Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-                    if sessionCount > 0 {
-                        Text("\(sessionCount)")
-                            .font(BurrowTypography.activityChip)
-                            .foregroundStyle(tokens.mutedForeground)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 2)
-                            .background(tokens.fillHover)
-                            .clipShape(.rect(cornerRadius: BurrowRadius.small))
-                            .accessibilityLabel("\(sessionCount) sessions")
-                    }
-
+                if sessionCount > 0 {
+                    Text("\(sessionCount)")
+                        .font(BurrowTypography.activityChip)
+                        .foregroundStyle(tokens.mutedForeground)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(tokens.fillHover)
+                        .clipShape(.rect(cornerRadius: BurrowRadius.small))
+                        .accessibilityLabel("\(sessionCount) sessions")
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .frame(minHeight: BurrowLayoutMetrics.sidebarWorkspaceRowHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .focused($isFocused)
-            .accessibilityLabel("Workspace \(workspace.name)")
-            .accessibilityValue(isSelected ? "Selected" : "Not selected")
-            .accessibilityAddTraits(isSelected ? .isSelected : [])
-            .burrowSemanticElement(
-                id: "workspace.\(semanticScope).\(workspace.id.description)",
-                role: .button,
-                label: "Workspace \(workspace.name)",
-                value: isSelected ? "Selected" : "Not selected",
-                isSelected: isSelected,
-                action: onSelect
-            )
-
-            Button(action: onAddSession) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .semibold))
-                    .accessibilityHidden(true)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 20, height: 20)
             .contentShape(.rect)
-            .foregroundStyle(tokens.mutedForeground)
-            .background(tokens.fillHover)
-            .clipShape(.rect(cornerRadius: BurrowRadius.small))
-            .opacity(isHovered || forceHover ? 1 : 0)
-            .allowsHitTesting(isHovered || forceHover)
-            .accessibilityHidden(!(isHovered || forceHover))
-            .accessibilityLabel("New session in \(workspace.name)")
-            .burrowSemanticElement(
-                id: "workspace.\(semanticScope).\(workspace.id.description).new-session",
-                role: .button,
-                label: "New session in \(workspace.name)",
-                isEnabled: isHovered || forceHover,
-                action: onAddSession
-            )
         }
+        .buttonStyle(.plain)
+        .focused($isFocused)
+        .accessibilityLabel("Workspace \(workspace.name)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .burrowSemanticElement(
+            id: "workspace.\(semanticScope).\(workspace.id.description)",
+            role: .button,
+            label: "Workspace \(workspace.name)",
+            value: isSelected ? "Selected" : "Not selected",
+            isSelected: isSelected,
+            action: onSelect
+        )
         .frame(maxWidth: .infinity, minHeight: BurrowLayoutMetrics.sidebarWorkspaceRowHeight)
         .padding(.leading, BurrowSpacing.compact)
         .padding(.trailing, BurrowSpacing.compact)

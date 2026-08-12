@@ -5,6 +5,7 @@ public enum BurrowTypography {
     /// Superset inherits the platform UI sans stack; regular weight carries
     /// most navigation and chrome, with weight reserved for active hierarchy.
     public static let sidebarRow = Font.system(size: 12, weight: .regular)
+    public static let workspaceRow = Font.system(size: 12, weight: .medium)
     /// Section labels are intentionally compact and uppercase in their source.
     public static let sectionLabel = Font.system(size: 10, weight: .medium)
     /// Superset tab and pane titles use the compact text-xs tier.
