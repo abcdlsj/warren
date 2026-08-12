@@ -7,6 +7,56 @@ import BurrowProtocol
 import BurrowStateStore
 
 final class BurrowApplicationTests: XCTestCase {
+    func testSupersetImportPublishesResourcesWithoutCreatingSessions() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("BurrowApplicationImport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let repository = try SQLiteHostStateRepository(
+            databaseURL: directory.appendingPathComponent("state.sqlite3")
+        )
+        let runtime = InMemoryTerminalRuntime()
+        let service = BurrowApplicationService(repository: repository, runtime: runtime)
+        try await service.start()
+        let preview = SupersetImportPreview(
+            sourcePath: directory.appendingPathComponent("superset.db").path,
+            schemaVersion: 45,
+            projects: [
+                SupersetImportProjectCandidate(
+                    sourceProjectID: "source-project",
+                    name: "Imported",
+                    repositoryPath: "/repos/imported",
+                    status: .ready,
+                    workspaces: [
+                        SupersetImportWorkspaceCandidate(
+                            id: "source-workspace",
+                            sourceWorkspaceID: "source-workspace",
+                            sourceWorktreeID: nil,
+                            sourceProjectID: "source-project",
+                            name: "main",
+                            path: "/repos/imported",
+                            branch: "main",
+                            kind: "main_checkout",
+                            status: .ready
+                        ),
+                    ]
+                ),
+            ]
+        )
+
+        let result = try await service.commitSupersetImport(preview)
+        let snapshot = await service.snapshot()
+
+        XCTAssertEqual(result.importedProjectIDs.count, 1)
+        XCTAssertEqual(result.importedWorkspaceIDs.count, 1)
+        XCTAssertEqual(snapshot.projects.map(\.name), ["Imported"])
+        XCTAssertEqual(snapshot.workspaces.map(\.name), ["main"])
+        XCTAssertTrue(snapshot.sessions.isEmpty)
+        XCTAssertTrue(snapshot.tabs.isEmpty)
+        let runtimeRecords = await runtime.allRecords()
+        XCTAssertTrue(runtimeRecords.isEmpty)
+    }
+
     func testFirstBootstrapCreatesStableLocalHost() async throws {
         let service = makeService()
         try await service.start()

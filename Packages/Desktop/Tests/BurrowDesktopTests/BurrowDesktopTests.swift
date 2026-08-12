@@ -103,6 +103,7 @@ final class BurrowDesktopTests: XCTestCase {
         let sessionID = fixture.sessions[0].id
 
         actions(.addProject)
+        actions(.importSuperset)
         actions(.selectWorkspace(workspaceID))
         actions(.openSession(sessionID))
         actions(.requestNewSession(workspaceID))
@@ -116,6 +117,7 @@ final class BurrowDesktopTests: XCTestCase {
             received,
             [
                 .addProject,
+                .importSuperset,
                 .selectWorkspace(workspaceID),
                 .openSession(sessionID),
                 .requestNewSession(workspaceID),

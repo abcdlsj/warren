@@ -113,6 +113,7 @@ public struct BurrowDesktopRoot<TerminalSurface: View>: View {
                                 }
                             } ?? [],
                             onAddProject: { dispatch(.addProject) },
+                            onImportSuperset: { dispatch(.importSuperset) },
                             onNewSession: {
                                 guard let workspace = selectedWorkspace else { return }
                                 dispatch(.requestNewSession(workspace.id))

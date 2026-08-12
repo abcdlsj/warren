@@ -94,7 +94,7 @@ public enum BurrowDesktopNavigationReducer {
                 selection: state.selection,
                 selectedTabID: nil
             )
-        case .addProject, .requestNewSession, .launchSession,
+        case .addProject, .importSuperset, .requestNewSession, .launchSession,
              .toggleInspector, .toggleSidebar:
             return state
         }

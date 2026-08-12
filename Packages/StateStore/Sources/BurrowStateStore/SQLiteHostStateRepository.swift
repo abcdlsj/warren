@@ -9,7 +9,7 @@ import GRDB
 /// queryable Host resource. Saving replaces one complete application snapshot
 /// in a single transaction, preserving the current repository contract while
 /// the application migrates to finer-grained commands.
-public actor SQLiteHostStateRepository: HostStateRepository {
+public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommitting {
     public let databaseURL: URL
     private let database: DatabaseQueue
 

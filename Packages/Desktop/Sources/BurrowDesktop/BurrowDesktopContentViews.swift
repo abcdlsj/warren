@@ -2,6 +2,7 @@ import SwiftUI
 import BurrowClientCore
 import BurrowDesignSystem
 import BurrowDomain
+import BurrowObservation
 
 struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
     let workspace: Workspace?
@@ -10,6 +11,7 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
     let showsPaneHeader: Bool
     let branchSessions: [BurrowDesktopSession]
     let onAddProject: () -> Void
+    let onImportSuperset: () -> Void
     let onNewSession: () -> Void
     let onOpenSession: (TerminalSessionID) -> Void
     let terminalSurface: @MainActor (BurrowDesktopTerminalContext) -> TerminalSurface
@@ -59,6 +61,24 @@ struct BurrowDesktopWorkspaceContent<TerminalSurface: View>: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
+            .burrowSemanticElement(
+                id: "onboarding.add-project",
+                role: .button,
+                label: "Add Project",
+                action: onAddProject
+            )
+            Button(action: onImportSuperset) {
+                Text("Import from Superset…")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .burrowSemanticElement(
+                id: "onboarding.import-superset",
+                role: .button,
+                label: "Import from Superset",
+                action: onImportSuperset
+            )
             HStack(spacing: BurrowSpacing.xs) {
                 Text("Or press")
                 Text("⌘K")

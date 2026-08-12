@@ -187,4 +187,9 @@ public enum BurrowApplicationDefaults {
             .first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return base.appendingPathComponent("Burrow/state.sqlite3", isDirectory: false)
     }
+
+    public static func supersetDatabaseURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".superset/local.db", isDirectory: false)
+    }
 }

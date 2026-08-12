@@ -1,4 +1,5 @@
 import Foundation
+import BurrowDomain
 
 public enum SupersetImportCandidateStatus: String, Codable, Hashable, Sendable {
     case ready
@@ -70,10 +71,12 @@ public struct SupersetImportProjectCandidate: Codable, Hashable, Sendable, Ident
     }
 }
 
-public struct SupersetImportPreview: Codable, Hashable, Sendable {
+public struct SupersetImportPreview: Codable, Hashable, Sendable, Identifiable {
     public let sourcePath: String
     public let schemaVersion: Int?
     public let projects: [SupersetImportProjectCandidate]
+
+    public var id: String { sourcePath }
 
     public init(
         sourcePath: String,
@@ -114,6 +117,15 @@ public struct SupersetImportCommitResult: Codable, Hashable, Sendable {
         self.skippedWorkspaceCount = skippedWorkspaceCount
         self.wasAlreadyImported = wasAlreadyImported
     }
+}
+
+public protocol SupersetImportCommitting: Sendable {
+    func importSuperset(
+        _ preview: SupersetImportPreview,
+        into hostID: HostID
+    ) async throws -> SupersetImportCommitResult
+
+    func hasSupersetImportReceipt(sourceURL: URL) async throws -> Bool
 }
 
 public protocol SupersetImportPathInspecting: Sendable {

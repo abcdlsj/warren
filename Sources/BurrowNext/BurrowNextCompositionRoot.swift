@@ -3,10 +3,14 @@ import UniformTypeIdentifiers
 import BurrowDesktop
 import BurrowDomain
 import GhosttyAdapter
+import BurrowApplication
+import BurrowStateStore
 
 struct BurrowNextCompositionRoot: View {
     @State private var model: BurrowNextApplicationModel
     @State private var isProjectImporterPresented = false
+    @State private var isSupersetDatabaseImporterPresented = false
+    @State private var supersetImportPreview: SupersetImportPreview?
     @State private var sessionCreatorWorkspaceID: WorkspaceID?
 
     @MainActor
@@ -35,6 +39,20 @@ struct BurrowNextCompositionRoot: View {
         )
         .fileDialogMessage("Choose a local folder as the project.")
         .fileDialogConfirmationLabel("Add Project")
+        .fileImporter(
+            isPresented: $isSupersetDatabaseImporterPresented,
+            allowedContentTypes: [.database, .data],
+            allowsMultipleSelection: false,
+            onCompletion: selectSupersetDatabase
+        )
+        .fileDialogMessage("Choose Superset local.db.")
+        .fileDialogConfirmationLabel("Preview Import")
+        .sheet(item: $supersetImportPreview) { preview in
+            BurrowNextSupersetImportView(preview: preview) {
+                supersetImportPreview = nil
+                Task { await model.commitSupersetImport(preview) }
+            }
+        }
         .sheet(isPresented: sessionCreatorBinding) {
             if let workspaceID = sessionCreatorWorkspaceID {
                 BurrowNextSessionCreatorView(
@@ -49,6 +67,8 @@ struct BurrowNextCompositionRoot: View {
     private func handle(_ action: BurrowDesktopAction) {
         if action == .addProject {
             isProjectImporterPresented = true
+        } else if action == .importSuperset {
+            beginSupersetImport()
         } else if case .requestNewSession(let workspaceID) = action {
             // Project/workspace plus buttons carry an explicit destination.
             // Select it before presenting the launcher so the visible tab
@@ -57,6 +77,39 @@ struct BurrowNextCompositionRoot: View {
             sessionCreatorWorkspaceID = workspaceID
         } else {
             model.perform(action)
+        }
+    }
+
+    private func beginSupersetImport() {
+        let defaultURL = BurrowApplicationDefaults.supersetDatabaseURL()
+        if FileManager.default.fileExists(atPath: defaultURL.path) {
+            previewSupersetImport(defaultURL)
+        } else {
+            isSupersetDatabaseImporterPresented = true
+        }
+    }
+
+    private func selectSupersetDatabase(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let databaseURL = urls.first else { return }
+            previewSupersetImport(databaseURL)
+        case .failure(let error):
+            model.report(error)
+        }
+    }
+
+    private func previewSupersetImport(_ databaseURL: URL) {
+        Task {
+            let hasScopedAccess = databaseURL.startAccessingSecurityScopedResource()
+            defer {
+                if hasScopedAccess { databaseURL.stopAccessingSecurityScopedResource() }
+            }
+            do {
+                supersetImportPreview = try await model.previewSupersetImport(from: databaseURL)
+            } catch {
+                model.report(error)
+            }
         }
     }
 
@@ -82,6 +135,73 @@ struct BurrowNextCompositionRoot: View {
             }
         case .failure(let error):
             model.report(error)
+        }
+    }
+}
+
+private struct BurrowNextSupersetImportView: View {
+    let preview: SupersetImportPreview
+    let onConfirm: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var allWorkspaces: [SupersetImportWorkspaceCandidate] {
+        preview.projects.flatMap(\.workspaces)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Import from Superset")
+                .font(.title2.weight(.semibold))
+            Text("This is a one-time copy. Burrow will not modify or synchronize Superset.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
+                summaryRow("Ready projects", preview.projects.filter { $0.status == .ready }.count)
+                summaryRow("Ready workspaces", allWorkspaces.filter { $0.status == .ready }.count)
+                summaryRow("Missing paths", allWorkspaces.filter { $0.status == .missing }.count)
+                summaryRow("Invalid Git paths", allWorkspaces.filter { $0.status == .invalid }.count)
+            }
+
+            List(preview.projects) { project in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(project.name).font(.body.weight(.medium))
+                        Spacer()
+                        Text(project.status.rawValue.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(project.status == .ready ? .green : .secondary)
+                    }
+                    Text(project.repositoryPath)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    if let diagnostic = project.diagnostic {
+                        Text(diagnostic).font(.caption).foregroundStyle(.orange)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(minHeight: 180)
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Import") {
+                    dismiss()
+                    onConfirm()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(preview.readyProjectCount == 0)
+            }
+        }
+        .padding(24)
+        .frame(minWidth: 560, idealWidth: 560, maxWidth: 560, minHeight: 380)
+    }
+
+    private func summaryRow(_ title: String, _ value: Int) -> some View {
+        GridRow {
+            Text(title).foregroundStyle(.secondary)
+            Text("\(value)").fontWeight(.medium)
         }
     }
 }

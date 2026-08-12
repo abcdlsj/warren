@@ -153,6 +153,18 @@ final class BurrowNextApplicationModel {
         await run { _ = try await service.addProject(folder: folder) }
     }
 
+    func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
+        try await service.previewSupersetImport(from: databaseURL)
+    }
+
+    func commitSupersetImport(_ preview: SupersetImportPreview) async {
+        do {
+            _ = try await service.commitSupersetImport(preview)
+        } catch {
+            present(error)
+        }
+    }
+
     func createSession(
         workspaceID: WorkspaceID,
         request: TerminalSessionLaunchRequest
@@ -183,7 +195,7 @@ final class BurrowNextApplicationModel {
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .openSession:
             reconcileSurfaces(with: snapshot)
-        case .addProject, .requestNewSession, .launchSession,
+        case .addProject, .importSuperset, .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
              .toggleInspector, .toggleSidebar:
             break
@@ -306,7 +318,7 @@ final class BurrowNextApplicationModel {
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
             return selectedWorkspaceID
-        case .addProject, .selectProject, .selectTab,
+        case .addProject, .importSuperset, .selectProject, .selectTab,
              .toggleInspector, .toggleSidebar:
             return nil
         }
@@ -360,7 +372,7 @@ private extension BurrowNextApplicationModel {
             } catch {
                 present(error)
             }
-        case .addProject, .selectProject, .selectWorkspace, .selectTab,
+        case .addProject, .importSuperset, .selectProject, .selectWorkspace, .selectTab,
              .toggleInspector, .toggleSidebar:
             break
         }
@@ -667,7 +679,7 @@ private extension BurrowDesktopAction {
         case .closeTab, .closeOtherTabs, .closeAllTabs,
              .openSession, .launchSession:
             true
-        case .addProject, .requestNewSession, .selectProject,
+        case .addProject, .importSuperset, .requestNewSession, .selectProject,
              .selectWorkspace, .selectTab, .toggleInspector, .toggleSidebar:
             false
         }
