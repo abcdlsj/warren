@@ -72,5 +72,15 @@ let package = Package(
             ],
             path: "Tests/ApplicationIntegrationTests"
         ),
+        .testTarget(
+            name: "BurrowNextTests",
+            dependencies: [
+                "BurrowNext",
+                .product(name: "BurrowApplication", package: "Application"),
+                .product(name: "BurrowClientCore", package: "ClientCore"),
+                .product(name: "BurrowDomain", package: "Domain"),
+            ],
+            path: "Tests/BurrowNextTests"
+        ),
     ]
 )

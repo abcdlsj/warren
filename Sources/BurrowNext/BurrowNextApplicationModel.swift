@@ -16,16 +16,12 @@ final class BurrowNextApplicationModel {
     private(set) var snapshot: BurrowApplicationSnapshot
     private(set) var desktopProjection: BurrowDesktopProjection
     private(set) var navigation: BurrowDesktopNavigationState
-    private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var presentedIssue: BurrowApplicationIssue?
 
     @ObservationIgnored private let service: BurrowApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
+    @ObservationIgnored private let renderer: BurrowRendererCoordinator
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
-    @ObservationIgnored private var pendingResizeSizes: [TerminalSessionID: TerminalSize] = [:]
-    @ObservationIgnored private var appliedResizeSizes: [TerminalSessionID: TerminalSize] = [:]
-    @ObservationIgnored private var resizeTasks: [TerminalSessionID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var surfaces: [TerminalSessionID: GhosttySurface] = [:]
     /// Host mutations are ordered per Workspace. A slow agent launch in one
     /// project must never block navigation or operations in another project.
     @ObservationIgnored private var workspaceActionTasks: [WorkspaceID: Task<Void, Never>] = [:]
@@ -37,6 +33,7 @@ final class BurrowNextApplicationModel {
     init(service: BurrowApplicationService, runtime: TmuxRuntime) {
         self.service = service
         self.runtime = runtime
+        self.renderer = BurrowRendererCoordinator(service: service)
         let initialSnapshot = BurrowApplicationSnapshot.empty()
         let initialProjection = BurrowDesktopProjection.empty(host: initialSnapshot.host)
         self.snapshot = initialSnapshot
@@ -45,7 +42,9 @@ final class BurrowNextApplicationModel {
     }
 
     static func live() -> BurrowNextApplicationModel {
-        let runtime = TmuxRuntime()
+        let runtime = TmuxRuntime(
+            outputDirectory: BurrowApplicationDefaults.runtimeOutputDirectory()
+        )
         let repository: SQLiteHostStateRepository
         do {
             repository = try SQLiteHostStateRepository(
@@ -127,14 +126,7 @@ final class BurrowNextApplicationModel {
             task.cancel()
         }
         workspaceActionTasks.removeAll()
-        surfaces.removeAll()
-        mountedSurfaces.removeAll()
-        for task in resizeTasks.values {
-            task.cancel()
-        }
-        resizeTasks.removeAll()
-        pendingResizeSizes.removeAll()
-        appliedResizeSizes.removeAll()
+        renderer.shutdown()
     }
 
     func shutdown() async {
@@ -218,6 +210,8 @@ final class BurrowNextApplicationModel {
     func report(_ error: Error) {
         present(error)
     }
+
+    var mountedSurfaces: [GhosttySurface] { renderer.mountedSurfaces }
 
 
     func enqueueWorkspaceAction(
@@ -357,205 +351,12 @@ private extension BurrowNextApplicationModel {
     }
 
     func reconcileSurfaces(with value: BurrowApplicationSnapshot) {
-        let visibleTabIDs = selectedWorkspaceID.map {
-            Set(value.tabs(in: $0).map(\.id))
-        } ?? []
-        let renderedSessionIDs = Set(value.sessions.lazy.filter {
-            visibleTabIDs.contains($0.tabID)
-        }.map(\.id))
-        for sessionID in surfaces.keys where !renderedSessionIDs.contains(sessionID) {
-            disposeSurface(for: sessionID)
-        }
-
-        for session in value.sessions {
-            // Only the selected workspace mounts renderers. Open tabs in
-            // other project/branch workspaces stay Host-owned and cheap until
-            // navigation selects their workspace again.
-            guard visibleTabIDs.contains(session.tabID) else {
-                if surfaces[session.id] != nil { disposeSurface(for: session.id) }
-                continue
-            }
-            guard let attachmentID = session.attachmentID,
-                  session.connectionState != .disconnected,
-                  session.connectionState != .failed,
-                  session.connectionState != .exited else {
-                if surfaces[session.id] != nil { disposeSurface(for: session.id) }
-                continue
-            }
-            if let current = surfaces[session.id], current.attachmentID != attachmentID {
-                disposeSurface(for: session.id)
-            }
-            if surfaces[session.id] == nil {
-                createSurface(for: session, attachmentID: attachmentID)
-            }
-            renderAvailableOutput(for: session)
-        }
-        refreshMountedSurfaces()
-    }
-
-    func createSurface(
-        for session: BurrowApplicationSession,
-        attachmentID: TerminalAttachmentID
-    ) {
-        let workspacePath = snapshot.workspace(id: session.workspaceID)?.path ?? ""
-        let surface = GhosttySurface(
-            id: session.id,
-            attachmentID: attachmentID,
-            workingDirectory: workspacePath,
-            onInput: { [weak self] data in
-                Task { @MainActor in
-                    await self?.handleGhosttyInput(sessionID: session.id, data: data)
-                }
-            },
-            onResize: { [weak self] columns, rows in
-                Task { @MainActor in
-                    await self?.handleGhosttyResize(
-                        sessionID: session.id,
-                        columns: columns,
-                        rows: rows
-                    )
-                }
-            }
+        renderer.reconcile(
+            snapshot: value,
+            activeWorkspaceID: selectedWorkspaceID,
+            activeSessionID: selectedTerminalSessionID,
+            reportError: { [weak self] error in self?.present(error) }
         )
-        surfaces[session.id] = surface
-    }
-
-    func renderAvailableOutput(for session: BurrowApplicationSession) {
-        guard let surface = surfaces[session.id],
-              let output = session.output,
-              !output.frames.isEmpty else { return }
-        var epoch = surface.renderedEpoch
-        var sequence = surface.renderedSequence
-
-        // Output snapshots retain a bounded ring, so the same old frames are
-        // present in every publication.  Once the renderer caught up to the
-        // ring's upper cursor there is nothing to scan or render again.
-        guard epoch != output.epoch || output.upperSequence > sequence else {
-            return
-        }
-
-        let firstPendingIndex: Int
-        if epoch == output.epoch {
-            firstPendingIndex = output.frames.firstIndex { frame in
-                frame.header.sequence + UInt64(frame.payload.count) > sequence
-            } ?? output.frames.count
-        } else {
-            firstPendingIndex = 0
-        }
-        guard firstPendingIndex < output.frames.count else { return }
-
-        for frame in output.frames[firstPendingIndex...] {
-            let frameEnd = frame.header.sequence + UInt64(frame.payload.count)
-            guard frame.header.epoch == output.epoch, frameEnd > sequence else { continue }
-            let offset = frame.header.sequence < sequence
-                ? Int(sequence - frame.header.sequence)
-                : 0
-            let payload = offset == 0
-                ? frame.payload
-                : Data(frame.payload.dropFirst(offset))
-            surface.receive(payload)
-            sequence += UInt64(payload.count)
-            epoch = frame.header.epoch
-            surface.markRendered(epoch: epoch, sequence: sequence)
-        }
-    }
-
-    func disposeSurface(for sessionID: TerminalSessionID) {
-        surfaces.removeValue(forKey: sessionID)
-        resizeTasks.removeValue(forKey: sessionID)?.cancel()
-        pendingResizeSizes.removeValue(forKey: sessionID)
-        appliedResizeSizes.removeValue(forKey: sessionID)
-    }
-
-    func refreshMountedSurfaces() {
-        guard let workspaceID = selectedWorkspaceID else {
-            mountedSurfaces = []
-            return
-        }
-        let next = snapshot.tabs(in: workspaceID).compactMap { tab in
-            tab.sessionID.flatMap { surfaces[$0] }
-        }
-        guard next.map(\.id) != mountedSurfaces.map(\.id)
-                || zip(next, mountedSurfaces).contains(where: { $0 !== $1 }) else {
-            return
-        }
-        mountedSurfaces = next
-    }
-
-    func handleGhosttyInput(sessionID: TerminalSessionID, data: Data) async {
-        guard let session = snapshot.session(id: sessionID),
-              let attachmentID = session.attachmentID else { return }
-        do {
-            try await service.sendInput(
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                data: data
-            )
-        } catch {
-            // A single input failure is recoverable and must not replace the
-            // terminal with an Inspector. Runtime/session lifecycle failures
-            // still arrive through snapshots and remain visible there.
-            NSLog("Burrow terminal input failed for %@: %@", sessionID.description, String(describing: error))
-        }
-    }
-
-    func handleGhosttyResize(
-        sessionID: TerminalSessionID,
-        columns: Int,
-        rows: Int
-    ) async {
-        guard let size = TerminalSize(columns: columns, rows: rows),
-              snapshot.session(id: sessionID)?.attachmentID != nil else { return }
-        // Hidden Ghostty siblings remain mounted to preserve scrollback and
-        // renderer state, but their intrinsic startup grid (often 50x17) must
-        // never resize a background tmux pane. The selected tab is the sole
-        // viewport owner; activation asks Ghostty to re-fit that surface.
-        guard selectedTerminalSessionID == sessionID else { return }
-        guard pendingResizeSizes[sessionID] != size,
-              appliedResizeSizes[sessionID] != size else { return }
-
-        // AppKit/Ghostty can report a startup grid (commonly 50x17) and the
-        // fitted grid in adjacent callbacks. A Task per callback lets actor
-        // reentrancy reorder the two Host requests, so the stale small resize
-        // can win last. Keep one worker per Session and overwrite its pending
-        // value: the worker serializes transport calls and always drains the
-        // newest geometry before it exits.
-        pendingResizeSizes[sessionID] = size
-        guard resizeTasks[sessionID] == nil else { return }
-        resizeTasks[sessionID] = Task { @MainActor [weak self] in
-            await self?.drainGhosttyResizes(for: sessionID)
-        }
-    }
-
-    func drainGhosttyResizes(for sessionID: TerminalSessionID) async {
-        defer { resizeTasks.removeValue(forKey: sessionID) }
-
-        while !Task.isCancelled {
-            guard selectedTerminalSessionID == sessionID,
-                  let size = pendingResizeSizes[sessionID],
-                  let session = snapshot.session(id: sessionID),
-                  let attachmentID = session.attachmentID else {
-                pendingResizeSizes.removeValue(forKey: sessionID)
-                return
-            }
-
-            do {
-                try await service.resize(
-                    sessionID: sessionID,
-                    attachmentID: attachmentID,
-                    size: size
-                )
-                appliedResizeSizes[sessionID] = size
-            } catch {
-                pendingResizeSizes.removeValue(forKey: sessionID)
-                present(error)
-                return
-            }
-
-            if pendingResizeSizes[sessionID] == size {
-                pendingResizeSizes.removeValue(forKey: sessionID)
-            }
-        }
     }
 
     func run(_ operation: () async throws -> Void) async {
