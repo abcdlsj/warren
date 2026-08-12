@@ -6,16 +6,14 @@ import BurrowStateStore
 import Foundation
 
 extension BurrowApplicationService {
-    /// Creates a Host session, persists its opaque runtime descriptor, and
-    /// exposes a disconnected tab projection. Attachment is a separate typed
-    /// operation so callers can choose when the Client view connects.
+    /// Creates a Host-owned Session. Client Tab creation is a separate layout
+    /// mutation performed by `addTab`, never a field on the Session record.
     @discardableResult
     public func createSession(
         workspaceID: WorkspaceID,
         launchCommand: String? = nil,
         kind: TerminalSessionKind = .shell,
-        title: String? = nil,
-        isTabVisible: Bool = true
+        title: String? = nil
     ) async throws -> TerminalSession {
         do {
             let session = try await withPersistenceMutation {
@@ -39,15 +37,14 @@ extension BurrowApplicationService {
                     terminalSize: TerminalSessionCoordinator.defaultTerminalSize,
                     runtimeAdoptionDescriptor: RuntimeDescriptorMapping.persisted(from: binding.descriptor),
                     kind: kind,
-                    title: resolvedTitle,
-                    isTabVisible: isTabVisible
+                    title: resolvedTitle
                 )
+                // TODO(G3): Runtime launch spec must replace this compatibility
+                // input path. Keeping it here temporarily avoids mixing layout
+                // ownership migration with the tmux adapter contract change.
                 if let launchCommand, !launchCommand.isEmpty {
                     let trimmed = launchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        // Give the freshly spawned shell a beat to reach its
-                        // prompt; otherwise the first Enter can be swallowed by
-                        // shell startup and the agent command stays unexecuted.
                         try await Task.sleep(for: .milliseconds(500))
                         try await runtime.write(
                             sessionID: binding.session.id,
@@ -66,8 +63,7 @@ extension BurrowApplicationService {
                     workspace: workspace,
                     descriptor: persisted.runtimeAdoptionDescriptor!,
                     title: resolvedTitle,
-                    kind: kind,
-                    isTabVisible: isTabVisible
+                    kind: kind
                 )
                 return binding.session
             }
@@ -81,7 +77,6 @@ extension BurrowApplicationService {
         }
     }
 
-    /// Compatibility composition API for the desktop tab bar.
     @discardableResult
     public func addTab(
         workspaceID: WorkspaceID,
@@ -95,12 +90,21 @@ extension BurrowApplicationService {
             kind: kind,
             title: title
         )
+        let tabID = tabID(for: session.id)
+        let resolvedTitle = state.terminalSessions.first(where: { $0.id == session.id })?.title
+            ?? kind.displayName
+        try await layoutStore.upsertTab(
+            ClientTab(id: tabID, title: resolvedTitle, sessionID: session.id, kind: kind),
+            workspaceID: workspaceID,
+            select: true,
+            in: windowID
+        )
         let attachmentID = try await attach(sessionID: session.id)
         try await requestControl(sessionID: session.id, attachmentID: attachmentID)
-        return tabID(for: session.id)
+        await publish()
+        return tabID
     }
 
-    /// Starts and attaches a session from a typed client launch request.
     @discardableResult
     public func addTab(
         workspaceID: WorkspaceID,
@@ -114,90 +118,97 @@ extension BurrowApplicationService {
         )
     }
 
-    public func closeTab(tabID: String) async throws {
-        guard let sessionID = connections.first(where: {
-            $0.value.tabID == tabID && $0.value.isTabVisible
-        })?.key else {
+    public func selectWorkspace(_ workspaceID: WorkspaceID) async throws {
+        try requireReady()
+        guard state.workspaces.contains(where: { $0.id == workspaceID }) else {
+            throw BurrowApplicationError.workspaceNotFound(workspaceID)
+        }
+        try await layoutStore.selectWorkspace(workspaceID, in: windowID)
+        let tabs = await layoutStore.window(id: windowID).workspaceView(for: workspaceID)?.tabs ?? []
+        for sessionID in tabs.compactMap(\.sessionID) {
+            await ensureSessionRestored(sessionID)
+        }
+        await publish()
+    }
+
+    public func selectTab(tabID: String, workspaceID: WorkspaceID) async throws {
+        try await layoutStore.selectTab(tabID, workspaceID: workspaceID, in: windowID)
+        if let sessionID = await layoutStore.window(id: windowID)
+            .workspaceView(for: workspaceID)?.tabs.first(where: { $0.id == tabID })?.sessionID {
+            await ensureSessionRestored(sessionID)
+            if let connection = connections[sessionID], connection.attachmentID == nil {
+                let attachmentID = try await attach(sessionID: sessionID)
+                try await requestControl(sessionID: sessionID, attachmentID: attachmentID)
+            }
+        }
+        await publish()
+    }
+
+    public func closeTab(tabID: String, workspaceID: WorkspaceID) async throws {
+        guard let sessionID = try await layoutStore.removeTab(
+            id: tabID,
+            workspaceID: workspaceID,
+            in: windowID
+        ) else {
             throw BurrowApplicationError.tabNotFound(tabID)
         }
         if let attachmentID = connections[sessionID]?.attachmentID {
             try await detach(sessionID: sessionID, attachmentID: attachmentID, reason: "tab_closed")
         }
-        guard var connection = connections[sessionID] else {
-            throw BurrowApplicationError.sessionNotFound(sessionID)
-        }
-        connection.isTabVisible = false
-        connections[sessionID] = connection
-        try? await persistTabVisibility(sessionID: sessionID, isVisible: false)
-        outputSnapshotCache.removeValue(forKey: sessionID)
-        invalidatedOutputSessions.remove(sessionID)
-        pendingOutputSessions.remove(sessionID)
-        // This deliberately leaves PersistedTerminalSession and the runtime
-        // alive. Closing a Client tab is never a kill operation.
+        clearClientCaches(for: sessionID)
         await publish()
     }
 
-    /// Reopens a durable terminal session in the local tab strip.
-    ///
-    /// Closing a tab only detaches its renderer. The Host session and tmux
-    /// runtime remain alive, so reopening reuses that session instead of
-    /// creating a second shell for the same workspace.
+    public func closeTabIfPresent(tabID: String, workspaceID: WorkspaceID) async throws {
+        do {
+            try await closeTab(tabID: tabID, workspaceID: workspaceID)
+        } catch BurrowApplicationError.tabNotFound {
+            return
+        }
+    }
+
+    public func closeTabs(in workspaceID: WorkspaceID, except tabID: String? = nil) async {
+        guard let removed = try? await layoutStore.removeTabs(
+            workspaceID: workspaceID,
+            except: tabID,
+            in: windowID
+        ) else { return }
+        for sessionID in removed {
+            if let attachmentID = connections[sessionID]?.attachmentID {
+                try? await detach(sessionID: sessionID, attachmentID: attachmentID, reason: "tab_closed")
+            }
+            clearClientCaches(for: sessionID)
+        }
+        await publish()
+    }
+
     @discardableResult
     public func openSession(sessionID: TerminalSessionID) async throws -> String {
         try requireReady()
-        await ensureSessionRestored(sessionID)
-        guard var connection = connections[sessionID] else {
+        guard let persisted = state.terminalSessions.first(where: { $0.id == sessionID }) else {
             throw BurrowApplicationError.sessionNotFound(sessionID)
         }
-        connection.isTabVisible = true
-        connections[sessionID] = connection
-        try? await persistTabVisibility(sessionID: sessionID, isVisible: true)
-
+        await ensureSessionRestored(sessionID)
+        guard let connection = connections[sessionID] else {
+            throw BurrowApplicationError.sessionNotFound(sessionID)
+        }
+        try await layoutStore.upsertTab(
+            ClientTab(
+                id: connection.tabID,
+                title: connection.title,
+                sessionID: sessionID,
+                kind: connection.kind
+            ),
+            workspaceID: persisted.workspaceID,
+            select: true,
+            in: windowID
+        )
         if connection.attachmentID == nil {
             let attachmentID = try await attach(sessionID: sessionID)
             try await requestControl(sessionID: sessionID, attachmentID: attachmentID)
-        } else {
-            await publish()
         }
+        await publish()
         return connection.tabID
-    }
-
-    /// Idempotent close used by event-driven shells.  A UI can receive a
-    /// stale close action while a previous snapshot is being reconciled; that
-    /// action should not turn into a visible error after the tab is already
-    /// gone.  The strict `closeTab(tabID:)` API remains available for callers
-    /// that need to diagnose a missing tab.
-    public func closeTabIfPresent(tabID: String) async throws {
-        guard connections.contains(where: {
-            $0.value.tabID == tabID && $0.value.isTabVisible
-        }) else {
-            return
-        }
-        do {
-            try await closeTab(tabID: tabID)
-        } catch BurrowApplicationError.tabNotFound {
-            // Another serialized close won the race between the lookup and
-            // the detach confirmation.  The requested end state is already
-            // true, so keep this operation idempotent.
-        }
-    }
-
-    public func closeTabs(except tabID: String? = nil) async {
-        let ids = connections.values.filter(\.isTabVisible).map(\.tabID).filter {
-            tabID == nil || $0 != tabID
-        }
-        for id in ids { try? await closeTab(tabID: id) }
-    }
-
-    /// Closes only the Client tabs presented by one workspace. Other
-    /// project/branch workspaces keep their open tabs and runtime ownership.
-    public func closeTabs(in workspaceID: WorkspaceID, except tabID: String? = nil) async {
-        let ids = connections.values.filter {
-            $0.workspaceID == workspaceID && $0.isTabVisible
-        }.map(\.tabID).filter {
-            tabID == nil || $0 != tabID
-        }
-        for id in ids { try? await closeTab(tabID: id) }
     }
 
     internal func insertConnection(
@@ -206,44 +217,29 @@ extension BurrowApplicationService {
         descriptor: RuntimeAdoptionDescriptor?,
         terminalSize: TerminalSize = TerminalSessionCoordinator.defaultTerminalSize,
         title: String? = nil,
-        kind: TerminalSessionKind = .shell,
-        isTabVisible: Bool = true
+        kind: TerminalSessionKind = .shell
     ) {
         guard connections[session.id] == nil else { return }
         connections[session.id] = SessionConnection(
             session: session,
             workspaceID: workspace.id,
             tabID: tabID(for: session.id),
-            isTabVisible: isTabVisible,
             terminalSize: terminalSize,
             descriptor: descriptor,
-            store: ClientSessionStore(
-                host: host,
-                sessionID: session.id,
-                clientID: clientID
-            ),
+            store: ClientSessionStore(host: host, sessionID: session.id, clientID: clientID),
             attachmentID: nil,
             title: title?.isEmpty == false ? title! : (workspace.name.isEmpty ? "Terminal" : workspace.name),
             kind: kind
         )
     }
 
-    private func persistTabVisibility(
-        sessionID: TerminalSessionID,
-        isVisible: Bool
-    ) async throws {
-        try await withPersistenceMutation {
-            guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
-                return
-            }
-            var candidate = state
-            candidate.terminalSessions[index].isTabVisible = isVisible
-            try await save(candidate)
-            state = candidate
-        }
-    }
-
     internal func tabID(for sessionID: TerminalSessionID) -> String {
         "session-\(sessionID.description)"
+    }
+
+    private func clearClientCaches(for sessionID: TerminalSessionID) {
+        outputSnapshotCache.removeValue(forKey: sessionID)
+        invalidatedOutputSessions.remove(sessionID)
+        pendingOutputSessions.remove(sessionID)
     }
 }

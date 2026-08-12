@@ -10,7 +10,6 @@ let package = Package(
     dependencies: [
         .package(path: "Packages/Desktop"),
         .package(path: "Packages/GhosttyAdapter"),
-        .package(path: "Packages/WebRelay"),
         .package(path: "Packages/Application"),
         .package(path: "Packages/TmuxRuntime"),
         .package(path: "Packages/StateStore"),
@@ -31,7 +30,6 @@ let package = Package(
                 .product(name: "BurrowClientCore", package: "ClientCore"),
                 .product(name: "BurrowProtocol", package: "Protocol"),
                 .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
-                .product(name: "WebRelay", package: "WebRelay"),
             ],
             path: "Sources/BurrowNext"
         ),

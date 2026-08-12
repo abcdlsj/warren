@@ -4,10 +4,12 @@ import BurrowStateStore
 
 extension BurrowApplicationService {
     internal func restorePersistedSessions() async {
-        // Desktop launch restores only tabs the user left open. Hidden
-        // sessions include closed tabs and headless CLI agents; eagerly
-        // recreating them turns historical state into dozens of new shells.
-        for persisted in state.terminalSessions where persisted.isTabVisible {
+        let openSessionIDs = Set(
+            await layoutStore.window(id: windowID).workspaceViews
+                .flatMap(\.tabs)
+                .compactMap(\.sessionID)
+        )
+        for persisted in state.terminalSessions where openSessionIDs.contains(persisted.id) {
             await restore(persisted, attachClient: true)
         }
     }
@@ -80,8 +82,7 @@ extension BurrowApplicationService {
                     descriptor: persisted.runtimeAdoptionDescriptor,
                     terminalSize: persisted.terminalSize,
                     title: persisted.title,
-                    kind: persisted.kind,
-                    isTabVisible: persisted.isTabVisible
+                    kind: persisted.kind
                 )
                 return
             }
@@ -101,8 +102,7 @@ extension BurrowApplicationService {
                 descriptor: nil,
                 terminalSize: persisted.terminalSize,
                 title: persisted.title,
-                kind: persisted.kind,
-                isTabVisible: persisted.isTabVisible
+                kind: persisted.kind
             )
             return
         }
@@ -115,8 +115,7 @@ extension BurrowApplicationService {
                 descriptor: persistedDescriptor,
                 terminalSize: persisted.terminalSize,
                 title: persisted.title,
-                kind: persisted.kind,
-                isTabVisible: persisted.isTabVisible
+                kind: persisted.kind
             )
             _ = try await coordinator.adoptSession(
                 restoredSession,

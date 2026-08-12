@@ -116,7 +116,7 @@ public struct BurrowApplicationSnapshot: Hashable, Sendable {
     public let projects: [Project]
     public let workspaces: [Workspace]
     public let sessions: [BurrowApplicationSession]
-    public let tabs: [ClientTab]
+    public let windowLayout: ClientWindowLayout
     public let issues: [BurrowApplicationIssue]
     public let lifecycle: BurrowApplicationLifecycle
 
@@ -125,7 +125,7 @@ public struct BurrowApplicationSnapshot: Hashable, Sendable {
         projects: [Project] = [],
         workspaces: [Workspace] = [],
         sessions: [BurrowApplicationSession] = [],
-        tabs: [ClientTab] = [],
+        windowLayout: ClientWindowLayout = BurrowApplicationDefaults.emptyWindowLayout,
         issues: [BurrowApplicationIssue] = [],
         lifecycle: BurrowApplicationLifecycle = .idle
     ) {
@@ -133,7 +133,7 @@ public struct BurrowApplicationSnapshot: Hashable, Sendable {
         self.projects = projects
         self.workspaces = workspaces
         self.sessions = sessions
-        self.tabs = tabs
+        self.windowLayout = windowLayout
         self.issues = issues
         self.lifecycle = lifecycle
     }
@@ -160,15 +160,12 @@ public struct BurrowApplicationSnapshot: Hashable, Sendable {
         sessions.filter { $0.workspaceID == workspaceID }
     }
 
-    /// Returns the visible tabs whose backing sessions belong to a workspace.
-    /// Tabs are derived from the session projection and therefore stay aligned
-    /// with `sessions(in:)` after a close or reconnect event.
     public func tabs(in workspaceID: WorkspaceID) -> [ClientTab] {
-        let sessionIDs = Set(sessions(in: workspaceID).map(\.id))
-        return tabs.filter { tab in
-            guard let sessionID = tab.sessionID else { return false }
-            return sessionIDs.contains(sessionID)
-        }
+        windowLayout.workspaceView(for: workspaceID)?.tabs ?? []
+    }
+
+    public var activeWorkspaceView: ClientWorkspaceView? {
+        windowLayout.activeWorkspaceView
     }
 }
 
@@ -181,6 +178,12 @@ public enum BurrowApplicationDefaults {
     public static let localClientID = ClientID(
         rawValue: UUID(uuidString: "A0000000-0000-4000-8000-000000000010")!
     )
+
+    public static let mainWindowID = ClientWindowID(
+        rawValue: UUID(uuidString: "A0000000-0000-4000-8000-000000000011")!
+    )
+
+    public static let emptyWindowLayout = ClientWindowLayout(id: mainWindowID)!
 
     public static func stateDatabaseURL(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)

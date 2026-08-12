@@ -12,10 +12,6 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
     public var runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor?
     public var kind: TerminalSessionKind
     public var title: String?
-    /// Device-local tab visibility survives restarts so a long-lived Host
-    /// history (CLI-created agents, background bridges) never floods the tab
-    /// strip after an App relaunch.
-    public var isTabVisible: Bool
 
     public init(
         id: TerminalSessionID = TerminalSessionID(),
@@ -26,8 +22,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         terminalSize: TerminalSize,
         runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor? = nil,
         kind: TerminalSessionKind = .shell,
-        title: String? = nil,
-        isTabVisible: Bool = true
+        title: String? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -38,7 +33,6 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         self.runtimeAdoptionDescriptor = runtimeAdoptionDescriptor
         self.kind = kind
         self.title = title
-        self.isTabVisible = isTabVisible
     }
 
     /// Reconstructs the domain session while keeping runtime details at the
@@ -62,7 +56,6 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         case runtimeAdoptionDescriptor
         case kind
         case title
-        case isTabVisible
     }
 
     public init(from decoder: Decoder) throws {
@@ -92,10 +85,6 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
             forKey: .kind
         ) ?? .shell
         title = try container.decodeIfPresent(String.self, forKey: .title)
-        isTabVisible = try container.decodeIfPresent(
-            Bool.self,
-            forKey: .isTabVisible
-        ) ?? true
     }
 
     private struct SizePayload: Decodable {

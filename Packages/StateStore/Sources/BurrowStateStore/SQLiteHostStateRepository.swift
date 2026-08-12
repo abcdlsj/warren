@@ -1,3 +1,4 @@
+import BurrowClientCore
 import BurrowDomain
 import Foundation
 import GRDB
@@ -9,7 +10,7 @@ import GRDB
 /// queryable Host resource. Saving replaces one complete application snapshot
 /// in a single transaction, preserving the current repository contract while
 /// the application migrates to finer-grained commands.
-public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommitting {
+public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommitting, ClientLayoutRepository {
     public let databaseURL: URL
     private let database: DatabaseQueue
 
@@ -91,7 +92,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     sql: """
                     SELECT s.id, s.workspace_id, s.epoch, s.sequence,
                            s.working_directory, s.columns, s.rows, s.kind,
-                           s.title, s.is_tab_visible,
+                           s.title,
                            r.adapter, r.runtime_identifier, r.metadata_json
                     FROM terminal_sessions s
                     LEFT JOIN runtime_bindings r ON r.session_id = s.id
@@ -175,8 +176,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         terminalSize: terminalSize,
                         runtimeAdoptionDescriptor: descriptor,
                         kind: kind,
-                        title: row["title"],
-                        isTabVisible: row["is_tab_visible"]
+                        title: row["title"]
                     )
                 }
 
@@ -252,8 +252,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         sql: """
                         INSERT INTO terminal_sessions (
                             id, workspace_id, epoch, sequence, working_directory,
-                            columns, rows, kind, title, is_tab_visible, lifecycle
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')
+                            columns, rows, kind, title, lifecycle
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')
                         """,
                         arguments: [
                             session.id.description,
@@ -265,7 +265,6 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             session.terminalSize.rows,
                             session.kind.rawValue,
                             session.title,
-                            session.isTabVisible,
                         ]
                     )
                     if let descriptor = session.runtimeAdoptionDescriptor {
@@ -473,6 +472,188 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         }
     }
 
+    public func loadClientLayout(
+        clientID: ClientID,
+        defaultWindowID: ClientWindowID
+    ) async throws -> ClientLayoutSnapshot {
+        do {
+            return try await database.read { database in
+                let windowRows = try Row.fetchAll(
+                    database,
+                    sql: """
+                    SELECT id, sidebar_width, sidebar_collapsed, window_width,
+                           window_height, active_workspace_id
+                    FROM client_windows
+                    WHERE client_id = ?
+                    ORDER BY updated_at, id
+                    """,
+                    arguments: [clientID.description]
+                )
+                if windowRows.isEmpty {
+                    return ClientLayoutSnapshot(clientID: clientID)
+                }
+                let windows = try windowRows.map { row -> ClientWindowLayout in
+                    let windowID: ClientWindowID = try Self.domainID(
+                        row: row, table: "client_windows", column: "id"
+                    )
+                    let activeWorkspaceID: WorkspaceID? = try Self.optionalDomainID(
+                        row: row, table: "client_windows", column: "active_workspace_id"
+                    )
+                    let width: Double? = row["window_width"]
+                    let height: Double? = row["window_height"]
+                    let windowSize = width.flatMap { width in
+                        height.flatMap { LayoutSize(width: width, height: $0) }
+                    }
+                    let viewRows = try Row.fetchAll(
+                        database,
+                        sql: """
+                        SELECT workspace_id, active_tab_id
+                        FROM workspace_views
+                        WHERE window_id = ?
+                        ORDER BY position, updated_at, workspace_id
+                        """,
+                        arguments: [windowID.description]
+                    )
+                    let views = try viewRows.map { viewRow -> ClientWorkspaceView in
+                        let workspaceID: WorkspaceID = try Self.domainID(
+                            row: viewRow, table: "workspace_views", column: "workspace_id"
+                        )
+                        let tabs = try Row.fetchAll(
+                            database,
+                            sql: """
+                            SELECT t.id, t.session_id, s.title, s.kind
+                            FROM tabs t
+                            JOIN terminal_sessions s ON s.id = t.session_id
+                            WHERE t.window_id = ? AND t.workspace_id = ?
+                            ORDER BY t.position, t.created_at, t.id
+                            """,
+                            arguments: [windowID.description, workspaceID.description]
+                        ).map { tabRow -> ClientTab in
+                            let kindValue: String = tabRow["kind"]
+                            guard let kind = TerminalSessionKind(rawValue: kindValue) else {
+                                throw HostStateRepositoryError.invalidDatabaseValue(
+                                    table: "tabs", column: "kind", value: kindValue
+                                )
+                            }
+                            let sessionID: TerminalSessionID = try Self.domainID(
+                                row: tabRow, table: "tabs", column: "session_id"
+                            )
+                            return ClientTab(
+                                id: tabRow["id"],
+                                title: (tabRow["title"] as String?) ?? kind.displayName,
+                                sessionID: sessionID,
+                                kind: kind
+                            )
+                        }
+                        return ClientWorkspaceView(
+                            workspaceID: workspaceID,
+                            tabs: tabs,
+                            activeTabID: viewRow["active_tab_id"]
+                        )
+                    }
+                    guard let window = ClientWindowLayout(
+                        id: windowID,
+                        sidebarWidth: row["sidebar_width"],
+                        sidebarCollapsed: row["sidebar_collapsed"],
+                        windowSize: windowSize,
+                        activeWorkspaceID: activeWorkspaceID,
+                        workspaceViews: views
+                    ) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "client_windows", column: "sidebar_width", value: "invalid"
+                        )
+                    }
+                    return window
+                }
+                return ClientLayoutSnapshot(clientID: clientID, windows: windows)
+            }
+        } catch let error as HostStateRepositoryError {
+            throw error
+        } catch {
+            throw HostStateRepositoryError.databaseReadFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
+    public func saveClientLayout(_ layout: ClientLayoutSnapshot) async throws {
+        do {
+            try await database.write { database in
+                let existingWindowIDs = try String.fetchAll(
+                    database,
+                    sql: "SELECT id FROM client_windows WHERE client_id = ?",
+                    arguments: [layout.clientID.description]
+                )
+                for windowID in existingWindowIDs {
+                    try database.execute(
+                        sql: "DELETE FROM client_windows WHERE id = ?",
+                        arguments: [windowID]
+                    )
+                }
+                for window in layout.windows {
+                    try database.execute(
+                        sql: """
+                        INSERT INTO client_windows (
+                            id, client_id, sidebar_width, sidebar_collapsed,
+                            window_width, window_height, active_workspace_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        arguments: [
+                            window.id.description,
+                            layout.clientID.description,
+                            window.sidebarWidth,
+                            window.sidebarCollapsed,
+                            window.windowSize?.width,
+                            window.windowSize?.height,
+                            window.activeWorkspaceID?.description,
+                        ]
+                    )
+                    for (viewPosition, view) in window.workspaceViews.enumerated() {
+                        let validActiveTabID = view.tabs.contains(where: { $0.id == view.activeTabID })
+                            ? view.activeTabID
+                            : nil
+                        try database.execute(
+                            sql: """
+                            INSERT INTO workspace_views (
+                                window_id, workspace_id, active_tab_id, position
+                            ) VALUES (?, ?, ?, ?)
+                            """,
+                            arguments: [
+                                window.id.description,
+                                view.workspaceID.description,
+                                validActiveTabID,
+                                viewPosition,
+                            ]
+                        )
+                        for (position, tab) in view.tabs.enumerated() {
+                            guard let sessionID = tab.sessionID else { continue }
+                            try database.execute(
+                                sql: """
+                                INSERT INTO tabs (
+                                    id, window_id, workspace_id, session_id, position
+                                ) VALUES (?, ?, ?, ?, ?)
+                                """,
+                                arguments: [
+                                    tab.id,
+                                    window.id.description,
+                                    view.workspaceID.description,
+                                    sessionID.description,
+                                    position,
+                                ]
+                            )
+                        }
+                    }
+                }
+            }
+        } catch {
+            throw HostStateRepositoryError.databaseWriteFailed(
+                path: databaseURL.path,
+                reason: String(describing: error)
+            )
+        }
+    }
+
     private static let migrator: DatabaseMigrator = {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1_resource_authority") { database in
@@ -544,6 +725,73 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                 table.column("completed_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
             }
         }
+        migrator.registerMigration("v2_client_layout_authority") { database in
+            try database.create(table: "client_windows") { table in
+                table.column("id", .text).primaryKey()
+                table.column("client_id", .text).notNull()
+                table.column("sidebar_width", .double).notNull().defaults(to: 240)
+                table.column("sidebar_collapsed", .boolean).notNull().defaults(to: false)
+                table.column("window_width", .double)
+                table.column("window_height", .double)
+                table.column("active_workspace_id", .text)
+                    .references("workspaces", onDelete: .setNull)
+                table.column("updated_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+            }
+            try database.create(table: "workspace_views") { table in
+                table.column("window_id", .text).notNull()
+                    .references("client_windows", onDelete: .cascade)
+                table.column("workspace_id", .text).notNull()
+                    .references("workspaces", onDelete: .cascade)
+                table.column("active_tab_id", .text)
+                table.column("position", .integer).notNull().defaults(to: 0)
+                table.column("updated_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.primaryKey(["window_id", "workspace_id"])
+                table.uniqueKey(["window_id", "position"])
+            }
+            try database.create(table: "tabs") { table in
+                table.column("id", .text).notNull()
+                table.column("window_id", .text).notNull()
+                    .references("client_windows", onDelete: .cascade)
+                table.column("workspace_id", .text).notNull()
+                    .references("workspaces", onDelete: .cascade)
+                table.column("session_id", .text).notNull()
+                    .references("terminal_sessions", onDelete: .cascade)
+                table.column("position", .integer).notNull().check { $0 >= 0 }
+                table.column("created_at", .datetime).notNull().defaults(sql: "CURRENT_TIMESTAMP")
+                table.primaryKey(["window_id", "id"])
+                table.uniqueKey(["window_id", "workspace_id", "session_id"])
+                table.uniqueKey(["window_id", "workspace_id", "position"])
+            }
+            try database.create(
+                index: "tabs_workspace_session_guard",
+                on: "tabs",
+                columns: ["workspace_id", "session_id"]
+            )
+            try database.execute(sql: """
+                CREATE TRIGGER tabs_workspace_matches_session_insert
+                BEFORE INSERT ON tabs
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM terminal_sessions s
+                    WHERE s.id = NEW.session_id
+                      AND s.workspace_id = NEW.workspace_id
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'tab workspace does not match session workspace');
+                END
+                """)
+            try database.execute(sql: """
+                CREATE TRIGGER tabs_workspace_matches_session_update
+                BEFORE UPDATE OF workspace_id, session_id ON tabs
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM terminal_sessions s
+                    WHERE s.id = NEW.session_id
+                      AND s.workspace_id = NEW.workspace_id
+                )
+                BEGIN
+                    SELECT RAISE(ABORT, 'tab workspace does not match session workspace');
+                END
+                """)
+        }
         return migrator
     }()
 
@@ -557,6 +805,22 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         column: String
     ) throws -> DomainID<Tag> {
         let value: String = row[column]
+        guard let id = DomainID<Tag>(uuidString: value) else {
+            throw HostStateRepositoryError.invalidDatabaseValue(
+                table: table,
+                column: column,
+                value: value
+            )
+        }
+        return id
+    }
+
+    private static func optionalDomainID<Tag: Sendable>(
+        row: Row,
+        table: String,
+        column: String
+    ) throws -> DomainID<Tag>? {
+        guard let value: String = row[column] else { return nil }
         guard let id = DomainID<Tag>(uuidString: value) else {
             throw HostStateRepositoryError.invalidDatabaseValue(
                 table: table,

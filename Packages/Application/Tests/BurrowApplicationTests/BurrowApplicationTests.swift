@@ -52,7 +52,7 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertEqual(snapshot.projects.map(\.name), ["Imported"])
         XCTAssertEqual(snapshot.workspaces.map(\.name), ["main"])
         XCTAssertTrue(snapshot.sessions.isEmpty)
-        XCTAssertTrue(snapshot.tabs.isEmpty)
+        XCTAssertTrue(snapshot.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
         let runtimeRecords = await runtime.allRecords()
         XCTAssertTrue(runtimeRecords.isEmpty)
     }
@@ -212,10 +212,7 @@ final class BurrowApplicationTests: XCTestCase {
         let projectedSession = try XCTUnwrap(projected.session(id: session.id))
         XCTAssertEqual(projectedSession.kind, .codex)
         XCTAssertEqual(projectedSession.title, "Codex")
-        XCTAssertEqual(
-            projected.tabs.first { $0.sessionID == session.id }?.kind,
-            .codex
-        )
+        XCTAssertTrue(projected.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
     }
 
     func testRestoreRecreatesMissingRuntimeAndAttaches() async throws {
@@ -257,9 +254,11 @@ final class BurrowApplicationTests: XCTestCase {
         let service = BurrowApplicationService(repository: repository, runtime: runtime)
         try await service.start()
 
-        let snapshot = await service.snapshot()
-        let session = try XCTUnwrap(snapshot.session(id: sessionID))
-        XCTAssertEqual(session.connectionState, .attached)
+        var snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
+        _ = try await service.openSession(sessionID: sessionID)
+        snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .attached)
         let existsAfter = await runtime.exists(sessionID: sessionID)
         XCTAssertTrue(existsAfter)
     }
@@ -284,8 +283,7 @@ final class BurrowApplicationTests: XCTestCase {
                 identifier: sessionID.description,
                 metadata: ["workingDirectory": folder.path]
             ),
-            title: "Background CLI",
-            isTabVisible: false
+            title: "Background CLI"
         )
         try await repository.save(PersistedHostState(
             hosts: [host],
@@ -301,7 +299,7 @@ final class BurrowApplicationTests: XCTestCase {
         let runtimeExists = await runtime.exists(sessionID: sessionID)
         XCTAssertEqual(snapshot.sessions.map(\.id), [sessionID])
         XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
-        XCTAssertTrue(snapshot.tabs.isEmpty)
+        XCTAssertTrue(snapshot.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
         XCTAssertFalse(runtimeExists)
     }
 
@@ -325,8 +323,7 @@ final class BurrowApplicationTests: XCTestCase {
                 identifier: sessionID.description,
                 metadata: ["workingDirectory": folder.path]
             ),
-            title: "Background CLI",
-            isTabVisible: false
+            title: "Background CLI"
         )
         try await repository.save(PersistedHostState(
             hosts: [host],
@@ -341,7 +338,7 @@ final class BurrowApplicationTests: XCTestCase {
 
         let snapshot = await service.snapshot()
         let runtimeExists = await runtime.exists(sessionID: sessionID)
-        XCTAssertEqual(snapshot.tabs.map(\.id), [tabID])
+        XCTAssertEqual(snapshot.tabs(in: workspace.id).map(\.id), [tabID])
         XCTAssertEqual(snapshot.sessions.map(\.id), [sessionID])
         XCTAssertTrue(runtimeExists)
         XCTAssertNotNil(snapshot.session(id: sessionID)?.attachmentID)
@@ -376,10 +373,8 @@ final class BurrowApplicationTests: XCTestCase {
         let firstWorkingDirectory = await runtime.record(first.id)?.descriptor.metadata["workingDirectory"]
         let secondWorkingDirectory = await runtime.record(second.id)?.descriptor.metadata["workingDirectory"]
 
-        XCTAssertEqual(afterTabs.tabs.map(\.id), [
-            firstTabID,
-            secondTabID,
-        ])
+        XCTAssertEqual(afterTabs.tabs(in: firstWorkspace.id).map(\.id), [firstTabID])
+        XCTAssertEqual(afterTabs.tabs(in: secondWorkspace.id).map(\.id), [secondTabID])
         XCTAssertEqual(afterTabs.sessions.map(\.workspaceID), [
             firstWorkspace.id,
             secondWorkspace.id,
@@ -418,9 +413,9 @@ final class BurrowApplicationTests: XCTestCase {
         let second = try XCTUnwrap(created.sessions.first { $0.tabID == secondTabID })
         let third = try XCTUnwrap(created.sessions.first { $0.tabID == thirdTabID })
 
-        await service.closeTabs(except: second.tabID)
+        await service.closeTabs(in: workspace.id, except: second.tabID)
         let afterOthers = await service.snapshot()
-        XCTAssertEqual(afterOthers.tabs.map(\.id), [secondTabID])
+        XCTAssertEqual(afterOthers.tabs(in: workspace.id).map(\.id), [secondTabID])
         XCTAssertEqual(afterOthers.sessions.map(\.id), sessions)
         XCTAssertEqual(
             afterOthers.session(id: first.id)?.connectionState,
@@ -435,10 +430,10 @@ final class BurrowApplicationTests: XCTestCase {
         }
 
         // A stale close event is an idempotent no-op for the composition root.
-        try await service.closeTabIfPresent(tabID: first.tabID)
-        await service.closeTabs()
+        try await service.closeTabIfPresent(tabID: first.tabID, workspaceID: workspace.id)
+        await service.closeTabs(in: workspace.id)
         let afterAll = await service.snapshot()
-        XCTAssertTrue(afterAll.tabs.isEmpty)
+        XCTAssertTrue(afterAll.tabs(in: workspace.id).isEmpty)
         XCTAssertEqual(afterAll.sessions.map(\.id), sessions)
         let firstAlive = await runtime.exists(sessionID: first.id)
         let secondAlive = await runtime.exists(sessionID: second.id)
@@ -455,7 +450,7 @@ final class BurrowApplicationTests: XCTestCase {
         let reopenedTabID = try await service.openSession(sessionID: first.id)
         let reopened = await service.snapshot()
         XCTAssertEqual(reopenedTabID, firstTabID)
-        XCTAssertEqual(reopened.tabs.map(\.id), [firstTabID])
+        XCTAssertEqual(reopened.tabs(in: workspace.id).map(\.id), [firstTabID])
         XCTAssertEqual(reopened.session(id: first.id)?.connectionState, .attached)
     }
 
@@ -686,6 +681,7 @@ final class BurrowApplicationTests: XCTestCase {
 
         let second = makeService(repository: repository, runtime: runtime)
         try await second.start()
+        _ = try await second.openSession(sessionID: created.id)
         let restored = try await nextSnapshot(from: await second.snapshots()) {
             guard let session = $0.session(id: created.id) else { return false }
             return session.connectionState == .attached &&

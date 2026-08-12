@@ -6,7 +6,7 @@ import BurrowDomain
 /// represented by BurrowDomain's strong identifiers.  Device-local layout and
 /// connection-scoped control state do not belong here.
 public struct PersistedHostState: Codable, Hashable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public var schemaVersion: Int
     public var hosts: [Host]

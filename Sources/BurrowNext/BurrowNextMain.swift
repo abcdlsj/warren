@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import BurrowDesktop
-import WebRelay
 
 /// AppKit bootstrap for the macOS app.
 ///
@@ -105,11 +104,6 @@ private final class BurrowNextAppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: Notification.Name(rawValue), object: nil)
     }
 
-    @objc private func openWebAccess() {
-        guard let url = WebRelayServer.webPageURLWithToken else { return }
-        NSWorkspace.shared.open(url)
-    }
-
     private static func buildMainMenu(target: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
 
@@ -136,46 +130,6 @@ private final class BurrowNextAppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(BurrowNextAppDelegate.postCommand(_:)),
             keyEquivalent: "k"
         ).target = target
-        sessionMenu.addItem(
-            withTitle: "Open Web Access…",
-            action: #selector(BurrowNextAppDelegate.openWebAccess),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Start Web Tunnel (cloudflared)",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Stop Web Tunnel",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Copy Web URL",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Start Tailscale Tunnel",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Stop Tailscale Tunnel",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Start Tailscale Funnel",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
-        sessionMenu.addItem(
-            withTitle: "Stop Tailscale Funnel",
-            action: #selector(BurrowNextAppDelegate.postCommand(_:)),
-            keyEquivalent: ""
-        ).target = target
         sessionMenu.addItem(.separator())
         sessionMenu.addItem(
             withTitle: "Toggle Sidebar",
@@ -187,14 +141,7 @@ private final class BurrowNextAppDelegate: NSObject, NSApplicationDelegate {
         newSessionItem?.representedObject = BurrowDesktopCommand.newSession.rawValue
         let paletteItem = sessionMenu.item(at: 1)
         paletteItem?.representedObject = BurrowDesktopCommand.commandPalette.rawValue
-        sessionMenu.item(at: 3)?.representedObject = WebRelayServer.startTunnel.rawValue
-        sessionMenu.item(at: 4)?.representedObject = WebRelayServer.stopTunnel.rawValue
-        sessionMenu.item(at: 5)?.representedObject = WebRelayServer.copyWebURL.rawValue
-        sessionMenu.item(at: 6)?.representedObject = WebRelayServer.startTailscale.rawValue
-        sessionMenu.item(at: 7)?.representedObject = WebRelayServer.stopTailscale.rawValue
-        sessionMenu.item(at: 8)?.representedObject = WebRelayServer.startFunnel.rawValue
-        sessionMenu.item(at: 9)?.representedObject = WebRelayServer.stopFunnel.rawValue
-        let sidebarItem = sessionMenu.item(at: 11)
+        let sidebarItem = sessionMenu.item(at: 3)
         sidebarItem?.representedObject = BurrowDesktopCommand.toggleSidebar.rawValue
 
         sessionMenuItem.submenu = sessionMenu

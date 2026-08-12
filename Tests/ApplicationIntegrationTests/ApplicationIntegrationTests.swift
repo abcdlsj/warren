@@ -59,6 +59,7 @@ final class ApplicationIntegrationTests: XCTestCase {
         let secondRuntime = TmuxRuntime(outputDirectory: outputURL)
         let secondService = BurrowApplicationService(repository: repository, runtime: secondRuntime)
         try await secondService.start()
+        _ = try await secondService.openSession(sessionID: created.id)
         let restored = try await snapshot(from: secondService, sessionID: created.id) {
             $0.connectionState == .attached &&
                 $0.output?.frames.contains { $0.payload.range(of: Data(marker.utf8)) != nil } == true

@@ -250,25 +250,13 @@ extension BurrowApplicationService {
             ))
         }
 
-        let visibleSessionIDs = Set(
-            sorted.lazy.filter(\.isTabVisible).map { $0.session.id }
-        )
-        let tabs = Array(sessions.lazy.filter {
-            visibleSessionIDs.contains($0.id)
-        }.map {
-            ClientTab(
-                id: $0.tabID,
-                title: $0.title,
-                sessionID: $0.id,
-                kind: $0.kind
-            )
-        })
+        let windowLayout = await layoutStore.window(id: windowID)
         return BurrowApplicationSnapshot(
             host: host,
             projects: state.projects,
             workspaces: state.workspaces,
             sessions: sessions,
-            tabs: tabs,
+            windowLayout: windowLayout,
             issues: issues,
             lifecycle: lifecycle
         )

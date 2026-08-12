@@ -9,7 +9,6 @@ import GhosttyAdapter
 import BurrowProtocol
 import BurrowStateStore
 import BurrowTmuxRuntime
-import WebRelay
 
 @MainActor
 @Observable
@@ -22,8 +21,6 @@ final class BurrowNextApplicationModel {
 
     @ObservationIgnored private let service: BurrowApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
-    @ObservationIgnored private var webRelay: WebRelayServer?
-    @ObservationIgnored private var webCommandObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     @ObservationIgnored private var pendingResizeSizes: [TerminalSessionID: TerminalSize] = [:]
     @ObservationIgnored private var appliedResizeSizes: [TerminalSessionID: TerminalSize] = [:]
@@ -74,7 +71,8 @@ final class BurrowNextApplicationModel {
                 detail: "\($0.detail)\n\n\($0.recoverySuggestion)"
             )
         }
-        let visibleSessionIDs = Set(snapshot.tabs.compactMap(\.sessionID))
+        let tabs = snapshot.windowLayout.workspaceViews.flatMap(\.tabs)
+        let visibleSessionIDs = Set(tabs.compactMap(\.sessionID))
         let visibleSessions = snapshot.sessions.filter {
             visibleSessionIDs.contains($0.id)
         }
@@ -95,7 +93,7 @@ final class BurrowNextApplicationModel {
                     state: Self.desktopSessionState(for: session.connectionState)
                 )
             },
-            tabs: snapshot.tabs,
+            tabs: tabs,
             sessionWorkspaceIDs: workspaceIDs,
             inspector: inspector,
             connectionState: desktopConnectionState
@@ -114,7 +112,6 @@ final class BurrowNextApplicationModel {
         }
         do {
             try await service.start()
-            startWebRelay()
         } catch {
             present(error)
         }
@@ -130,7 +127,6 @@ final class BurrowNextApplicationModel {
             task.cancel()
         }
         workspaceActionTasks.removeAll()
-        stopWebRelay()
         surfaces.removeAll()
         mountedSurfaces.removeAll()
         for task in resizeTasks.values {
@@ -201,6 +197,12 @@ final class BurrowNextApplicationModel {
             break
         }
 
+        if action.requiresClientLayoutSideEffect {
+            Task { @MainActor [weak self] in
+                await self?.performClientLayout(action)
+            }
+        }
+
         guard action.requiresHostSideEffect else { return }
         guard let workspaceID = workspaceID(for: action) else { return }
         enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
@@ -217,82 +219,6 @@ final class BurrowNextApplicationModel {
         present(error)
     }
 
-    func startWebRelay() {
-        guard webRelay == nil else { return }
-        let relay = WebRelayServer(service: service)
-        relay.start()
-        webRelay = relay
-        if ProcessInfo.processInfo.environment["BURROW_START_TUNNEL"] == "1" {
-            relay.startTunnel()
-        }
-        if ProcessInfo.processInfo.environment["BURROW_START_TAILSCALE"] == "1" {
-            Task { await relay.startTailscale() }
-        }
-        if ProcessInfo.processInfo.environment["BURROW_START_FUNNEL"] == "1" {
-            Task { await relay.startFunnel() }
-        }
-        let center = NotificationCenter.default
-        webCommandObservers = [
-            center.addObserver(
-                forName: WebRelayServer.startTunnel,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in self?.webRelay?.startTunnel() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.stopTunnel,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in self?.webRelay?.stopTunnel() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.copyWebURL,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in self?.copyWebURL() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.startTailscale,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in await self?.webRelay?.startTailscale() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.stopTailscale,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in await self?.webRelay?.stopTailscale() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.startFunnel,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in await self?.webRelay?.startFunnel() }
-            },
-            center.addObserver(
-                forName: WebRelayServer.stopFunnel,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in await self?.webRelay?.stopFunnel() }
-            },
-        ]
-    }
-
-    func stopWebRelay() {
-        for observer in webCommandObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        webCommandObservers.removeAll()
-        webRelay?.stop()
-        webRelay = nil
-    }
 
     func enqueueWorkspaceAction(
         workspaceID: WorkspaceID,
@@ -324,20 +250,6 @@ final class BurrowNextApplicationModel {
         }
     }
 
-    private func copyWebURL() {
-        guard let relay = webRelay else { return }
-        let url: URL?
-        if let host = relay.tunnelURL?.host
-            ?? relay.tailscaleURL?.host
-            ?? relay.funnelURL?.host {
-            url = WebRelayServer.webPageDataURL(host: host)
-        } else {
-            url = WebRelayServer.webPageURL(host: nil)
-        }
-        guard let url else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
 }
 
 private extension BurrowNextApplicationModel {
@@ -349,7 +261,10 @@ private extension BurrowNextApplicationModel {
             // Close actions are generated from a value snapshot.  Treat a
             // stale action as a successful no-op so a rapid double-click does
             // not surface an error inspector.
-            await run { try await service.closeTabIfPresent(tabID: tabID) }
+            guard let workspaceID = workspaceID(forTabID: tabID) else { return }
+            await run {
+                try await service.closeTabIfPresent(tabID: tabID, workspaceID: workspaceID)
+            }
         case .closeOtherTabs(let tabID):
             guard let workspaceID = workspaceID(forTabID: tabID) else { return }
             await service.closeTabs(in: workspaceID, except: tabID)
@@ -375,6 +290,27 @@ private extension BurrowNextApplicationModel {
         case .addProject, .importSuperset, .selectProject, .selectWorkspace, .selectTab,
              .toggleInspector, .toggleSidebar:
             break
+        }
+    }
+
+    func performClientLayout(_ action: BurrowDesktopAction) async {
+        do {
+            switch action {
+            case .selectWorkspace(let workspaceID):
+                try await service.selectWorkspace(workspaceID)
+            case .selectProject(let projectID):
+                if let workspaceID = desktopProjection.firstWorkspace(in: projectID)?.id {
+                    try await service.selectWorkspace(workspaceID)
+                }
+            case .selectTab(let tabID):
+                if let workspaceID = workspaceID(forTabID: tabID) {
+                    try await service.selectTab(tabID: tabID, workspaceID: workspaceID)
+                }
+            default:
+                return
+            }
+        } catch {
+            present(error)
         }
     }
 
@@ -642,6 +578,10 @@ private extension BurrowNextApplicationModel {
     }
 
     func selectCreatedTab(_ tabID: String, workspaceID: WorkspaceID) {
+        // A launch captures its destination Workspace. If the user navigated
+        // elsewhere while tmux was starting, keep the new Tab in its original
+        // Workspace View without stealing the current screen.
+        guard selectedWorkspaceID == workspaceID else { return }
         navigation = BurrowDesktopNavigationState(
             selection: .workspace(workspaceID),
             selectedTabID: tabID
@@ -681,6 +621,15 @@ private extension BurrowDesktopAction {
             true
         case .addProject, .importSuperset, .requestNewSession, .selectProject,
              .selectWorkspace, .selectTab, .toggleInspector, .toggleSidebar:
+            false
+        }
+    }
+
+    var requiresClientLayoutSideEffect: Bool {
+        switch self {
+        case .selectProject, .selectWorkspace, .selectTab:
+            true
+        default:
             false
         }
     }

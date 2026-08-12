@@ -16,7 +16,6 @@ public actor BurrowApplicationService {
         var session: TerminalSession
         let workspaceID: WorkspaceID
         let tabID: String
-        var isTabVisible: Bool
         var terminalSize: TerminalSize
         let descriptor: RuntimeAdoptionDescriptor?
         let store: ClientSessionStore
@@ -46,6 +45,8 @@ public actor BurrowApplicationService {
     internal let coordinator: TerminalSessionCoordinator
     internal let transport: InProcessHostTransport
     internal let persistenceGate = BurrowApplicationPersistenceGate()
+    internal let layoutStore: ClientLayoutStore
+    internal let windowID: ClientWindowID
 
     internal var state: PersistedHostState = .empty
     internal var host: BurrowDomain.Host = BurrowApplicationDefaults.localHost
@@ -90,6 +91,12 @@ public actor BurrowApplicationService {
             : hostName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.clock = clock
         self.gitMetadataReader = gitMetadataReader
+        self.windowID = BurrowApplicationDefaults.mainWindowID
+        self.layoutStore = try! ClientLayoutStore(
+            clientID: clientID,
+            defaultWindowID: BurrowApplicationDefaults.mainWindowID,
+            repository: repository as? any ClientLayoutRepository
+        )
         let coordinator = TerminalSessionCoordinator(runtime: runtime, clock: clock)
         self.coordinator = coordinator
         self.transport = InProcessHostTransport(coordinator: coordinator)
@@ -145,6 +152,7 @@ public actor BurrowApplicationService {
             state = loaded
             host = resolvedHost
             if changed || didMigrate { try await save(loaded) }
+            try await layoutStore.start()
             startEventLoop()
             await restorePersistedSessions()
             lifecycle = .ready
@@ -158,22 +166,12 @@ public actor BurrowApplicationService {
         }
     }
 
-    /// Schema 1 stored every durable session with an implicit open tab. After
-    /// the first upgrade, only the most recent sessions stay open so a long
-    /// automation history cannot flood the tab strip. Schema 2 persists the
-    /// visibility flag explicitly from then on.
     private func migrateSchemaIfNeeded(
         _ state: inout PersistedHostState,
         didMigrate: inout Bool
     ) {
-        guard state.schemaVersion < 2 else { return }
-        let maxVisibleTabs = 8
-        let visible = Set(state.terminalSessions.suffix(maxVisibleTabs).map(\.id))
-        for index in state.terminalSessions.indices {
-            state.terminalSessions[index].isTabVisible =
-                visible.contains(state.terminalSessions[index].id)
-        }
-        state.schemaVersion = 2
+        guard state.schemaVersion < PersistedHostState.currentSchemaVersion else { return }
+        state.schemaVersion = PersistedHostState.currentSchemaVersion
         didMigrate = true
     }
 

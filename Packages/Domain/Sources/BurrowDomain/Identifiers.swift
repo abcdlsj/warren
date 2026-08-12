@@ -50,6 +50,7 @@ public enum WorkspaceIDTag: Sendable {}
 public enum TerminalSessionIDTag: Sendable {}
 public enum TerminalAttachmentIDTag: Sendable {}
 public enum ClientIDTag: Sendable {}
+public enum ClientWindowIDTag: Sendable {}
 public enum ControlLeaseIDTag: Sendable {}
 
 public typealias HostID = DomainID<HostIDTag>
@@ -58,4 +59,5 @@ public typealias WorkspaceID = DomainID<WorkspaceIDTag>
 public typealias TerminalSessionID = DomainID<TerminalSessionIDTag>
 public typealias TerminalAttachmentID = DomainID<TerminalAttachmentIDTag>
 public typealias ClientID = DomainID<ClientIDTag>
+public typealias ClientWindowID = DomainID<ClientWindowIDTag>
 public typealias ControlLeaseID = DomainID<ControlLeaseIDTag>

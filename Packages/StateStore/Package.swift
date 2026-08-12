@@ -13,6 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Domain"),
+        .package(path: "../ClientCore"),
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.8.0"),
     ],
     targets: [
@@ -20,6 +21,7 @@ let package = Package(
             name: "BurrowStateStore",
             dependencies: [
                 .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "BurrowClientCore", package: "ClientCore"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/BurrowStateStore"

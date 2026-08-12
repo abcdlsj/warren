@@ -7,20 +7,27 @@ import BurrowProtocol
 final class BurrowClientCoreTests: XCTestCase {
     private let sessionID = TerminalSessionID(rawValue: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!)
     private let clientID = ClientID(rawValue: UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!)
+    private let windowID = ClientWindowID(rawValue: UUID(uuidString: "DDDDDDDD-DDDD-DDDD-DDDD-DDDDDDDDDDDD")!)
+    private let workspaceID = WorkspaceID(rawValue: UUID(uuidString: "EEEEEEEE-EEEE-EEEE-EEEE-EEEEEEEEEEEE")!)
     private let attachmentID = TerminalAttachmentID(rawValue: UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")!)
 
     func testLayoutMutationsDoNotSendWireMessages() async throws {
         let transport = InMemoryHostTransport()
-        let layouts = ClientLayoutStore()
+        let layouts = try ClientLayoutStore(clientID: clientID, defaultWindowID: windowID)
+        try await layouts.start()
 
-        await layouts.setSidebarCollapsed(true, for: clientID)
-        await layouts.upsertTab(ClientTab(id: "tab-1", title: "Shell", sessionID: sessionID), select: true, for: clientID)
-        await layouts.setNavigationPath([.session(sessionID)], for: clientID)
+        try await layouts.setSidebarCollapsed(true, in: windowID)
+        try await layouts.upsertTab(
+            ClientTab(id: "tab-1", title: "Shell", sessionID: sessionID),
+            workspaceID: workspaceID,
+            select: true,
+            in: windowID
+        )
 
-        let layout = await layouts.snapshot(for: clientID)
-        XCTAssertTrue(layout.sidebarCollapsed)
-        XCTAssertEqual(layout.selectedTabID, "tab-1")
-        XCTAssertEqual(layout.navigationPath, [.session(sessionID)])
+        let window = await layouts.window(id: windowID)
+        XCTAssertTrue(window.sidebarCollapsed)
+        XCTAssertEqual(window.activeWorkspaceView?.activeTabID, "tab-1")
+        XCTAssertEqual(window.activeWorkspaceView?.tabs.map(\.id), ["tab-1"])
         let messages = await transport.sentMessages
         XCTAssertTrue(messages.isEmpty)
     }
@@ -157,11 +164,12 @@ final class BurrowClientCoreTests: XCTestCase {
     }
 
     func testSidebarWidthRejectsNonFiniteAndNonPositiveValues() async throws {
-        let layouts = ClientLayoutStore()
-        let initial = await layouts.snapshot(for: clientID)
+        let layouts = try ClientLayoutStore(clientID: clientID, defaultWindowID: windowID)
+        try await layouts.start()
+        let initial = await layouts.window(id: windowID)
         for width: Double in [0, -1, Double.infinity, -Double.infinity, Double.nan] {
             do {
-                try await layouts.setSidebarWidth(width, for: clientID)
+                try await layouts.setSidebarWidth(width, in: windowID)
                 XCTFail("Invalid sidebar width should be rejected: \(width)")
             } catch let error as ClientLayoutStoreError {
                 guard case .invalidSidebarWidth(let received) = error else {
@@ -175,8 +183,36 @@ final class BurrowClientCoreTests: XCTestCase {
                 }
             }
         }
-        let unchanged = await layouts.snapshot(for: clientID)
+        let unchanged = await layouts.window(id: windowID)
         XCTAssertEqual(unchanged.sidebarWidth, initial.sidebarWidth)
-        XCTAssertNil(ClientLayoutSnapshot(clientID: clientID, sidebarWidth: 0))
+        XCTAssertNil(ClientWindowLayout(id: windowID, sidebarWidth: 0))
+    }
+
+    func testWorkspaceViewsKeepIndependentTabOrderAndSelection() async throws {
+        let secondWorkspaceID = WorkspaceID()
+        let secondSessionID = TerminalSessionID()
+        let layouts = try ClientLayoutStore(clientID: clientID, defaultWindowID: windowID)
+        try await layouts.start()
+
+        try await layouts.upsertTab(
+            ClientTab(id: "tab-a", title: "A", sessionID: sessionID),
+            workspaceID: workspaceID,
+            select: true,
+            in: windowID
+        )
+        try await layouts.upsertTab(
+            ClientTab(id: "tab-b", title: "B", sessionID: secondSessionID),
+            workspaceID: secondWorkspaceID,
+            select: true,
+            in: windowID
+        )
+        try await layouts.selectWorkspace(workspaceID, in: windowID)
+
+        let window = await layouts.window(id: windowID)
+        XCTAssertEqual(window.activeWorkspaceID, workspaceID)
+        XCTAssertEqual(window.workspaceView(for: workspaceID)?.tabs.map(\.id), ["tab-a"])
+        XCTAssertEqual(window.workspaceView(for: workspaceID)?.activeTabID, "tab-a")
+        XCTAssertEqual(window.workspaceView(for: secondWorkspaceID)?.tabs.map(\.id), ["tab-b"])
+        XCTAssertEqual(window.workspaceView(for: secondWorkspaceID)?.activeTabID, "tab-b")
     }
 }

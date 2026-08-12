@@ -1,9 +1,71 @@
 import Foundation
 import XCTest
 @testable import BurrowStateStore
+import BurrowClientCore
 import BurrowDomain
 
 final class BurrowStateStoreTests: XCTestCase {
+    func testSQLiteClientLayoutRoundTripKeepsWorkspaceViewsIndependent() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        var state = try makeRecoverableState()
+        let firstWorkspace = state.workspaces[0]
+        let secondWorkspace = Workspace(
+            projectID: state.projects[0].id,
+            name: "review",
+            path: "/tmp/burrow-review",
+            branch: "review"
+        )
+        let secondSession = PersistedTerminalSession(
+            workspaceID: secondWorkspace.id,
+            workingDirectory: secondWorkspace.path,
+            terminalSize: try XCTUnwrap(TerminalSize(columns: 100, rows: 30)),
+            title: "Review"
+        )
+        state.workspaces.append(secondWorkspace)
+        state.terminalSessions.append(secondSession)
+        try await repository.save(state)
+
+        let clientID = ClientID()
+        let windowID = ClientWindowID()
+        let firstTab = ClientTab(
+            id: "first",
+            title: "Codex",
+            sessionID: state.terminalSessions[0].id,
+            kind: .codex
+        )
+        let secondTab = ClientTab(
+            id: "second",
+            title: "Review",
+            sessionID: secondSession.id
+        )
+        let window = try XCTUnwrap(ClientWindowLayout(
+            id: windowID,
+            activeWorkspaceID: firstWorkspace.id,
+            workspaceViews: [
+                ClientWorkspaceView(
+                    workspaceID: firstWorkspace.id,
+                    tabs: [firstTab],
+                    activeTabID: firstTab.id
+                ),
+                ClientWorkspaceView(
+                    workspaceID: secondWorkspace.id,
+                    tabs: [secondTab],
+                    activeTabID: secondTab.id
+                ),
+            ]
+        ))
+        let expected = ClientLayoutSnapshot(clientID: clientID, windows: [window])
+        try await repository.saveClientLayout(expected)
+
+        let loaded = try await repository.loadClientLayout(
+            clientID: clientID,
+            defaultWindowID: windowID
+        )
+        XCTAssertEqual(loaded, expected)
+    }
+
     func testSQLiteRoundTripPreservesNormalizedResourceGraph() async throws {
         let database = try TemporaryStateDatabase()
         defer { try? database.cleanup() }
@@ -173,7 +235,8 @@ final class BurrowStateStoreTests: XCTestCase {
     func testFutureSchemaReturnsStructuredError() async throws {
         let temporaryFile = try TemporaryStateFile()
         defer { try? temporaryFile.cleanup() }
-        let futureState = PersistedHostState(schemaVersion: 3)
+        let futureVersion = PersistedHostState.currentSchemaVersion + 1
+        let futureState = PersistedHostState(schemaVersion: futureVersion)
         try JSONEncoder().encode(futureState).write(to: temporaryFile.url)
         let repository = JSONFileHostStateRepository(fileURL: temporaryFile.url)
 
@@ -183,7 +246,10 @@ final class BurrowStateStoreTests: XCTestCase {
         } catch let error as HostStateRepositoryError {
             XCTAssertEqual(
                 error,
-                .unsupportedSchemaVersion(found: 3, supported: PersistedHostState.currentSchemaVersion)
+                .unsupportedSchemaVersion(
+                    found: futureVersion,
+                    supported: PersistedHostState.currentSchemaVersion
+                )
             )
         }
     }
@@ -244,8 +310,7 @@ final class BurrowStateStoreTests: XCTestCase {
                 metadata: ["window": "0"]
             ),
             kind: .codex,
-            title: "Codex",
-            isTabVisible: false
+            title: "Codex"
         )
         return PersistedHostState(
             hosts: [host],
