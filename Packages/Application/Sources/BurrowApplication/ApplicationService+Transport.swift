@@ -5,6 +5,85 @@ import BurrowProtocol
 import Foundation
 
 extension BurrowApplicationService {
+    /// Opens an independent attachment for a non-desktop client.
+    ///
+    /// The desktop projection keeps its own attachment in `connections`.
+    /// Web and future remote clients must use this channel so their output
+    /// subscriptions and control leases cannot replace the desktop stream.
+    public func openClientAttachment(
+        sessionID: TerminalSessionID,
+        clientID: ClientID,
+        attachmentID: TerminalAttachmentID,
+        recoveryAnchor: RecoveryAnchor? = nil
+    ) async throws -> HostAttachmentChannel {
+        try requireReady()
+        await ensureSessionRestored(sessionID)
+        return try await coordinator.attachAndSubscribe(AttachRequest(
+            sessionID: sessionID,
+            clientID: clientID,
+            attachmentID: attachmentID,
+            recoveryAnchor: recoveryAnchor
+        ))
+    }
+
+    /// Read-only Host attachment snapshot for diagnostics and contract tests.
+    public func hostSessionSnapshot(
+        sessionID: TerminalSessionID
+    ) async throws -> HostSessionSnapshot {
+        try requireReady()
+        await ensureSessionRestored(sessionID)
+        return try await coordinator.snapshot(of: sessionID)
+    }
+
+    /// Sends input from an independent client attachment. Control remains
+    /// last-writer-wins and is acquired only when that client actually types.
+    public func sendClientInput(
+        sessionID: TerminalSessionID,
+        attachmentID: TerminalAttachmentID,
+        data: Data
+    ) async throws {
+        _ = try await coordinator.requestControl(ControlRequest(
+            sessionID: sessionID,
+            attachmentID: attachmentID
+        ))
+        guard let metadata = InputMetadata(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            payloadLength: data.count
+        ) else {
+            throw BurrowApplicationError.transport("Invalid remote terminal input length.")
+        }
+        try await coordinator.input(metadata, data: data)
+    }
+
+    public func resizeClientAttachment(
+        sessionID: TerminalSessionID,
+        attachmentID: TerminalAttachmentID,
+        size: TerminalSize
+    ) async throws {
+        _ = try await coordinator.requestControl(ControlRequest(
+            sessionID: sessionID,
+            attachmentID: attachmentID
+        ))
+        try await coordinator.resize(ResizeRequest(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            size: size
+        ))
+    }
+
+    public func closeClientAttachment(
+        sessionID: TerminalSessionID,
+        attachmentID: TerminalAttachmentID,
+        reason: String? = nil
+    ) async {
+        _ = try? await coordinator.detach(DetachRequest(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            reason: reason
+        ))
+    }
+
     /// Attaches the one local Client projection to a Host session.
     @discardableResult
     public func attach(

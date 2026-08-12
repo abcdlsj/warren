@@ -38,6 +38,11 @@ install -m 644 "$repository_root/Support/Info.plist" "$staging_path/Contents/Inf
 install -m 644 \
     "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/web.html" \
     "$staging_path/Contents/Resources/web.html"
+for resource in manifest.webmanifest service-worker.js icon.svg; do
+    install -m 644 \
+        "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/$resource" \
+        "$staging_path/Contents/Resources/$resource"
+done
 
 codesign --force --sign - "$staging_path"
 rm -rf "$app_path"

@@ -26,6 +26,7 @@ public actor TmuxRuntime: TerminalRuntime {
     let executor: any TmuxCommandExecuting
     let outputDirectory: URL
     let exitPollIntervalNanoseconds: UInt64
+    let sessionEnvironment: [String: String]
     var sessions: [TerminalSessionID: ManagedSession] = [:]
     var continuations: [TerminalSessionID: [UUID: AsyncStream<TerminalRuntimeEvent>.Continuation]] = [:]
     var writeTails: [TerminalSessionID: WriteTail] = [:]
@@ -34,12 +35,14 @@ public actor TmuxRuntime: TerminalRuntime {
     public init(
         executor: any TmuxCommandExecuting = ProcessTmuxCommandExecutor(),
         outputDirectory: URL = TmuxRuntime.defaultOutputDirectory,
-        exitPollIntervalNanoseconds: UInt64 = 1_000_000_000
+        exitPollIntervalNanoseconds: UInt64 = 1_000_000_000,
+        sessionEnvironment: [String: String] = [:]
     ) {
         precondition(exitPollIntervalNanoseconds > 0, "Exit polling interval must be positive.")
         self.executor = executor
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.exitPollIntervalNanoseconds = exitPollIntervalNanoseconds
+        self.sessionEnvironment = sessionEnvironment
     }
 
     public static var defaultOutputDirectory: URL {
@@ -95,10 +98,19 @@ public actor TmuxRuntime: TerminalRuntime {
                     "-c", workingDirectory,
                     "-x", String(size.columns),
                     "-y", String(size.rows),
-                ] + BurrowTerminalEnvironment.tmuxSessionArguments + [
+                ] + BurrowTerminalEnvironment.tmuxSessionArguments(
+                    environment: sessionEnvironment.merging(
+                        ["BURROW_SESSION_ID": sessionID.description],
+                        uniquingKeysWith: { _, sessionID in sessionID }
+                    )
+                ) + [
                     BurrowTerminalEnvironment.launchCommand(
                         shellPath: shellPath,
-                        command: launchCommand
+                        command: launchCommand,
+                        environment: sessionEnvironment.merging(
+                            ["BURROW_SESSION_ID": sessionID.description],
+                            uniquingKeysWith: { _, sessionID in sessionID }
+                        )
                     ),
                 ],
                 recovery: "Ensure the tmux server can start and the working directory still exists."

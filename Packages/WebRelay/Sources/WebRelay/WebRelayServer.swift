@@ -1,5 +1,6 @@
 import BurrowApplication
 import BurrowDomain
+import BurrowHost
 import CryptoKit
 import Darwin
 import Foundation
@@ -22,7 +23,7 @@ public final class WebRelayServer {
     public static let startFunnel = Notification.Name("WebRelay.startFunnel")
     public static let stopFunnel = Notification.Name("WebRelay.stopFunnel")
 
-    private let service: BurrowApplicationService
+    fileprivate let service: BurrowApplicationService
     private var listenFD: Int32 = -1
     private var serverSource: DispatchSourceRead?
     private var connections: [Int32: SocketConnection] = [:]
@@ -30,6 +31,7 @@ public final class WebRelayServer {
     public private(set) var tunnelURL: URL?
     public private(set) var tailscaleURL: URL?
     public private(set) var funnelURL: URL?
+    public private(set) var listeningPort: UInt16?
 
     public init(service: BurrowApplicationService) {
         self.service = service
@@ -43,7 +45,9 @@ public final class WebRelayServer {
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = INADDR_ANY
+        // Reachability adapters proxy this loopback listener explicitly.
+        // Starting Burrow alone must never expose terminal control to the LAN.
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
         address.sin_port = port.bigEndian
         let bindResult = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -55,7 +59,14 @@ public final class WebRelayServer {
             return
         }
         _ = fcntl(fd, F_SETFL, O_NONBLOCK)
-        Self.log("listening \(port)")
+        var boundAddress = sockaddr_in()
+        var boundLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let resolvedPort = withUnsafeMutablePointer(to: &boundAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(fd, $0, &boundLength)
+            }
+        } == 0 ? UInt16(bigEndian: boundAddress.sin_port) : port
+        Self.log("listening \(resolvedPort)")
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
         source.setEventHandler { [weak self] in
             self?.acceptPending()
@@ -63,6 +74,7 @@ public final class WebRelayServer {
         source.resume()
         listenFD = fd
         serverSource = source
+        listeningPort = resolvedPort
     }
 
     public func stop() {
@@ -72,6 +84,7 @@ public final class WebRelayServer {
             Darwin.close(listenFD)
             listenFD = -1
         }
+        listeningPort = nil
         let peers = Array(connections.values)
         for connection in peers {
             connection.close()
@@ -90,6 +103,14 @@ public final class WebRelayServer {
                 IPPROTO_TCP,
                 TCP_NODELAY,
                 &nodelay,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+            var noSignal: Int32 = 1
+            setsockopt(
+                client,
+                SOL_SOCKET,
+                SO_NOSIGPIPE,
+                &noSignal,
                 socklen_t(MemoryLayout<Int32>.size)
             )
             Self.log("accept \(client)")
@@ -134,12 +155,42 @@ public final class WebRelayServer {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
+    static func resourceData(named name: String, extension fileExtension: String) -> Data? {
+        let url = Bundle.main.url(forResource: name, withExtension: fileExtension)
+            ?? Bundle.module.url(forResource: name, withExtension: fileExtension)
+        return url.flatMap { try? Data(contentsOf: $0) }
+    }
+
     public static var accessToken: String {
         RelayPairingToken.current
     }
 
+    /// Installs the current managed hook definitions and returns the small
+    /// environment inherited only by Burrow-created terminal Sessions.
+    public static func installAgentHooks() -> [String: String] {
+        AgentHookInstaller.install(port: defaultPort, token: accessToken)
+    }
+
+    public static var agentHookEnvironment: [String: String] {
+        [
+            "BURROW_HOOK_URL": "http://127.0.0.1:\(defaultPort)/hook",
+            "BURROW_HOOK_TOKEN": accessToken,
+        ]
+    }
+
     public static var webPageURLWithToken: URL? {
         webPageURL(host: nil)
+    }
+
+    public static var localWebURL: URL? {
+        URL(string: "http://127.0.0.1:\(defaultPort)/#t=\(accessToken)")
+    }
+
+    public var secureWebURL: URL? {
+        guard let base = tunnelURL ?? tailscaleURL ?? funnelURL else { return nil }
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.fragment = "t=\(Self.accessToken)"
+        return components?.url
     }
 
     public static func webPageURL(host: String? = nil) -> URL? {
@@ -153,10 +204,15 @@ public final class WebRelayServer {
 
     public static func webPageDataURL(host: String? = nil) -> URL? {
         guard let html = webPageHTML else { return nil }
-        let params = "host=\(host ?? "")&t=\(accessToken)"
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "host", value: host ?? ""),
+            URLQueryItem(name: "t", value: accessToken),
+        ]
+        guard let params = components.percentEncodedQuery else { return nil }
         let replaced = html.replacingOccurrences(
-            of: "/*__PARAMS__*/",
-            with: "\"\(params)\""
+            of: "__BURROW_INJECTED_PARAMS__",
+            with: params
         )
         guard let data = replaced.data(using: .utf8) else { return nil }
         return URL(string: "data:text/html;base64,\(data.base64EncodedString())")
@@ -386,6 +442,7 @@ public final class WebRelayServer {
                 "title": $0.title,
                 "kind": $0.kind.rawValue,
                 "state": String(describing: $0.connectionState),
+                "activity": $0.activityState.rawValue,
             ]
         }
         return Self.json([
@@ -396,26 +453,32 @@ public final class WebRelayServer {
         ])
     }
 
+    fileprivate func reportHook(path: String) async {
+        guard let components = URLComponents(string: "http://127.0.0.1\(path)"),
+              components.path == "/hook" else { return }
+        let values = Dictionary(
+            uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") }
+        )
+        guard values["token"] == RelayPairingToken.current,
+              let rawSession = values["session"],
+              let sessionID = TerminalSessionID(uuidString: rawSession),
+              let rawState = values["state"],
+              let activity = TerminalSessionActivityState(rawValue: rawState) else { return }
+        try? await service.reportSessionActivity(sessionID: sessionID, state: activity)
+    }
+
     fileprivate func attach(_ sessionID: TerminalSessionID, to peer: SocketConnection) async {
         do {
-            let snapshot = await service.snapshot()
-            let attachmentID: TerminalAttachmentID
-            if let existing = snapshot.session(id: sessionID)?.attachmentID {
-                // Reuse the Host attachment already owned by this app. Creating a
-                // second attachment would overwrite the UI's attachment and force
-                // Ghostty to tear down/recreate the surface (the repeated
-                // "Connecting to terminal…" flicker).
-                attachmentID = existing
-            } else {
-                attachmentID = try await service.attach(sessionID: sessionID)
-            }
-            peer.attachmentID = attachmentID
+            await detach(peer)
+            let attachmentID = TerminalAttachmentID()
+            let channel = try await service.openClientAttachment(
+                sessionID: sessionID,
+                clientID: peer.clientID,
+                attachmentID: attachmentID
+            )
+            peer.attachmentID = channel.result.attachmentID
             peer.sessionID = sessionID
-            peer.startOutputStream()
-            peer.sendText(Self.json([
-                "t": "attached",
-                "session": sessionID.description,
-            ]))
+            peer.startOutputStream(channel.events)
         } catch {
             peer.sendText(Self.json([
                 "t": "error",
@@ -457,7 +520,7 @@ public final class WebRelayServer {
               let attachmentID = peer.attachmentID else { return }
         WebRelayServer.log("input begin \(sessionID) bytes=\(data.count)")
         do {
-            try await service.sendInput(
+            try await service.sendClientInput(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 data: data
@@ -481,7 +544,7 @@ public final class WebRelayServer {
               let attachmentID = peer.attachmentID,
               let size = TerminalSize(columns: cols, rows: rows) else { return }
         do {
-            try await service.resize(
+            try await service.resizeClientAttachment(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 size: size
@@ -497,44 +560,57 @@ public final class WebRelayServer {
     fileprivate func detach(_ peer: SocketConnection) async {
         guard let sessionID = peer.sessionID,
               let attachmentID = peer.attachmentID else { return }
-        _ = sessionID
-        _ = attachmentID
         peer.stopOutputStream()
         peer.sessionID = nil
         peer.attachmentID = nil
+        await service.closeClientAttachment(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            reason: "web_detached"
+        )
     }
 
     fileprivate func streamOutput(
         sessionID: TerminalSessionID,
+        events: AsyncStream<HostSessionEvent>,
         to peer: SocketConnection
     ) async {
         WebRelayServer.log("stream start \(sessionID)")
-        var anchor = RecoveryAnchor(epoch: 0, sequence: 0)
+        for await event in events {
+            guard !Task.isCancelled else { return }
+            switch event {
+            case .binary(let frame):
+                peer.sendBinary(frame.payload)
+            case .control(.attached):
+                peer.sendText(Self.json([
+                    "t": "attached",
+                    "session": sessionID.description,
+                ]))
+            case .control(.exit):
+                peer.sendText(Self.json([
+                    "t": "exited",
+                    "session": sessionID.description,
+                ]))
+            case .control(.error(let error)):
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": error.message,
+                ]))
+            case .control:
+                break
+            }
+        }
+    }
+
+    fileprivate func streamRoster(to peer: SocketConnection) async {
+        var lastRoster: String?
         let stream = await service.snapshots()
-        for await snapshot in stream {
-            WebRelayServer.log("stream snapshot frames=\(snapshot.session(id: sessionID)?.output?.frames.count ?? -1)")
-            guard let session = snapshot.session(id: sessionID),
-                  let output = session.output else { continue }
-            if output.epoch != anchor.epoch {
-                anchor = RecoveryAnchor(epoch: output.epoch, sequence: 0)
-            }
-            for frame in output.frames {
-                let frameEnd = frame.header.sequence + UInt64(frame.payload.count)
-                guard frame.header.epoch == output.epoch,
-                      frameEnd > anchor.sequence else { continue }
-                let offset = frame.header.sequence < anchor.sequence
-                    ? Int(anchor.sequence - frame.header.sequence)
-                    : 0
-                let payload = offset == 0
-                    ? frame.payload
-                    : Data(frame.payload.dropFirst(offset))
-                WebRelayServer.log("stream frame \(payload.count)")
-                peer.sendBinary(payload)
-                anchor = RecoveryAnchor(
-                    epoch: frame.header.epoch,
-                    sequence: frame.header.sequence + UInt64(payload.count)
-                )
-            }
+        for await _ in stream {
+            guard !Task.isCancelled else { return }
+            let roster = await rosterJSON()
+            guard roster != lastRoster else { continue }
+            lastRoster = roster
+            peer.sendText(roster)
         }
     }
 
@@ -581,15 +657,20 @@ private struct RelayEnvelope: Decodable {
 @MainActor
 private final class SocketConnection {
     let fd: Int32
+    let clientID = ClientID()
     private let server: WebRelayServer
     private var readSource: DispatchSourceRead?
+    private var writeSource: DispatchSourceWrite?
     private var buffer = Data()
+    private var outbound = Data()
+    private var shutdownAfterWrite = false
     private var handshakeDone = false
     private var authenticated = false
     private var closed = false
     var attachmentID: TerminalAttachmentID?
     var sessionID: TerminalSessionID?
     private var outputTask: Task<Void, Never>?
+    private var rosterTask: Task<Void, Never>?
 
     init(fd: Int32, server: WebRelayServer) {
         self.fd = fd
@@ -624,6 +705,8 @@ private final class SocketConnection {
         if count > 0 {
             buffer.append(Data(chunk[0..<count]))
             processBuffer()
+        } else if count < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+            return
         } else {
             close()
         }
@@ -648,7 +731,7 @@ private final class SocketConnection {
             }
             let method = String(parts[0]).uppercased()
             let path = String(parts[1])
-            WebRelayServer.log("request \(method) \(path)")
+            WebRelayServer.log("request \(method) \(path.split(separator: "?").first ?? "")")
             var headers: [String: String] = [:]
             for line in lines.dropFirst() {
                 let pair = line.split(separator: ":", maxSplits: 1).map(String.init)
@@ -672,6 +755,15 @@ private final class SocketConnection {
                 processBuffer()
             } else if method == "GET", path == "/" || path == "/index.html" {
                 sendHTTPPage()
+            } else if method == "GET", path == "/manifest.webmanifest" {
+                sendResource(name: "manifest", extension: "webmanifest", contentType: "application/manifest+json")
+            } else if method == "GET", path == "/service-worker.js" {
+                sendResource(name: "service-worker", extension: "js", contentType: "text/javascript; charset=utf-8")
+            } else if method == "GET", path == "/icon.svg" {
+                sendResource(name: "icon", extension: "svg", contentType: "image/svg+xml")
+            } else if method == "GET", path.hasPrefix("/hook?") {
+                Task { await server.reportHook(path: path) }
+                sendHTTP(status: 204, body: "")
             } else {
                 sendHTTP(status: 400, body: "Bad Request")
             }
@@ -718,6 +810,7 @@ private final class SocketConnection {
             Task {
                 let roster = await server.rosterJSON()
                 self.sendText(roster)
+                self.startRosterStream()
             }
         case "attach":
             guard authenticated,
@@ -754,38 +847,61 @@ private final class SocketConnection {
     }
 
     private func sendHTTPPage() {
+        let data = Data((WebRelayServer.webPageHTML ?? "Burrow Web unavailable").utf8)
         let header =
             "HTTP/1.1 200 OK\r\n" +
             "X-Burrow: ok\r\n" +
-            "Content-Length: 0\r\n" +
+            "Content-Type: text/html; charset=utf-8\r\n" +
+            "Cache-Control: no-store\r\n" +
+            "Content-Length: \(data.count)\r\n" +
             "Connection: close\r\n\r\n"
         WebRelayServer.log("send http health")
-        writeAll(header.data(using: .utf8)!)
-        shutdown(fd, SHUT_WR)
+        writeThenShutdown(header.data(using: .utf8)! + data)
+    }
+
+    private func sendResource(name: String, extension fileExtension: String, contentType: String) {
+        guard let data = WebRelayServer.resourceData(named: name, extension: fileExtension) else {
+            sendHTTP(status: 404, body: "Not Found")
+            return
+        }
+        let header =
+            "HTTP/1.1 200 OK\r\n" +
+            "Content-Type: \(contentType)\r\n" +
+            "Cache-Control: no-cache\r\n" +
+            "Content-Length: \(data.count)\r\n" +
+            "Connection: close\r\n\r\n"
+        writeThenShutdown(Data(header.utf8) + data)
     }
 
     private func sendHTTP(status: Int, body: String) {
         let data = Data(body.utf8)
         let header =
-            "HTTP/1.1 \(status) \(status == 400 ? "Bad Request" : "Not Found")\r\n" +
+            "HTTP/1.1 \(status) \(status == 204 ? "No Content" : (status == 400 ? "Bad Request" : "Not Found"))\r\n" +
             "Content-Length: \(data.count)\r\n" +
             "Connection: close\r\n\r\n"
-        writeAll(header.data(using: .utf8)! + data)
-        shutdown(fd, SHUT_WR)
+        writeThenShutdown(header.data(using: .utf8)! + data)
     }
 
-    func startOutputStream() {
+    func startOutputStream(_ events: AsyncStream<HostSessionEvent>) {
         stopOutputStream()
         guard let sessionID else { return }
         outputTask = Task { [weak self] in
             guard let self else { return }
-            await self.server.streamOutput(sessionID: sessionID, to: self)
+            await self.server.streamOutput(sessionID: sessionID, events: events, to: self)
         }
     }
 
     func stopOutputStream() {
         outputTask?.cancel()
         outputTask = nil
+    }
+
+    func startRosterStream() {
+        rosterTask?.cancel()
+        rosterTask = Task { [weak self] in
+            guard let self else { return }
+            await server.streamRoster(to: self)
+        }
     }
 
     func sendText(_ text: String) {
@@ -811,29 +927,79 @@ private final class SocketConnection {
         writeAll(header + payload)
     }
 
+    private func writeThenShutdown(_ data: Data) {
+        shutdownAfterWrite = true
+        writeAll(data)
+    }
+
     private func writeAll(_ data: Data) {
-        let flags = fcntl(fd, F_GETFL)
-        _ = fcntl(fd, F_SETFL, flags & ~O_NONBLOCK)
-        var offset = 0
-        while offset < data.count {
-            let written = data.withUnsafeBytes { raw -> Int in
-                Darwin.send(fd, raw.baseAddress?.advanced(by: offset), data.count - offset, 0)
+        guard !closed else { return }
+        // A browser on a stalled mobile link must not retain unbounded PTY
+        // output or block the desktop main actor.
+        guard outbound.count + data.count <= 8 * 1024 * 1024 else {
+            WebRelayServer.log("slow peer overflow \(fd)")
+            close()
+            return
+        }
+        outbound.append(data)
+        drainWrites()
+    }
+
+    private func drainWrites() {
+        while !outbound.isEmpty {
+            let written = outbound.withUnsafeBytes { raw -> Int in
+                Darwin.send(fd, raw.baseAddress, raw.count, 0)
             }
             if written > 0 {
-                offset += written
+                outbound.removeFirst(written)
                 continue
             }
-            WebRelayServer.log("write errno=\(errno) offset=\(offset) total=\(data.count)")
-            break
+            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                ensureWriteSource()
+                return
+            }
+            WebRelayServer.log("write errno=\(errno) remaining=\(outbound.count)")
+            close()
+            return
         }
-        _ = fcntl(fd, F_SETFL, flags)
-        WebRelayServer.log("write done offset=\(offset) total=\(data.count)")
+        writeSource?.cancel()
+        writeSource = nil
+        if shutdownAfterWrite {
+            shutdownAfterWrite = false
+            shutdown(fd, SHUT_WR)
+        }
+    }
+
+    private func ensureWriteSource() {
+        guard writeSource == nil else { return }
+        let source = DispatchSource.makeWriteSource(fileDescriptor: fd, queue: .main)
+        source.setEventHandler { [weak self] in self?.drainWrites() }
+        source.resume()
+        writeSource = source
     }
 
     func close() {
         guard !closed else { return }
         closed = true
+        let sessionID = sessionID
+        let attachmentID = attachmentID
         stopOutputStream()
+        self.sessionID = nil
+        self.attachmentID = nil
+        if let sessionID, let attachmentID {
+            Task {
+                await server.service.closeClientAttachment(
+                    sessionID: sessionID,
+                    attachmentID: attachmentID,
+                    reason: "web_connection_closed"
+                )
+            }
+        }
+        rosterTask?.cancel()
+        rosterTask = nil
+        writeSource?.cancel()
+        writeSource = nil
+        outbound.removeAll(keepingCapacity: false)
         readSource?.cancel()
         readSource = nil
         server.drop(fd)

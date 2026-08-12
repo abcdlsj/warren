@@ -36,6 +36,7 @@ struct BurrowDesktopSidebarRows: View {
                         workspace: workspace,
                         semanticScope: "session-list",
                         sessionCount: sessions.filter { $0.workspaceID == workspace.id }.count,
+                        activity: workspaceActivity(workspace.id),
                         isCollapsed: false,
                         isSelected: selection == .workspace(workspace.id),
                         onSelect: { select(.workspace(workspace.id)) }
@@ -92,6 +93,7 @@ struct BurrowDesktopSidebarRows: View {
                                 workspace: workspace,
                                 semanticScope: "project-list",
                                 sessionCount: workspaceSessions.count,
+                                activity: workspaceActivity(workspace.id),
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),
                                 onSelect: { select(.workspace(workspace.id)) }
@@ -138,6 +140,24 @@ struct BurrowDesktopSidebarRows: View {
     private var sessionWorkspaces: [Workspace] {
         let ids = Set(sessions.map(\.workspaceID))
         return groups.flatMap(\.workspaces).filter { ids.contains($0.id) }
+    }
+
+    private func workspaceActivity(_ workspaceID: WorkspaceID) -> TerminalSessionActivityState? {
+        sessions.lazy
+            .filter { $0.workspaceID == workspaceID }
+            .map(\.activity)
+            .max { activityPriority($0) < activityPriority($1) }
+    }
+
+    private func activityPriority(_ activity: TerminalSessionActivityState) -> Int {
+        switch activity {
+        case .failed: 5
+        case .waitingForInput: 4
+        case .connecting: 3
+        case .working: 2
+        case .ready: 1
+        case .exited: 0
+        }
     }
 }
 

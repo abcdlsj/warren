@@ -165,6 +165,30 @@ private final class BurrowNextAppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: Notification.Name(rawValue), object: nil)
     }
 
+    @objc private func copyLocalWebURL(_ sender: NSMenuItem) {
+        model.copyLocalWebURL()
+    }
+
+    @objc private func startCloudflareWebAccess(_ sender: NSMenuItem) {
+        model.startCloudflareWebAccess()
+    }
+
+    @objc private func stopCloudflareWebAccess(_ sender: NSMenuItem) {
+        model.stopCloudflareWebAccess()
+    }
+
+    @objc private func startTailscaleWebAccess(_ sender: NSMenuItem) {
+        model.startTailscaleWebAccess()
+    }
+
+    @objc private func stopTailscaleWebAccess(_ sender: NSMenuItem) {
+        model.stopTailscaleWebAccess()
+    }
+
+    @objc private func copySecureWebURL(_ sender: NSMenuItem) {
+        model.copySecureWebURL()
+    }
+
     private static func buildMainMenu(target: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
 
@@ -206,6 +230,49 @@ private final class BurrowNextAppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem?.representedObject = BurrowDesktopCommand.toggleSidebar.rawValue
 
         sessionMenuItem.submenu = sessionMenu
+
+        let webMenuItem = NSMenuItem()
+        mainMenu.addItem(webMenuItem)
+        let webMenu = NSMenu(title: "Web")
+        let copyWebURL = webMenu.addItem(
+            withTitle: "Copy Local Web URL",
+            action: #selector(BurrowNextAppDelegate.copyLocalWebURL(_:)),
+            keyEquivalent: ""
+        )
+        copyWebURL.target = target
+        webMenu.addItem(.separator())
+        let startCloudflare = webMenu.addItem(
+            withTitle: "Start Cloudflare Tunnel",
+            action: #selector(BurrowNextAppDelegate.startCloudflareWebAccess(_:)),
+            keyEquivalent: ""
+        )
+        startCloudflare.target = target
+        let stopCloudflare = webMenu.addItem(
+            withTitle: "Stop Cloudflare Tunnel",
+            action: #selector(BurrowNextAppDelegate.stopCloudflareWebAccess(_:)),
+            keyEquivalent: ""
+        )
+        stopCloudflare.target = target
+        let startTailscale = webMenu.addItem(
+            withTitle: "Start Tailscale Serve",
+            action: #selector(BurrowNextAppDelegate.startTailscaleWebAccess(_:)),
+            keyEquivalent: ""
+        )
+        startTailscale.target = target
+        let stopTailscale = webMenu.addItem(
+            withTitle: "Stop Tailscale Serve",
+            action: #selector(BurrowNextAppDelegate.stopTailscaleWebAccess(_:)),
+            keyEquivalent: ""
+        )
+        stopTailscale.target = target
+        webMenu.addItem(.separator())
+        let copySecureURL = webMenu.addItem(
+            withTitle: "Copy Secure Web URL",
+            action: #selector(BurrowNextAppDelegate.copySecureWebURL(_:)),
+            keyEquivalent: ""
+        )
+        copySecureURL.target = target
+        webMenuItem.submenu = webMenu
         return mainMenu
     }
 }

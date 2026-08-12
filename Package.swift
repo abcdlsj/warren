@@ -17,6 +17,7 @@ let package = Package(
         .package(path: "Packages/ClientCore"),
         .package(path: "Packages/Protocol"),
         .package(path: "Packages/Observation"),
+        .package(path: "Packages/WebRelay"),
     ],
     targets: [
         .executableTarget(
@@ -30,6 +31,7 @@ let package = Package(
                 .product(name: "BurrowClientCore", package: "ClientCore"),
                 .product(name: "BurrowProtocol", package: "Protocol"),
                 .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
+                .product(name: "WebRelay", package: "WebRelay"),
             ],
             path: "Sources/BurrowNext"
         ),

@@ -71,6 +71,7 @@ public struct BurrowApplicationSession: Identifiable, Hashable, Sendable {
     public let title: String
     public let kind: TerminalSessionKind
     public let connectionState: BurrowApplicationConnectionState
+    public let activityState: TerminalSessionActivityState
     public let attachmentID: TerminalAttachmentID?
     public let controllerAttachmentID: TerminalAttachmentID?
     public let controlLeaseID: ControlLeaseID?
@@ -86,6 +87,7 @@ public struct BurrowApplicationSession: Identifiable, Hashable, Sendable {
         title: String,
         kind: TerminalSessionKind = .shell,
         connectionState: BurrowApplicationConnectionState,
+        activityState: TerminalSessionActivityState? = nil,
         attachmentID: TerminalAttachmentID? = nil,
         controllerAttachmentID: TerminalAttachmentID? = nil,
         controlLeaseID: ControlLeaseID? = nil,
@@ -100,6 +102,7 @@ public struct BurrowApplicationSession: Identifiable, Hashable, Sendable {
         self.title = title
         self.kind = kind
         self.connectionState = connectionState
+        self.activityState = activityState ?? Self.defaultActivity(for: connectionState)
         self.attachmentID = attachmentID
         self.controllerAttachmentID = controllerAttachmentID
         self.controlLeaseID = controlLeaseID
@@ -107,6 +110,17 @@ public struct BurrowApplicationSession: Identifiable, Hashable, Sendable {
         self.terminalSize = terminalSize
         self.runtimeAdoptionDescriptor = runtimeAdoptionDescriptor
         self.output = output
+    }
+
+    private static func defaultActivity(
+        for connectionState: BurrowApplicationConnectionState
+    ) -> TerminalSessionActivityState {
+        switch connectionState {
+        case .attached: .working
+        case .connecting, .reconnecting, .disconnected: .connecting
+        case .exited: .exited
+        case .failed: .failed
+        }
     }
 }
 

@@ -22,9 +22,13 @@ let package = Package(
             dependencies: [
                 .product(name: "BurrowApplication", package: "Application"),
                 .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "BurrowHost", package: "Host"),
             ],
             resources: [
-                .copy("Resources/web.html")
+                .copy("Resources/web.html"),
+                .copy("Resources/manifest.webmanifest"),
+                .copy("Resources/service-worker.js"),
+                .copy("Resources/icon.svg")
             ]
         ),
         .testTarget(

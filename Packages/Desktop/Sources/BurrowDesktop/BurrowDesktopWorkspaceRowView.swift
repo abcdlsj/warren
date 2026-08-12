@@ -10,6 +10,7 @@ struct BurrowDesktopWorkspaceRow: View {
     let workspace: Workspace
     let semanticScope: String
     let sessionCount: Int
+    let activity: TerminalSessionActivityState?
     let isCollapsed: Bool
     let isSelected: Bool
     let onSelect: () -> Void
@@ -29,7 +30,13 @@ struct BurrowDesktopWorkspaceRow: View {
     private var collapsedRow: some View {
         let tokens = BurrowColorTokens.resolved(for: colorScheme)
         return Button(action: onSelect) {
-            workspaceGlyph(tokens: tokens)
+            ZStack(alignment: .topTrailing) {
+                workspaceGlyph(tokens: tokens)
+                if let activity {
+                    BurrowDesktopActivityIndicator(activity: activity)
+                        .offset(x: 5, y: -3)
+                }
+            }
         }
         .buttonStyle(.plain)
         .frame(width: 32, height: 32)
@@ -70,6 +77,10 @@ struct BurrowDesktopWorkspaceRow: View {
                     .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                if let activity {
+                    BurrowDesktopActivityIndicator(activity: activity)
+                }
 
                 Spacer(minLength: 0)
 
@@ -126,6 +137,66 @@ struct BurrowDesktopWorkspaceRow: View {
                 .fill(tokens.mutedForeground.opacity(0.9))
                 .frame(width: 5, height: 5)
                 .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Superset-style status point. Live/actionable states pulse; ready and exited
+/// Sessions remain quiet static markers.
+struct BurrowDesktopActivityIndicator: View {
+    let activity: TerminalSessionActivityState
+    @State private var isExpanded = false
+
+    var body: some View {
+        ZStack {
+            if pulses {
+                Circle()
+                    .fill(color.opacity(0.65))
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(isExpanded ? 1.9 : 1)
+                    .opacity(isExpanded ? 0 : 0.75)
+            }
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+        }
+        .frame(width: 10, height: 10)
+        .onAppear {
+            guard pulses else { return }
+            withAnimation(.easeOut(duration: 1.25).repeatForever(autoreverses: false)) {
+                isExpanded = true
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var pulses: Bool {
+        switch activity {
+        case .connecting, .working, .waitingForInput, .failed: true
+        case .ready, .exited: false
+        }
+    }
+
+    private var color: Color {
+        switch activity {
+        case .failed: Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
+        case .waitingForInput: Color(red: 234 / 255, green: 179 / 255, blue: 8 / 255)
+        case .connecting: Color(red: 168 / 255, green: 165 / 255, blue: 163 / 255)
+        case .working: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
+        case .ready: Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)
+        case .exited: Color(red: 120 / 255, green: 113 / 255, blue: 108 / 255)
+        }
+    }
+
+    private var accessibilityLabel: String {
+        switch activity {
+        case .failed: "Session failed"
+        case .waitingForInput: "Session needs input"
+        case .connecting: "Session connecting"
+        case .working: "Session working"
+        case .ready: "Session ready"
+        case .exited: "Session exited"
         }
     }
 }

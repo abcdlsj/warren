@@ -71,6 +71,24 @@ struct BurrowNextCompositionRoot: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copyLocalURL)) { _ in
+            model.copyLocalWebURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startCloudflare)) { _ in
+            model.startCloudflareWebAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopCloudflare)) { _ in
+            model.stopCloudflareWebAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startTailscale)) { _ in
+            model.startTailscaleWebAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopTailscale)) { _ in
+            model.stopTailscaleWebAccess()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
+            model.copySecureWebURL()
+        }
     }
 
     private func handle(_ action: BurrowDesktopAction) {

@@ -35,12 +35,15 @@ enum BurrowTerminalEnvironment {
         return environment
     }
 
-    static var tmuxSessionArguments: [String] {
-        [
+    static func tmuxSessionArguments(environment: [String: String] = [:]) -> [String] {
+        let base = [
             "-e", "COLORTERM=truecolor",
             "-e", "TERM_PROGRAM=\(termProgram)",
             "-e", "TERM_PROGRAM_VERSION=\(termProgramVersion)",
         ]
+        return base + environment.sorted { $0.key < $1.key }.flatMap { key, value in
+            ["-e", "\(key)=\(value)"]
+        }
     }
 
     /// Command used for the first pane in a tmux session.
@@ -52,12 +55,16 @@ enum BurrowTerminalEnvironment {
         launchCommand(shellPath: shellPath, command: nil)
     }
 
-    static func launchCommand(shellPath: String, command: String?) -> String {
+    static func launchCommand(
+        shellPath: String,
+        command: String?,
+        environment: [String: String] = [:]
+    ) -> String {
         let assignments = [
             "COLORTERM=truecolor",
             "TERM_PROGRAM=\(termProgram)",
             "TERM_PROGRAM_VERSION=\(termProgramVersion)",
-        ]
+        ] + environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
         let components = [
             "/usr/bin/env",
             "-u", "NO_COLOR",

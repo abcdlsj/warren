@@ -15,6 +15,8 @@
 - App 关闭或崩溃后 tmux Session 继续存在；重新打开后恢复。
 - App 不会在初始化、切换或重试时生成重复 shell。
 - 用户首次选择没有 Tab 的 Workspace 时自动获得一个默认 Shell。
+- Workspace 外显 working、waiting、ready、failed 和 exited 状态。
+- 用户可从响应式 Web/PWA 在桌面或移动浏览器访问同一 Host Session。
 - 自动测试可在不截图、不移动鼠标、不抢焦点的条件下验收以上能力。
 
 ## 2. 发布门槛
@@ -217,6 +219,28 @@
 - 两个模拟 Client Attachment 可同时观察；只有控制者可输入和 resize。
 - 控制权转移后旧 Attachment 的输入和 resize 被拒绝。
 
+### G10：Agent 状态与 Web/PWA（P0）
+
+交付：
+
+- Claude/Codex Hook 以 Burrow Session 环境变量上报明确状态，不扫描终端文本。
+- Workspace 聚合所有 Host Session，按 failed、waiting、connecting、working、ready、exited 排序。
+- 响应式 Web UI 提供 Project/Workspace Sidebar、Session Tabs、Preset、Terminal 和移动快捷键栏。
+- PWA 提供 manifest、service worker、standalone 安装、safe-area 和 token 恢复。
+- WebRelay 只监听 loopback；Cloudflare/Tailscale HTTPS 由用户显式启动。
+- Web 和桌面使用独立 Attachment，同步观察且按输入转移 Control Lease。
+- 慢 Web Client 不能阻塞桌面主线程，发送缓存必须有界。
+
+验收：
+
+- Hook 合并保留用户条目，连续安装两次只留下一个当前 Burrow 条目。
+- PermissionRequest 为黄色呼吸，Stop 为绿色静态，失败为红色呼吸，Runtime 退出为灰色静态。
+- 没有打开 Tab 的后台 Session 仍影响 Workspace 状态。
+- Web 和桌面同时 attach 后 Host 存在两个 Attachment，Web detach 不影响桌面 Attachment。
+- HTTP `/`、manifest、service worker、icon 可访问；WebSocket token 错误时拒绝连接。
+- 移动布局包含 Sidebar 抽屉、横向 Tabs、底部安全区快捷键栏；方向键发送 ANSI sequence。
+- PWA 安装后从 `/` 启动仍能使用已配对 token，离线时只显示缓存壳和断线状态。
+
 ## 4. 测试矩阵
 
 | 层级 | 目的 | 必测内容 |
@@ -348,3 +372,9 @@ Commit: `6beda2d`, `e316032`, `6e5ba98`, `5d5b00b`
 Tests: 多 Session 单次 `list-sessions`；空 Workspace 三次并发选择只创建一个 Shell；Application 26；TmuxRuntime 14；Desktop 15；DesignSystem 3；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
 Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
 Known limitations: Project 展开状态当前是 Window View 的瞬时 UI 状态，App 重启后按默认策略重新收缩。
+
+Goal: Workspace Agent activity 与响应式 Web/PWA
+Commit: 本次 `feat: add agent activity and responsive web client` 提交
+Tests: WebRelay 5；Desktop 18；Application 28；TmuxRuntime 15；BurrowNext build；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
+Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `./Burrow.app`
+Known limitations: PWA 离线时只保留静态 UI 壳，Host roster 与 Terminal 必须在 macOS Host 和显式 HTTPS 可达入口在线时使用；Cloudflare/Tailscale 的外部网络连通性不在无网络副作用的自动验收中启动。

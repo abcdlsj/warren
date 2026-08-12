@@ -40,12 +40,33 @@ struct BurrowNextApp: App {
                 .keyboardShortcut("b", modifiers: .command)
 
             }
+            CommandMenu("Web") {
+                Button("Copy Local Web URL") {
+                    post(WebRelayCommand.copyLocalURL)
+                }
+                Divider()
+                Button("Start Cloudflare Tunnel") { post(WebRelayCommand.startCloudflare) }
+                Button("Stop Cloudflare Tunnel") { post(WebRelayCommand.stopCloudflare) }
+                Button("Start Tailscale Serve") { post(WebRelayCommand.startTailscale) }
+                Button("Stop Tailscale Serve") { post(WebRelayCommand.stopTailscale) }
+                Divider()
+                Button("Copy Secure Web URL") { post(WebRelayCommand.copySecureURL) }
+            }
         }
     }
 
     private func post(_ name: Notification.Name) {
         NotificationCenter.default.post(name: name, object: nil)
     }
+}
+
+enum WebRelayCommand {
+    static let copyLocalURL = Notification.Name("WebRelay.copyLocalURL")
+    static let startCloudflare = Notification.Name("WebRelay.startCloudflare")
+    static let stopCloudflare = Notification.Name("WebRelay.stopCloudflare")
+    static let startTailscale = Notification.Name("WebRelay.startTailscaleServe")
+    static let stopTailscale = Notification.Name("WebRelay.stopTailscaleServe")
+    static let copySecureURL = Notification.Name("WebRelay.copySecureURL")
 }
 
 @MainActor

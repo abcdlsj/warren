@@ -160,7 +160,10 @@ final class BurrowDesktopTests: XCTestCase {
         XCTAssertNil(TerminalSessionLaunchRequest.shell.command)
         XCTAssertEqual(TerminalSessionLaunchRequest.claude.command, "claude")
         XCTAssertEqual(TerminalSessionLaunchRequest.claude.title, "Claude Code")
-        XCTAssertEqual(TerminalSessionLaunchRequest.codex.command, "codex")
+        XCTAssertEqual(
+            TerminalSessionLaunchRequest.codex.command,
+            "codex --dangerously-bypass-hook-trust"
+        )
     }
 
     func testSelectionReconcilesEmptyToLoadedProjection() {
@@ -273,6 +276,36 @@ final class BurrowDesktopTests: XCTestCase {
             in: projection
         )
         XCTAssertEqual(selected.selectedTabID, pendingTab.id)
+    }
+
+    func testWorkspaceActivityUsesMostActionableSessionState() {
+        let fixture = BurrowDesktopFixture.preview
+        let workspaceID = fixture.groups[0].workspaces[0].id
+        let working = fixture.sessions[0]
+        let failed = BurrowDesktopSession(
+            id: TerminalSessionID(),
+            workspaceID: workspaceID,
+            tabID: "failed",
+            title: "Failed",
+            kind: .codex,
+            state: .failed,
+            activity: .failed
+        )
+        let waiting = BurrowDesktopSession(
+            id: TerminalSessionID(),
+            workspaceID: workspaceID,
+            tabID: "waiting",
+            title: "Waiting",
+            kind: .claude,
+            activity: .waitingForInput
+        )
+        let projection = BurrowDesktopProjection(
+            host: fixture.host,
+            groups: fixture.groups,
+            sessions: [working, waiting, failed]
+        )
+
+        XCTAssertEqual(projection.activity(in: workspaceID), .failed)
     }
 
     func testSelectingTabSynchronizesSidebarWorkspace() {

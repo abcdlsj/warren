@@ -9,6 +9,7 @@ import GhosttyAdapter
 import BurrowProtocol
 import BurrowStateStore
 import BurrowTmuxRuntime
+import WebRelay
 
 @MainActor
 @Observable
@@ -22,6 +23,7 @@ final class BurrowNextApplicationModel {
     @ObservationIgnored private let service: BurrowApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
     @ObservationIgnored private let renderer: BurrowRendererCoordinator
+    @ObservationIgnored private var webRelay: WebRelayServer?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     /// Host mutations are ordered per Workspace. A slow agent launch in one
     /// project must never block navigation or operations in another project.
@@ -43,10 +45,22 @@ final class BurrowNextApplicationModel {
     }
 
     static func live() -> BurrowNextApplicationModel {
+        let isHeadlessAcceptance = ProcessInfo.processInfo.environment[
+            "BURROW_HEADLESS_ACCEPTANCE"
+        ] == "1"
+        // Headless verification must not read/write real pairing preferences
+        // or rewrite real user agent config.
+        let hookEnvironment = isHeadlessAcceptance
+            ? [:]
+            : WebRelayServer.agentHookEnvironment
+        if !isHeadlessAcceptance {
+            _ = WebRelayServer.installAgentHooks()
+        }
         let tmuxSocketName = ProcessInfo.processInfo.environment["BURROW_TMUX_SOCKET_NAME"]
         let runtime = TmuxRuntime(
             executor: ProcessTmuxCommandExecutor(socketName: tmuxSocketName),
-            outputDirectory: BurrowApplicationDefaults.runtimeOutputDirectory()
+            outputDirectory: BurrowApplicationDefaults.runtimeOutputDirectory(),
+            sessionEnvironment: hookEnvironment
         )
         let repository: SQLiteHostStateRepository
         do {
@@ -74,10 +88,10 @@ final class BurrowNextApplicationModel {
             )
         }
         var tabs = snapshot.windowLayout.workspaceViews.flatMap(\.tabs)
-        let visibleSessionIDs = Set(tabs.compactMap(\.sessionID))
-        let visibleSessions = snapshot.sessions.filter {
-            visibleSessionIDs.contains($0.id)
-        }
+        // Sidebar activity is a Host-resource projection, not a Tab
+        // projection. A live headless or closed-Tab Session must still make
+        // its Workspace visible as working / waiting / failed / exited.
+        let visibleSessions = snapshot.sessions
         let workspaceIDs = Dictionary(
             uniqueKeysWithValues: visibleSessions.map { ($0.id, $0.workspaceID) }
         )
@@ -105,7 +119,8 @@ final class BurrowNextApplicationModel {
                     tabID: session.tabID,
                     title: session.title,
                     kind: session.kind,
-                    state: Self.desktopSessionState(for: session.connectionState)
+                    state: Self.desktopSessionState(for: session.connectionState),
+                    activity: session.activityState
                 )
             },
             tabs: tabs,
@@ -128,6 +143,7 @@ final class BurrowNextApplicationModel {
         }
         do {
             try await service.start()
+            startWebRelay()
         } catch {
             present(error)
         }
@@ -144,6 +160,8 @@ final class BurrowNextApplicationModel {
         }
         workspaceActionTasks.removeAll()
         renderer.shutdown()
+        webRelay?.stop()
+        webRelay = nil
     }
 
     func shutdown() async {
@@ -174,6 +192,46 @@ final class BurrowNextApplicationModel {
 
     func runtimeExists(sessionID: TerminalSessionID) async -> Bool {
         await runtime.exists(sessionID: sessionID)
+    }
+
+    private func startWebRelay() {
+        guard webRelay == nil else { return }
+        let relay = WebRelayServer(service: service)
+        relay.start()
+        webRelay = relay
+    }
+
+    func copyLocalWebURL() {
+        guard webRelay != nil, let url = WebRelayServer.localWebURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+
+    func startCloudflareWebAccess() {
+        webRelay?.startTunnel()
+    }
+
+    func stopCloudflareWebAccess() {
+        webRelay?.stopTunnel()
+    }
+
+    func startTailscaleWebAccess() {
+        Task { await webRelay?.startTailscale() }
+    }
+
+    func stopTailscaleWebAccess() {
+        Task { await webRelay?.stopTailscale() }
+    }
+
+    func copySecureWebURL() {
+        guard let url = webRelay?.secureWebURL else {
+            present(BurrowApplicationError.transport(
+                "Secure Web access is not ready. Start Cloudflare Tunnel or Tailscale Serve first."
+            ))
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {

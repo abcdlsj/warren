@@ -218,6 +218,7 @@ extension BurrowApplicationService {
                     title: connection.title,
                     kind: connection.kind,
                     connectionState: state,
+                    activityState: activityState(for: connection.session.id, connectionState: state),
                     attachmentID: client.attachmentID ?? connection.attachmentID,
                     controllerAttachmentID: client.controllerAttachmentID,
                     controlLeaseID: client.controlLeaseID,
@@ -243,6 +244,7 @@ extension BurrowApplicationService {
                     : (persisted.kind == .shell ? "Terminal" : persisted.kind.displayName),
                 kind: persisted.kind,
                 connectionState: persisted.lifecycle == .ended ? .exited : .disconnected,
+                activityState: persisted.lifecycle == .ended ? .exited : .connecting,
                 recoveryAnchor: RecoveryAnchor(
                     epoch: persisted.epoch,
                     sequence: persisted.sequence
@@ -262,6 +264,22 @@ extension BurrowApplicationService {
             issues: issues,
             lifecycle: lifecycle
         )
+    }
+
+    func activityState(
+        for sessionID: TerminalSessionID,
+        connectionState: BurrowApplicationConnectionState
+    ) -> TerminalSessionActivityState {
+        switch connectionState {
+        case .failed:
+            return .failed
+        case .exited:
+            return .exited
+        case .connecting, .reconnecting, .disconnected:
+            return sessionActivity[sessionID] ?? .connecting
+        case .attached:
+            return sessionActivity[sessionID] ?? .working
+        }
     }
 }
 

@@ -199,6 +199,20 @@ public enum TerminalSessionKind: String, Codable, CaseIterable, Hashable, Sendab
 
 }
 
+/// Host-reported activity for a live terminal session.
+///
+/// This is explicit lifecycle data, not terminal-output pattern matching. Agent
+/// adapters report `waitingForInput`, `failed`, and `exited`; plain shells and
+/// agent sessions default to `working` while their runtime is attached.
+public enum TerminalSessionActivityState: String, Codable, CaseIterable, Hashable, Sendable {
+    case connecting
+    case working
+    case waitingForInput
+    case failed
+    case ready
+    case exited
+}
+
 /// A value-only request for starting one terminal session.
 ///
 /// The durable `kind` describes what was launched. The command and title stay
@@ -226,7 +240,14 @@ public struct TerminalSessionLaunchRequest: Hashable, Sendable {
 
     public static let shell = Self(kind: .shell)
     public static let claude = Self(kind: .claude, command: "claude", title: "Claude Code")
-    public static let codex = Self(kind: .codex, command: "codex", title: "Codex")
+    /// Burrow owns and verifies its managed lifecycle hook. This flag bypasses
+    /// only Codex's hook trust prompt; it does not bypass command approvals or
+    /// the sandbox.
+    public static let codex = Self(
+        kind: .codex,
+        command: "codex --dangerously-bypass-hook-trust",
+        title: "Codex"
+    )
 
     public func identified(by requestID: UUID = UUID()) -> Self {
         Self(

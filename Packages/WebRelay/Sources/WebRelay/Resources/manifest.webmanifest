@@ -1,0 +1,14 @@
+{
+  "name": "Burrow",
+  "short_name": "Burrow",
+  "description": "Persistent workspace terminals on your Burrow Host",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#151110",
+  "theme_color": "#1c1918",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

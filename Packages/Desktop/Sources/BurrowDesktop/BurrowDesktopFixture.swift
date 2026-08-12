@@ -42,6 +42,7 @@ public struct BurrowDesktopSession: Identifiable, Hashable, Sendable {
     public let title: String
     public let kind: TerminalSessionKind
     public let state: BurrowDesktopSessionState
+    public let activity: TerminalSessionActivityState
 
     public init(
         id: TerminalSessionID,
@@ -49,7 +50,8 @@ public struct BurrowDesktopSession: Identifiable, Hashable, Sendable {
         tabID: String,
         title: String,
         kind: TerminalSessionKind = .shell,
-        state: BurrowDesktopSessionState = .attached
+        state: BurrowDesktopSessionState = .attached,
+        activity: TerminalSessionActivityState? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -57,6 +59,18 @@ public struct BurrowDesktopSession: Identifiable, Hashable, Sendable {
         self.title = title
         self.kind = kind
         self.state = state
+        self.activity = activity ?? Self.defaultActivity(for: state)
+    }
+
+    private static func defaultActivity(
+        for state: BurrowDesktopSessionState
+    ) -> TerminalSessionActivityState {
+        switch state {
+        case .attached: .working
+        case .connecting, .reconnecting, .disconnected: .connecting
+        case .exited: .exited
+        case .failed: .failed
+        }
     }
 }
 
@@ -225,6 +239,28 @@ public struct BurrowDesktopProjection: Sendable, Hashable {
     /// owned by another project/branch.
     public func tabs(in workspaceID: WorkspaceID) -> [ClientTab] {
         tabs.filter { tabWorkspaceIDs[$0.id] == workspaceID }
+    }
+
+    /// Returns the most actionable state for a Workspace. A failure or input
+    /// request must remain visible even when another Session is still working.
+    public func activity(in workspaceID: WorkspaceID) -> TerminalSessionActivityState? {
+        sessions.lazy
+            .filter { $0.workspaceID == workspaceID }
+            .map(\.activity)
+            .max { $0.workspacePriority < $1.workspacePriority }
+    }
+}
+
+private extension TerminalSessionActivityState {
+    var workspacePriority: Int {
+        switch self {
+        case .failed: 5
+        case .waitingForInput: 4
+        case .connecting: 3
+        case .working: 2
+        case .ready: 1
+        case .exited: 0
+        }
     }
 }
 

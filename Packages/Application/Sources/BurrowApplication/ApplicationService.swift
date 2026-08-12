@@ -55,6 +55,9 @@ public actor BurrowApplicationService {
     internal var lifecycle: BurrowApplicationLifecycle = .idle
     internal var issues: [BurrowApplicationIssue] = []
     internal var connections: [TerminalSessionID: SessionConnection] = [:]
+    /// Explicit agent/runtime activity reported through a typed boundary.
+    /// Connection failure and runtime exit still take precedence in snapshots.
+    internal var sessionActivity: [TerminalSessionID: TerminalSessionActivityState] = [:]
     /// Closed tabs and headless CLI sessions remain durable but are not
     /// eagerly adopted on every desktop launch. Explicit open/attach requests
     /// restore them through this shared task so concurrent clients cannot
@@ -138,6 +141,20 @@ public actor BurrowApplicationService {
 
     public func snapshot() async -> BurrowApplicationSnapshot {
         await makeSnapshot()
+    }
+
+    /// Receives lifecycle events from an agent hook, automation runner, or a
+    /// future remote Host. Views never infer this state from terminal text.
+    public func reportSessionActivity(
+        sessionID: TerminalSessionID,
+        state activity: TerminalSessionActivityState
+    ) async throws {
+        try requireReady()
+        guard state.terminalSessions.contains(where: { $0.id == sessionID }) else {
+            throw BurrowApplicationError.sessionNotFound(sessionID)
+        }
+        sessionActivity[sessionID] = activity
+        await publish()
     }
 
     /// Returns a copy for diagnostics and deterministic persistence tests.

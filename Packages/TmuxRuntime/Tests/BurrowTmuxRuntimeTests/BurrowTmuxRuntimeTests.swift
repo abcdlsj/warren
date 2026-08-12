@@ -113,6 +113,33 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testCreateInjectsBurrowHookEnvironmentPerSession() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            sessionEnvironment: [
+                "BURROW_HOOK_URL": "http://127.0.0.1:8788/hook",
+                "BURROW_HOOK_TOKEN": "test-token",
+            ]
+        )
+        let sessionID = TerminalSessionID()
+        _ = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!,
+            launchSpec: TerminalRuntimeLaunchSpec.command("claude")
+        )
+        let commands = await executor.calls
+        let newSession = try XCTUnwrap(commands.first { $0.arguments.contains("new-session") })
+        let rendered = newSession.arguments.joined(separator: " ")
+        XCTAssertTrue(rendered.contains("BURROW_SESSION_ID=\(sessionID.description)"))
+        XCTAssertTrue(rendered.contains("BURROW_HOOK_URL=http://127.0.0.1:8788/hook"))
+        XCTAssertTrue(rendered.contains("BURROW_HOOK_TOKEN=test-token"))
+        await runtime.shutdown()
+    }
+
     func testPresetLaunchStartsAsFirstPaneProcessWithoutSyntheticInput() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()

@@ -8,9 +8,9 @@
 
 Burrow 是以 Workspace 为边界、以持久终端为核心的本地开发工作台。
 
-第一期只交付 macOS 本地产品。用户可以管理 Project 和 Workspace，在每个 Workspace 内创建、切换、关闭和恢复 Terminal Session，并通过 Ghostty 获得接近原生终端的输入、颜色、尺寸和交互体验。
+第一期以 macOS Host 和桌面端为核心，同时交付同一 Host 上的响应式 Web/PWA 客户端。用户可以管理 Project 和 Workspace，在每个 Workspace 内创建、切换、关闭和恢复 Terminal Session，并通过 Ghostty 或 Web Terminal 获得持续的输入、颜色、尺寸和交互体验。
 
-系统必须为后续 iOS、Web、远程 Host、Session 分享、Automation 和中心控制面保留稳定边界，但第一期不得为尚未交付的网络功能增加用户可见复杂度。
+系统必须为后续 iOS 原生端、远程 Host、Session 分享、Automation 和中心控制面保留稳定边界。Web 网络可达性由用户显式启用，不得在默认启动时开放公网入口。
 
 ## 2. 第一原则
 
@@ -99,6 +99,7 @@ Terminal Session
 | PTY 输出恢复位置 | Host Output Store | 是 |
 | Window、Workspace View、Tabs | Client Layout Store | 是，设备本地 |
 | Attachment、Lease、Viewport Owner | Host 内存状态 | 否 |
+| Agent activity（working、waiting、ready、failed） | Host 内存状态 | 否 |
 | Surface、焦点、测量尺寸 | Renderer Coordinator | 否 |
 | 导入完成状态 | Import Receipt Store | 是 |
 
@@ -154,9 +155,11 @@ Local IPC / Direct WebSocket / Relay Transport
 Host Service or Host Daemon
 ```
 
-第一期使用进程内或本地 IPC 组合。后续将 Host 移入 daemon 时，不改变 Project、Workspace、Session、Client Layout 或 Host Protocol。
+macOS Client 使用进程内组合；Web Client 通过 loopback WebSocket Adapter 连接同一 Host。后续将 Host 移入 daemon 时，不改变 Project、Workspace、Session、Client Layout 或 Host Protocol。
 
 Tailscale、局域网、Cloudflare Tunnel 只提供网络可达性，不进入业务模型。未来中心 Server 只提供账号、Host 发现、配对、撤销、信令和 Relay；Session 与进程仍由 Host 持有。
+
+WebRelay 默认只绑定 `127.0.0.1`。移动端访问和 PWA 安装使用用户显式启动的 Cloudflare Tunnel 或 Tailscale Serve HTTPS 地址；访问 URL 携带随机配对 token，WebSocket 握手后仍须认证。慢 Web Client 使用有界非阻塞发送队列，不能阻塞 macOS 主线程或 Host 输出。
 
 Session 分享通过 Principal、Share Grant、Capability 和多个 Attachment 增量实现，不改变资源树。
 
@@ -325,6 +328,22 @@ Window
 - 字体、密度、间距、层级和 hover/selected 状态以 Superset macOS Desktop 为第一期视觉基准；终端本体使用等宽字体和 Ghostty 主题能力。
 - 所有可交互元素必须有稳定 Accessibility Identifier、Role、Label、Value 和可执行 Action。
 - 自绘无标题窗口只允许顶部明确的空白 chrome 叶节点调用 AppKit `performDrag`；Tab、按钮和 Terminal 不继承窗口拖动行为。
+- Workspace 汇总所有 Host Session 的明确 activity，优先级为 `failed > waitingForInput > connecting > working > ready > exited`；不能只查看当前 Tab。
+- Superset 风格状态点：failed 红色呼吸、waitingForInput 黄色呼吸、working 琥珀色呼吸、ready 绿色静态、exited 灰色静态。
+- Agent activity 由 Burrow 管理的 Claude/Codex Hook 上报。Hook 只读取事件类型和 `BURROW_SESSION_ID`，不读取或上传对话内容；配置合并必须保留用户条目并可幂等更新。
+- Burrow 启动 Codex 时只使用 `--dangerously-bypass-hook-trust` 信任由 Burrow 生成和校验的 Hook；不得因此绕过 Codex command approval 或 sandbox。
+
+## 11. Web/PWA 交互设计
+
+Web Client 使用与桌面一致的 Project → Workspace → Session 信息架构，并遵循以下规则：
+
+- 桌面宽度显示固定 Sidebar、横向 Session Tabs、Preset Bar 和 Terminal。
+- 移动宽度使用可关闭的 Sidebar 抽屉、可横向滚动的 Tabs、底部安全区快捷键栏。
+- PWA 提供 manifest、maskable 图标、standalone 模式和 shell 缓存；配对 token 首次认证后保存在当前浏览器本地，以便安装后从 `start_url` 启动。
+- PWA 离线只展示缓存 UI 壳和断开状态，不伪造 Host 或 Session 可用性。
+- Web Attachment 与桌面 Attachment 身份独立；两端可同时观察。只有实际输入或 resize 的 Attachment 才按 last-writer-wins 获取 Control Lease。
+- Web 创建 Session 立即展示 loading；Host 返回新 Session ID 后直接 attach，不等待下一次 roster 猜测。
+- 触屏方向键发送真实 ANSI cursor sequence，Esc、Tab、Ctrl-C、Ctrl-D 发送真实控制字节。
 
 性能目标：
 
@@ -334,11 +353,11 @@ Window
 - PTY 输出不得因数据库写入产生背压。
 - 单个 Workspace 的失败不得冻结其他 Workspace 或整个窗口。
 
-## 11. 无干扰可观测与验收设计
+## 12. 无干扰可观测与验收设计
 
 验收不得依赖截图，不得移动鼠标，不得抢占用户当前 App 的键盘焦点。
 
-### 11.1 三层观测
+### 12.1 三层观测
 
 **领域事件日志**：每条命令和状态迁移输出结构化事件，包含 monotonic timestamp、trace ID、request ID、window ID、workspace ID、session ID、旧状态、目标状态、结果和错误。严禁记录凭证及完整用户输入。
 
@@ -346,7 +365,7 @@ Window
 
 **终端探针**：记录 Runtime 状态、tmux 实际尺寸、Attachment/Lease、输入序列、Recovery Anchor、原始输出摘要和终端解析后的 cell/style 摘要。颜色验收读取 ANSI 后的 cell attributes，不读取截图。
 
-### 11.2 测试运行方式
+### 12.2 测试运行方式
 
 测试使用独立临时目录和独立 tmux server：
 
@@ -374,7 +393,7 @@ Observation Socket 只在显式测试启动参数下开启，使用随机临时 
 
 生产构建默认关闭该入口。测试动作仍必须走与真实 UI 相同的 typed intent，禁止直接篡改 Store 制造通过结果。
 
-### 11.3 验收证据
+### 12.3 验收证据
 
 每个端到端用例输出一个机器可读 artifact：
 
@@ -389,11 +408,11 @@ artifacts/<run-id>/
 
 失败报告必须指出最后成功不变量、首次违规事件、相关资源 ID 和可重现命令。测试结束必须验证用户鼠标坐标与前台应用 PID 未变化。
 
-## 12. 第一期开外范围
+## 13. 第一期开外范围
 
 - 中心 Server、账号系统、Relay 和公网发现。
-- Tailscale 或 Cloudflare 的产品内集成。
-- iOS/Web 正式客户端。
+- 自动启动的公网入口和中心 Relay。
+- iOS 原生客户端。
 - 多人分享和权限 UI。
 - Automation 调度器。
 - tmux 多 window/pane 到 UI Pane 的映射。

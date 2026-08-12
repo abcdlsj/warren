@@ -7,6 +7,64 @@ import BurrowProtocol
 import BurrowStateStore
 
 final class BurrowApplicationTests: XCTestCase {
+    func testRemoteAttachmentDoesNotReplaceDesktopAttachment() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let tabID = try await service.addTab(workspaceID: workspace.id)
+        let before = await service.snapshot()
+        let session = try XCTUnwrap(before.sessions.first { $0.tabID == tabID })
+        let desktopAttachmentID = try XCTUnwrap(session.attachmentID)
+        let remoteAttachmentID = TerminalAttachmentID()
+
+        let channel = try await service.openClientAttachment(
+            sessionID: session.id,
+            clientID: ClientID(),
+            attachmentID: remoteAttachmentID
+        )
+        XCTAssertEqual(channel.result.attachmentID, remoteAttachmentID)
+        let host = try await service.hostSessionSnapshot(sessionID: session.id)
+        XCTAssertEqual(Set(host.attachments.map(\.id)), [desktopAttachmentID, remoteAttachmentID])
+        let remoteSnapshot = await service.snapshot()
+        XCTAssertEqual(remoteSnapshot.session(id: session.id)?.attachmentID, desktopAttachmentID)
+
+        await service.closeClientAttachment(
+            sessionID: session.id,
+            attachmentID: remoteAttachmentID,
+            reason: "test"
+        )
+        let detached = try await service.hostSessionSnapshot(sessionID: session.id)
+        XCTAssertEqual(detached.attachments.map(\.id), [desktopAttachmentID])
+    }
+
+    func testExplicitSessionActivityOverridesWorkingAndExitStillWins() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let session = try await service.createSession(
+            workspaceID: workspace.id,
+            kind: .claude,
+            title: "Claude"
+        )
+
+        try await service.reportSessionActivity(
+            sessionID: session.id,
+            state: .waitingForInput
+        )
+        let waitingSnapshot = await service.snapshot()
+        XCTAssertEqual(waitingSnapshot.session(id: session.id)?.activityState, .waitingForInput)
+        try await service.terminateSession(sessionID: session.id)
+        let exitedSnapshot = await service.snapshot()
+        XCTAssertEqual(exitedSnapshot.session(id: session.id)?.activityState, .exited)
+    }
     func testSupersetImportPublishesResourcesWithoutCreatingSessions() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BurrowApplicationImport-\(UUID().uuidString)", isDirectory: true)
