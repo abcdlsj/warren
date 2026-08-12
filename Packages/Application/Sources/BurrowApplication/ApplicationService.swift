@@ -60,6 +60,9 @@ public actor BurrowApplicationService {
     /// restore them through this shared task so concurrent clients cannot
     /// adopt the same runtime twice.
     internal var restorationTasks: [TerminalSessionID: Task<Void, Never>] = [:]
+    /// Coalesces repeated empty-Workspace selections while the first shell is
+    /// still crossing runtime and persistence boundaries.
+    internal var defaultTabTasks: [WorkspaceID: Task<String, Error>] = [:]
     internal var eventLoopTask: Task<Void, Never>?
     /// PTY output can arrive much faster than the desktop needs to redraw.
     /// Keep one scheduled publication for a burst instead of rebuilding the
@@ -110,6 +113,7 @@ public actor BurrowApplicationService {
         eventLoopTask?.cancel()
         outputPublishTask?.cancel()
         sequencePersistenceTask?.cancel()
+        for task in defaultTabTasks.values { task.cancel() }
         for waiter in attachmentWaiters.values {
             waiter.continuation.yield(.failure(.transport("The application service was released.")))
             waiter.continuation.finish()
@@ -187,6 +191,8 @@ public actor BurrowApplicationService {
         lifecycle = .stopping
         for task in restorationTasks.values { task.cancel() }
         restorationTasks.removeAll()
+        for task in defaultTabTasks.values { task.cancel() }
+        defaultTabTasks.removeAll()
         eventLoopTask?.cancel()
         eventLoopTask = nil
         outputPublishTask?.cancel()

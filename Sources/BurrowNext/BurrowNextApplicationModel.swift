@@ -235,10 +235,15 @@ final class BurrowNextApplicationModel {
             }
         }
 
-        guard action.requiresHostSideEffect else { return }
-        guard let workspaceID = workspaceID(for: action) else { return }
-        enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
-            await self?.performSerial(action)
+        if case .selectWorkspace(let workspaceID) = action {
+            enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
+                await self?.ensureDefaultShellTab(in: workspaceID)
+            }
+        } else if action.requiresHostSideEffect,
+                  let workspaceID = workspaceID(for: action) {
+            enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
+                await self?.performSerial(action)
+            }
         }
     }
 
@@ -288,6 +293,15 @@ final class BurrowNextApplicationModel {
 }
 
 private extension BurrowNextApplicationModel {
+    func ensureDefaultShellTab(in workspaceID: WorkspaceID) async {
+        do {
+            let tabID = try await service.ensureDefaultShellTab(workspaceID: workspaceID)
+            selectCreatedTab(tabID, workspaceID: workspaceID)
+        } catch {
+            present(error)
+        }
+    }
+
     func performSerial(_ action: BurrowDesktopAction) async {
         switch action {
         case .requestNewSession:

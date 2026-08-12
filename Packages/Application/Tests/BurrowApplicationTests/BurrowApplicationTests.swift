@@ -672,6 +672,30 @@ final class BurrowApplicationTests: XCTestCase {
         )
     }
 
+    func testRepeatedEmptyWorkspaceSelectionCoalescesOneDefaultShellTab() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let initial = await service.snapshot()
+        let workspace = try XCTUnwrap(
+            initial.workspaces.first { $0.projectID == project.id }
+        )
+
+        async let first = service.ensureDefaultShellTab(workspaceID: workspace.id)
+        async let second = service.ensureDefaultShellTab(workspaceID: workspace.id)
+        async let third = service.ensureDefaultShellTab(workspaceID: workspace.id)
+        let tabIDs = try await [first, second, third]
+
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(Set(tabIDs).count, 1)
+        XCTAssertEqual(snapshot.tabs(in: workspace.id).count, 1)
+        XCTAssertEqual(snapshot.sessions(in: workspace.id).count, 1)
+        XCTAssertEqual(snapshot.sessions(in: workspace.id).first?.kind, .shell)
+    }
+
     func testAttachControlInputResizeAndOutputUseOneTransportProjection() async throws {
         let runtime = RestorableRuntime()
         let service = makeService(runtime: runtime)

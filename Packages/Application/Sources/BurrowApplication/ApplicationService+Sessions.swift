@@ -158,6 +158,43 @@ extension BurrowApplicationService {
         return tabID
     }
 
+    /// Ensures an empty Workspace View has one interactive shell Tab.
+    ///
+    /// Repeated selections share the same in-flight operation. Existing Tabs
+    /// are never replaced, and durable Sessions without an open Tab are not
+    /// implicitly revived.
+    @discardableResult
+    public func ensureDefaultShellTab(workspaceID: WorkspaceID) async throws -> String {
+        try requireReady()
+        guard state.workspaces.contains(where: { $0.id == workspaceID }) else {
+            throw BurrowApplicationError.workspaceNotFound(workspaceID)
+        }
+        if let existing = await layoutStore.window(id: windowID)
+            .workspaceView(for: workspaceID)?.tabs.first {
+            return existing.id
+        }
+        if let task = defaultTabTasks[workspaceID] {
+            return try await task.value
+        }
+
+        let request = TerminalSessionLaunchRequest.shell.identified()
+        let task = Task<String, Error> { [weak self] in
+            guard let self else {
+                throw CancellationError()
+            }
+            return try await self.addTab(workspaceID: workspaceID, request: request)
+        }
+        defaultTabTasks[workspaceID] = task
+        do {
+            let tabID = try await task.value
+            defaultTabTasks.removeValue(forKey: workspaceID)
+            return tabID
+        } catch {
+            defaultTabTasks.removeValue(forKey: workspaceID)
+            throw error
+        }
+    }
+
     public func selectWorkspace(_ workspaceID: WorkspaceID) async throws {
         try requireReady()
         guard state.workspaces.contains(where: { $0.id == workspaceID }) else {
