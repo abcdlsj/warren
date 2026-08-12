@@ -122,4 +122,47 @@ extension TerminalSessionCoordinator {
             throw protocolError(.internalFailure, "The terminal runtime rejected resize: \(error).", retryable: true)
         }
     }
+
+    public func sendSpecialKey(
+        sessionID: TerminalSessionID,
+        attachmentID: TerminalAttachmentID,
+        key: TerminalSpecialKey,
+        now: Date? = nil
+    ) async throws {
+        guard var state = sessions[sessionID] else {
+            throw protocolError(.sessionNotFound, "Cannot send a key to a missing session.")
+        }
+        try requireController(
+            in: &state,
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            at: now ?? clock()
+        )
+        sessions[sessionID] = state
+        do {
+            try await runtime.sendSpecialKey(sessionID: sessionID, key: key)
+        } catch {
+            throw protocolError(.internalFailure, "The terminal runtime rejected the key: \(error).", retryable: true)
+        }
+    }
+
+    public func inspectRuntime(
+        sessionID: TerminalSessionID
+    ) async throws -> TerminalRuntimeInspection {
+        guard sessions[sessionID] != nil else {
+            throw protocolError(.sessionNotFound, "Cannot inspect a missing session.")
+        }
+        return try await runtime.inspect(sessionID: sessionID)
+    }
+
+    public func terminateRuntime(sessionID: TerminalSessionID) async throws {
+        guard sessions[sessionID] != nil else {
+            throw protocolError(.sessionNotFound, "Cannot terminate a missing session.")
+        }
+        do {
+            try await runtime.terminate(sessionID: sessionID)
+        } catch {
+            throw protocolError(.internalFailure, "The terminal runtime could not terminate: \(error).", retryable: true)
+        }
+    }
 }

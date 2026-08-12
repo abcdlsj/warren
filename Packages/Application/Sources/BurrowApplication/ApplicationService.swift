@@ -22,6 +22,7 @@ public actor BurrowApplicationService {
         var attachmentID: TerminalAttachmentID?
         var title: String
         var kind: TerminalSessionKind
+        var runtimeEnded: Bool
     }
 
     internal struct AttachmentWaiter: Sendable {

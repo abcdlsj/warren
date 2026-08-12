@@ -23,7 +23,8 @@ extension BurrowApplicationService {
                 }
                 let binding = try await coordinator.createSessionWithRuntimeDescriptor(
                     workspace: workspace,
-                    size: TerminalSessionCoordinator.defaultTerminalSize
+                    size: TerminalSessionCoordinator.defaultTerminalSize,
+                    launchSpec: TerminalRuntimeLaunchSpec(command: launchCommand)
                 )
                 let resolvedTitle = title?.isEmpty == false
                     ? title!.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -39,19 +40,6 @@ extension BurrowApplicationService {
                     kind: kind,
                     title: resolvedTitle
                 )
-                // TODO(G3): Runtime launch spec must replace this compatibility
-                // input path. Keeping it here temporarily avoids mixing layout
-                // ownership migration with the tmux adapter contract change.
-                if let launchCommand, !launchCommand.isEmpty {
-                    let trimmed = launchCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        try await Task.sleep(for: .milliseconds(500))
-                        try await runtime.write(
-                            sessionID: binding.session.id,
-                            data: Data((trimmed + "\r").utf8)
-                        )
-                    }
-                }
                 var candidate = state
                 candidate.terminalSessions.removeAll { $0.id == persisted.id }
                 candidate.terminalSessions.append(persisted)
@@ -229,7 +217,8 @@ extension BurrowApplicationService {
             store: ClientSessionStore(host: host, sessionID: session.id, clientID: clientID),
             attachmentID: nil,
             title: title?.isEmpty == false ? title! : (workspace.name.isEmpty ? "Terminal" : workspace.name),
-            kind: kind
+            kind: kind,
+            runtimeEnded: false
         )
     }
 

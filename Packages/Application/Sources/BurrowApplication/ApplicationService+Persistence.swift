@@ -184,14 +184,16 @@ extension BurrowApplicationService {
         for connection in sorted {
             let client = await connection.store.snapshot()
             let state: BurrowApplicationConnectionState
-            switch client.connectionState {
+            if connection.runtimeEnded {
+                state = .exited
+            } else { switch client.connectionState {
             case .disconnected: state = .disconnected
             case .connecting: state = .connecting
             case .attached: state = .attached
             case .reconnecting: state = .reconnecting
             case .exited: state = .exited
             case .failed: state = .failed
-            }
+            } }
 
             let output: BurrowApplicationOutputSnapshot?
             if let cached = outputSnapshotCache[connection.session.id],
@@ -240,7 +242,7 @@ extension BurrowApplicationService {
                     ? persisted.title!
                     : (persisted.kind == .shell ? "Terminal" : persisted.kind.displayName),
                 kind: persisted.kind,
-                connectionState: .disconnected,
+                connectionState: persisted.lifecycle == .ended ? .exited : .disconnected,
                 recoveryAnchor: RecoveryAnchor(
                     epoch: persisted.epoch,
                     sequence: persisted.sequence

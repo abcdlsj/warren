@@ -112,6 +112,40 @@ extension BurrowApplicationService {
         try await sendInput(sessionID: sessionID, attachmentID: attachmentID, data: data)
     }
 
+    public func sendSpecialKey(
+        sessionID: TerminalSessionID,
+        attachmentID: TerminalAttachmentID,
+        key: TerminalSpecialKey
+    ) async throws {
+        try requireAttachment(sessionID: sessionID, attachmentID: attachmentID)
+        try await requestControl(sessionID: sessionID, attachmentID: attachmentID)
+        try await coordinator.sendSpecialKey(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            key: key
+        )
+    }
+
+    public func inspectSessionRuntime(
+        sessionID: TerminalSessionID
+    ) async throws -> TerminalRuntimeInspection {
+        try requireReady()
+        await ensureSessionRestored(sessionID)
+        if let persisted = state.terminalSessions.first(where: { $0.id == sessionID }),
+           persisted.lifecycle == .ended {
+            return TerminalRuntimeInspection(isRunning: false)
+        }
+        return try await coordinator.inspectRuntime(sessionID: sessionID)
+    }
+
+    public func terminateSession(sessionID: TerminalSessionID) async throws {
+        try requireReady()
+        await ensureSessionRestored(sessionID)
+        try await coordinator.terminateRuntime(sessionID: sessionID)
+        await markSessionEnded(sessionID: sessionID)
+        await publish()
+    }
+
     public func resize(
         sessionID: TerminalSessionID,
         attachmentID: TerminalAttachmentID,

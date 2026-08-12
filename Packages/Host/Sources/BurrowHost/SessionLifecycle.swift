@@ -87,7 +87,8 @@ extension TerminalSessionCoordinator {
     /// must be persisted by the application for a later adoption.
     public func createSessionWithRuntimeDescriptor(
         workspace: Workspace,
-        size: TerminalSize = TerminalSessionCoordinator.defaultTerminalSize
+        size: TerminalSize = TerminalSessionCoordinator.defaultTerminalSize,
+        launchSpec: TerminalRuntimeLaunchSpec = .interactiveShell
     ) async throws -> TerminalSessionRuntimeBinding {
         let session = TerminalSession(workspaceID: workspace.id)
         // Subscribe before creating the runtime so a fast shell cannot emit
@@ -96,7 +97,8 @@ extension TerminalSessionCoordinator {
         let descriptor = try await runtime.create(
             sessionID: session.id,
             workingDirectory: workspace.path,
-            size: size
+            size: size,
+            launchSpec: launchSpec
         )
         sessions[session.id] = SessionState(
             session: session,

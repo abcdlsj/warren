@@ -49,6 +49,10 @@ enum BurrowTerminalEnvironment {
     /// with no `NO_COLOR` override falls back to a stale value in a long-lived
     /// tmux server. `env -u` removes the policy at the actual process boundary.
     static func interactiveShellCommand(shellPath: String) -> String {
+        launchCommand(shellPath: shellPath, command: nil)
+    }
+
+    static func launchCommand(shellPath: String, command: String?) -> String {
         let assignments = [
             "COLORTERM=truecolor",
             "TERM_PROGRAM=\(termProgram)",
@@ -60,7 +64,7 @@ enum BurrowTerminalEnvironment {
             "-u", "FORCE_COLOR",
             "-u", "CLICOLOR",
             "-u", "CLICOLOR_FORCE",
-        ] + assignments + [shellPath]
+        ] + assignments + [shellPath] + (command.map { ["-l", "-c", "exec \($0)"] } ?? [])
         return components.map(shellQuote).joined(separator: " ")
     }
 

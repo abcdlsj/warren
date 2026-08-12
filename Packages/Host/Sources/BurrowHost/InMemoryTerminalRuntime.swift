@@ -36,7 +36,8 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
     public func create(
         sessionID: TerminalSessionID,
         workingDirectory: String,
-        size: TerminalSize
+        size: TerminalSize,
+        launchSpec: TerminalRuntimeLaunchSpec
     ) async throws -> TerminalRuntimeDescriptor {
         guard !workingDirectory.isEmpty else {
             throw TerminalRuntimeError.invalidWorkingDirectory
@@ -47,7 +48,10 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
         let descriptor = TerminalRuntimeDescriptor(
             runtime: "in-memory",
             identifier: sessionID.description,
-            metadata: ["workingDirectory": workingDirectory]
+            metadata: [
+                "workingDirectory": workingDirectory,
+                "launchSpec": String(describing: launchSpec),
+            ]
         )
         records[sessionID] = Record(
             sessionID: sessionID,
@@ -115,6 +119,22 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
         records[sessionID] = record
     }
 
+    public func sendSpecialKey(sessionID: TerminalSessionID, key: TerminalSpecialKey) async throws {
+        try await write(sessionID: sessionID, data: Self.bytes(for: key))
+    }
+
+    public func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection {
+        guard let record = records[sessionID] else { throw TerminalRuntimeError.sessionNotFound }
+        return TerminalRuntimeInspection(
+            isRunning: record.isRunning,
+            descriptor: record.descriptor
+        )
+    }
+
+    public func terminate(sessionID: TerminalSessionID) async throws {
+        try await emitExit(sessionID: sessionID)
+    }
+
     public func record(for sessionID: TerminalSessionID) -> Record? {
         records[sessionID]
     }
@@ -170,6 +190,21 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
         streams[sessionID]?[token] = nil
         if streams[sessionID]?.isEmpty == true {
             streams[sessionID] = nil
+        }
+    }
+
+    private static func bytes(for key: TerminalSpecialKey) -> Data {
+        switch key {
+        case .interrupt: Data([0x03])
+        case .endOfFile: Data([0x04])
+        case .escape: Data([0x1b])
+        case .enter: Data([0x0d])
+        case .tab: Data([0x09])
+        case .backspace: Data([0x7f])
+        case .up: Data("\u{1b}[A".utf8)
+        case .down: Data("\u{1b}[B".utf8)
+        case .right: Data("\u{1b}[C".utf8)
+        case .left: Data("\u{1b}[D".utf8)
         }
     }
 }

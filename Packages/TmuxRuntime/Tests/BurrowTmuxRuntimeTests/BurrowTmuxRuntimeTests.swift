@@ -80,6 +80,64 @@ final class BurrowTmuxRuntimeTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testPresetLaunchStartsAsFirstPaneProcessWithoutSyntheticInput() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 10_000_000
+        )
+
+        let descriptor = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!,
+            launchSpec: .command("codex --dangerously-bypass-approvals-and-sandbox")
+        )
+
+        let calls = await executor.calls
+        let creation = try XCTUnwrap(calls.first { $0.arguments.first == "new-session" })
+        let shellCommand = try XCTUnwrap(creation.arguments.last)
+        XCTAssertTrue(shellCommand.contains("exec codex --dangerously-bypass-approvals-and-sandbox"))
+        XCTAssertFalse(calls.contains { $0.arguments.first == "load-buffer" })
+        XCTAssertEqual(
+            descriptor.metadata["launchSpec"],
+            "codex --dangerously-bypass-approvals-and-sandbox"
+        )
+        await runtime.shutdown()
+    }
+
+    func testSpecialKeyInspectAndTerminateUseTypedTmuxOperations() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 10_000_000
+        )
+        _ = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+
+        try await runtime.sendSpecialKey(sessionID: sessionID, key: .interrupt)
+        let inspection = try await runtime.inspect(sessionID: sessionID)
+        try await runtime.terminate(sessionID: sessionID)
+
+        let calls = await executor.calls
+        XCTAssertTrue(calls.contains {
+            $0.arguments.first == "send-keys" && $0.arguments.last == "C-c"
+        })
+        XCTAssertTrue(inspection.isRunning)
+        XCTAssertTrue(calls.contains {
+            $0.arguments.first == "kill-session" && $0.arguments.contains(TmuxSessionNaming.name(for: sessionID))
+        })
+        let stillExists = await runtime.exists(sessionID: sessionID)
+        XCTAssertFalse(stillExists)
+    }
+
     func testCreateAndWriteUsesBinarySafeTmuxBuffer() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()

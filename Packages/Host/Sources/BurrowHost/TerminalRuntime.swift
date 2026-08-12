@@ -32,13 +32,53 @@ public enum TerminalRuntimeEvent: Hashable, Sendable {
     case exited(sessionID: TerminalSessionID, exitCode: Int?)
 }
 
+public enum TerminalRuntimeLaunchSpec: Codable, Hashable, Sendable {
+    case interactiveShell
+    case command(String)
+
+    public init(command: String?) {
+        let value = command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self = value?.isEmpty == false ? .command(value!) : .interactiveShell
+    }
+}
+
+public enum TerminalSpecialKey: String, Codable, Hashable, Sendable {
+    case interrupt
+    case endOfFile
+    case escape
+    case enter
+    case tab
+    case backspace
+    case up
+    case down
+    case left
+    case right
+}
+
+public struct TerminalRuntimeInspection: Codable, Hashable, Sendable {
+    public let isRunning: Bool
+    public let descriptor: TerminalRuntimeDescriptor?
+    public let paneProcess: String?
+
+    public init(
+        isRunning: Bool,
+        descriptor: TerminalRuntimeDescriptor? = nil,
+        paneProcess: String? = nil
+    ) {
+        self.isRunning = isRunning
+        self.descriptor = descriptor
+        self.paneProcess = paneProcess
+    }
+}
+
 /// The small runtime boundary owned by Host. A tmux adapter can implement this
 /// protocol without becoming part of the domain model.
 public protocol TerminalRuntime: Sendable {
     func create(
         sessionID: TerminalSessionID,
         workingDirectory: String,
-        size: TerminalSize
+        size: TerminalSize,
+        launchSpec: TerminalRuntimeLaunchSpec
     ) async throws -> TerminalRuntimeDescriptor
 
     /// Reconnects Host to an already-running runtime session.  `outputOffset`
@@ -61,7 +101,25 @@ public protocol TerminalRuntime: Sendable {
     func events(for sessionID: TerminalSessionID) async -> AsyncStream<TerminalRuntimeEvent>
 
     func write(sessionID: TerminalSessionID, data: Data) async throws
+    func sendSpecialKey(sessionID: TerminalSessionID, key: TerminalSpecialKey) async throws
     func resize(sessionID: TerminalSessionID, size: TerminalSize) async throws
+    func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection
+    func terminate(sessionID: TerminalSessionID) async throws
+}
+
+public extension TerminalRuntime {
+    func create(
+        sessionID: TerminalSessionID,
+        workingDirectory: String,
+        size: TerminalSize
+    ) async throws -> TerminalRuntimeDescriptor {
+        try await create(
+            sessionID: sessionID,
+            workingDirectory: workingDirectory,
+            size: size,
+            launchSpec: .interactiveShell
+        )
+    }
 }
 
 public enum TerminalRuntimeError: Error, Codable, Hashable, Sendable {

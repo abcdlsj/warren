@@ -198,9 +198,10 @@ final class BurrowApplicationTests: XCTestCase {
         )
         let record = await runtime.record(session.id)
         let runtimeRecord = try XCTUnwrap(record)
+        XCTAssertTrue(runtimeRecord.writes.isEmpty)
         XCTAssertEqual(
-            runtimeRecord.writes.first,
-            Data("codex --dangerously-bypass-approvals-and-sandbox\r".utf8)
+            runtimeRecord.descriptor.metadata["launchSpec"],
+            "command(\"codex --dangerously-bypass-approvals-and-sandbox\")"
         )
 
         let persisted = await service.persistedState()
@@ -215,7 +216,7 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertTrue(projected.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
     }
 
-    func testRestoreRecreatesMissingRuntimeAndAttaches() async throws {
+    func testRestoreMarksMissingRuntimeEndedWithoutCreatingAShell() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()
         let folder = try temporaryFolder()
@@ -254,13 +255,21 @@ final class BurrowApplicationTests: XCTestCase {
         let service = BurrowApplicationService(repository: repository, runtime: runtime)
         try await service.start()
 
-        var snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
-        _ = try await service.openSession(sessionID: sessionID)
-        snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .attached)
+        do {
+            _ = try await service.openSession(sessionID: sessionID)
+            XCTFail("A missing runtime must not be replaced with a new shell")
+        } catch BurrowApplicationError.sessionNotFound {
+            // Expected: the durable Session is now ended and stays inspectable.
+        }
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .exited)
         let existsAfter = await runtime.exists(sessionID: sessionID)
-        XCTAssertTrue(existsAfter)
+        XCTAssertFalse(existsAfter)
+        let persistedState = await service.persistedState()
+        XCTAssertEqual(
+            persistedState.terminalSessions.first { $0.id == sessionID }?.lifecycle,
+            .ended
+        )
     }
 
     func testStartupDoesNotRestoreOrRecreateHiddenSessions() async throws {
@@ -303,7 +312,7 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertFalse(runtimeExists)
     }
 
-    func testExplicitOpenLazilyRestoresHiddenSession() async throws {
+    func testExplicitOpenMarksMissingHiddenRuntimeEnded() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()
         let folder = try temporaryFolder()
@@ -334,14 +343,19 @@ final class BurrowApplicationTests: XCTestCase {
 
         let service = BurrowApplicationService(repository: repository, runtime: runtime)
         try await service.start()
-        let tabID = try await service.openSession(sessionID: sessionID)
+        do {
+            _ = try await service.openSession(sessionID: sessionID)
+            XCTFail("A missing runtime must not be silently recreated")
+        } catch BurrowApplicationError.sessionNotFound {
+            // Expected.
+        }
 
         let snapshot = await service.snapshot()
         let runtimeExists = await runtime.exists(sessionID: sessionID)
-        XCTAssertEqual(snapshot.tabs(in: workspace.id).map(\.id), [tabID])
+        XCTAssertTrue(snapshot.tabs(in: workspace.id).isEmpty)
         XCTAssertEqual(snapshot.sessions.map(\.id), [sessionID])
-        XCTAssertTrue(runtimeExists)
-        XCTAssertNotNil(snapshot.session(id: sessionID)?.attachmentID)
+        XCTAssertFalse(runtimeExists)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .exited)
     }
 
     func testNewTabsStayBoundToRequestedWorkspaceAndKeepCreationOrder() async throws {
@@ -578,6 +592,81 @@ final class BurrowApplicationTests: XCTestCase {
         XCTAssertEqual(afterDetach.session(id: session.id)?.connectionState, .disconnected)
     }
 
+    func testTypedKeyInspectionAndTerminationPersistEndedLifecycle() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let projectSnapshot = await service.snapshot()
+        let workspace = try XCTUnwrap(
+            projectSnapshot.workspaces.first { $0.projectID == project.id }
+        )
+        let tabID = try await service.addTab(workspaceID: workspace.id)
+        let tabSnapshot = await service.snapshot()
+        let session = try XCTUnwrap(
+            tabSnapshot.sessions.first { $0.tabID == tabID }
+        )
+        let attachmentID = try XCTUnwrap(session.attachmentID)
+
+        try await service.sendSpecialKey(
+            sessionID: session.id,
+            attachmentID: attachmentID,
+            key: .interrupt
+        )
+        let inspection = try await service.inspectSessionRuntime(sessionID: session.id)
+        try await service.terminateSession(sessionID: session.id)
+
+        XCTAssertTrue(inspection.isRunning)
+        let runtimeRecord = await runtime.record(for: session.id)
+        XCTAssertEqual(runtimeRecord?.writes.last, Data([0x03]))
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: session.id)?.connectionState, .exited)
+        let persisted = await service.persistedState()
+        XCTAssertEqual(
+            persisted.terminalSessions.first { $0.id == session.id }?.lifecycle,
+            .ended
+        )
+        XCTAssertNotNil(
+            persisted.terminalSessions.first { $0.id == session.id }?.endedAt
+        )
+    }
+
+    func testRuntimeExitAndTerminateRaceKeepsFirstEndedTimestamp() async throws {
+        let runtime = RestorableRuntime()
+        let repository = InMemoryHostStateRepository()
+        let clock = AdvancingClock(base: Date(timeIntervalSince1970: 1_700_000_000))
+        let service = BurrowApplicationService(
+            repository: repository,
+            runtime: runtime,
+            clock: { clock.next() }
+        )
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let projectSnapshot = await service.snapshot()
+        let workspace = try XCTUnwrap(
+            projectSnapshot.workspaces.first { $0.projectID == project.id }
+        )
+        let session = try await service.createSession(workspaceID: workspace.id)
+        _ = try await service.attach(sessionID: session.id)
+
+        try await service.terminateSession(sessionID: session.id)
+        let immediatelyPersisted = await service.persistedState()
+        let firstEndedAt = try XCTUnwrap(
+            immediatelyPersisted.terminalSessions.first { $0.id == session.id }?.endedAt
+        )
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let persisted = await service.persistedState()
+        XCTAssertEqual(
+            persisted.terminalSessions.first { $0.id == session.id }?.endedAt,
+            firstEndedAt
+        )
+    }
+
     func testOutputCursorDoesNotRollBackWhenResizeSaveSuspends() async throws {
         let runtime = RestorableRuntime()
         let repository = ControlledHostStateRepository()
@@ -734,3 +823,21 @@ final class BurrowApplicationTests: XCTestCase {
 }
 
 private enum TestError: Error { case timeout }
+
+private final class AdvancingClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private let base: Date
+    private var index = 0
+
+    init(base: Date) {
+        self.base = base
+    }
+
+    func next() -> Date {
+        lock.withLock {
+            defer { index += 1 }
+            return base.addingTimeInterval(TimeInterval(index * 60))
+        }
+    }
+
+}

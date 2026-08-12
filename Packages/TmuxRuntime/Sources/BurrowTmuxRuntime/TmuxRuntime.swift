@@ -53,7 +53,8 @@ public actor TmuxRuntime: TerminalRuntime {
     public func create(
         sessionID: TerminalSessionID,
         workingDirectory: String,
-        size: TerminalSize
+        size: TerminalSize,
+        launchSpec: TerminalRuntimeLaunchSpec
     ) async throws -> TerminalRuntimeDescriptor {
         try validateWorkingDirectory(workingDirectory)
         let name = TmuxSessionNaming.name(for: sessionID)
@@ -67,6 +68,13 @@ public actor TmuxRuntime: TerminalRuntime {
 
         let spoolURL = try prepareSpool(for: name)
         let shellPath = Self.interactiveShellPath
+        let launchCommand: String?
+        switch launchSpec {
+        case .interactiveShell:
+            launchCommand = nil
+        case .command(let command):
+            launchCommand = command
+        }
         let descriptor = TerminalRuntimeDescriptor(
             runtime: Self.runtimeName,
             identifier: name,
@@ -76,6 +84,7 @@ public actor TmuxRuntime: TerminalRuntime {
                 "workingDirectory": workingDirectory,
                 "inputBuffer": Self.inputBufferName(for: sessionID),
                 "shell": shellPath,
+                "launchSpec": launchCommand ?? "interactive-shell",
             ]
         )
 
@@ -87,7 +96,10 @@ public actor TmuxRuntime: TerminalRuntime {
                     "-x", String(size.columns),
                     "-y", String(size.rows),
                 ] + BurrowTerminalEnvironment.tmuxSessionArguments + [
-                    BurrowTerminalEnvironment.interactiveShellCommand(shellPath: shellPath),
+                    BurrowTerminalEnvironment.launchCommand(
+                        shellPath: shellPath,
+                        command: launchCommand
+                    ),
                 ],
                 recovery: "Ensure the tmux server can start and the working directory still exists."
             )
@@ -269,6 +281,84 @@ public actor TmuxRuntime: TerminalRuntime {
             )
         } catch {
             throw normalize(error)
+        }
+    }
+
+    public func sendSpecialKey(
+        sessionID: TerminalSessionID,
+        key: TerminalSpecialKey
+    ) async throws {
+        guard let managed = sessions[sessionID], managed.isRunning else {
+            throw TmuxRuntimeError.sessionNotFound(
+                name: TmuxSessionNaming.name(for: sessionID),
+                recovery: "Adopt a live runtime descriptor first."
+            )
+        }
+        do {
+            try await requireSuccess(
+                ["send-keys", "-t", managed.paneTarget, Self.tmuxKey(for: key)],
+                recovery: "Ensure the tmux pane is alive, then retry the key operation."
+            )
+        } catch {
+            throw normalize(error)
+        }
+    }
+
+    public func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection {
+        let name = TmuxSessionNaming.name(for: sessionID)
+        guard try await hasSession(named: name) else {
+            return TerminalRuntimeInspection(isRunning: false)
+        }
+        let descriptor = sessions[sessionID]?.descriptor
+        let target = sessions[sessionID]?.paneTarget ?? name
+        let result = try await execute(
+            arguments: ["display-message", "-p", "-t", target, "#{pane_current_command}"]
+        )
+        guard result.exitCode == 0 else {
+            throw commandError(
+                arguments: ["display-message", "-p", "-t", target, "#{pane_current_command}"],
+                result: result,
+                recovery: "Ensure the tmux pane is still alive, then retry inspection."
+            )
+        }
+        return TerminalRuntimeInspection(
+            isRunning: true,
+            descriptor: descriptor,
+            paneProcess: result.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    public func terminate(sessionID: TerminalSessionID) async throws {
+        let name = TmuxSessionNaming.name(for: sessionID)
+        guard try await hasSession(named: name) else {
+            throw TmuxRuntimeError.sessionNotFound(
+                name: name,
+                recovery: "The runtime is already stopped; refresh Host session state."
+            )
+        }
+        do {
+            try await requireSuccess(
+                ["kill-session", "-t", name],
+                recovery: "Ensure the tmux server is available, then retry termination."
+            )
+            finishSession(sessionID: sessionID, exitCode: nil)
+        } catch {
+            throw normalize(error)
+        }
+    }
+
+    private static func tmuxKey(for key: TerminalSpecialKey) -> String {
+        switch key {
+        case .interrupt: "C-c"
+        case .endOfFile: "C-d"
+        case .escape: "Escape"
+        case .enter: "Enter"
+        case .tab: "Tab"
+        case .backspace: "BSpace"
+        case .up: "Up"
+        case .down: "Down"
+        case .left: "Left"
+        case .right: "Right"
         }
     }
 

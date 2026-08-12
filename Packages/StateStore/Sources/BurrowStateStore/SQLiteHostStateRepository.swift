@@ -92,7 +92,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     sql: """
                     SELECT s.id, s.workspace_id, s.epoch, s.sequence,
                            s.working_directory, s.columns, s.rows, s.kind,
-                           s.title,
+                           s.title, s.lifecycle, s.ended_at,
                            r.adapter, r.runtime_identifier, r.metadata_json
                     FROM terminal_sessions s
                     LEFT JOIN runtime_bindings r ON r.session_id = s.id
@@ -163,6 +163,14 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             value: sequenceString
                         )
                     }
+                    let lifecycleValue: String = row["lifecycle"]
+                    guard let lifecycle = PersistedTerminalSessionLifecycle(rawValue: lifecycleValue) else {
+                        throw HostStateRepositoryError.invalidDatabaseValue(
+                            table: "terminal_sessions",
+                            column: "lifecycle",
+                            value: lifecycleValue
+                        )
+                    }
                     return PersistedTerminalSession(
                         id: try Self.domainID(row: row, table: "terminal_sessions", column: "id"),
                         workspaceID: try Self.domainID(
@@ -176,7 +184,9 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         terminalSize: terminalSize,
                         runtimeAdoptionDescriptor: descriptor,
                         kind: kind,
-                        title: row["title"]
+                        title: row["title"],
+                        lifecycle: lifecycle,
+                        endedAt: row["ended_at"]
                     )
                 }
 
@@ -252,8 +262,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         sql: """
                         INSERT INTO terminal_sessions (
                             id, workspace_id, epoch, sequence, working_directory,
-                            columns, rows, kind, title, lifecycle
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running')
+                            columns, rows, kind, title, lifecycle, ended_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             session.id.description,
@@ -265,6 +275,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             session.terminalSize.rows,
                             session.kind.rawValue,
                             session.title,
+                            session.lifecycle.rawValue,
+                            session.endedAt,
                         ]
                     )
                     if let descriptor = session.runtimeAdoptionDescriptor {

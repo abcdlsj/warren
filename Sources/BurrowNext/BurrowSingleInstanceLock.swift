@@ -11,6 +11,11 @@ final class BurrowSingleInstanceLock {
     private let descriptor: Int32
 
     convenience init?() {
+        if let override = ProcessInfo.processInfo.environment["BURROW_INSTANCE_LOCK"],
+           !override.isEmpty {
+            self.init(fileURL: URL(fileURLWithPath: override).standardizedFileURL)
+            return
+        }
         let directory = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

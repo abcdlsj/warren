@@ -186,9 +186,23 @@ public enum BurrowApplicationDefaults {
     public static let emptyWindowLayout = ClientWindowLayout(id: mainWindowID)!
 
     public static func stateDatabaseURL(fileManager: FileManager = .default) -> URL {
+        if let override = ProcessInfo.processInfo.environment["BURROW_STATE_DATABASE"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override).standardizedFileURL
+        }
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         return base.appendingPathComponent("Burrow/state.sqlite3", isDirectory: false)
+    }
+
+    public static func runtimeOutputDirectory(fileManager: FileManager = .default) -> URL {
+        if let override = ProcessInfo.processInfo.environment["BURROW_RUNTIME_OUTPUT_DIRECTORY"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base.appendingPathComponent("Burrow/runtime", isDirectory: true)
     }
 
     public static func supersetDatabaseURL() -> URL {

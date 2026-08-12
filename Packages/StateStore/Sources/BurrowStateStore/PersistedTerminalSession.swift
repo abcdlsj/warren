@@ -1,4 +1,10 @@
+import Foundation
 import BurrowDomain
+
+public enum PersistedTerminalSessionLifecycle: String, Codable, Hashable, Sendable {
+    case running
+    case ended
+}
 
 /// The durable part of a Terminal Session needed to recover it after a Host
 /// restart.  Attachments, leases, and client layout are deliberately absent.
@@ -12,6 +18,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
     public var runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor?
     public var kind: TerminalSessionKind
     public var title: String?
+    public var lifecycle: PersistedTerminalSessionLifecycle
+    public var endedAt: Date?
 
     public init(
         id: TerminalSessionID = TerminalSessionID(),
@@ -22,7 +30,9 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         terminalSize: TerminalSize,
         runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor? = nil,
         kind: TerminalSessionKind = .shell,
-        title: String? = nil
+        title: String? = nil,
+        lifecycle: PersistedTerminalSessionLifecycle = .running,
+        endedAt: Date? = nil
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -33,6 +43,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         self.runtimeAdoptionDescriptor = runtimeAdoptionDescriptor
         self.kind = kind
         self.title = title
+        self.lifecycle = lifecycle
+        self.endedAt = endedAt
     }
 
     /// Reconstructs the domain session while keeping runtime details at the
@@ -56,6 +68,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         case runtimeAdoptionDescriptor
         case kind
         case title
+        case lifecycle
+        case endedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +99,11 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
             forKey: .kind
         ) ?? .shell
         title = try container.decodeIfPresent(String.self, forKey: .title)
+        lifecycle = try container.decodeIfPresent(
+            PersistedTerminalSessionLifecycle.self,
+            forKey: .lifecycle
+        ) ?? .running
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
     }
 
     private struct SizePayload: Decodable {

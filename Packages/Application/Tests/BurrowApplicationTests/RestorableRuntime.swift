@@ -17,11 +17,19 @@ actor RestorableRuntime: TerminalRuntime {
     private var adoptionCounts: [TerminalSessionID: Int] = [:]
     private var adoptionOffsets: [TerminalSessionID: UInt64] = [:]
 
-    func create(sessionID: TerminalSessionID, workingDirectory: String, size: TerminalSize) async throws -> TerminalRuntimeDescriptor {
+    func create(
+        sessionID: TerminalSessionID,
+        workingDirectory: String,
+        size: TerminalSize,
+        launchSpec: TerminalRuntimeLaunchSpec
+    ) async throws -> TerminalRuntimeDescriptor {
         let descriptor = TerminalRuntimeDescriptor(
             runtime: "test-runtime",
             identifier: sessionID.description,
-            metadata: ["workingDirectory": workingDirectory]
+            metadata: [
+                "workingDirectory": workingDirectory,
+                "launchSpec": String(describing: launchSpec),
+            ]
         )
         records[sessionID] = Record(descriptor: descriptor, size: size)
         return descriptor
@@ -70,6 +78,32 @@ actor RestorableRuntime: TerminalRuntime {
         record.resizes.append(size)
         record.size = size
         records[sessionID] = record
+    }
+
+    func sendSpecialKey(sessionID: TerminalSessionID, key: TerminalSpecialKey) async throws {
+        guard records[sessionID]?.running == true else { throw TerminalRuntimeError.sessionNotFound }
+        _ = key
+    }
+
+    func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection {
+        guard let record = records[sessionID] else { throw TerminalRuntimeError.sessionNotFound }
+        return TerminalRuntimeInspection(
+            isRunning: record.running,
+            descriptor: record.descriptor
+        )
+    }
+
+    func terminate(sessionID: TerminalSessionID) async throws {
+        guard var record = records[sessionID], record.running else {
+            throw TerminalRuntimeError.sessionNotFound
+        }
+        record.running = false
+        records[sessionID] = record
+        for continuation in streams[sessionID]?.values ?? [:].values {
+            continuation.yield(.exited(sessionID: sessionID, exitCode: nil))
+            continuation.finish()
+        }
+        streams[sessionID] = nil
     }
 
     func record(_ sessionID: TerminalSessionID) -> Record? { records[sessionID] }

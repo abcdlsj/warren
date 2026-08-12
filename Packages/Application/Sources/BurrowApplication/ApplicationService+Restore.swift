@@ -9,7 +9,8 @@ extension BurrowApplicationService {
                 .flatMap(\.tabs)
                 .compactMap(\.sessionID)
         )
-        for persisted in state.terminalSessions where openSessionIDs.contains(persisted.id) {
+        for persisted in state.terminalSessions where
+            persisted.lifecycle == .running && openSessionIDs.contains(persisted.id) {
             await restore(persisted, attachClient: true)
         }
     }
@@ -23,6 +24,7 @@ extension BurrowApplicationService {
         guard let persisted = state.terminalSessions.first(where: { $0.id == sessionID }) else {
             return
         }
+        guard persisted.lifecycle == .running else { return }
         let task = Task<Void, Never> { [weak self] in
             guard let self else { return }
             await self.restore(persisted, attachClient: false)
@@ -36,7 +38,7 @@ extension BurrowApplicationService {
         _ persisted: PersistedTerminalSession,
         attachClient: Bool
     ) async {
-        var persisted = persisted
+        let persisted = persisted
         guard let workspace = state.workspaces.first(where: { $0.id == persisted.workspaceID }) else {
             appendIssue(
                 BurrowApplicationIssue(
@@ -49,43 +51,8 @@ extension BurrowApplicationService {
             return
         }
         if !(await runtime.exists(sessionID: persisted.id)) {
-            // The tmux server (or this session's tmux pane) may be gone after
-            // a reboot or a manual tmux kill. Do not leave the UI parked on
-            // "Connecting": recreate a fresh runtime in the same workspace and
-            // continue adoption. The old spool is intentionally not replayed;
-            // a brand-new shell is more useful than a dead session reference.
-            do {
-                let descriptor = try await runtime.create(
-                    sessionID: persisted.id,
-                    workingDirectory: persisted.workingDirectory,
-                    size: persisted.terminalSize
-                )
-                var candidate = state
-                if let index = candidate.terminalSessions.firstIndex(where: {
-                    $0.id == persisted.id
-                }) {
-                    candidate.terminalSessions[index].runtimeAdoptionDescriptor =
-                        RuntimeDescriptorMapping.persisted(from: descriptor)
-                }
-                try await save(candidate)
-                state = candidate
-                persisted.runtimeAdoptionDescriptor =
-                    RuntimeDescriptorMapping.persisted(from: descriptor)
-            } catch {
-                report(
-                    .runtime("Runtime for Session \(persisted.id) could not be recreated: \(error)"),
-                    id: "session.\(persisted.id).runtime"
-                )
-                insertConnection(
-                    session: persisted.terminalSession,
-                    workspace: workspace,
-                    descriptor: persisted.runtimeAdoptionDescriptor,
-                    terminalSize: persisted.terminalSize,
-                    title: persisted.title,
-                    kind: persisted.kind
-                )
-                return
-            }
+            await markSessionEnded(sessionID: persisted.id)
+            return
         }
         guard let persistedDescriptor = persisted.runtimeAdoptionDescriptor else {
             appendIssue(
@@ -138,6 +105,27 @@ extension BurrowApplicationService {
                 .runtime(String(describing: error)),
                 id: "session.\(persisted.id).adopt"
             )
+        }
+    }
+
+    internal func markSessionEnded(sessionID: TerminalSessionID) async {
+        guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
+            return
+        }
+        guard state.terminalSessions[index].lifecycle != .ended else { return }
+        var candidate = state
+        candidate.terminalSessions[index].lifecycle = .ended
+        candidate.terminalSessions[index].endedAt = clock()
+        do {
+            try await save(candidate)
+            state = candidate
+        } catch {
+            report(error.asApplicationError, id: "session.\(sessionID).ended")
+        }
+        if var connection = connections[sessionID] {
+            connection.runtimeEnded = true
+            connections[sessionID] = connection
+            await connection.store.markDisconnected()
         }
     }
 
