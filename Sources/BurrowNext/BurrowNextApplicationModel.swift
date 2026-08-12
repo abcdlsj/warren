@@ -141,6 +141,24 @@ final class BurrowNextApplicationModel {
         await run { _ = try await service.addProject(folder: folder) }
     }
 
+    func headlessCreateShell(folder: URL) async throws -> TerminalSessionID {
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let tabID = try await service.addTab(workspaceID: workspace.id)
+        let value = await service.snapshot()
+        guard let sessionID = value.tabs(in: workspace.id)
+            .first(where: { $0.id == tabID })?.sessionID else {
+            throw BurrowApplicationError.unsupportedAction(
+                "Headless lifecycle probe could not resolve the created session."
+            )
+        }
+        return sessionID
+    }
+
+    func runtimeExists(sessionID: TerminalSessionID) async -> Bool {
+        await runtime.exists(sessionID: sessionID)
+    }
+
     func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
         try await service.previewSupersetImport(from: databaseURL)
     }

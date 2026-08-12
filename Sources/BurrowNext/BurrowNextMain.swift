@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import BurrowDesktop
+import BurrowDomain
 
 /// AppKit bootstrap for the macOS app.
 ///
@@ -12,6 +13,10 @@ import BurrowDesktop
 enum BurrowNextMain {
     @MainActor
     static func main() {
+        if ProcessInfo.processInfo.environment["BURROW_HEADLESS_ACCEPTANCE"] == "1" {
+            runHeadlessAcceptance()
+            return
+        }
         guard let instanceLock = BurrowSingleInstanceLock() else {
             BurrowSingleInstanceLock.activateExistingApplication()
             return
@@ -24,6 +29,62 @@ enum BurrowNextMain {
             app.run()
         }
     }
+
+    @MainActor
+    private static func runHeadlessAcceptance() {
+        guard let instanceLock = BurrowSingleInstanceLock() else {
+            Darwin.exit(73)
+        }
+        let model = BurrowNextApplicationModel.live()
+        Task { @MainActor in
+            var sessionID: TerminalSessionID?
+            var errorDescription: String?
+            await model.start()
+            if let rawMilliseconds = ProcessInfo.processInfo.environment[
+                "BURROW_HEADLESS_HOLD_MILLISECONDS"
+            ], let milliseconds = Int(rawMilliseconds), milliseconds > 0 {
+                try? await Task.sleep(for: .milliseconds(milliseconds))
+            }
+            if let path = ProcessInfo.processInfo.environment["BURROW_HEADLESS_CREATE_SESSION_PATH"],
+               !path.isEmpty {
+                do {
+                    sessionID = try await model.headlessCreateShell(
+                        folder: URL(fileURLWithPath: path, isDirectory: true)
+                    )
+                } catch {
+                    errorDescription = String(describing: error)
+                }
+            }
+            await model.shutdown()
+            let runtimeAlive = if let sessionID {
+                await model.runtimeExists(sessionID: sessionID)
+            } else {
+                false
+            }
+            if let reportPath = ProcessInfo.processInfo.environment["BURROW_HEADLESS_REPORT"],
+               !reportPath.isEmpty {
+                let report = BurrowHeadlessAcceptanceReport(
+                    processID: ProcessInfo.processInfo.processIdentifier,
+                    sessionID: sessionID?.description,
+                    runtimeAliveAfterShutdown: runtimeAlive,
+                    error: errorDescription
+                )
+                if let data = try? JSONEncoder().encode(report) {
+                    try? data.write(to: URL(fileURLWithPath: reportPath), options: .atomic)
+                }
+            }
+            withExtendedLifetime(instanceLock) {}
+            CFRunLoopStop(CFRunLoopGetMain())
+        }
+        CFRunLoopRun()
+    }
+}
+
+private struct BurrowHeadlessAcceptanceReport: Codable {
+    let processID: Int32
+    let sessionID: String?
+    let runtimeAliveAfterShutdown: Bool
+    let error: String?
 }
 
 @MainActor

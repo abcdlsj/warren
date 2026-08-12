@@ -312,6 +312,6 @@ Known limitations: 第一期只创建新 branch worktree；不接管或删除用
 
 Goal: 无截图、无焦点终端颜色与单实例验收
 Commit: 待本次提交
-Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；全量 `scripts/verify.sh`
+Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；真实 BurrowNext headless 空启动/退出；第二实例拒绝；退出后 tmux 保活；全量 `scripts/verify.sh`
 Artifacts: `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `/tmp/burrow-observation/ui-probe/result.json`
-Known limitations: Process contract 覆盖锁与 tmux 保活；尚未用真实前台 App 自动发 Quit，因为该操作会违反不抢用户焦点约束。
+Known limitations: Process E2E 使用真实产品入口的测试专用 headless 模式，不创建 NSApplication 或窗口；AppKit 前台窗口的系统 Quit 仍由同一 shutdown path 驱动，但不在自动测试中抢用户焦点。

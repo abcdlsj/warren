@@ -92,7 +92,10 @@ let package = Package(
         ),
         .testTarget(
             name: "BurrowProcessTests",
-            dependencies: ["BurrowNext"],
+            dependencies: [
+                "BurrowNext",
+                .product(name: "BurrowStateStore", package: "StateStore"),
+            ],
             path: "Tests/BurrowProcessTests"
         ),
     ]

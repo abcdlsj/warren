@@ -15,7 +15,8 @@ echo "==> tmux integration test"
 swift test --package-path "$repository_root" --filter ApplicationIntegrationTests
 
 echo "==> process lifecycle contracts"
-swift test --package-path "$repository_root" --filter BurrowProcessTests
+BURROW_APP_EXECUTABLE="$repository_root/.build/debug/BurrowNext" \
+    swift test --package-path "$repository_root" --filter BurrowProcessTests
 
 echo "==> non-visual semantic UI acceptance"
 BURROW_ARTIFACT_DIR="${BURROW_ARTIFACT_DIR:-/tmp/burrow-observation/ui-probe}" \
