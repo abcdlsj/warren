@@ -19,6 +19,10 @@ run = "bash scripts/run-app.sh release"
 description = "Build the macOS app"
 run = "bash scripts/build-app.sh debug"
 
+[tasks.install]
+description = "Build the release app and install Warren.app into /Applications"
+run = "bash scripts/install-app.sh"
+
 [tasks."build:release"]
 description = "Release build"
 run = "bash scripts/build-app.sh release"
