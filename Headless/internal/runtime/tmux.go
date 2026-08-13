@@ -49,6 +49,22 @@ func (t Tmux) Exists(ctx context.Context, runtimeName string) bool {
 	return t.command(ctx, "has-session", "-t", runtimeName).Run() == nil
 }
 
+func (t Tmux) List(ctx context.Context) (map[string]bool, error) {
+	output, err := t.command(ctx, "list-sessions", "-F", "#{session_name}").CombinedOutput()
+	if err != nil {
+		message := string(output)
+		if strings.Contains(message, "no server running") || strings.Contains(message, "failed to connect") {
+			return map[string]bool{}, nil
+		}
+		return nil, fmt.Errorf("list tmux sessions: %s: %w", strings.TrimSpace(message), err)
+	}
+	sessions := make(map[string]bool)
+	for _, name := range strings.Fields(string(output)) {
+		sessions[name] = true
+	}
+	return sessions, nil
+}
+
 func (t Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	output, err := t.command(ctx, "capture-pane", "-p", "-e", "-J", "-S", "-", "-t", runtimeName+":0.0").Output()
 	if err != nil {

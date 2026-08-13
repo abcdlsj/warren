@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,7 +109,14 @@ func (c *Client) Attach(ctx context.Context, sessionID string) (api.Session, err
 }
 
 func (c *Client) Input(ctx context.Context, data []byte) error {
-	return c.Request(ctx, "session.input", map[string]any{"data": base64.StdEncoding.EncodeToString(data)}, nil)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return c.connection.WriteMessage(websocket.BinaryMessage, data)
+	}
 }
 
 func (c *Client) ReadOutput(ctx context.Context, onOutput func([]byte) bool) error {

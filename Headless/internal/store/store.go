@@ -16,13 +16,21 @@ import (
 )
 
 type Store struct {
-	mu    sync.RWMutex
-	path  string
-	state api.State
+	mu       sync.RWMutex
+	path     string
+	state    api.State
+	revision uint64
+	changed  chan struct{}
 }
 
+var alreadyChanged = func() <-chan struct{} {
+	value := make(chan struct{})
+	close(value)
+	return value
+}()
+
 func Open(path, hostName string) (*Store, error) {
-	s := &Store{path: path}
+	s := &Store{path: path, changed: make(chan struct{})}
 	data, err := os.ReadFile(path)
 	if err == nil {
 		if err := json.Unmarshal(data, &s.state); err != nil {
@@ -58,9 +66,23 @@ func userName(value *user.User) string {
 }
 
 func (s *Store) Snapshot() api.State {
+	state, _ := s.SnapshotVersion()
+	return state
+}
+
+func (s *Store) SnapshotVersion() (api.State, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return clone(s.state)
+	return clone(s.state), s.revision
+}
+
+func (s *Store) ChangesSince(revision uint64) <-chan struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if revision != s.revision {
+		return alreadyChanged
+	}
+	return s.changed
 }
 
 func (s *Store) Update(fn func(*api.State) error) error {
@@ -76,6 +98,9 @@ func (s *Store) Update(fn func(*api.State) error) error {
 		s.state = old
 		return err
 	}
+	s.revision++
+	close(s.changed)
+	s.changed = make(chan struct{})
 	return nil
 }
 
@@ -109,8 +134,16 @@ func NewID() string {
 }
 
 func clone(value api.State) api.State {
-	data, _ := json.Marshal(value)
-	var result api.State
-	_ = json.Unmarshal(data, &result)
+	result := value
+	result.Projects = append([]api.Project(nil), value.Projects...)
+	result.Workspaces = append([]api.Workspace(nil), value.Workspaces...)
+	result.Sessions = append([]api.Session(nil), value.Sessions...)
+	for index := range result.Sessions {
+		if value.Sessions[index].EndedAt == nil {
+			continue
+		}
+		endedAt := *value.Sessions[index].EndedAt
+		result.Sessions[index].EndedAt = &endedAt
+	}
 	return result
 }

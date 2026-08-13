@@ -76,12 +76,16 @@ private actor WarrenRemoteWire {
     private var task: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var continuations: [String: CheckedContinuation<Data, Error>] = [:]
+    private var pendingInput = Data()
+    private var inputTask: Task<Void, Never>?
     private let stream: AsyncStream<RemoteWireEvent>
     private var streamContinuation: AsyncStream<RemoteWireEvent>.Continuation?
 
     init(configuration: WarrenRemoteEndpointConfiguration) {
         self.configuration = configuration
-        let pair = AsyncStream<RemoteWireEvent>.makeStream(bufferingPolicy: .bufferingNewest(64))
+        // Terminal bytes are ordered state, not replaceable snapshots. Never
+        // silently discard an older output frame under load.
+        let pair = AsyncStream<RemoteWireEvent>.makeStream(bufferingPolicy: .unbounded)
         self.stream = pair.stream
         self.streamContinuation = pair.continuation
     }
@@ -111,6 +115,9 @@ private actor WarrenRemoteWire {
         receiveTask = nil
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        inputTask?.cancel()
+        inputTask = nil
+        pendingInput.removeAll(keepingCapacity: true)
         for continuation in continuations.values {
             continuation.resume(throwing: URLError(.cancelled))
         }
@@ -126,6 +133,28 @@ private actor WarrenRemoteWire {
             Task {
                 do { try await task.send(.string(text)) }
                 catch { self.failRequest(id, error: error) }
+            }
+        }
+    }
+
+    func sendInput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        pendingInput.append(data)
+        guard inputTask == nil else { return }
+        inputTask = Task { [weak self] in await self?.drainInput() }
+    }
+
+    private func drainInput() async {
+        defer { inputTask = nil }
+        while !Task.isCancelled, !pendingInput.isEmpty {
+            let data = pendingInput
+            pendingInput.removeAll(keepingCapacity: true)
+            guard let task else { return }
+            do {
+                try await task.send(.data(data))
+            } catch {
+                streamContinuation?.yield(.disconnected(String(describing: error)))
+                return
             }
         }
     }
@@ -195,6 +224,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var selectedSessionID: TerminalSessionID?
     @ObservationIgnored private var currentRoster: RemoteRoster?
+    @ObservationIgnored private var resizeTask: Task<Void, Never>?
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
@@ -222,6 +252,8 @@ final class WarrenRemoteApplicationModel {
         wire = nil
         currentRoster = nil
         selectedSessionID = nil
+        resizeTask?.cancel()
+        resizeTask = nil
         mountedSurfaces.removeAll()
     }
 
@@ -286,15 +318,25 @@ final class WarrenRemoteApplicationModel {
 
     func sendInput(_ data: Data) async {
         guard let wire else { return }
-        _ = try? await wire.request("session.input", params: ["data": data.base64EncodedString()])
+        await wire.sendInput(data)
     }
 
-    func resize(columns: Int, rows: Int) async {
-        guard let wire else { return }
-        _ = try? await wire.request("session.resize", params: [
-            "cols": String(columns),
-            "rows": String(rows),
-        ])
+    func resize(columns: Int, rows: Int) {
+        resizeTask?.cancel()
+        resizeTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(24))
+                guard let self, let wire = self.wire else { return }
+                _ = try await wire.request("session.resize", params: [
+                    "cols": String(columns),
+                    "rows": String(rows),
+                ])
+            } catch is CancellationError {
+                return
+            } catch {
+                self?.present(error)
+            }
+        }
     }
 
     func report(_ error: Error) { present(error) }
@@ -332,6 +374,7 @@ final class WarrenRemoteApplicationModel {
                   let projectID = ProjectID(uuidString: value.project) else { return nil }
             return Workspace(id: id, projectID: projectID, name: value.name, path: value.path, branch: value.branch)
         }
+        let workspacePaths = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0.path) })
         let remoteSessions = roster.sessions.compactMap { value -> (RemoteRoster.Session, TerminalSessionID, WorkspaceID)? in
             guard let id = TerminalSessionID(uuidString: value.id),
                   let workspaceID = WorkspaceID(uuidString: value.workspace) else { return nil }
@@ -346,7 +389,7 @@ final class WarrenRemoteApplicationModel {
                 kind: TerminalSessionKind(rawValue: value.kind) ?? .custom,
                 state: value.lifecycle == "running" ? .attached : .exited,
                 runtimeProcess: value.command ?? "",
-                workingDirectory: workspaces.first(where: { $0.id == workspaceID })?.path ?? ""
+                workingDirectory: workspacePaths[workspaceID] ?? ""
             )
         }
         let tabs = remoteSessions.map { value, id, _ in
@@ -388,7 +431,7 @@ final class WarrenRemoteApplicationModel {
                 attachmentID: TerminalAttachmentID(),
                 workingDirectory: session.workingDirectory,
                 onInput: { [weak self] data in Task { await self?.sendInput(data) } },
-                onResize: { [weak self] columns, rows in Task { await self?.resize(columns: columns, rows: rows) } }
+                onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
             )
             mountedSurfaces = [surface]
         } catch {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
@@ -64,7 +65,12 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 	if err != nil {
 		return
 	}
-	peer := &wsPeer{connection: connection, server: s, closed: make(chan struct{})}
+	peer := &wsPeer{
+		connection: connection,
+		server:     s,
+		closed:     make(chan struct{}),
+		outputWake: make(chan struct{}, 1),
+	}
 	defer peer.close()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var envelope api.Envelope
@@ -73,10 +79,11 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 		return
 	}
 	_ = connection.SetReadDeadline(time.Time{})
-	if err := peer.writeJSON(map[string]any{"t": "welcome", "version": api.Version, "host": s.Service.Roster(request.Context()).Host}); err != nil {
+	state, revision := s.Service.RosterVersion(request.Context())
+	if err := peer.writeJSON(map[string]any{"t": "welcome", "version": api.Version, "host": state.Host}); err != nil {
 		return
 	}
-	peer.startRoster(request.Context())
+	peer.startRoster(request.Context(), state, revision)
 	for {
 		messageType, data, err := connection.ReadMessage()
 		if err != nil {
@@ -111,6 +118,7 @@ type wsPeer struct {
 	streamCancel context.CancelFunc
 	rosterCancel context.CancelFunc
 	closed       chan struct{}
+	outputWake   chan struct{}
 	closeOnce    sync.Once
 }
 
@@ -141,6 +149,13 @@ func (p *wsPeer) writeBinary(value []byte) error {
 	return p.connection.WriteMessage(websocket.BinaryMessage, value)
 }
 
+func (p *wsPeer) writeText(value []byte) error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	_ = p.connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return p.connection.WriteMessage(websocket.TextMessage, value)
+}
+
 func (p *wsPeer) writeResult(id string, result any) error {
 	return p.writeJSON(api.Response{Type: "response", ID: id, OK: true, Result: result})
 }
@@ -148,19 +163,23 @@ func (p *wsPeer) writeError(id string, err error) error {
 	return p.writeJSON(api.Response{Type: "response", ID: id, OK: false, Error: err.Error()})
 }
 
-func (p *wsPeer) startRoster(parent context.Context) {
+func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialRevision uint64) {
 	ctx, cancel := context.WithCancel(parent)
 	p.rosterCancel = cancel
 	go func() {
 		ticker := time.NewTicker(750 * time.Millisecond)
 		defer ticker.Stop()
-		last := ""
+		state := initial
+		revision := initialRevision
+		var last []byte
 		for {
-			state := p.server.Service.Roster(ctx)
-			data, _ := json.Marshal(state)
-			if string(data) != last {
-				last = string(data)
-				if p.writeJSON(map[string]any{"t": "roster", "state": state}) != nil {
+			data, _ := json.Marshal(struct {
+				Type  string    `json:"t"`
+				State api.State `json:"state"`
+			}{Type: "roster", State: state})
+			if !bytes.Equal(data, last) {
+				last = append(last[:0], data...)
+				if p.writeText(data) != nil {
 					p.close()
 					return
 				}
@@ -168,7 +187,10 @@ func (p *wsPeer) startRoster(parent context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-p.server.Service.Store.ChangesSince(revision):
+				state, revision = p.server.Service.RosterVersion(ctx)
 			case <-ticker.C:
+				state, revision = p.server.Service.RosterVersion(ctx)
 			}
 		}
 	}()
@@ -265,7 +287,14 @@ func (p *wsPeer) input(ctx context.Context, data []byte) error {
 	if p.attached == nil {
 		return fmt.Errorf("no attached session")
 	}
-	return p.server.Service.Runtime.Input(ctx, p.attached.Runtime, data)
+	if err := p.server.Service.Runtime.Input(ctx, p.attached.Runtime, data); err != nil {
+		return err
+	}
+	select {
+	case p.outputWake <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 func (p *wsPeer) attach(parent context.Context, session api.Session) {
@@ -274,29 +303,50 @@ func (p *wsPeer) attach(parent context.Context, session api.Session) {
 	ctx, cancel := context.WithCancel(parent)
 	p.streamCancel = cancel
 	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
+		const activeInterval = 50 * time.Millisecond
+		const idleInterval = 500 * time.Millisecond
+		timer := time.NewTimer(0)
+		defer timer.Stop()
 		last := ""
+		interval := activeInterval
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-p.outputWake:
+				resetTimer(timer, 0)
+				continue
+			case <-timer.C:
+			}
 			output, err := p.server.Service.Runtime.Capture(ctx, session.Runtime)
 			if err != nil {
 				_ = p.writeJSON(map[string]any{"t": "exited", "session": session.ID})
 				return
 			}
-			if string(output) != last {
-				last = string(output)
+			current := string(output)
+			if current != last {
+				last = current
+				interval = activeInterval
 				if p.writeBinary(output) != nil {
 					p.close()
 					return
 				}
+			} else {
+				interval = min(interval*2, idleInterval)
 			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
+			resetTimer(timer, interval)
 		}
 	}()
+}
+
+func resetTimer(timer *time.Timer, delay time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(delay)
 }
 
 func (p *wsPeer) detach() {

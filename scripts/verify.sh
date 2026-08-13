@@ -25,7 +25,7 @@ run_package_tests() {
 }
 
 echo "==> swift build"
-npm --prefix "$repository_root/Web" ci
+bash "$repository_root/scripts/prepare-web.sh"
 npm --prefix "$repository_root/Web" run check
 swift build --package-path "$repository_root"
 
@@ -60,6 +60,6 @@ WARREN_ARTIFACT_DIR="${WARREN_TERMINAL_ARTIFACT_DIR:-/tmp/warren-observation/ter
     swift run --package-path "$repository_root" TerminalProbe
 
 echo "==> build app"
-bash "$repository_root/scripts/build-app.sh" debug
+WARREN_SKIP_WEB_BUILD=1 bash "$repository_root/scripts/build-app.sh" debug
 
 echo "All checks passed."

@@ -1,4 +1,5 @@
 import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
@@ -88,7 +89,13 @@ const terminal = new Terminal({
   scrollback: 5000,
   allowTransparency: false,
 });
+const fitAddon = new FitAddon();
+terminal.loadAddon(fitAddon);
 terminal.open(dom.terminal);
+let fitFrame = null;
+let resizeTimer = null;
+let pendingTerminalSize = null;
+let sentTerminalSize = null;
 
 const connection = new RelayConnection({
   url: webSocketURL(),
@@ -171,6 +178,7 @@ function attachSession(sessionID) {
   const changed = sessionID !== state.activeSession;
   state.activeSession = sessionID;
   state.attachedSession = null;
+  sentTerminalSize = null;
   if (changed) terminal.clear();
   send({ t: "attach", session: sessionID });
   render();
@@ -249,6 +257,7 @@ function acceptMessage(event) {
     render();
     requestAnimationFrame(() => {
       fitTerminal();
+      scheduleRemoteResize({ cols: terminal.cols, rows: terminal.rows });
       terminal.focus();
     });
     break;
@@ -291,6 +300,7 @@ function acceptConnectionState(connectionState) {
     return;
   }
   state.attachedSession = null;
+  sentTerminalSize = null;
   setConnection("Reconnecting…", false);
   render();
 }
@@ -309,17 +319,32 @@ function applyTerminalFont() {
   terminal.options.fontSize = state.fontSize;
   dom.fontPreview.style.fontFamily = state.fontFamily;
   dom.fontPreview.style.fontSize = `${state.fontSize}px`;
-  requestAnimationFrame(fitTerminal);
+  scheduleTerminalFit();
 }
 
 function fitTerminal() {
-  const mobile = matchMedia("(max-width:760px)").matches;
-  const cellWidth = mobile ? 7.3 : 8;
-  const cellHeight = mobile ? 15.2 : 16.3;
-  terminal.resize(
-    Math.max(20, Math.floor(dom.terminal.clientWidth / cellWidth)),
-    Math.max(6, Math.floor(dom.terminal.clientHeight / cellHeight)),
-  );
+  fitFrame = null;
+  if (dom.terminal.clientWidth && dom.terminal.clientHeight) fitAddon.fit();
+}
+
+function scheduleTerminalFit() {
+  if (fitFrame !== null) return;
+  fitFrame = requestAnimationFrame(fitTerminal);
+}
+
+function scheduleRemoteResize(size) {
+  pendingTerminalSize = size;
+  if (resizeTimer !== null) return;
+  resizeTimer = setTimeout(() => {
+    resizeTimer = null;
+    const next = pendingTerminalSize;
+    pendingTerminalSize = null;
+    if (!next || next.cols === sentTerminalSize?.cols && next.rows === sentTerminalSize?.rows) return;
+    if (state.activeSession && state.attachedSession === state.activeSession) {
+      send({ t: "resize", cols: next.cols, rows: next.rows });
+      sentTerminalSize = next;
+    }
+  }, 40);
 }
 
 function openSearch() {
@@ -406,7 +431,7 @@ function bindSettings() {
   element("settings-back").onclick = () => {
     dom.settingsPage.classList.remove("open");
     dom.app.hidden = false;
-    requestAnimationFrame(fitTerminal);
+    scheduleTerminalFit();
   };
 }
 
@@ -453,12 +478,10 @@ function bindTerminal() {
   });
   terminal.onData(sendInput);
   terminal.onResize(size => {
-    if (state.activeSession && state.attachedSession === state.activeSession) {
-      send({ t: "resize", cols: size.cols, rows: size.rows });
-    }
+    scheduleRemoteResize(size);
   });
   new ResizeObserver(() => {
-    if (state.activeSession) fitTerminal();
+    if (state.activeSession) scheduleTerminalFit();
   }).observe(dom.terminal);
 }
 

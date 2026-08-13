@@ -30,24 +30,58 @@ type Runtime interface {
 	Kill(context.Context, string) error
 }
 
+type RuntimeLister interface {
+	List(context.Context) (map[string]bool, error)
+}
+
 func (s *Service) Roster(ctx context.Context) api.State {
-	state := s.Store.Snapshot()
+	state, _ := s.RosterVersion(ctx)
+	return state
+}
+
+func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
+	state, revision := s.Store.SnapshotVersion()
 	changed := false
 	now := time.Now().UTC()
+	running := s.runningSessions(ctx)
 	for i := range state.Sessions {
-		if state.Sessions[i].Lifecycle == "running" && !s.Runtime.Exists(ctx, state.Sessions[i].Runtime) {
+		if state.Sessions[i].Lifecycle == "running" && !running(state.Sessions[i].Runtime) {
 			state.Sessions[i].Lifecycle = "ended"
 			state.Sessions[i].EndedAt = &now
 			changed = true
 		}
 	}
 	if changed {
-		_ = s.Store.Update(func(value *api.State) error { value.Sessions = state.Sessions; return nil })
+		ended := make(map[string]time.Time)
+		for _, session := range state.Sessions {
+			if session.EndedAt != nil {
+				ended[session.ID] = *session.EndedAt
+			}
+		}
+		_ = s.Store.Update(func(value *api.State) error {
+			for index := range value.Sessions {
+				if endedAt, ok := ended[value.Sessions[index].ID]; ok && value.Sessions[index].Lifecycle == "running" {
+					value.Sessions[index].Lifecycle = "ended"
+					value.Sessions[index].EndedAt = &endedAt
+				}
+			}
+			return nil
+		})
+		state, revision = s.Store.SnapshotVersion()
 	}
 	sort.Slice(state.Projects, func(i, j int) bool { return state.Projects[i].Name < state.Projects[j].Name })
 	sort.Slice(state.Workspaces, func(i, j int) bool { return state.Workspaces[i].CreatedAt.Before(state.Workspaces[j].CreatedAt) })
 	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].CreatedAt.Before(state.Sessions[j].CreatedAt) })
-	return state
+	return state, revision
+}
+
+func (s *Service) runningSessions(ctx context.Context) func(string) bool {
+	if runtime, ok := s.Runtime.(RuntimeLister); ok {
+		if sessions, err := runtime.List(ctx); err == nil {
+			return func(name string) bool { return sessions[name] }
+		}
+	}
+	return func(name string) bool { return s.Runtime.Exists(ctx, name) }
 }
 
 func (s *Service) AddProject(path, name string) (api.Project, error) {

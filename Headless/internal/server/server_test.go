@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/store"
@@ -21,6 +22,26 @@ import (
 type memoryRuntime struct {
 	mu       sync.Mutex
 	sessions map[string][]byte
+}
+
+type listingRuntime struct {
+	memoryRuntime
+	lists  int
+	exists int
+}
+
+func (runtime *listingRuntime) List(context.Context) (map[string]bool, error) {
+	runtime.lists++
+	result := make(map[string]bool, len(runtime.sessions))
+	for name := range runtime.sessions {
+		result[name] = true
+	}
+	return result, nil
+}
+
+func (runtime *listingRuntime) Exists(ctx context.Context, name string) bool {
+	runtime.exists++
+	return runtime.memoryRuntime.Exists(ctx, name)
 }
 
 func (m *memoryRuntime) Create(_ context.Context, name, _, _ string) error {
@@ -102,6 +123,23 @@ func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	if !runtime.Exists(context.Background(), session.Runtime) {
 		t.Fatal("runtime was not created")
 	}
+	_ = requestResult[api.Session](t, connection, "session.attach", map[string]any{"id": session.ID})
+	if err := connection.WriteMessage(websocket.BinaryMessage, []byte("binary-input")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		runtime.mu.Lock()
+		received := strings.Contains(string(runtime.sessions[session.Runtime]), "binary-input")
+		runtime.mu.Unlock()
+		if received {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("binary terminal input was not delivered")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	_ = requestResult[map[string]bool](t, connection, "session.delete", map[string]any{"id": session.ID})
 	if runtime.Exists(context.Background(), session.Runtime) {
 		t.Fatal("runtime was not deleted")
@@ -169,5 +207,25 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	if _, err := url.Parse(response.Body.String()); err == nil {
 		t.Fatal("health body unexpectedly parsed as URL")
+	}
+}
+
+func TestRosterUsesOneRuntimeListing(t *testing.T) {
+	state, _ := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	runtime := &listingRuntime{memoryRuntime: memoryRuntime{sessions: map[string][]byte{"running": {}}}}
+	service := &Service{Store: state, Runtime: runtime}
+	if err := state.Update(func(value *api.State) error {
+		value.Sessions = []api.Session{{ID: "one", Runtime: "running", Lifecycle: "running"}, {ID: "two", Runtime: "missing", Lifecycle: "running"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	roster := service.Roster(context.Background())
+	if runtime.lists != 1 || runtime.exists != 0 {
+		t.Fatalf("runtime probes: lists=%d exists=%d", runtime.lists, runtime.exists)
+	}
+	if roster.Sessions[0].Lifecycle != "running" || roster.Sessions[1].Lifecycle != "ended" {
+		t.Fatalf("unexpected lifecycle reconciliation: %#v", roster.Sessions)
 	}
 }

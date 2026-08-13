@@ -70,7 +70,7 @@ run = "npm --prefix Web run dev"
 
 [tasks."web:build"]
 description = "Build the Vite web client into WebRelay resources"
-run = "npm --prefix Web ci && npm --prefix Web run build"
+run = "bash scripts/prepare-web.sh && npm --prefix Web run build"
 
 [tasks."relay:run"]
 description = "Run the remote Relay control plane"

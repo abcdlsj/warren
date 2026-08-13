@@ -14,8 +14,10 @@ esac
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 app_path="$repository_root/Warren.app"
 
-npm --prefix "$repository_root/Web" ci
-npm --prefix "$repository_root/Web" run build
+if [[ "${WARREN_SKIP_WEB_BUILD:-0}" != "1" ]]; then
+    bash "$repository_root/scripts/prepare-web.sh"
+    npm --prefix "$repository_root/Web" run build
+fi
 
 swift build \
     --package-path "$repository_root" \
