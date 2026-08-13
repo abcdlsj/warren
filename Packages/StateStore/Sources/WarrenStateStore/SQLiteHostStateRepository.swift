@@ -276,6 +276,57 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         }
     }
 
+    public func insertSession(_ session: PersistedTerminalSession, receipt: PersistedRequestReceipt?) async throws {
+        do {
+            try await database.write { db in
+                try db.execute(sql: """
+                    INSERT INTO terminal_sessions (id, workspace_id, epoch, sequence, working_directory, columns, rows, kind, title, agent_session_id, lifecycle, ended_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [session.id.description, session.workspaceID.description, String(session.epoch), String(session.sequence), session.workingDirectory, session.terminalSize.columns, session.terminalSize.rows, session.kind.rawValue, session.title, session.agentSessionID, session.lifecycle.rawValue, session.endedAt])
+                if let descriptor = session.runtimeAdoptionDescriptor {
+                    let metadata = String(decoding: try JSONEncoder().encode(descriptor.metadata), as: UTF8.self)
+                    try db.execute(sql: "INSERT INTO runtime_bindings (session_id, adapter, runtime_identifier, metadata_json) VALUES (?, ?, ?, ?)", arguments: [session.id.description, descriptor.runtime, descriptor.identifier, metadata])
+                }
+                if let receipt {
+                    try db.execute(sql: "INSERT INTO request_receipts (request_id, command_kind, resource_id, completed_at) VALUES (?, ?, ?, ?)", arguments: [receipt.requestID.uuidString.lowercased(), receipt.commandKind, receipt.resourceID, receipt.completedAt])
+                }
+            }
+        } catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+
+    public func deleteSession(_ sessionID: TerminalSessionID) async throws {
+        do {
+            try await database.write { db in
+                try db.execute(sql: "DELETE FROM tabs WHERE session_id = ?", arguments: [sessionID.description])
+                try db.execute(sql: "DELETE FROM runtime_bindings WHERE session_id = ?", arguments: [sessionID.description])
+                try db.execute(sql: "DELETE FROM request_receipts WHERE resource_id = ?", arguments: [sessionID.description])
+                try db.execute(sql: "DELETE FROM terminal_sessions WHERE id = ?", arguments: [sessionID.description])
+            }
+        } catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+
+    public func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE workspaces SET name = ? WHERE id = ?", arguments: [name, workspaceID.description]) }
+    }
+    public func insertProject(_ project: Project, rootWorkspace: Workspace) async throws {
+        do { try await database.write { db in
+            try db.execute(sql: "INSERT INTO projects (id, host_id, name, repository_path, repository_identity) VALUES (?, ?, ?, ?, ?)", arguments: [project.id.description, project.hostID.description, project.name, project.rootPath, Self.normalizedPath(project.rootPath)])
+            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind) VALUES (?, ?, ?, ?, ?, ?, ?)", arguments: [rootWorkspace.id.description, rootWorkspace.projectID.description, rootWorkspace.name, rootWorkspace.path, Self.normalizedPath(rootWorkspace.path), rootWorkspace.branch, "main_checkout"])
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+    public func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws {
+        do { try await database.write { db in
+            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind) VALUES (?, ?, ?, ?, ?, ?, ?)", arguments: [workspace.id.description, workspace.projectID.description, workspace.name, workspace.path, Self.normalizedPath(workspace.path), workspace.branch, "worktree"])
+            if let receipt { try db.execute(sql: "INSERT INTO request_receipts (request_id, command_kind, resource_id, completed_at) VALUES (?, ?, ?, ?)", arguments: [receipt.requestID.uuidString.lowercased(), receipt.commandKind, receipt.resourceID, receipt.completedAt]) }
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+
+    public func upsertHost(_ host: WarrenDomain.Host) async throws {
+        do { try await database.write { db in
+            try db.execute(sql: "INSERT INTO hosts (id, name) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name", arguments: [host.id.description, host.name])
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+
     public func save(_ state: PersistedHostState) async throws {
         try HostStateRepositoryError.validateSupportedSchema(state)
         do {

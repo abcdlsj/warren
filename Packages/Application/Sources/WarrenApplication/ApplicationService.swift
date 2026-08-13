@@ -185,12 +185,10 @@ public actor WarrenApplicationService {
         await publish()
         do {
             var loaded = try await repository.load()
-            var didMigrate = false
-            migrateSchemaIfNeeded(&loaded, didMigrate: &didMigrate)
-            let (resolvedHost, changed) = resolveLocalHost(in: &loaded)
+            let (resolvedHost, _) = resolveLocalHost(in: &loaded)
             state = loaded
             host = resolvedHost
-            if changed || didMigrate { try await save(loaded) }
+            try await repository.upsertHost(host)
             try await layoutStore.start()
             startEventLoop()
             await startRuntimeLifecycleLoop()
@@ -204,15 +202,6 @@ public actor WarrenApplicationService {
             await publish()
             throw appError
         }
-    }
-
-    private func migrateSchemaIfNeeded(
-        _ state: inout PersistedHostState,
-        didMigrate: inout Bool
-    ) {
-        guard state.schemaVersion < PersistedHostState.currentSchemaVersion else { return }
-        state.schemaVersion = PersistedHostState.currentSchemaVersion
-        didMigrate = true
     }
 
     /// Naming used by composition roots that treat startup as bootstrap.

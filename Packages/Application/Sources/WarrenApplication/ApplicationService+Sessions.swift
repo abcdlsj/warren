@@ -48,25 +48,23 @@ extension WarrenApplicationService {
                     kind: kind,
                     title: resolvedTitle
                 )
-                var candidate = state
-                candidate.terminalSessions.removeAll { $0.id == persisted.id }
-                candidate.terminalSessions.append(persisted)
-                if let requestID {
-                    candidate.requestReceipts.append(PersistedRequestReceipt(
-                        requestID: requestID,
+                let receipt = requestID.map { id in
+                    PersistedRequestReceipt(
+                        requestID: id,
                         commandKind: "create_session",
                         resourceID: persisted.id.description,
                         completedAt: clock()
-                    ))
+                    )
                 }
                 do {
-                    try await save(candidate)
+                    try await repository.insertSession(persisted, receipt: receipt)
                 } catch {
                     try? await runtime.terminate(sessionID: binding.session.id)
                     throw error
                 }
-                mergePendingSequences(into: &candidate)
-                state = candidate
+                state.terminalSessions.removeAll { $0.id == persisted.id }
+                state.terminalSessions.append(persisted)
+                if let receipt { state.requestReceipts.append(receipt) }
                 insertConnection(
                     session: binding.session,
                     workspace: workspace,
@@ -323,11 +321,9 @@ extension WarrenApplicationService {
             }
             _ = try await layoutStore.removeReferences(to: sessionID)
             try await withPersistenceMutation {
-                var candidate = state
-                candidate.terminalSessions.removeAll { $0.id == sessionID }
-                candidate.requestReceipts.removeAll { $0.resourceID == sessionID.description }
-                try await save(candidate)
-                state = candidate
+                try await repository.deleteSession(sessionID)
+                state.terminalSessions.removeAll { $0.id == sessionID }
+                state.requestReceipts.removeAll { $0.resourceID == sessionID.description }
             }
 
             connections.removeValue(forKey: sessionID)

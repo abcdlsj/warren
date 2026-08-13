@@ -164,12 +164,12 @@ extension WarrenApplicationService {
         guard let index = state.terminalSessions.firstIndex(where: { $0.id == persisted.id }) else {
             throw WarrenApplicationError.sessionNotFound(persisted.id)
         }
-        var candidate = state
-        candidate.terminalSessions[index].epoch = epoch
-        candidate.terminalSessions[index].sequence = 0
-        try await save(candidate)
-        mergePendingSequences(into: &candidate)
-        state = candidate
+        try await repository.updateSessionCursor(
+            sessionID: persisted.id,
+            anchor: RecoveryAnchor(epoch: epoch, sequence: 0)
+        )
+        state.terminalSessions[index].epoch = epoch
+        state.terminalSessions[index].sequence = 0
         return session
     }
 }

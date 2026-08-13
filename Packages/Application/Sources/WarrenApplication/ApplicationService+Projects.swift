@@ -34,11 +34,8 @@ extension WarrenApplicationService {
             guard let index = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else {
                 throw WarrenApplicationError.workspaceNotFound(workspaceID)
             }
-            var candidate = state
-            candidate.workspaces[index].name = value
-            try await save(candidate)
-            mergePendingSequences(into: &candidate)
-            state = candidate
+            try await repository.updateWorkspaceName(workspaceID, name: value)
+            state.workspaces[index].name = value
         }
         await publish()
     }
@@ -91,22 +88,20 @@ extension WarrenApplicationService {
                     path: path,
                     branch: branch
                 )
-                var candidate = state
-                candidate.workspaces.append(workspace)
-                candidate.requestReceipts.append(PersistedRequestReceipt(
+                let receipt = PersistedRequestReceipt(
                     requestID: request.requestID,
                     commandKind: "create_workspace",
                     resourceID: workspace.id.description,
                     completedAt: clock()
-                ))
+                )
                 do {
-                    try await save(candidate)
+                    try await repository.insertWorkspace(workspace, receipt: receipt)
                 } catch {
                     try? await gitWorktreeManager.remove(creation)
                     throw error
                 }
-                mergePendingSequences(into: &candidate)
-                state = candidate
+                state.workspaces.append(workspace)
+                state.requestReceipts.append(receipt)
                 return workspace
             }
             try await layoutStore.selectWorkspace(workspace.id, in: windowID)
@@ -145,12 +140,9 @@ extension WarrenApplicationService {
                     path: normalized,
                     branch: branch
                 )
-                var candidate = state
-                candidate.projects.append(project)
-                candidate.workspaces.append(workspace)
-                try await save(candidate)
-                mergePendingSequences(into: &candidate)
-                state = candidate
+                try await repository.insertProject(project, rootWorkspace: workspace)
+                state.projects.append(project)
+                state.workspaces.append(workspace)
                 return project
             }
             await publish()

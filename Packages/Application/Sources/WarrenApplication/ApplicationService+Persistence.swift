@@ -29,14 +29,6 @@ extension WarrenApplicationService {
         }
     }
 
-    internal func save(_ candidate: PersistedHostState) async throws {
-        do {
-            try await repository.save(candidate)
-        } catch {
-            throw WarrenApplicationError.repository(String(describing: error))
-        }
-    }
-
     /// Queues a monotonic Host cursor for a coalesced durable write. The
     /// in-memory cursor advances immediately, while a failed write remains
     /// retryable and adoption can safely replay the older durable spool tail.

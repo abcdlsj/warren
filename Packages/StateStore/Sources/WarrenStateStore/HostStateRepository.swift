@@ -10,9 +10,44 @@ public protocol HostStateRepository: Sendable {
     func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws
     func updateSessionAgent(sessionID: TerminalSessionID, agentSessionID: String?) async throws
     func markSessionEnded(sessionID: TerminalSessionID, endedAt: Date) async throws
+    func insertSession(_ session: PersistedTerminalSession, receipt: PersistedRequestReceipt?) async throws
+    func deleteSession(_ sessionID: TerminalSessionID) async throws
+    func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws
+    func updateSessionCursor(sessionID: TerminalSessionID, anchor: RecoveryAnchor) async throws
+    func insertProject(_ project: Project, rootWorkspace: Workspace) async throws
+    func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws
+    func upsertHost(_ host: WarrenDomain.Host) async throws
 }
 
 public extension HostStateRepository {
+    func upsertHost(_ host: WarrenDomain.Host) async throws {
+        var state = try await load()
+        if let index = state.hosts.firstIndex(where: { $0.id == host.id }) { state.hosts[index] = host } else { state.hosts.append(host) }
+        try await save(state)
+    }
+    func updateSessionCursor(sessionID: TerminalSessionID, anchor: RecoveryAnchor) async throws { try await updateSessionCursors([sessionID: anchor]) }
+    func insertSession(_ session: PersistedTerminalSession, receipt: PersistedRequestReceipt?) async throws {
+        var state = try await load()
+        state.terminalSessions.removeAll { $0.id == session.id }
+        state.terminalSessions.append(session)
+        if let receipt { state.requestReceipts.append(receipt) }
+        try await save(state)
+    }
+    func deleteSession(_ sessionID: TerminalSessionID) async throws {
+        var state = try await load()
+        state.terminalSessions.removeAll { $0.id == sessionID }
+        state.requestReceipts.removeAll { $0.resourceID == sessionID.description }
+        try await save(state)
+    }
+    func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws {
+        var state = try await load(); guard let i = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }; state.workspaces[i].name = name; try await save(state)
+    }
+    func insertProject(_ project: Project, rootWorkspace: Workspace) async throws {
+        var state = try await load(); state.projects.append(project); state.workspaces.append(rootWorkspace); try await save(state)
+    }
+    func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws {
+        var state = try await load(); state.workspaces.append(workspace); if let receipt { state.requestReceipts.append(receipt) }; try await save(state)
+    }
     func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws {
         var state = try await load()
         guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }
