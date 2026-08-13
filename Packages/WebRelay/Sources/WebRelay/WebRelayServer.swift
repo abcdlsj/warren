@@ -432,10 +432,10 @@ public final class WebRelayServer {
 
     // MARK: - Relay logic
 
-    /// Projects and Sessions are Host resources. Tabs are a separate Client
-    /// layout projection and must never be inferred from the Session roster.
-    /// The Close Tab application command coordinates both resources, but that
-    /// policy does not make a Tab part of Host state.
+    /// The client roster is deliberately Project → Workspace → Tab only.
+    /// Sessions remain Host-owned runtime resources and are carried as
+    /// metadata on their owning Tab; they are never exposed as a standalone
+    /// client collection or navigation surface.
     func rosterJSON() async -> String {
         rosterJSON(snapshot: await service.snapshot())
     }
@@ -453,35 +453,25 @@ public final class WebRelayServer {
                 "path": $0.path,
             ]
         }
-        let sessions = snapshot.sessions.map {
-            var value = [
-                "id": $0.id.description,
-                "workspace": $0.workspaceID.description,
-                "title": $0.title,
-                "kind": $0.kind.rawValue,
-                "lifecycle": $0.lifecycle.rawValue,
-                "state": String(describing: $0.connectionState),
-                "process": $0.runtimeProcess,
-                "directory": $0.workingDirectory,
-            ]
-            if let activity = $0.agentActivity {
-                value["activity"] = activity.rawValue
-            }
-            return value
-        }
         let sessionsByID = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
         let tabs = snapshot.windowLayout.workspaceViews.flatMap { view in
             view.tabs.compactMap { tab -> [String: String]? in
                 guard let sessionID = tab.sessionID,
                       let session = sessionsByID[sessionID],
                       session.workspaceID == view.workspaceID else { return nil }
-                return [
+                var value = [
                     "id": tab.id,
                     "workspace": view.workspaceID.description,
                     "session": sessionID.description,
                     "title": tab.title,
                     "kind": tab.kind.rawValue,
+                    "lifecycle": session.lifecycle.rawValue,
+                    "state": String(describing: session.connectionState),
+                    "process": session.runtimeProcess,
+                    "directory": session.workingDirectory,
                 ]
+                if let activity = session.agentActivity { value["activity"] = activity.rawValue }
+                return value
             }
         }
         return Self.json([
@@ -494,7 +484,6 @@ public final class WebRelayServer {
             ],
             "projects": projects,
             "workspaces": workspaces,
-            "sessions": sessions,
             "tabs": tabs,
         ])
     }

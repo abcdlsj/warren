@@ -8,7 +8,7 @@ import WarrenStateStore
 
 final class WebRelayTests: XCTestCase {
     @MainActor
-    func testRosterKeepsHostSessionsSeparateFromVisibleTabs() async throws {
+    func testRosterOnlyExposesClientTabs() async throws {
         let service = WarrenApplicationService(
             repository: InMemoryHostStateRepository(),
             runtime: InMemoryTerminalRuntime()
@@ -28,17 +28,12 @@ final class WebRelayTests: XCTestCase {
         let relay = WebRelayServer(service: service)
 
         var roster = try Self.decodeJSON(await relay.rosterJSON())
-        XCTAssertEqual(Self.ids(in: roster, key: "sessions"), [sessionID.description])
+        XCTAssertNil(roster["sessions"])
         XCTAssertEqual(Self.ids(in: roster, key: "tabs"), [tabID])
+        XCTAssertEqual((roster["tabs"] as? [[String: String]])?.first?["session"], sessionID.description)
 
         try await service.closeTab(tabID: tabID, workspaceID: workspace.id)
         roster = try Self.decodeJSON(await relay.rosterJSON())
-        XCTAssertEqual(Self.ids(in: roster, key: "sessions"), [sessionID.description])
-        XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
-
-        roster = try Self.decodeJSON(await relay.rosterJSON())
-        let sessions = try XCTUnwrap(roster["sessions"] as? [[String: String]])
-        XCTAssertEqual(sessions.first?["lifecycle"], "ended")
         XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
     }
 
@@ -155,9 +150,8 @@ final class WebRelayTests: XCTestCase {
         XCTAssertTrue(html.contains("id=\"font-size\""))
         XCTAssertTrue(html.contains("id=\"search-panel\""))
         XCTAssertTrue(html.contains("const renderSearch"))
-        XCTAssertTrue(html.contains("id=\"sessions\""))
-        XCTAssertTrue(html.contains("data-delete-session"))
-        XCTAssertTrue(html.contains("t:\"deleteSession\""))
+        XCTAssertFalse(html.contains("id=\"sessions\""))
+        XCTAssertFalse(html.contains("data-delete-session"))
         XCTAssertTrue(html.contains("warren.terminalTitleTemplate"))
         XCTAssertTrue(html.contains("warren.terminalFontFamily"))
         XCTAssertFalse(html.contains("class=\"count\""))

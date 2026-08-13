@@ -6,7 +6,6 @@ struct WarrenDesktopSidebar: View {
     let projection: WarrenDesktopProjection
     @Binding var sidebarState: WarrenDesktopSidebarState
     let selection: WarrenDesktopSidebarSelection?
-    let selectedTabID: String?
     let chromeMode: WarrenDesktopChromeMode
     let onAction: (WarrenDesktopAction) -> Void
     let onCommandPalette: () -> Void
@@ -26,10 +25,9 @@ struct WarrenDesktopSidebar: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     WarrenDesktopSidebarRows(
                         groups: projection.groups,
-                        sessions: projection.sessions,
+                        workspaceActivities: workspaceActivities,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,
-                        selectedTabID: selectedTabID,
                         onAddProject: { onAction(.addProject) },
                         onAction: onAction
                     )
@@ -73,5 +71,13 @@ struct WarrenDesktopSidebar: View {
         case .workspace(let workspaceID):
             return projection.workspace(id: workspaceID)
         }
+    }
+
+    private var workspaceActivities: [WorkspaceID: AgentActivityState] {
+        Dictionary(uniqueKeysWithValues: projection.groups
+            .flatMap(\.workspaces)
+            .compactMap { workspace in
+                projection.activity(in: workspace.id).map { (workspace.id, $0) }
+            })
     }
 }

@@ -72,8 +72,14 @@ final class WarrenRendererCoordinator {
 
         let visibleTabs = activeWorkspaceID.map { snapshot.tabs(in: $0) } ?? []
         let visibleSessionIDs = Set(visibleTabs.compactMap(\.sessionID))
+        // Keep Host sessions alive, but only create a Ghostty/AppKit surface
+        // for the selected tab. Creating one surface for every tab makes a
+        // large restored workspace monopolize SwiftUI's main-thread graph and
+        // leaves the whole desktop looking like an unclickable spinner.
+        let mountedSessionIDs = activeSessionID.map { Set([$0]) } ?? []
         let validKeys = Set(snapshot.sessions.compactMap { session -> WarrenRendererSurfaceKey? in
             guard visibleSessionIDs.contains(session.id),
+                  mountedSessionIDs.contains(session.id),
                   session.lifecycle == .running,
                   session.attachmentID != nil,
                   session.connectionState != .disconnected,
@@ -88,7 +94,7 @@ final class WarrenRendererCoordinator {
         for key in surfaces.keys where !validKeys.contains(key) {
             disposeSurface(key)
         }
-        for session in snapshot.sessions where visibleSessionIDs.contains(session.id) {
+        for session in snapshot.sessions where mountedSessionIDs.contains(session.id) {
             guard let attachmentID = session.attachmentID,
                   session.lifecycle == .running,
                   session.connectionState != .disconnected,
@@ -109,7 +115,7 @@ final class WarrenRendererCoordinator {
             renderAvailableOutput(for: session, key: key)
         }
 
-        mountedSurfaces = visibleTabs.compactMap { tab in
+        let nextMountedSurfaces: [GhosttySurface] = visibleTabs.compactMap { tab in
             guard let sessionID = tab.sessionID,
                   let workspaceID = activeWorkspaceID else { return nil }
             return surfaces[WarrenRendererSurfaceKey(
@@ -117,6 +123,17 @@ final class WarrenRendererCoordinator {
                 workspaceID: workspaceID,
                 sessionID: sessionID
             )]
+        }
+        // `reconcile` also runs for coalesced PTY output snapshots. Do not
+        // publish an observation change when the mounted surface identities
+        // are unchanged; otherwise every background Session redraw rebuilds
+        // the entire SwiftUI graph and can starve AppKit event handling.
+        let unchanged = mountedSurfaces.count == nextMountedSurfaces.count
+            && mountedSurfaces.indices.allSatisfy {
+                mountedSurfaces[$0] === nextMountedSurfaces[$0]
+            }
+        if !unchanged {
+            mountedSurfaces = nextMountedSurfaces
         }
     }
 

@@ -324,7 +324,10 @@ pair_host() {
     echo "Warren Remote is ready:"
     echo "$web_url"
     if [[ "$manages_local_relay" == "1" ]]; then
-        echo "手机请与 Mac 处于同一网络，并访问上面的地址（Mac: $relay_public_host:$relay_port）。"
+        # Brace variables before Chinese punctuation; bash may otherwise treat
+        # the adjacent Unicode characters as part of the variable name under
+        # a UTF-8 locale when `set -u` is enabled.
+        echo "手机请与 Mac 处于同一网络，并访问上面的地址（Mac: ${relay_public_host}:${relay_port}）。"
         echo "若仍无法访问，请检查 macOS 防火墙是否允许 Warren Relay 接收入站连接。"
     fi
     if [[ "${WARREN_RELAY_NO_OPEN:-0}" != "1" ]]; then

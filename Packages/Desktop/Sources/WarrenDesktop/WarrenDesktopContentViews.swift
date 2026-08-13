@@ -9,14 +9,13 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let tab: ClientTab?
     let hasProjects: Bool
     let showsPaneHeader: Bool
-    let branchSessions: [WarrenDesktopSession]
+    let session: WarrenDesktopSession?
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let terminalFont: TerminalFontPreference
     let onAddProject: () -> Void
     let onImportSuperset: () -> Void
     let onNewSession: () -> Void
-    let onOpenSession: (TerminalSessionID) -> Void
     let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
 
     @Environment(\.colorScheme) private var colorScheme
@@ -27,9 +26,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             WarrenDesktopPaneView(
                 workspace: workspace,
                 tab: tab,
-                session: tab.sessionID.flatMap { sessionID in
-                    branchSessions.first { $0.id == sessionID }
-                },
+                session: session,
                 hostName: hostName,
                 titleTemplate: titleTemplate,
                 showsPaneHeader: showsPaneHeader,
@@ -95,43 +92,17 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
 
     private func emptyWorkspace(tokens: WarrenColorTokens, workspace: Workspace) -> some View {
         VStack(spacing: WarrenSpacing.standard) {
-            if branchSessions.isEmpty {
-                Image(systemName: "terminal")
-                    .font(.system(size: 26, weight: .light))
-                    .foregroundStyle(tokens.mutedForeground)
-                Text("Start a session")
-                    .font(WarrenTypography.screenTitle)
-                Button(action: onNewSession) {
-                    Text("New Session…")
-                        .font(WarrenTypography.bodyEmphasis)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-            } else {
-                VStack(spacing: 2) {
-                    ForEach(branchSessions) { session in
-                        Button {
-                            onOpenSession(session.id)
-                        } label: {
-                            HStack(spacing: WarrenSpacing.compact) {
-                                Text(session.title)
-                                    .font(WarrenTypography.bodyEmphasis)
-                                    .foregroundStyle(tokens.foreground)
-                                Spacer()
-                                Text(session.kind.displayName)
-                                    .font(WarrenTypography.badge)
-                                    .foregroundStyle(tokens.mutedForeground)
-                            }
-                            .padding(.horizontal, WarrenSpacing.medium)
-                            .frame(height: 34)
-                            .background(tokens.fillHover.opacity(0.001))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .frame(maxWidth: 420)
+            Image(systemName: "terminal")
+                .font(.system(size: 26, weight: .light))
+                .foregroundStyle(tokens.mutedForeground)
+            Text("Start a session")
+                .font(WarrenTypography.screenTitle)
+            Button(action: onNewSession) {
+                Text("New Session…")
+                    .font(WarrenTypography.bodyEmphasis)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)

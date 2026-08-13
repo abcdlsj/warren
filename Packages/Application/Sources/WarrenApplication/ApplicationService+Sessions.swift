@@ -307,11 +307,19 @@ extension WarrenApplicationService {
             }
 
             try await coordinator.discardStoppedSession(sessionID)
+
+            // Durable deletion must not be rolled back because an old runtime
+            // descriptor no longer matches a tmux artifact. The runtime is
+            // already stopped; artifact cleanup is best-effort.
             if let descriptor = persisted.runtimeAdoptionDescriptor {
-                try await runtime.purge(
-                    sessionID: sessionID,
-                    descriptor: RuntimeDescriptorMapping.runtime(from: descriptor)
-                )
+                do {
+                    try await runtime.purge(
+                        sessionID: sessionID,
+                        descriptor: RuntimeDescriptorMapping.runtime(from: descriptor)
+                    )
+                } catch {
+                    NSLog("Warren ignored runtime artifact cleanup failure for %@: %@", sessionID.description, String(describing: error))
+                }
             }
             _ = try await layoutStore.removeReferences(to: sessionID)
             try await withPersistenceMutation {

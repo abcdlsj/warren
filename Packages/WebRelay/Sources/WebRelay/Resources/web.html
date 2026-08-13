@@ -36,14 +36,6 @@
     .connection.online .connection-dot { background:var(--green); }
     .sidebar-scroll { min-height:0; overflow:auto; padding:7px 8px 16px; }
     .section-label { padding:8px 8px 5px; color:var(--sub); font-size:10px; font-weight:600; letter-spacing:.08em; }
-    .session-list { display:flex; flex-direction:column; gap:2px; margin-bottom:6px; }
-    .session-row { display:flex; align-items:center; gap:7px; height:30px; padding:0 5px 0 8px; border-radius:5px; color:rgba(234,232,230,.8); }
-    .session-row.active,.session-row:hover { background:rgba(234,232,230,.08); }
-    .session-open { display:flex; align-items:center; gap:7px; min-width:0; flex:1; height:100%; padding:0; border:0; background:transparent; text-align:left; cursor:pointer; }
-    .session-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .session-delete { display:none; place-items:center; width:23px; height:23px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--red); cursor:pointer; }
-    .session-row:hover .session-delete,.session-delete:focus-visible { display:grid; }
-    .session-delete svg { width:13px; height:13px; }
     .project-toggle,.workspace-row { width:100%; border:0; background:transparent; text-align:left; cursor:pointer; }
     .project-toggle { display:flex; align-items:center; gap:7px; height:28px; padding:0 7px; border-radius:5px; color:rgba(234,232,230,.78); font-weight:500; }
     .project-toggle:hover,.workspace-row:hover { background:rgba(234,232,230,.07); }
@@ -154,7 +146,7 @@
   <div class="app" id="app">
     <aside class="sidebar" aria-label="Projects and workspaces">
       <div class="brand"><span class="brand-mark">B</span><span>Warren</span><span class="connection" id="connection"><span class="connection-dot"></span><span id="status">Connecting…</span></span></div>
-      <div class="sidebar-scroll"><div class="section-label">SESSIONS</div><div class="session-list" id="sessions"></div><div class="section-label">PROJECTS</div><div id="projects"></div></div>
+      <div class="sidebar-scroll"><div class="section-label">PROJECTS</div><div id="projects"></div></div>
     </aside>
     <button class="backdrop" id="backdrop" aria-label="Close navigation"></button>
     <main class="main">
@@ -217,7 +209,6 @@
     const status = document.getElementById("status");
     const connection = document.getElementById("connection");
     const projectsElement = document.getElementById("projects");
-    const sessionsElement = document.getElementById("sessions");
     const tabsElement = document.getElementById("tabs");
     const empty = document.getElementById("empty");
     const paneTitle = document.getElementById("pane-title");
@@ -231,9 +222,8 @@
     const fontSizeInput = document.getElementById("font-size");
     const fontPreview = document.getElementById("font-preview");
     const app = document.getElementById("app");
-    let roster = { host:{}, projects: [], workspaces: [], sessions: [], tabs: [] };
+    let roster = { host:{}, projects: [], workspaces: [], tabs: [] };
     let sessionByID = new Map();
-    let sessionsByWorkspace = new Map();
     let tabsByWorkspace = new Map();
     let activeWorkspace = localStorage.getItem("warren.activeWorkspace");
     let activeSession = null;
@@ -248,7 +238,9 @@
     let titleTemplate = localStorage.getItem(titleTemplateKey) || defaultTitleTemplate;
     const agentActivity = session => session.activity || null;
     const send = message => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(message));
-    const workspaceSessions = id => sessionsByWorkspace.get(id) || [];
+    // Sessions are Host resources, not a client navigation surface. The web
+    // client only renders sessions that are referenced by its open tabs.
+    const workspaceSessions = id => workspaceTabs(id);
     const workspaceTabs = id => (tabsByWorkspace.get(id) || [])
       .map(tab => {
         const session = sessionByID.get(tab.session);
@@ -260,13 +252,10 @@
     const escapeHTML = value => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
     const directoryName = path => String(path || "").split("/").filter(Boolean).pop() || "";
     const rebuildIndexes = () => {
-      sessionByID = new Map(roster.sessions.map(session => [session.id, session]));
-      sessionsByWorkspace = new Map();
+      sessionByID = new Map(roster.tabs.map(tab => [tab.session, {
+        ...tab, id:tab.session, workspace:tab.workspace, title:tab.title, kind:tab.kind
+      }]));
       tabsByWorkspace = new Map();
-      roster.sessions.forEach(session => {
-        const values = sessionsByWorkspace.get(session.workspace) || [];
-        values.push(session); sessionsByWorkspace.set(session.workspace, values);
-      });
       roster.tabs.forEach(tab => {
         const values = tabsByWorkspace.get(tab.workspace) || [];
         values.push(tab); tabsByWorkspace.set(tab.workspace, values);
@@ -312,13 +301,10 @@
       const cards = roster.projects.map(project => {
         const workspaces = roster.workspaces.filter(workspace => workspace.project === project.id);
         const visible = matches(project.name) || matches(project.path) || workspaces.some(workspace =>
-          matches(workspace.name) || matches(workspace.branch) || workspaceSessions(workspace.id).some(session => matches(session.title) || matches(session.kind))
+          matches(workspace.name) || matches(workspace.branch)
         );
         if (!visible) return "";
-        const rows = workspaces.filter(workspace => !query || matches(project.name) || matches(project.path) || matches(workspace.name) || matches(workspace.branch) || workspaceSessions(workspace.id).some(session => matches(session.title) || matches(session.kind))).map(workspace => {
-          const sessionRows = workspaceSessions(workspace.id).filter(session => !query || matches(project.name) || matches(workspace.name) || matches(workspace.branch) || matches(session.title) || matches(session.kind)).map(session => `<button class="search-session" data-search-session="${session.id}" data-search-workspace="${workspace.id}">${activityDot(agentActivity(session))}<span class="search-name">${escapeHTML(session.title)}</span><span class="search-kind">${escapeHTML(session.kind || "shell")}</span></button>`).join("");
-          return `<button class="search-workspace" data-search-workspace="${workspace.id}"><span>•</span><span class="search-name">${escapeHTML(workspace.branch || workspace.name || "Workspace")}</span><span class="search-kind">Workspace</span></button>${sessionRows}`;
-        }).join("");
+        const rows = workspaces.filter(workspace => !query || matches(project.name) || matches(project.path) || matches(workspace.name) || matches(workspace.branch)).map(workspace => `<button class="search-workspace" data-search-workspace="${workspace.id}"><span>•</span><span class="search-name">${escapeHTML(workspace.branch || workspace.name || "Workspace")}</span><span class="search-kind">Workspace</span></button>`).join("");
         return `<section class="search-project"><button class="search-project-button" data-search-project="${project.id}"><span>□</span><span class="search-copy"><span class="search-name">${escapeHTML(project.name)}</span><span class="search-path">${escapeHTML(project.path || "")}</span></span></button>${rows}</section>`;
       }).join("");
       searchResults.innerHTML = cards || '<div class="search-empty">No projects found</div>';
@@ -352,8 +338,6 @@
           }).join("")}</div></section>`;
       }).join("");
       projectsElement.innerHTML = projects || '<div class="workspace-row">No projects</div>';
-      sessionsElement.innerHTML = roster.sessions.map(session => `<div class="session-row ${session.id === activeSession ? "active" : ""}"><button class="session-open" data-sidebar-session="${session.id}">${activityDot(agentActivity(session))}<span class="session-title">${escapeHTML(session.title)}</span></button><button class="session-delete" data-delete-session="${session.id}" aria-label="Delete ${escapeHTML(session.title)}" title="Delete Session"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5"/></svg></button></div>`).join("");
-
       const tabs = activeWorkspace ? workspaceTabs(activeWorkspace) : [];
       tabsElement.innerHTML = tabs.map(session => `<button role="tab" aria-selected="${session.id === activeSession}" class="tab ${session.id === activeSession ? "active" : ""}" data-tab="${escapeHTML(session.tabID)}" data-session="${session.id}">${activityDot(agentActivity(session))}<span class="tab-title">${escapeHTML(session.title)}</span></button>`).join("");
       empty.hidden = Boolean(activeSession && attachedSession === activeSession);
@@ -410,7 +394,7 @@
       }
       const msg = JSON.parse(event.data);
       if (msg.t === "roster") {
-        roster = { host:msg.host || {}, projects:msg.projects || [], workspaces:msg.workspaces || [], sessions:msg.sessions || [], tabs:msg.tabs || [] };
+        roster = { host:msg.host || {}, projects:msg.projects || [], workspaces:msg.workspaces || [], tabs:msg.tabs || [] };
         rebuildIndexes();
         const tabs = activeWorkspace ? workspaceTabs(activeWorkspace) : [];
         const removedActiveTab = activeSession && !tabs.some(session => session.id === activeSession);
@@ -465,20 +449,6 @@
       }
       const workspace = event.target.closest("[data-workspace]");
       if (workspace) chooseWorkspace(workspace.dataset.workspace);
-    };
-    sessionsElement.onclick = event => {
-      const deleteButton = event.target.closest("[data-delete-session]");
-      if (deleteButton) {
-        const session = sessionByID.get(deleteButton.dataset.deleteSession);
-        if (session && confirm(`Delete ${session.title}?\n\nThis terminates its process, closes every Tab, and removes its saved history.`)) {
-          send({ t:"deleteSession", session:session.id });
-        }
-        return;
-      }
-      const row = event.target.closest("[data-sidebar-session]");
-      if (!row) return;
-      const session = sessionByID.get(row.dataset.sidebarSession);
-      if (session) chooseWorkspace(session.workspace, session.id);
     };
     tabsElement.onclick = event => {
       const tab = event.target.closest("[data-session]");

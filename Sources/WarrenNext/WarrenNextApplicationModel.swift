@@ -120,7 +120,11 @@ final class WarrenNextApplicationModel {
         // Sidebar activity is a Host-resource projection, not a Tab
         // projection. A live headless Session or a Session whose layout entry
         // is missing must still make its Workspace visible.
-        let visibleSessions = snapshot.sessions
+        // The desktop sidebar is a view of this window's Client layout, not a
+        // durable Host history list. Dormant Sessions may still be running for
+        // Web/remote clients, but without a local Tab they must not appear as
+        // clickable desktop rows.
+        let visibleSessions = snapshot.sessions.filter { $0.tabID != nil }
         let workspaceIDs = Dictionary(
             uniqueKeysWithValues: visibleSessions.map { ($0.id, $0.workspaceID) }
         )
@@ -519,6 +523,11 @@ extension WarrenNextApplicationModel {
         case .deleteSession(let sessionID):
             await run {
                 try await service.deleteSession(sessionID: sessionID)
+                // A prior restore failure may still be the visible inspector
+                // issue. Once the destructive operation succeeds, remove that
+                // stale diagnostic so it cannot cover the empty workspace.
+                self.presentedIssue = nil
+                self.refreshDesktopProjection()
             }
         case .renameWorkspace(let workspaceID, let name):
             await run { try await service.renameWorkspace(workspaceID, name: name) }
@@ -604,13 +613,22 @@ extension WarrenNextApplicationModel {
             value.tabs(in: $0).isEmpty
         }
         if presentedIssue == nil {
-            presentedIssue = value.issues.last
+            presentedIssue = value.issues.last(where: { issue in
+                Self.issueBelongsToDesktop(issue, snapshot: value)
+            })
         }
         refreshDesktopProjection()
-        navigation = WarrenDesktopNavigationReducer.reconcile(
+        let nextNavigation = WarrenDesktopNavigationReducer.reconcile(
             navigation,
             with: desktopProjection
         )
+        // Snapshot publications are also used for coalesced PTY output. Do
+        // not invalidate the whole SwiftUI root when navigation did not
+        // actually change; doing so turns background terminal output into a
+        // continuous AttributeGraph rebuild.
+        if nextNavigation != navigation {
+            navigation = nextNavigation
+        }
         reconcileSurfaces(with: value)
     }
 
@@ -649,6 +667,22 @@ extension WarrenNextApplicationModel {
     func present(_ error: Error) {
         presentedIssue = WarrenApplicationIssue(id: "ui.\(String(describing: error))", error: error)
         refreshDesktopProjection()
+    }
+
+    private static func issueBelongsToDesktop(
+        _ issue: WarrenApplicationIssue,
+        snapshot: WarrenApplicationSnapshot
+    ) -> Bool {
+        // Restore/adoption issues are scoped to one durable Session. Do not
+        // surface an error for a hidden Host/Web Session in the desktop pane.
+        // Transport and project/workspace issues remain global diagnostics.
+        guard issue.id.hasPrefix("session.") else { return true }
+        let parts = issue.id.split(separator: ".")
+        guard parts.count >= 2 else { return true }
+        let rawID = String(parts[1])
+        return snapshot.sessions.contains {
+            $0.id.description == rawID && $0.tabID != nil
+        }
     }
 
     func refreshDesktopProjection() {

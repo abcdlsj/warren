@@ -22,7 +22,7 @@ struct WarrenDesktopCommandPalette: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(tokens.mutedForeground)
-                TextField("Search projects, branches, or sessions…", text: $query)
+                TextField("Search projects or branches…", text: $query)
                     .textFieldStyle(.plain)
                     .font(WarrenTypography.body)
                     .focused($searchFocused)
@@ -124,30 +124,6 @@ struct WarrenDesktopCommandPalette: View {
                 }
                 .buttonStyle(.plain)
 
-                ForEach(matchingSessions(in: workspace.id)) { session in
-                    Button { choose(.openSession(session.id)) } label: {
-                        HStack(spacing: WarrenSpacing.compact) {
-                            if let activity = session.activity {
-                                WarrenDesktopActivityIndicator(activity: activity)
-                                    .frame(width: 18)
-                            } else {
-                                Color.clear.frame(width: 18)
-                            }
-                            Text(session.title)
-                                .font(WarrenTypography.workspaceRow)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Text(session.kind.displayName)
-                                .font(WarrenTypography.badge)
-                                .foregroundStyle(tokens.mutedForeground)
-                        }
-                        .padding(.leading, 38)
-                        .padding(.trailing, WarrenSpacing.compact)
-                        .frame(height: 30)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
         }
         .padding(.vertical, WarrenSpacing.xxs)
@@ -164,10 +140,6 @@ struct WarrenDesktopCommandPalette: View {
                 || group.workspaces.contains { workspace in
                     workspace.name.lowercased().contains(normalized)
                         || (workspace.branch?.lowercased().contains(normalized) ?? false)
-                        || matchingSessions(in: workspace.id).contains {
-                            $0.title.lowercased().contains(normalized)
-                                || $0.kind.displayName.lowercased().contains(normalized)
-                        }
                 }
         }
     }
@@ -182,15 +154,7 @@ struct WarrenDesktopCommandPalette: View {
         return group.workspaces.filter { workspace in
             workspace.name.lowercased().contains(normalized)
                 || (workspace.branch?.lowercased().contains(normalized) ?? false)
-                || matchingSessions(in: workspace.id).contains {
-                    $0.title.lowercased().contains(normalized)
-                        || $0.kind.displayName.lowercased().contains(normalized)
-                }
         }
-    }
-
-    private func matchingSessions(in workspaceID: WorkspaceID) -> [WarrenDesktopSession] {
-        projection.sessions.filter { $0.workspaceID == workspaceID }
     }
 
     private func choose(_ action: WarrenDesktopAction) {

@@ -75,7 +75,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     projection: projection,
                     sidebarState: $sidebarState,
                     selection: navigation.selection,
-                    selectedTabID: navigation.selectedTabID,
                     chromeMode: chromeMode,
                     onAction: dispatch,
                     onCommandPalette: { commandPalettePresented = true }
@@ -143,11 +142,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             // Superset keeps the 28pt pane toolbar in workspace
                             // mode too. It is pane chrome, not a duplicate top bar.
                             showsPaneHeader: true,
-                            branchSessions: contentWorkspace.map { workspace in
-                                projection.sessions.filter {
-                                    $0.workspaceID == workspace.id
-                                }
-                            } ?? [],
+                            session: selectedTab?.sessionID.flatMap { id in
+                                projection.sessions.first { $0.id == id }
+                            },
                             hostName: projection.host.name,
                             titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
                             terminalFont: TerminalFontPreference(
@@ -160,7 +157,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                                 guard let workspace = selectedWorkspace else { return }
                                 dispatch(.requestNewSession(workspace.id))
                             },
-                            onOpenSession: { dispatch(.openSession($0)) },
                             terminalSurface: terminalSurface
                         )
                         if inspectorVisible, let inspector = projection.inspector {
@@ -313,12 +309,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private static func restoredSidebarState() -> WarrenDesktopSidebarState {
         let defaults = UserDefaults.standard
         let storedWidth = defaults.object(forKey: WarrenDesktopSidebarKeys.width) as? Double
-        // The rail always starts expanded. A collapsed state was persisted by
-        // earlier builds during testing; ignore it so first launch is usable.
-        defaults.removeObject(forKey: WarrenDesktopSidebarKeys.collapsed)
         return WarrenDesktopSidebarState(
             width: storedWidth ?? WarrenLayoutMetrics.sidebarExpandedWidth,
-            isCollapsed: false
+            isCollapsed: defaults.bool(forKey: WarrenDesktopSidebarKeys.collapsed)
         )
     }
 
