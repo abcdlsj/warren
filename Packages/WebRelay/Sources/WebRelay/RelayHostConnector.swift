@@ -73,6 +73,7 @@ public actor RelayHostConnector {
             } catch is CancellationError {
                 return
             } catch {
+                NSLog("Warren control-plane connector failed: %@", String(describing: error))
                 relayTask?.cancel(with: .abnormalClosure, reason: nil)
                 relayTask = nil
                 let current = proxies.values

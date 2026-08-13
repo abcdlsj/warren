@@ -8,6 +8,7 @@ relay_port="${WARREN_RELAY_DEV_PORT:-8080}"
 if [[ -n "${WARREN_RELAY_URL:-}" ]]; then
     manages_local_relay=0
     relay_url="${WARREN_RELAY_URL%/}"
+    relay_local_url="$relay_url"
     if [[ "$relay_url" != https://* ]]; then
         echo "WARREN_RELAY_URL must use https:// so credentials are never sent in plaintext." >&2
         exit 64
@@ -38,6 +39,10 @@ else
         exit 69
     fi
     relay_url="http://$relay_public_host:$relay_port"
+    # Host connector stays on loopback; only the browser-facing URL uses the
+    # LAN address. This avoids local-network routing/firewall differences on
+    # macOS while keeping the phone URL reachable.
+    relay_local_url="http://127.0.0.1:$relay_port"
     default_state_directory="$repository_root/.build/relay-dev/$relay_port"
 fi
 state_directory="${WARREN_RELAY_STATE_DIR:-${WARREN_RELAY_DEV_STATE_DIR:-$default_state_directory}}"
@@ -127,7 +132,7 @@ relay_is_running() {
 
 wait_for_health() {
     for _ in {1..100}; do
-        if curl --fail --silent --max-time 1 "$relay_url/healthz" >/dev/null 2>&1; then
+        if curl --fail --silent --max-time 1 "$relay_local_url/healthz" >/dev/null 2>&1; then
             return 0
         fi
         sleep 0.1
@@ -201,7 +206,7 @@ ensure_host() {
     if [[ -n "$host_id" && -n "$host_token" ]]; then
         local status
         status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-            "$relay_url/v1/hosts/$host_id" \
+            "$relay_local_url/v1/hosts/$host_id" \
             -H "Authorization: Bearer $host_token" || true)"
         if [[ "$status" == "200" ]]; then
             return
@@ -219,7 +224,7 @@ ensure_host() {
         fi
     fi
     response="$(curl --fail --silent --show-error \
-        -X POST "$relay_url/v1/hosts" \
+        -X POST "$relay_local_url/v1/hosts" \
         -H "Authorization: Bearer $admin_token" \
         -H 'Content-Type: application/json' \
         -d "{\"id\":\"$host_id\",\"name\":\"Local Mac\"}")"
@@ -242,10 +247,33 @@ launch_warren() {
         done
     fi
     if pgrep -f "$app_executable$" >/dev/null 2>&1; then
+        # `open`/AppleScript can fail when a previous debug app is hung or was
+        # launched from a dead GUI session. This is the exact Warren binary we
+        # own, so terminate it before importing the new Relay credentials.
+        while read -r stale_pid; do
+            [[ "$stale_pid" =~ ^[0-9]+$ ]] || continue
+            kill -TERM "$stale_pid" 2>/dev/null || true
+        done < <(pgrep -f "$app_executable$" || true)
+        for _ in {1..50}; do
+            pgrep -f "$app_executable$" >/dev/null 2>&1 || break
+            sleep 0.1
+        done
+    fi
+    if pgrep -f "$app_executable$" >/dev/null 2>&1; then
+        while read -r stale_pid; do
+            [[ "$stale_pid" =~ ^[0-9]+$ ]] || continue
+            kill -KILL "$stale_pid" 2>/dev/null || true
+        done < <(pgrep -f "$app_executable$" || true)
+        for _ in {1..50}; do
+            pgrep -f "$app_executable$" >/dev/null 2>&1 || break
+            sleep 0.1
+        done
+    fi
+    if pgrep -f "$app_executable$" >/dev/null 2>&1; then
         echo "Warren is already running and could not be restarted for credential import." >&2
         exit 1
     fi
-    open --env "WARREN_CONTROL_PLANE_URL=$relay_url" \
+    open --env "WARREN_CONTROL_PLANE_URL=$relay_local_url" \
         --env "WARREN_CONTROL_PLANE_HOST_ID=$host_id" \
         --env "WARREN_CONTROL_PLANE_HOST_TOKEN=$host_token" \
         "$repository_root/Warren.app"
@@ -256,7 +284,7 @@ host_is_online() {
     local host_token="$2"
     local response
     response="$(curl --silent --max-time 1 \
-        "$relay_url/v1/hosts/$host_id" \
+        "$relay_local_url/v1/hosts/$host_id" \
         -H "Authorization: Bearer $host_token" 2>/dev/null || true)"
     [[ -n "$response" ]] && [[ "$(printf '%s' "$response" | json_field online 2>/dev/null || true)" == "True" ]]
 }
@@ -308,7 +336,7 @@ show_status() {
     echo "Relay: healthy at $relay_url"
     if [[ -n "$host_id" && -n "$host_token" ]]; then
         curl --fail --silent --show-error \
-            "$relay_url/v1/hosts/$host_id" \
+        "$relay_local_url/v1/hosts/$host_id" \
             -H "Authorization: Bearer $host_token" | /usr/bin/python3 -m json.tool
     else
         echo "Host: not registered"

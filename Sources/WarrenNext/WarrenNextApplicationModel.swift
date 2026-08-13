@@ -26,6 +26,7 @@ final class WarrenNextApplicationModel {
     @ObservationIgnored private let renderer: WarrenRendererCoordinator
     @ObservationIgnored private var webRelay: WebRelayServer?
     @ObservationIgnored private var relayHostConnector: RelayHostConnector?
+    @ObservationIgnored private let controlPlaneConfiguration: (url: URL, hostID: String, credential: String)?
     @ObservationIgnored private var relayStopTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     /// Host mutations are ordered per Workspace. A slow agent launch in one
@@ -36,25 +37,36 @@ final class WarrenNextApplicationModel {
     @ObservationIgnored private var shutdownStarted = false
     @ObservationIgnored private var shutdownFinished = false
 
-    init(service: WarrenApplicationService, runtime: TmuxRuntime) {
+    init(
+        service: WarrenApplicationService,
+        runtime: TmuxRuntime,
+        controlPlaneConfiguration: (url: URL, hostID: String, credential: String)? = nil
+    ) {
         self.service = service
         self.runtime = runtime
+        self.controlPlaneConfiguration = controlPlaneConfiguration
         self.renderer = WarrenRendererCoordinator(service: service)
         let initialSnapshot = WarrenApplicationSnapshot.empty()
         let initialProjection = WarrenDesktopProjection.empty(host: initialSnapshot.host)
         self.snapshot = initialSnapshot
         self.desktopProjection = initialProjection
         self.navigation = WarrenDesktopNavigationReducer.initial(for: initialProjection)
+        // Bind the local WebRelay as soon as the composition model exists.
+        // Startup/session restoration may be expensive; remote availability
+        // must not depend on SwiftUI finishing its first transaction.
+        startWebRelay()
     }
 
     static func live() -> WarrenNextApplicationModel {
         let isHeadlessAcceptance = ProcessInfo.processInfo.environment[
             "WARREN_HEADLESS_ACCEPTANCE"
         ] == "1"
-        if !isHeadlessAcceptance {
-            _ = WarrenControlPlaneCredentialStore.loadOrImport(
+        let controlPlaneConfiguration = isHeadlessAcceptance
+            ? nil
+            : WarrenControlPlaneCredentialStore.loadOrImport(
                 environment: ProcessInfo.processInfo.environment
             )
+        if !isHeadlessAcceptance {
             unsetenv("WARREN_CONTROL_PLANE_URL")
             unsetenv("WARREN_CONTROL_PLANE_HOST_ID")
             unsetenv("WARREN_CONTROL_PLANE_HOST_TOKEN")
@@ -86,7 +98,11 @@ final class WarrenNextApplicationModel {
             runtime: runtime,
             hostName: Host.current().localizedName ?? "Local Mac"
         )
-        return WarrenNextApplicationModel(service: service, runtime: runtime)
+        return WarrenNextApplicationModel(
+            service: service,
+            runtime: runtime,
+            controlPlaneConfiguration: controlPlaneConfiguration
+        )
     }
 
     private func makeDesktopProjection() -> WarrenDesktopProjection {
@@ -156,7 +172,10 @@ final class WarrenNextApplicationModel {
         }
         do {
             try await service.start()
-            startWebRelay()
+            // The model may have been constructed before AppKit's run loop
+            // started. Kick the outbound connector again from the live startup
+            // task so URLSession gets a scheduling point after launch.
+            startControlPlaneConnectorIfConfigured()
         } catch {
             present(error)
         }
@@ -227,9 +246,11 @@ final class WarrenNextApplicationModel {
     private func startControlPlaneConnectorIfConfigured() {
         guard ProcessInfo.processInfo.environment["WARREN_HEADLESS_ACCEPTANCE"] != "1",
               relayHostConnector == nil,
-              let configuration = WarrenControlPlaneCredentialStore.loadOrImport(
-                environment: ProcessInfo.processInfo.environment
-              ) else { return }
+              let configuration = controlPlaneConfiguration
+                  ?? WarrenControlPlaneCredentialStore.loadOrImport(
+                      environment: ProcessInfo.processInfo.environment
+                  ) else { return }
+        NSLog("Warren control-plane connector starting for %@", configuration.url.absoluteString)
         let connector = RelayHostConnector(configuration: .init(
             relayURL: configuration.url,
             hostID: configuration.hostID,
