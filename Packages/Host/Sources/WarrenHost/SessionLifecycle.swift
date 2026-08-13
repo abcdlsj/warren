@@ -175,8 +175,17 @@ extension TerminalSessionCoordinator {
     /// runtime keeps cleanup from accidentally becoming another terminate API.
     public func discardStoppedSession(_ sessionID: TerminalSessionID) async throws {
         guard let state = sessions[sessionID] else { return }
-        guard !(await runtime.exists(sessionID: sessionID)) else {
+        switch await runtime.presence(sessionID: sessionID) {
+        case .missing:
+            break
+        case .present:
             throw protocolError(.invalidMessage, "A live terminal runtime must be terminated before deletion.")
+        case .unavailable(let reason):
+            throw protocolError(
+                .internalFailure,
+                "The terminal runtime could not be verified before deletion: \(reason)",
+                retryable: true
+            )
         }
         for attachmentID in state.attachments.keys {
             eventContinuations.removeValue(forKey: attachmentID)?.continuation.finish()

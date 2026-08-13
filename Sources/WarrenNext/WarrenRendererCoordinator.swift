@@ -74,10 +74,10 @@ final class WarrenRendererCoordinator {
         let visibleSessionIDs = Set(visibleTabs.compactMap(\.sessionID))
         let validKeys = Set(snapshot.sessions.compactMap { session -> WarrenRendererSurfaceKey? in
             guard visibleSessionIDs.contains(session.id),
+                  session.lifecycle == .running,
                   session.attachmentID != nil,
                   session.connectionState != .disconnected,
-                  session.connectionState != .failed,
-                  session.connectionState != .exited else { return nil }
+                  session.connectionState != .failed else { return nil }
             return WarrenRendererSurfaceKey(
                 windowID: windowID,
                 workspaceID: session.workspaceID,
@@ -90,9 +90,9 @@ final class WarrenRendererCoordinator {
         }
         for session in snapshot.sessions where visibleSessionIDs.contains(session.id) {
             guard let attachmentID = session.attachmentID,
+                  session.lifecycle == .running,
                   session.connectionState != .disconnected,
-                  session.connectionState != .failed,
-                  session.connectionState != .exited else { continue }
+                  session.connectionState != .failed else { continue }
             let key = WarrenRendererSurfaceKey(
                 windowID: windowID,
                 workspaceID: session.workspaceID,

@@ -9,7 +9,7 @@ import WarrenObservation
 struct WarrenDesktopWorkspaceRow: View {
     let workspace: Workspace
     let semanticScope: String
-    let activity: TerminalSessionActivityState?
+    let activity: AgentActivityState?
     let isCollapsed: Bool
     let isSelected: Bool
     let onSelect: () -> Void
@@ -130,10 +130,10 @@ struct WarrenDesktopWorkspaceRow: View {
     }
 }
 
-/// Superset-style status point. Live/actionable states pulse; ready and exited
-/// Sessions remain quiet static markers.
+/// Superset-style Agent activity point. Live/actionable states pulse; ready is
+/// a quiet static marker.
 struct WarrenDesktopActivityIndicator: View {
-    let activity: TerminalSessionActivityState
+    let activity: AgentActivityState
     @State private var isExpanded = false
 
     var body: some View {
@@ -162,8 +162,8 @@ struct WarrenDesktopActivityIndicator: View {
 
     private var pulses: Bool {
         switch activity {
-        case .connecting, .working, .waitingForInput, .failed: true
-        case .ready, .exited: false
+        case .working, .waitingForInput, .failed: true
+        case .ready: false
         }
     }
 
@@ -171,10 +171,8 @@ struct WarrenDesktopActivityIndicator: View {
         switch activity {
         case .failed: Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
         case .waitingForInput: Color(red: 234 / 255, green: 179 / 255, blue: 8 / 255)
-        case .connecting: Color(red: 168 / 255, green: 165 / 255, blue: 163 / 255)
         case .working: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
         case .ready: Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)
-        case .exited: Color(red: 120 / 255, green: 113 / 255, blue: 108 / 255)
         }
     }
 
@@ -182,10 +180,8 @@ struct WarrenDesktopActivityIndicator: View {
         switch activity {
         case .failed: "Session failed"
         case .waitingForInput: "Session needs input"
-        case .connecting: "Session connecting"
-        case .working: "Session working"
-        case .ready: "Session ready"
-        case .exited: "Session exited"
+        case .working: "Agent working"
+        case .ready: "Agent ready"
         }
     }
 }

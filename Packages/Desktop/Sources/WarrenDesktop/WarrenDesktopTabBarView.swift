@@ -18,6 +18,7 @@ struct WarrenDesktopTabBar: View {
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onSelectTab: (String) -> Void
+    let onMoveTab: (String, String?) -> Void
     let canAddTab: Bool
     let onAddTab: () -> Void
     let onCloseTab: (String) -> Void
@@ -46,7 +47,8 @@ struct WarrenDesktopTabBar: View {
                                 onSelect: { onSelectTab(tab.id) },
                                 onClose: { onCloseTab(tab.id) },
                                 onCloseOthers: { onCloseOtherTabs(tab.id) },
-                                onCloseAll: onCloseAllTabs
+                                onCloseAll: onCloseAllTabs,
+                                onMoveBefore: { sourceID in onMoveTab(sourceID, tab.id) }
                             )
                         }
 
@@ -59,10 +61,18 @@ struct WarrenDesktopTabBar: View {
                             action: onAddTab,
                             isEnabled: canAddTab
                         )
+                        .dropDestination(for: String.self) { tabIDs, _ in
+                            guard let tabID = tabIDs.first else { return false }
+                            onMoveTab(tabID, nil)
+                            return true
+                        }
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                // Do not let the ScrollView greedily consume the entire bar.
+                // Its intrinsic track ends after the add button; the remaining
+                // chrome is a real AppKit window-drag surface.
+                .frame(maxWidth: tabTrackWidth, alignment: .leading)
                 .scrollIndicators(.hidden)
 
                 // The drag filler lives outside the scroll view, exactly like
@@ -98,6 +108,11 @@ struct WarrenDesktopTabBar: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace tab bar")
+    }
+
+    private var tabTrackWidth: CGFloat {
+        CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
+            + WarrenLayoutMetrics.tabAddButtonSlotWidth
     }
 }
 

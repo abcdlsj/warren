@@ -66,7 +66,6 @@ extension WarrenApplicationService {
             case let .exit(snapshot):
                 connection.session.epoch = snapshot.recoveryAnchor?.epoch ?? connection.session.epoch
                 connection.session.sequence = snapshot.recoveryAnchor?.sequence ?? connection.session.sequence
-                connection.runtimeEnded = true
                 connections[sessionID] = connection
                 await markSessionEnded(sessionID: sessionID)
             case let .title(snapshot):

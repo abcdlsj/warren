@@ -127,8 +127,12 @@ struct WarrenDesktopCommandPalette: View {
                 ForEach(matchingSessions(in: workspace.id)) { session in
                     Button { choose(.openSession(session.id)) } label: {
                         HStack(spacing: WarrenSpacing.compact) {
-                            WarrenDesktopActivityIndicator(activity: session.activity)
-                                .frame(width: 18)
+                            if let activity = session.activity {
+                                WarrenDesktopActivityIndicator(activity: activity)
+                                    .frame(width: 18)
+                            } else {
+                                Color.clear.frame(width: 18)
+                            }
                             Text(session.title)
                                 .font(WarrenTypography.workspaceRow)
                                 .lineLimit(1)

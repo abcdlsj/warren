@@ -234,6 +234,42 @@ final class WarrenClientCoreTests: XCTestCase {
         XCTAssertEqual(window.workspaceView(for: secondWorkspaceID)?.activeTabID, "tab-b")
     }
 
+    func testMovingTabsKeepsSelectionAndSessionBindings() async throws {
+        let thirdSessionID = TerminalSessionID()
+        let layouts = try ClientLayoutStore(clientID: clientID, defaultWindowID: windowID)
+        try await layouts.start()
+        for tab in [
+            ClientTab(id: "tab-a", title: "A", sessionID: sessionID),
+            ClientTab(id: "tab-b", title: "B", sessionID: TerminalSessionID()),
+            ClientTab(id: "tab-c", title: "C", sessionID: thirdSessionID),
+        ] {
+            try await layouts.upsertTab(
+                tab,
+                workspaceID: workspaceID,
+                select: tab.id == "tab-b",
+                in: windowID
+            )
+        }
+
+        try await layouts.moveTab(
+            id: "tab-c",
+            before: "tab-a",
+            workspaceID: workspaceID,
+            in: windowID
+        )
+        try await layouts.moveTab(
+            id: "tab-a",
+            before: nil,
+            workspaceID: workspaceID,
+            in: windowID
+        )
+
+        let view = await layouts.window(id: windowID).workspaceView(for: workspaceID)
+        XCTAssertEqual(view?.tabs.map(\.id), ["tab-c", "tab-b", "tab-a"])
+        XCTAssertEqual(view?.activeTabID, "tab-b")
+        XCTAssertEqual(view?.tabs.first?.sessionID, thirdSessionID)
+    }
+
     func testRemovingSessionReferencesCleansTabsAndSelectionAcrossWindows() async throws {
         let secondWindowID = ClientWindowID()
         let retainedSessionID = TerminalSessionID()

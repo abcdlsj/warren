@@ -49,6 +49,21 @@ extension WarrenApplicationService {
         }
     }
 
+    internal func startRuntimeLifecycleLoop() async {
+        guard runtimeLifecycleTask == nil else { return }
+        let stream = await coordinator.runtimeLifecycleEvents()
+        runtimeLifecycleTask = Task { [weak self, stream] in
+            for await event in stream {
+                guard !Task.isCancelled else { return }
+                switch event {
+                case .exited(let sessionID, _):
+                    await self?.markSessionEnded(sessionID: sessionID)
+                    await self?.publish()
+                }
+            }
+        }
+    }
+
     internal func transportDidEnd(_ error: Error) async {
         guard lifecycle == .ready || lifecycle == .starting else { return }
         lifecycle = .failed

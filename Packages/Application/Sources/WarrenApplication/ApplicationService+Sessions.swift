@@ -221,6 +221,20 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    public func moveTab(
+        tabID: String,
+        before destinationTabID: String?,
+        workspaceID: WorkspaceID
+    ) async throws {
+        try await layoutStore.moveTab(
+            id: tabID,
+            before: destinationTabID,
+            workspaceID: workspaceID,
+            in: windowID
+        )
+        await publish()
+    }
+
     public func closeTab(tabID: String, workspaceID: WorkspaceID) async throws {
         guard let tab = await layoutStore.window(id: windowID)
             .workspaceView(for: workspaceID)?.tabs.first(where: { $0.id == tabID }),
@@ -275,15 +289,30 @@ extension WarrenApplicationService {
 
             if persisted.lifecycle == .running {
                 await ensureSessionRestored(sessionID)
-                if await runtime.exists(sessionID: sessionID) {
+                switch await runtime.presence(sessionID: sessionID) {
+                case .present:
                     if await coordinator.session(sessionID) != nil {
                         try await coordinator.terminateRuntime(sessionID: sessionID)
                     } else {
                         try await runtime.terminate(sessionID: sessionID)
                     }
+                case .missing:
+                    break
+                case .unavailable(let reason):
+                    throw WarrenApplicationError.runtime(
+                        "The runtime could not be verified before deletion: \(reason)"
+                    )
                 }
+                await markSessionEnded(sessionID: sessionID)
             }
 
+            try await coordinator.discardStoppedSession(sessionID)
+            if let descriptor = persisted.runtimeAdoptionDescriptor {
+                try await runtime.purge(
+                    sessionID: sessionID,
+                    descriptor: RuntimeDescriptorMapping.runtime(from: descriptor)
+                )
+            }
             _ = try await layoutStore.removeReferences(to: sessionID)
             try await withPersistenceMutation {
                 var candidate = state
@@ -293,10 +322,9 @@ extension WarrenApplicationService {
                 state = candidate
             }
 
-            try await coordinator.discardStoppedSession(sessionID)
             connections.removeValue(forKey: sessionID)
             restorationTasks.removeValue(forKey: sessionID)?.cancel()
-            sessionActivity.removeValue(forKey: sessionID)
+            agentActivityBySessionID.removeValue(forKey: sessionID)
             pendingSequenceAnchors.removeValue(forKey: sessionID)
             clearClientCaches(for: sessionID)
             await publish()
@@ -321,9 +349,10 @@ extension WarrenApplicationService {
         guard let connection = connections[sessionID] else {
             throw WarrenApplicationError.sessionNotFound(sessionID)
         }
+        let tabID = tabID(for: sessionID)
         try await layoutStore.upsertTab(
             ClientTab(
-                id: connection.tabID,
+                id: tabID,
                 title: connection.title,
                 sessionID: sessionID,
                 kind: connection.kind
@@ -337,7 +366,7 @@ extension WarrenApplicationService {
             try await requestControl(sessionID: sessionID, attachmentID: attachmentID)
         }
         await publish()
-        return connection.tabID
+        return tabID
     }
 
     internal func insertConnection(
@@ -352,14 +381,12 @@ extension WarrenApplicationService {
         connections[session.id] = SessionConnection(
             session: session,
             workspaceID: workspace.id,
-            tabID: tabID(for: session.id),
             terminalSize: terminalSize,
             descriptor: descriptor,
             store: ClientSessionStore(host: host, sessionID: session.id, clientID: clientID),
             attachmentID: nil,
             title: title?.isEmpty == false ? title! : (workspace.name.isEmpty ? "Terminal" : workspace.name),
-            kind: kind,
-            runtimeEnded: false
+            kind: kind
         )
     }
 

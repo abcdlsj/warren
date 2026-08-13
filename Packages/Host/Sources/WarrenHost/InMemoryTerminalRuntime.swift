@@ -88,8 +88,8 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
         _ = outputOffset
     }
 
-    public func exists(sessionID: TerminalSessionID) async -> Bool {
-        records[sessionID]?.isRunning == true
+    public func presence(sessionID: TerminalSessionID) async -> TerminalRuntimePresence {
+        records[sessionID]?.isRunning == true ? .present : .missing
     }
 
     public func events(for sessionID: TerminalSessionID) async -> AsyncStream<TerminalRuntimeEvent> {

@@ -162,6 +162,13 @@ extension WarrenApplicationService {
     }
 
     internal func makeSnapshot() async -> WarrenApplicationSnapshot {
+        let windowLayout = await layoutStore.window(id: windowID)
+        let tabIDsBySessionID = Dictionary(
+            windowLayout.workspaceViews
+                .flatMap(\.tabs)
+                .compactMap { tab in tab.sessionID.map { ($0, tab.id) } },
+            uniquingKeysWith: { first, _ in first }
+        )
         // `connections` is a dictionary, and sorting by the UUID-derived tab
         // ID makes a newly created tab jump to an arbitrary position.  The
         // durable terminal list is the Host's creation order, so use it as
@@ -176,7 +183,7 @@ extension WarrenApplicationService {
             let lhs = sessionOrder[$0.session.id] ?? Int.max
             let rhs = sessionOrder[$1.session.id] ?? Int.max
             if lhs != rhs { return lhs < rhs }
-            return $0.tabID < $1.tabID
+            return $0.session.id.description < $1.session.id.description
         }
         var sessions: [WarrenApplicationSession] = []
         sessions.reserveCapacity(state.terminalSessions.count)
@@ -184,16 +191,17 @@ extension WarrenApplicationService {
         for connection in sorted {
             let client = await connection.store.snapshot()
             let connectionState: WarrenApplicationConnectionState
-            if connection.runtimeEnded {
-                connectionState = .exited
-            } else { switch client.connectionState {
+            switch client.connectionState {
             case .disconnected: connectionState = .disconnected
             case .connecting: connectionState = .connecting
             case .attached: connectionState = .attached
             case .reconnecting: connectionState = .reconnecting
-            case .exited: connectionState = .exited
+            case .exited: connectionState = .disconnected
             case .failed: connectionState = .failed
-            } }
+            }
+            let lifecycle = state.terminalSessions.first {
+                $0.id == connection.session.id
+            }?.lifecycle ?? .running
 
             let output: WarrenApplicationOutputSnapshot?
             if let cached = outputSnapshotCache[connection.session.id],
@@ -214,11 +222,14 @@ extension WarrenApplicationService {
                 WarrenApplicationSession(
                     id: connection.session.id,
                     workspaceID: connection.workspaceID,
-                    tabID: connection.tabID,
+                    tabID: tabIDsBySessionID[connection.session.id],
                     title: connection.title,
                     kind: connection.kind,
+                    lifecycle: lifecycle,
                     connectionState: connectionState,
-                    activityState: activityState(for: connection.session.id, connectionState: connectionState),
+                    agentActivity: lifecycle == .running
+                        ? agentActivityBySessionID[connection.session.id]
+                        : nil,
                     runtimeProcess: client.runtimeProcess,
                     workingDirectory: client.workingDirectory.isEmpty
                         ? (state.workspaces.first { $0.id == connection.workspaceID }?.path ?? "")
@@ -242,13 +253,14 @@ extension WarrenApplicationService {
             sessions.append(WarrenApplicationSession(
                 id: persisted.id,
                 workspaceID: persisted.workspaceID,
-                tabID: tabID(for: persisted.id),
+                tabID: tabIDsBySessionID[persisted.id],
                 title: persisted.title?.isEmpty == false
                     ? persisted.title!
                     : (persisted.kind == .shell ? "Terminal" : persisted.kind.displayName),
                 kind: persisted.kind,
-                connectionState: persisted.lifecycle == .ended ? .exited : .disconnected,
-                activityState: persisted.lifecycle == .ended ? .exited : .connecting,
+                lifecycle: persisted.lifecycle,
+                connectionState: .disconnected,
+                agentActivity: nil,
                 workingDirectory: persisted.workingDirectory,
                 recoveryAnchor: RecoveryAnchor(
                     epoch: persisted.epoch,
@@ -259,7 +271,6 @@ extension WarrenApplicationService {
             ))
         }
 
-        let windowLayout = await layoutStore.window(id: windowID)
         return WarrenApplicationSnapshot(
             host: host,
             projects: state.projects,
@@ -271,21 +282,6 @@ extension WarrenApplicationService {
         )
     }
 
-    func activityState(
-        for sessionID: TerminalSessionID,
-        connectionState: WarrenApplicationConnectionState
-    ) -> TerminalSessionActivityState {
-        switch connectionState {
-        case .failed:
-            return .failed
-        case .exited:
-            return .exited
-        case .connecting, .reconnecting, .disconnected:
-            return sessionActivity[sessionID] ?? .connecting
-        case .attached:
-            return sessionActivity[sessionID] ?? .working
-        }
-    }
 }
 
 private extension TerminalSession {

@@ -203,6 +203,47 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         XCTAssertFalse(stillExists)
     }
 
+    func testPurgeDeletesOnlyTheVerifiedSessionSpool() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 10_000_000
+        )
+        let descriptor = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+        let spoolURL = try XCTUnwrap(descriptor.metadata["outputPath"]).asURL
+        XCTAssertTrue(FileManager.default.fileExists(atPath: spoolURL.path))
+        try await runtime.terminate(sessionID: sessionID)
+
+        let externalURL = outputDirectory.appendingPathComponent("must-not-delete.txt")
+        try Data("keep".utf8).write(to: externalURL)
+        let hostileDescriptor = TerminalRuntimeDescriptor(
+            runtime: descriptor.runtime,
+            identifier: descriptor.identifier,
+            metadata: descriptor.metadata.merging(["outputPath": externalURL.path]) { _, new in new }
+        )
+        do {
+            try await runtime.purge(sessionID: sessionID, descriptor: hostileDescriptor)
+            XCTFail("An unverified output path must not be deleted")
+        } catch let error as TmuxRuntimeError {
+            guard case .descriptorInvalid = error else {
+                return XCTFail("Unexpected purge error: \(error)")
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: externalURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: spoolURL.path))
+
+        try await runtime.purge(sessionID: sessionID, descriptor: descriptor)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: spoolURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: externalURL.path))
+        await runtime.shutdown()
+    }
+
     func testLifecycleObservationUsesOneBatchCommandForMultipleSessions() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()

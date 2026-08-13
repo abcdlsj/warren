@@ -9,9 +9,11 @@ extension WarrenApplicationService {
                 .flatMap(\.tabs)
                 .compactMap(\.sessionID)
         )
-        for persisted in state.terminalSessions where
-            persisted.lifecycle == .running && openSessionIDs.contains(persisted.id) {
-            await restore(persisted, attachClient: true)
+        for persisted in state.terminalSessions where persisted.lifecycle == .running {
+            await restore(
+                persisted,
+                attachClient: openSessionIDs.contains(persisted.id)
+            )
         }
     }
 
@@ -50,9 +52,22 @@ extension WarrenApplicationService {
             )
             return
         }
-        if !(await runtime.exists(sessionID: persisted.id)) {
+        switch await runtime.presence(sessionID: persisted.id) {
+        case .missing:
             await markSessionEnded(sessionID: persisted.id)
             return
+        case .unavailable(let reason):
+            appendIssue(
+                WarrenApplicationIssue(
+                    id: "session.\(persisted.id).presence",
+                    title: "Terminal runtime could not be checked",
+                    detail: reason,
+                    recoverySuggestion: "Check tmux availability, then reopen the Session."
+                )
+            )
+            return
+        case .present:
+            break
         }
         guard let persistedDescriptor = persisted.runtimeAdoptionDescriptor else {
             appendIssue(
@@ -109,6 +124,7 @@ extension WarrenApplicationService {
     }
 
     internal func markSessionEnded(sessionID: TerminalSessionID) async {
+        agentActivityBySessionID.removeValue(forKey: sessionID)
         do {
             try await withPersistenceMutation {
                 guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
@@ -124,9 +140,7 @@ extension WarrenApplicationService {
         } catch {
             report(error.asApplicationError, id: "session.\(sessionID).ended")
         }
-        if var connection = connections[sessionID] {
-            connection.runtimeEnded = true
-            connections[sessionID] = connection
+        if let connection = connections[sessionID] {
             await connection.store.markDisconnected()
         }
     }

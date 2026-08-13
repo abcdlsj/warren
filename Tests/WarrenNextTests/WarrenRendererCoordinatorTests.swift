@@ -266,7 +266,7 @@ private struct Fixture {
         session: WarrenApplicationSession
     ) -> ClientWorkspaceView {
         let tab = ClientTab(
-            id: session.tabID,
+            id: session.tabID!,
             title: session.title,
             sessionID: session.id
         )

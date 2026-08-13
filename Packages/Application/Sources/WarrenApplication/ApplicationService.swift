@@ -15,14 +15,12 @@ public actor WarrenApplicationService {
     internal struct SessionConnection: Sendable {
         var session: TerminalSession
         let workspaceID: WorkspaceID
-        let tabID: String
         var terminalSize: TerminalSize
         let descriptor: RuntimeAdoptionDescriptor?
         let store: ClientSessionStore
         var attachmentID: TerminalAttachmentID?
         var title: String
         var kind: TerminalSessionKind
-        var runtimeEnded: Bool
     }
 
     internal struct AttachmentWaiter: Sendable {
@@ -56,18 +54,18 @@ public actor WarrenApplicationService {
     internal var lifecycle: WarrenApplicationLifecycle = .idle
     internal var issues: [WarrenApplicationIssue] = []
     internal var connections: [TerminalSessionID: SessionConnection] = [:]
-    /// Explicit agent/runtime activity reported through a typed boundary.
-    /// Connection failure and runtime exit still take precedence in snapshots.
-    internal var sessionActivity: [TerminalSessionID: TerminalSessionActivityState] = [:]
-    /// Closed tabs and headless CLI sessions remain durable but are not
-    /// eagerly adopted on every desktop launch. Explicit open/attach requests
-    /// restore them through this shared task so concurrent clients cannot
-    /// adopt the same runtime twice.
+    /// Explicit activity observed from an external Agent Conversation.
+    internal var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
+    /// Explicit open/attach requests share restoration work so concurrent
+    /// clients cannot adopt the same runtime twice. Startup adopts every
+    /// running Session for lifecycle observation, but only visible Tabs get an
+    /// Attachment.
     internal var restorationTasks: [TerminalSessionID: Task<Void, Never>] = [:]
     /// Coalesces repeated empty-Workspace selections while the first shell is
     /// still crossing runtime and persistence boundaries.
     internal var defaultTabTasks: [WorkspaceID: Task<String, Error>] = [:]
     internal var eventLoopTask: Task<Void, Never>?
+    internal var runtimeLifecycleTask: Task<Void, Never>?
     /// PTY output can arrive much faster than the desktop needs to redraw.
     /// Keep one scheduled publication for a burst instead of rebuilding the
     /// complete value snapshot for every frame.
@@ -117,6 +115,7 @@ public actor WarrenApplicationService {
 
     deinit {
         eventLoopTask?.cancel()
+        runtimeLifecycleTask?.cancel()
         outputPublishTask?.cancel()
         sequencePersistenceTask?.cancel()
         for task in defaultTabTasks.values { task.cancel() }
@@ -148,9 +147,9 @@ public actor WarrenApplicationService {
 
     /// Receives lifecycle events from an agent hook, automation runner, or a
     /// future remote Host. Views never infer this state from terminal text.
-    public func reportSessionActivity(
+    public func reportAgentActivity(
         sessionID: TerminalSessionID,
-        state activity: TerminalSessionActivityState,
+        state activity: AgentActivityState?,
         agentSessionID: String? = nil
     ) async throws {
         try requireReady()
@@ -168,7 +167,7 @@ public actor WarrenApplicationService {
                 state = candidate
             }
         }
-        sessionActivity[sessionID] = activity
+        agentActivityBySessionID[sessionID] = activity
         await publish()
     }
 
@@ -194,6 +193,7 @@ public actor WarrenApplicationService {
             if changed || didMigrate { try await save(loaded) }
             try await layoutStore.start()
             startEventLoop()
+            await startRuntimeLifecycleLoop()
             await restorePersistedSessions()
             lifecycle = .ready
             await publish()
@@ -227,6 +227,8 @@ public actor WarrenApplicationService {
         defaultTabTasks.removeAll()
         eventLoopTask?.cancel()
         eventLoopTask = nil
+        runtimeLifecycleTask?.cancel()
+        runtimeLifecycleTask = nil
         outputPublishTask?.cancel()
         outputPublishTask = nil
         sequencePersistenceTask?.cancel()

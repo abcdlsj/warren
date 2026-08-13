@@ -99,7 +99,7 @@ public enum WarrenDesktopNavigationReducer {
                 selection: state.selection,
                 selectedTabID: nil
             )
-        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace,
+        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
              .requestNewSession, .launchSession,
              .toggleInspector, .toggleSidebar:
             return state

@@ -164,7 +164,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         )
                     }
                     let lifecycleValue: String = row["lifecycle"]
-                    guard let lifecycle = PersistedTerminalSessionLifecycle(rawValue: lifecycleValue) else {
+                    guard let lifecycle = TerminalSessionLifecycle(rawValue: lifecycleValue) else {
                         throw HostStateRepositoryError.invalidDatabaseValue(
                             table: "terminal_sessions",
                             column: "lifecycle",

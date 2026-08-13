@@ -3,6 +3,7 @@ import WarrenDomain
 public enum ClientLayoutStoreError: Error, Equatable, Sendable {
     case invalidSidebarWidth(Double)
     case workspaceMismatch
+    case tabNotFound(String)
 }
 
 public struct ClientTab: Codable, Hashable, Sendable, Identifiable {
@@ -43,8 +44,9 @@ public enum ClientNavigationDestination: Codable, Hashable, Sendable {
     case session(TerminalSessionID)
 }
 
-/// One Window's presentation state for one Workspace. It is device-local and
-/// never changes Host Session lifecycle.
+/// One Window's presentation state for one Workspace. This store only owns
+/// device-local layout. Application commands such as Close Tab may coordinate
+/// a layout mutation with a separate Host Session lifecycle transition.
 public struct ClientWorkspaceView: Codable, Hashable, Sendable, Identifiable {
     public var id: WorkspaceID { workspaceID }
     public let workspaceID: WorkspaceID
@@ -220,6 +222,36 @@ public actor ClientLayoutStore {
         }
         window.activeWorkspaceID = workspaceID
         window.workspaceViews[index].activeTabID = tabID
+        replaceWindow(window)
+        try await persist()
+    }
+
+    /// Moves one Tab before another Tab in the same Workspace. Passing `nil`
+    /// as the destination moves it to the end. This mutates presentation state
+    /// only; Session/runtime ownership is unchanged.
+    public func moveTab(
+        id tabID: String,
+        before destinationTabID: String?,
+        workspaceID: WorkspaceID,
+        in windowID: ClientWindowID
+    ) async throws {
+        var window = ensureWindow(id: windowID)
+        let workspaceIndex = ensureWorkspaceView(workspaceID, in: &window)
+        var tabs = window.workspaceViews[workspaceIndex].tabs
+        guard let sourceIndex = tabs.firstIndex(where: { $0.id == tabID }) else {
+            throw ClientLayoutStoreError.tabNotFound(tabID)
+        }
+        if destinationTabID == tabID { return }
+        let moved = tabs.remove(at: sourceIndex)
+        if let destinationTabID {
+            guard let destinationIndex = tabs.firstIndex(where: { $0.id == destinationTabID }) else {
+                throw ClientLayoutStoreError.tabNotFound(destinationTabID)
+            }
+            tabs.insert(moved, at: destinationIndex)
+        } else {
+            tabs.append(moved)
+        }
+        window.workspaceViews[workspaceIndex].tabs = tabs
         replaceWindow(window)
         try await persist()
     }

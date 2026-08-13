@@ -8,17 +8,26 @@ struct WarrenDesktopTrafficLights: View {
     var body: some View {
         HStack(spacing: 8) {
             trafficLight(color: .red) {
-                NSApp.keyWindow?.performClose(nil)
+                targetWindow?.performClose(nil)
             }
             trafficLight(color: .yellow) {
-                NSApp.keyWindow?.miniaturize(nil)
+                targetWindow?.miniaturize(nil)
             }
             trafficLight(color: .green) {
-                NSApp.keyWindow?.performZoom(nil)
+                targetWindow?.performZoom(nil)
             }
         }
         .padding(.leading, 16)
         .accessibilityElement(children: .contain)
+    }
+
+    /// Clicking a SwiftUI control can temporarily clear `keyWindow` for a
+    /// borderless window. Resolve the actual visible Warren window instead of
+    /// silently dropping the traffic-light action.
+    private var targetWindow: NSWindow? {
+        NSApp.keyWindow
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first { $0.isVisible && $0.styleMask.contains(.closable) }
     }
 
     private func trafficLight(

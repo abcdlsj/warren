@@ -68,7 +68,7 @@ enum AgentHookInstaller {
           SessionStart|UserPromptSubmit|Start|task_started|PostToolUse) STATE=working ;;
           PermissionRequest|exec_approval_request|apply_patch_approval_request|request_user_input) STATE=waitingForInput ;;
           Stop|agent-turn-complete|task_complete) STATE=ready ;;
-          SessionEnd) STATE=exited ;;
+          SessionEnd) STATE=none ;;
           Failed|StopFailure|PostToolUseFailure) STATE=failed ;;
           *) exit 0 ;;
         esac

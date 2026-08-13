@@ -17,7 +17,6 @@ public enum WarrenApplicationConnectionState: Hashable, Sendable {
     case connecting
     case attached
     case reconnecting
-    case exited
     case failed
 }
 
@@ -62,16 +61,18 @@ public struct WarrenApplicationOutputSnapshot: Hashable, Sendable {
     }
 }
 
-/// One live or restored terminal tab. It contains no UI object or process
-/// handle; the desktop layer can build SwiftTerm views from its value fields.
+/// Application read model for one Warren Terminal Session. Its optional Tab
+/// reference, connection projection, and viewport data are joined for clients;
+/// they do not become fields owned by the durable Session.
 public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
     public let id: TerminalSessionID
     public let workspaceID: WorkspaceID
-    public let tabID: String
+    public let tabID: String?
     public let title: String
     public let kind: TerminalSessionKind
+    public let lifecycle: TerminalSessionLifecycle
     public let connectionState: WarrenApplicationConnectionState
-    public let activityState: TerminalSessionActivityState
+    public let agentActivity: AgentActivityState?
     public let runtimeProcess: String
     public let workingDirectory: String
     public let attachmentID: TerminalAttachmentID?
@@ -85,11 +86,12 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
     public init(
         id: TerminalSessionID,
         workspaceID: WorkspaceID,
-        tabID: String,
+        tabID: String? = nil,
         title: String,
         kind: TerminalSessionKind = .shell,
+        lifecycle: TerminalSessionLifecycle = .running,
         connectionState: WarrenApplicationConnectionState,
-        activityState: TerminalSessionActivityState? = nil,
+        agentActivity: AgentActivityState? = nil,
         runtimeProcess: String = "",
         workingDirectory: String = "",
         attachmentID: TerminalAttachmentID? = nil,
@@ -105,8 +107,9 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         self.tabID = tabID
         self.title = title
         self.kind = kind
+        self.lifecycle = lifecycle
         self.connectionState = connectionState
-        self.activityState = activityState ?? Self.defaultActivity(for: connectionState)
+        self.agentActivity = agentActivity
         self.runtimeProcess = runtimeProcess
         self.workingDirectory = workingDirectory
         self.attachmentID = attachmentID
@@ -118,16 +121,6 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         self.output = output
     }
 
-    private static func defaultActivity(
-        for connectionState: WarrenApplicationConnectionState
-    ) -> TerminalSessionActivityState {
-        switch connectionState {
-        case .attached: .working
-        case .connecting, .reconnecting, .disconnected: .connecting
-        case .exited: .exited
-        case .failed: .failed
-        }
-    }
 }
 
 /// Complete immutable state emitted by WarrenApplicationService.

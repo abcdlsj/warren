@@ -220,7 +220,20 @@ extension WarrenApplicationService {
     public func terminateSession(sessionID: TerminalSessionID) async throws {
         try requireReady()
         await ensureSessionRestored(sessionID)
-        try await coordinator.terminateRuntime(sessionID: sessionID)
+        switch await runtime.presence(sessionID: sessionID) {
+        case .present:
+            if await coordinator.session(sessionID) != nil {
+                try await coordinator.terminateRuntime(sessionID: sessionID)
+            } else {
+                try await runtime.terminate(sessionID: sessionID)
+            }
+        case .missing:
+            break
+        case .unavailable(let reason):
+            throw WarrenApplicationError.runtime(
+                "The runtime could not be verified before termination: \(reason)"
+            )
+        }
         await markSessionEnded(sessionID: sessionID)
         await publish()
     }

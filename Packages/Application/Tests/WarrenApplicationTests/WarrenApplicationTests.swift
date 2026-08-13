@@ -41,7 +41,7 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertEqual(detached.attachments.map(\.id), [desktopAttachmentID])
     }
 
-    func testExplicitSessionActivityOverridesWorkingAndExitStillWins() async throws {
+    func testAgentActivityIsOptionalAndTerminalEndClearsProjection() async throws {
         let runtime = RestorableRuntime()
         let service = makeService(runtime: runtime)
         try await service.start()
@@ -55,15 +55,17 @@ final class WarrenApplicationTests: XCTestCase {
             title: "Claude"
         )
 
-        try await service.reportSessionActivity(
+        let initialSnapshot = await service.snapshot()
+        XCTAssertNil(initialSnapshot.session(id: session.id)?.agentActivity)
+        try await service.reportAgentActivity(
             sessionID: session.id,
             state: .waitingForInput
         )
         let waitingSnapshot = await service.snapshot()
-        XCTAssertEqual(waitingSnapshot.session(id: session.id)?.activityState, .waitingForInput)
+        XCTAssertEqual(waitingSnapshot.session(id: session.id)?.agentActivity, .waitingForInput)
         try await service.terminateSession(sessionID: session.id)
         let exitedSnapshot = await service.snapshot()
-        XCTAssertEqual(exitedSnapshot.session(id: session.id)?.activityState, .exited)
+        XCTAssertNil(exitedSnapshot.session(id: session.id)?.agentActivity)
     }
     func testSupersetImportPublishesResourcesWithoutCreatingSessions() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -274,10 +276,7 @@ final class WarrenApplicationTests: XCTestCase {
 
         let session = try await service.createSession(workspaceID: workspace.id)
         let createdSnapshot = await service.snapshot()
-        XCTAssertEqual(
-            createdSnapshot.session(id: session.id)?.tabID,
-            "session-\(session.id.description)"
-        )
+        XCTAssertNil(createdSnapshot.session(id: session.id)?.tabID)
         let persistedState = await service.persistedState()
         let persisted = try XCTUnwrap(persistedState.terminalSessions.first {
             $0.id == session.id
@@ -427,7 +426,8 @@ final class WarrenApplicationTests: XCTestCase {
             // Expected: the durable Session is now ended and stays inspectable.
         }
         let snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .exited)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .ended)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
         let existsAfter = await runtime.exists(sessionID: sessionID)
         XCTAssertFalse(existsAfter)
         let persistedState = await service.persistedState()
@@ -437,7 +437,7 @@ final class WarrenApplicationTests: XCTestCase {
         )
     }
 
-    func testStartupDoesNotRestoreOrRecreateHiddenSessions() async throws {
+    func testStartupMarksMissingHeadlessSessionEndedWithoutRecreatingRuntime() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()
         let folder = try temporaryFolder()
@@ -472,9 +472,62 @@ final class WarrenApplicationTests: XCTestCase {
         let snapshot = await service.snapshot()
         let runtimeExists = await runtime.exists(sessionID: sessionID)
         XCTAssertEqual(snapshot.sessions.map(\.id), [sessionID])
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .ended)
         XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
         XCTAssertTrue(snapshot.windowLayout.workspaceViews.flatMap(\.tabs).isEmpty)
         XCTAssertFalse(runtimeExists)
+    }
+
+    func testStartupAdoptsRunningHeadlessSessionWithoutCreatingAttachment() async throws {
+        let runtime = RestorableRuntime()
+        let repository = InMemoryHostStateRepository()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let host = WarrenApplicationDefaults.localHost
+        let project = Project(hostID: host.id, name: "warren", rootPath: folder.path)
+        let workspace = Workspace(projectID: project.id, name: "main", path: folder.path)
+        let sessionID = TerminalSessionID()
+        let runtimeDescriptor = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: folder.path,
+            size: TerminalSessionCoordinator.defaultTerminalSize,
+            launchSpec: .interactiveShell
+        )
+        let persisted = PersistedTerminalSession(
+            id: sessionID,
+            workspaceID: workspace.id,
+            workingDirectory: folder.path,
+            terminalSize: TerminalSessionCoordinator.defaultTerminalSize,
+            runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor(
+                runtime: runtimeDescriptor.runtime,
+                identifier: runtimeDescriptor.identifier,
+                metadata: runtimeDescriptor.metadata
+            )
+        )
+        try await repository.save(PersistedHostState(
+            hosts: [host],
+            projects: [project],
+            workspaces: [workspace],
+            terminalSessions: [persisted]
+        ))
+
+        let service = WarrenApplicationService(repository: repository, runtime: runtime)
+        try await service.start()
+
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .running)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
+        XCTAssertNil(snapshot.session(id: sessionID)?.tabID)
+        XCTAssertNil(snapshot.session(id: sessionID)?.attachmentID)
+        let adoptCount = await runtime.adoptCount(for: sessionID)
+        XCTAssertEqual(adoptCount, 1)
+
+        let stream = await service.snapshots()
+        try await runtime.emitExit(sessionID: sessionID, exitCode: 0)
+        _ = try await nextSnapshot(from: stream) {
+            $0.session(id: sessionID)?.lifecycle == .ended
+        }
     }
 
     func testExplicitOpenMarksMissingHiddenRuntimeEnded() async throws {
@@ -520,7 +573,62 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertTrue(snapshot.tabs(in: workspace.id).isEmpty)
         XCTAssertEqual(snapshot.sessions.map(\.id), [sessionID])
         XCTAssertFalse(runtimeExists)
-        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .exited)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .ended)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.connectionState, .disconnected)
+    }
+
+    func testRuntimePresenceFailureKeepsPersistedSessionRunning() async throws {
+        let runtime = RestorableRuntime()
+        await runtime.setPresence(.unavailable("tmux socket is temporarily unavailable"))
+        let repository = InMemoryHostStateRepository()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let host = WarrenApplicationDefaults.localHost
+        let project = Project(hostID: host.id, name: "warren", rootPath: folder.path)
+        let workspace = Workspace(projectID: project.id, name: "main", path: folder.path)
+        let sessionID = TerminalSessionID()
+        let persisted = PersistedTerminalSession(
+            id: sessionID,
+            workspaceID: workspace.id,
+            workingDirectory: folder.path,
+            terminalSize: TerminalSessionCoordinator.defaultTerminalSize,
+            runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor(
+                runtime: "test-runtime",
+                identifier: sessionID.description,
+                metadata: ["workingDirectory": folder.path]
+            )
+        )
+        try await repository.save(PersistedHostState(
+            hosts: [host],
+            projects: [project],
+            workspaces: [workspace],
+            terminalSessions: [persisted]
+        ))
+
+        let service = WarrenApplicationService(repository: repository, runtime: runtime)
+        try await service.start()
+        do {
+            _ = try await service.openSession(sessionID: sessionID)
+            XCTFail("An unavailable runtime cannot be opened until its presence is known")
+        } catch WarrenApplicationError.sessionNotFound {
+            // The durable Session remains running and can be retried later.
+        }
+
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .running)
+        XCTAssertTrue(snapshot.tabs(in: workspace.id).isEmpty)
+        XCTAssertEqual(
+            snapshot.issues.first { $0.id == "session.\(sessionID).presence" }?.detail,
+            "tmux socket is temporarily unavailable"
+        )
+        let durable = await service.persistedState()
+        XCTAssertEqual(
+            durable.terminalSessions.first { $0.id == sessionID }?.lifecycle,
+            .running
+        )
+        let runtimeRecord = await runtime.record(sessionID)
+        XCTAssertNil(runtimeRecord)
     }
 
     func testNewTabsStayBoundToRequestedWorkspaceAndKeepCreationOrder() async throws {
@@ -597,9 +705,10 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertEqual(afterOthers.tabs(in: workspace.id).map(\.id), [secondTabID])
         XCTAssertEqual(afterOthers.sessions.map(\.id), sessions)
         XCTAssertEqual(
-            afterOthers.session(id: first.id)?.connectionState,
-            .exited
+            afterOthers.session(id: first.id)?.lifecycle,
+            .ended
         )
+        XCTAssertNil(afterOthers.session(id: first.id)?.tabID)
 
         let durableAfterOthers = await service.persistedState()
         let firstStillRunning = await runtime.exists(sessionID: first.id)
@@ -614,7 +723,7 @@ final class WarrenApplicationTests: XCTestCase {
         )
 
         // A stale close event is an idempotent no-op for the composition root.
-        try await service.closeTabIfPresent(tabID: first.tabID, workspaceID: workspace.id)
+        try await service.closeTabIfPresent(tabID: firstTabID, workspaceID: workspace.id)
         await service.closeTabs(in: workspace.id)
         let afterAll = await service.snapshot()
         XCTAssertTrue(afterAll.tabs(in: workspace.id).isEmpty)
@@ -637,6 +746,56 @@ final class WarrenApplicationTests: XCTestCase {
         } catch WarrenApplicationError.sessionNotFound {
             // Expected. A new Tab creates a new Session.
         }
+    }
+
+    func testRuntimeExitWithoutAttachmentStillEndsDurableSession() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let session = try await service.createSession(workspaceID: workspace.id)
+
+        let before = await service.snapshot()
+        XCTAssertNil(before.session(id: session.id)?.tabID)
+        XCTAssertNil(before.session(id: session.id)?.attachmentID)
+        let snapshots = await service.snapshots()
+        try await runtime.emitExit(sessionID: session.id, exitCode: 0)
+        let ended = try await nextSnapshot(from: snapshots) {
+            $0.session(id: session.id)?.lifecycle == .ended
+        }
+
+        XCTAssertNil(ended.session(id: session.id)?.tabID)
+        XCTAssertEqual(ended.session(id: session.id)?.connectionState, .disconnected)
+        let durable = await service.persistedState()
+        XCTAssertEqual(
+            durable.terminalSessions.first { $0.id == session.id }?.lifecycle,
+            .ended
+        )
+    }
+
+    func testCloseTabSucceedsWhenRuntimeExitedBeforeLifecycleEventIsPersisted() async throws {
+        let runtime = RestorableRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let tabID = try await service.addTab(workspaceID: workspace.id)
+        let created = await service.snapshot()
+        let sessionID = try XCTUnwrap(
+            created.tabs(in: workspace.id).first { $0.id == tabID }?.sessionID
+        )
+
+        try await runtime.emitExit(sessionID: sessionID, exitCode: 0)
+        try await service.closeTab(tabID: tabID, workspaceID: workspace.id)
+
+        let snapshot = await service.snapshot()
+        XCTAssertTrue(snapshot.tabs(in: workspace.id).isEmpty)
+        XCTAssertEqual(snapshot.session(id: sessionID)?.lifecycle, .ended)
     }
 
     func testClosingWorkspaceTabsDoesNotCloseAnotherWorkspace() async throws {
@@ -717,7 +876,8 @@ final class WarrenApplicationTests: XCTestCase {
                 XCTAssertNotNil(closed.session(id: sessionID))
                 let runtimeAlive = await runtime.exists(sessionID: sessionID)
                 XCTAssertFalse(runtimeAlive)
-                XCTAssertEqual(closed.session(id: sessionID)?.connectionState, .exited)
+                XCTAssertEqual(closed.session(id: sessionID)?.lifecycle, .ended)
+                XCTAssertNil(closed.session(id: sessionID)?.tabID)
             }
         }
 
@@ -890,7 +1050,8 @@ final class WarrenApplicationTests: XCTestCase {
         let runtimeRecord = await runtime.record(for: session.id)
         XCTAssertEqual(runtimeRecord?.writes.last, Data([0x03]))
         let snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.session(id: session.id)?.connectionState, .exited)
+        XCTAssertEqual(snapshot.session(id: session.id)?.lifecycle, .ended)
+        XCTAssertEqual(snapshot.session(id: session.id)?.connectionState, .disconnected)
         let persisted = await service.persistedState()
         XCTAssertEqual(
             persisted.terminalSessions.first { $0.id == session.id }?.lifecycle,

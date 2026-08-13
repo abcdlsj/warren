@@ -94,6 +94,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             settingsPresented = true
                         },
                         onSelectTab: { dispatch(.selectTab($0)) },
+                        onMoveTab: { tabID, destinationTabID in
+                            dispatch(.moveTab(tabID, before: destinationTabID))
+                        },
                         canAddTab: selectedWorkspace != nil,
                         onAddTab: {
                             guard let workspaceID = selectedWorkspace?.id else { return }

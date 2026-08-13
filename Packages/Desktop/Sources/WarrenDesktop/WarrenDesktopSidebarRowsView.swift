@@ -40,7 +40,7 @@ struct WarrenDesktopSidebarRows: View {
                     WarrenDesktopSessionRow(
                         session: session,
                         workspace: workspace(for: session),
-                        isSelected: session.tabID == selectedTabID,
+                        isSelected: session.tabID != nil && session.tabID == selectedTabID,
                         onOpen: { onAction(.openSession(session.id)) },
                         onDelete: { pendingDeletion = session }
                     )
@@ -175,21 +175,19 @@ struct WarrenDesktopSidebarRows: View {
         groups.lazy.flatMap(\.workspaces).first { $0.id == session.workspaceID }
     }
 
-    private func workspaceActivity(_ workspaceID: WorkspaceID) -> TerminalSessionActivityState? {
+    private func workspaceActivity(_ workspaceID: WorkspaceID) -> AgentActivityState? {
         sessions.lazy
             .filter { $0.workspaceID == workspaceID }
-            .map(\.activity)
+            .compactMap(\.activity)
             .max { activityPriority($0) < activityPriority($1) }
     }
 
-    private func activityPriority(_ activity: TerminalSessionActivityState) -> Int {
+    private func activityPriority(_ activity: AgentActivityState) -> Int {
         switch activity {
         case .failed: 5
         case .waitingForInput: 4
-        case .connecting: 3
-        case .working: 2
+        case .working: 3
         case .ready: 1
-        case .exited: 0
         }
     }
 }
@@ -209,7 +207,9 @@ private struct WarrenDesktopSessionRow: View {
         HStack(spacing: WarrenSpacing.compact) {
             Button(action: onOpen) {
                 HStack(spacing: WarrenSpacing.compact) {
-                    WarrenDesktopActivityIndicator(activity: session.activity)
+                    if let activity = session.activity {
+                        WarrenDesktopActivityIndicator(activity: activity)
+                    }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(session.title)
                             .font(WarrenTypography.workspaceRow)

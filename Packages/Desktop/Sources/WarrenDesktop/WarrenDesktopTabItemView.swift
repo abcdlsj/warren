@@ -10,6 +10,7 @@ struct WarrenDesktopTabItem: View {
     let onClose: () -> Void
     let onCloseOthers: () -> Void
     let onCloseAll: () -> Void
+    let onMoveBefore: (String) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -114,6 +115,12 @@ struct WarrenDesktopTabItem: View {
                 .frame(height: WarrenSpacing.hairline)
         }
         .contentShape(.rect)
+        .draggable(tab.id)
+        .dropDestination(for: String.self) { tabIDs, _ in
+            guard let sourceID = tabIDs.first else { return false }
+            onMoveBefore(sourceID)
+            return true
+        }
         .onHover { isHovered = $0 }
         .contextMenu {
             if tab.sessionID != nil {

@@ -70,6 +70,13 @@ public struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+/// The durable lifecycle of Warren's terminal resource. Client connectivity,
+/// runtime probing, and agent activity are separate observations.
+public enum TerminalSessionLifecycle: String, Codable, Hashable, Sendable {
+    case running
+    case ended
+}
+
 public struct TerminalAttachment: Identifiable, Codable, Hashable, Sendable {
     public let id: TerminalAttachmentID
     public let sessionID: TerminalSessionID
@@ -199,18 +206,14 @@ public enum TerminalSessionKind: String, Codable, CaseIterable, Hashable, Sendab
 
 }
 
-/// Host-reported activity for a live terminal session.
-///
-/// This is explicit lifecycle data, not terminal-output pattern matching. Agent
-/// adapters report `waitingForInput`, `failed`, and `exited`; plain shells and
-/// agent sessions default to `working` while their runtime is attached.
-public enum TerminalSessionActivityState: String, Codable, CaseIterable, Hashable, Sendable {
-    case connecting
+/// Explicit activity observed from an external Agent Conversation. Plain
+/// shells have no value, and neither client connectivity nor terminal
+/// lifecycle is represented here.
+public enum AgentActivityState: String, Codable, CaseIterable, Hashable, Sendable {
     case working
     case waitingForInput
     case failed
     case ready
-    case exited
 }
 
 /// A value-only request for starting one terminal session.

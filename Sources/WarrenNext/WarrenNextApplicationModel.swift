@@ -116,8 +116,8 @@ final class WarrenNextApplicationModel {
         }
         var tabs = snapshot.windowLayout.workspaceViews.flatMap(\.tabs)
         // Sidebar activity is a Host-resource projection, not a Tab
-        // projection. A live headless or closed-Tab Session must still make
-        // its Workspace visible as working / waiting / failed / exited.
+        // projection. A live headless Session or a Session whose layout entry
+        // is missing must still make its Workspace visible.
         let visibleSessions = snapshot.sessions
         let workspaceIDs = Dictionary(
             uniqueKeysWithValues: visibleSessions.map { ($0.id, $0.workspaceID) }
@@ -146,8 +146,11 @@ final class WarrenNextApplicationModel {
                     tabID: session.tabID,
                     title: session.title,
                     kind: session.kind,
-                    state: Self.desktopSessionState(for: session.connectionState),
-                    activity: session.activityState,
+                    state: Self.desktopSessionState(
+                        for: session.connectionState,
+                        lifecycle: session.lifecycle
+                    ),
+                    activity: session.agentActivity,
                     runtimeProcess: session.runtimeProcess,
                     workingDirectory: session.workingDirectory
                 )
@@ -229,7 +232,7 @@ final class WarrenNextApplicationModel {
     }
 
     func runtimeExists(sessionID: TerminalSessionID) async -> Bool {
-        await runtime.exists(sessionID: sessionID)
+        await runtime.presence(sessionID: sessionID) == .present
     }
 
     private func startWebRelay() {
@@ -361,7 +364,7 @@ final class WarrenNextApplicationModel {
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession:
             reconcileSurfaces(with: snapshot)
-        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace,
+        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
              .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
              .toggleInspector, .toggleSidebar:
@@ -420,7 +423,7 @@ final class WarrenNextApplicationModel {
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
         case .deleteSession(let sessionID):
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
-        case .closeTab(let tabID), .closeOtherTabs(let tabID):
+        case .closeTab(let tabID), .closeOtherTabs(let tabID), .moveTab(let tabID, _):
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
             return selectedWorkspaceID
@@ -490,7 +493,7 @@ extension WarrenNextApplicationModel {
             } catch {
                 present(error)
             }
-        case .addProject, .importSuperset, .requestNewWorkspace,
+        case .addProject, .importSuperset, .requestNewWorkspace, .moveTab,
              .selectProject, .selectWorkspace, .selectTab,
              .toggleInspector, .toggleSidebar:
             break
@@ -509,6 +512,14 @@ extension WarrenNextApplicationModel {
             case .selectTab(let tabID):
                 if let workspaceID = workspaceID(forTabID: tabID) {
                     try await service.selectTab(tabID: tabID, workspaceID: workspaceID)
+                }
+            case .moveTab(let tabID, let destinationTabID):
+                if let workspaceID = workspaceID(forTabID: tabID) {
+                    try await service.moveTab(
+                        tabID: tabID,
+                        before: destinationTabID,
+                        workspaceID: workspaceID
+                    )
                 }
             default:
                 return
@@ -535,15 +546,16 @@ extension WarrenNextApplicationModel {
     }
 
     private static func desktopSessionState(
-        for state: WarrenApplicationConnectionState
+        for state: WarrenApplicationConnectionState,
+        lifecycle: TerminalSessionLifecycle
     ) -> WarrenDesktopSessionState {
+        guard lifecycle == .running else { return .exited }
         switch state {
-        case .disconnected: .disconnected
-        case .connecting: .connecting
-        case .attached: .attached
-        case .reconnecting: .reconnecting
-        case .exited: .exited
-        case .failed: .failed
+        case .disconnected: return .disconnected
+        case .connecting: return .connecting
+        case .attached: return .attached
+        case .reconnecting: return .reconnecting
+        case .failed: return .failed
         }
     }
 
@@ -653,14 +665,15 @@ private extension WarrenDesktopAction {
             true
         case .addProject, .importSuperset, .requestNewWorkspace,
              .requestNewSession, .selectProject,
-             .selectWorkspace, .selectTab, .toggleInspector, .toggleSidebar:
+             .selectWorkspace, .selectTab, .moveTab,
+             .toggleInspector, .toggleSidebar:
             false
         }
     }
 
     var requiresClientLayoutSideEffect: Bool {
         switch self {
-        case .selectProject, .selectWorkspace, .selectTab:
+        case .selectProject, .selectWorkspace, .selectTab, .moveTab:
             true
         default:
             false

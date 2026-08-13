@@ -168,6 +168,9 @@ extension TerminalSessionCoordinator {
 
         case .exited(let sessionID, let exitCode):
             guard let state = sessions[sessionID] else { return }
+            for continuation in lifecycleEventContinuations.values {
+                continuation.yield(.exited(sessionID: sessionID, exitCode: exitCode))
+            }
             let exit = ServerControlMessage.exit(
                 ExitMessage(
                     sessionID: sessionID,

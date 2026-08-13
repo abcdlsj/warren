@@ -32,28 +32,27 @@ public struct WarrenDesktopInspectorContent: Identifiable, Hashable, Sendable {
     }
 }
 
-/// A client-owned terminal session shown in the sidebar and session tabs.
-/// Workspaces describe filesystem contexts; sessions describe resumable
-/// terminals attached to those contexts.
+/// Desktop read model for a Host-owned Warren Terminal Session. `tabID` is
+/// present only when the current Window Layout contains an entry for it.
 public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
     public let id: TerminalSessionID
     public let workspaceID: WorkspaceID
-    public let tabID: String
+    public let tabID: String?
     public let title: String
     public let kind: TerminalSessionKind
     public let state: WarrenDesktopSessionState
-    public let activity: TerminalSessionActivityState
+    public let activity: AgentActivityState?
     public let runtimeProcess: String
     public let workingDirectory: String
 
     public init(
         id: TerminalSessionID,
         workspaceID: WorkspaceID,
-        tabID: String,
+        tabID: String? = nil,
         title: String,
         kind: TerminalSessionKind = .shell,
         state: WarrenDesktopSessionState = .attached,
-        activity: TerminalSessionActivityState? = nil,
+        activity: AgentActivityState? = nil,
         runtimeProcess: String = "",
         workingDirectory: String = ""
     ) {
@@ -63,21 +62,11 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         self.title = title
         self.kind = kind
         self.state = state
-        self.activity = activity ?? Self.defaultActivity(for: state)
+        self.activity = activity
         self.runtimeProcess = runtimeProcess
         self.workingDirectory = workingDirectory
     }
 
-    private static func defaultActivity(
-        for state: WarrenDesktopSessionState
-    ) -> TerminalSessionActivityState {
-        switch state {
-        case .attached: .working
-        case .connecting, .reconnecting, .disconnected: .connecting
-        case .exited: .exited
-        case .failed: .failed
-        }
-    }
 }
 
 public enum WarrenDesktopSessionState: String, Hashable, Sendable {
@@ -249,23 +238,21 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
 
     /// Returns the most actionable state for a Workspace. A failure or input
     /// request must remain visible even when another Session is still working.
-    public func activity(in workspaceID: WorkspaceID) -> TerminalSessionActivityState? {
+    public func activity(in workspaceID: WorkspaceID) -> AgentActivityState? {
         sessions.lazy
             .filter { $0.workspaceID == workspaceID }
-            .map(\.activity)
+            .compactMap(\.activity)
             .max { $0.workspacePriority < $1.workspacePriority }
     }
 }
 
-private extension TerminalSessionActivityState {
+private extension AgentActivityState {
     var workspacePriority: Int {
         switch self {
         case .failed: 5
         case .waitingForInput: 4
-        case .connecting: 3
-        case .working: 2
+        case .working: 3
         case .ready: 1
-        case .exited: 0
         }
     }
 }
@@ -461,6 +448,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case openSession(TerminalSessionID)
     case deleteSession(TerminalSessionID)
     case selectTab(String)
+    case moveTab(String, before: String?)
     case requestNewSession(WorkspaceID)
     case launchSession(WorkspaceID, TerminalSessionLaunchRequest)
     case closeTab(String)

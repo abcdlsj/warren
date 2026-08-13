@@ -85,6 +85,15 @@ public struct TerminalRuntimeInspection: Codable, Hashable, Sendable {
     }
 }
 
+/// The result of asking a runtime backend whether it still owns a Session.
+/// `unavailable` is deliberately distinct from `missing`: an observation
+/// failure must never become evidence that the terminal ended.
+public enum TerminalRuntimePresence: Hashable, Sendable {
+    case present
+    case missing
+    case unavailable(String)
+}
+
 /// The small runtime boundary owned by Host. A tmux adapter can implement this
 /// protocol without becoming part of the domain model.
 public protocol TerminalRuntime: Sendable {
@@ -105,9 +114,9 @@ public protocol TerminalRuntime: Sendable {
         outputOffset: UInt64
     ) async throws
 
-    /// Returns whether the runtime currently owns a session with this Host
-    /// identifier.  This is a process-restart check, not an attachment count.
-    func exists(sessionID: TerminalSessionID) async -> Bool
+    /// Observes whether the runtime currently owns a Session with this Host
+    /// identifier. This is a process-restart check, not an attachment count.
+    func presence(sessionID: TerminalSessionID) async -> TerminalRuntimePresence
 
     /// Subscribes to runtime events.  Subscription is allowed before
     /// `create`, which prevents a fast shell from racing Host's first output
@@ -119,6 +128,13 @@ public protocol TerminalRuntime: Sendable {
     func resize(sessionID: TerminalSessionID, size: TerminalSize) async throws
     func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection
     func terminate(sessionID: TerminalSessionID) async throws
+
+    /// Removes durable adapter artifacts after the Session record is deleted.
+    /// It must not terminate a live runtime.
+    func purge(
+        sessionID: TerminalSessionID,
+        descriptor: TerminalRuntimeDescriptor
+    ) async throws
 }
 
 public extension TerminalRuntime {
@@ -133,6 +149,20 @@ public extension TerminalRuntime {
             size: size,
             launchSpec: .interactiveShell
         )
+    }
+
+    func purge(
+        sessionID: TerminalSessionID,
+        descriptor: TerminalRuntimeDescriptor
+    ) async throws {
+        _ = sessionID
+        _ = descriptor
+    }
+
+    /// Convenience for diagnostics and tests that only need a live/not-live
+    /// answer. Lifecycle-changing code must switch over `presence` instead.
+    func exists(sessionID: TerminalSessionID) async -> Bool {
+        await presence(sessionID: sessionID) == .present
     }
 }
 

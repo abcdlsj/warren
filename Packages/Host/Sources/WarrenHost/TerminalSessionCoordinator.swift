@@ -2,6 +2,10 @@ import Foundation
 import WarrenDomain
 import WarrenProtocol
 
+public enum HostRuntimeLifecycleEvent: Hashable, Sendable {
+    case exited(sessionID: TerminalSessionID, exitCode: Int?)
+}
+
 /// Host 对 Terminal Session、Attachment 和 Control Lease 的唯一内存权威。
 /// Attachment 的销毁不会触碰 runtime 中的 Session。
 public actor TerminalSessionCoordinator {
@@ -37,6 +41,9 @@ public actor TerminalSessionCoordinator {
     /// closing a Client transport never tears down the terminal runtime.
     package var runtimeEventTasks: [TerminalSessionID: Task<Void, Never>] = [:]
     package var runtimeEventTokens: [TerminalSessionID: UUID] = [:]
+    package var lifecycleEventContinuations: [
+        UUID: AsyncStream<HostRuntimeLifecycleEvent>.Continuation
+    ] = [:]
 
     public init(
         runtime: any TerminalRuntime,
@@ -59,5 +66,24 @@ public actor TerminalSessionCoordinator {
         for subscription in eventContinuations.values {
             subscription.continuation.finish()
         }
+        for continuation in lifecycleEventContinuations.values {
+            continuation.finish()
+        }
+    }
+
+    /// Host-level Runtime lifecycle facts. Unlike attachment streams, this
+    /// stream exists so persistence can observe exits with no connected client.
+    public func runtimeLifecycleEvents() -> AsyncStream<HostRuntimeLifecycleEvent> {
+        let pair = AsyncStream<HostRuntimeLifecycleEvent>.makeStream()
+        let token = UUID()
+        lifecycleEventContinuations[token] = pair.continuation
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeLifecycleEventContinuation(token) }
+        }
+        return pair.stream
+    }
+
+    private func removeLifecycleEventContinuation(_ token: UUID) {
+        lifecycleEventContinuations.removeValue(forKey: token)
     }
 }

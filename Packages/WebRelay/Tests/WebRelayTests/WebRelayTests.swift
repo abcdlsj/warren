@@ -38,7 +38,7 @@ final class WebRelayTests: XCTestCase {
 
         roster = try Self.decodeJSON(await relay.rosterJSON())
         let sessions = try XCTUnwrap(roster["sessions"] as? [[String: String]])
-        XCTAssertEqual(sessions.first?["state"], "exited")
+        XCTAssertEqual(sessions.first?["lifecycle"], "ended")
         XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
     }
 
@@ -107,14 +107,14 @@ final class WebRelayTests: XCTestCase {
         var hook = URLComponents(url: base.appendingPathComponent("hook"), resolvingAgainstBaseURL: false)!
         hook.queryItems = [
             URLQueryItem(name: "session", value: session.id.description),
-            URLQueryItem(name: "state", value: TerminalSessionActivityState.waitingForInput.rawValue),
+            URLQueryItem(name: "state", value: AgentActivityState.waitingForInput.rawValue),
             URLQueryItem(name: "token", value: WebRelayServer.accessToken),
         ]
         let (_, hookResponse) = try await URLSession.shared.data(from: try XCTUnwrap(hook.url))
         XCTAssertEqual((hookResponse as? HTTPURLResponse)?.statusCode, 204)
         try await Task.sleep(for: .milliseconds(20))
         let snapshot = await service.snapshot()
-        XCTAssertEqual(snapshot.session(id: session.id)?.activityState, .waitingForInput)
+        XCTAssertEqual(snapshot.session(id: session.id)?.agentActivity, .waitingForInput)
 
         let socket = URLSession.shared.webSocketTask(
             with: URL(string: "ws://127.0.0.1:\(port)/ws")!
@@ -204,6 +204,7 @@ final class WebRelayTests: XCTestCase {
         let script = try XCTUnwrap(AgentHookInstaller.scriptForTesting())
         XCTAssertTrue(script.contains("PermissionRequest|exec_approval_request|apply_patch_approval_request|request_user_input) STATE=waitingForInput"))
         XCTAssertTrue(script.contains("Stop|agent-turn-complete|task_complete) STATE=ready"))
+        XCTAssertTrue(script.contains("SessionEnd) STATE=none"))
     }
 
     func testManagedHookMergePreservesUserEntriesAndIsIdempotent() throws {

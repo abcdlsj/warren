@@ -196,14 +196,16 @@ public actor TmuxRuntime: TerminalRuntime {
         }
     }
 
-    public func exists(sessionID: TerminalSessionID) async -> Bool {
+    public func presence(sessionID: TerminalSessionID) async -> TerminalRuntimePresence {
         if let managed = sessions[sessionID] {
-            return managed.isRunning
+            return managed.isRunning ? .present : .missing
         }
         do {
             return try await hasSession(named: TmuxSessionNaming.name(for: sessionID))
+                ? .present
+                : .missing
         } catch {
-            return false
+            return .unavailable(String(describing: error))
         }
     }
 
@@ -362,6 +364,56 @@ public actor TmuxRuntime: TerminalRuntime {
             finishSession(sessionID: sessionID, exitCode: nil)
         } catch {
             throw normalize(error)
+        }
+    }
+
+    public func purge(
+        sessionID: TerminalSessionID,
+        descriptor: TerminalRuntimeDescriptor
+    ) async throws {
+        guard descriptor.runtime == Self.runtimeName,
+              descriptor.identifier == TmuxSessionNaming.name(for: sessionID) else {
+            throw TmuxRuntimeError.descriptorInvalid(
+                reason: "runtime artifact descriptor does not match the Session.",
+                recovery: "Use the descriptor persisted for this Warren Terminal Session."
+            )
+        }
+        switch await presence(sessionID: sessionID) {
+        case .missing:
+            break
+        case .present:
+            throw TmuxRuntimeError.sessionAlreadyExists(
+                name: descriptor.identifier,
+                recovery: "Terminate the runtime before purging its artifacts."
+            )
+        case .unavailable(let reason):
+            throw TmuxRuntimeError.commandFailed(
+                arguments: ["has-session", "-t", descriptor.identifier],
+                exitCode: -1,
+                stderr: reason,
+                recovery: "Restore tmux availability, then retry artifact cleanup."
+            )
+        }
+        let expected = outputDirectory.standardizedFileURL
+            .appendingPathComponent("\(descriptor.identifier).out", isDirectory: false)
+            .standardizedFileURL
+        let actual = try spoolURL(from: descriptor).standardizedFileURL
+        guard actual == expected else {
+            throw TmuxRuntimeError.descriptorInvalid(
+                reason: "outputPath is outside this Session's managed RuntimeOutput artifact.",
+                recovery: "Do not delete an unverified path from runtime metadata."
+            )
+        }
+        await removeManagedSession(sessionID)
+        guard FileManager.default.fileExists(atPath: actual.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: actual)
+        } catch {
+            throw TmuxRuntimeError.outputSpoolUnavailable(
+                path: actual.path,
+                reason: String(describing: error),
+                recovery: "Check Warren's write access to RuntimeOutput, then retry deletion."
+            )
         }
     }
 

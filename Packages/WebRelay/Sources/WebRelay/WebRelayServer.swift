@@ -433,8 +433,9 @@ public final class WebRelayServer {
     // MARK: - Relay logic
 
     /// Projects and Sessions are Host resources. Tabs are a separate Client
-    /// layout projection and must never be inferred from the Session roster:
-    /// a closed Tab deliberately leaves its Session and runtime alive.
+    /// layout projection and must never be inferred from the Session roster.
+    /// The Close Tab application command coordinates both resources, but that
+    /// policy does not make a Tab part of Host state.
     func rosterJSON() async -> String {
         rosterJSON(snapshot: await service.snapshot())
     }
@@ -453,16 +454,20 @@ public final class WebRelayServer {
             ]
         }
         let sessions = snapshot.sessions.map {
-            [
+            var value = [
                 "id": $0.id.description,
                 "workspace": $0.workspaceID.description,
                 "title": $0.title,
                 "kind": $0.kind.rawValue,
+                "lifecycle": $0.lifecycle.rawValue,
                 "state": String(describing: $0.connectionState),
-                "activity": $0.activityState.rawValue,
                 "process": $0.runtimeProcess,
                 "directory": $0.workingDirectory,
             ]
+            if let activity = $0.agentActivity {
+                value["activity"] = activity.rawValue
+            }
+            return value
         }
         let sessionsByID = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
         let tabs = snapshot.windowLayout.workspaceViews.flatMap { view in
@@ -503,9 +508,10 @@ public final class WebRelayServer {
         guard values["token"] == RelayPairingToken.current,
               let rawSession = values["session"],
               let sessionID = TerminalSessionID(uuidString: rawSession),
-              let rawState = values["state"],
-              let activity = TerminalSessionActivityState(rawValue: rawState) else { return }
-        try? await service.reportSessionActivity(
+              let rawState = values["state"] else { return }
+        let activity = rawState == "none" ? nil : AgentActivityState(rawValue: rawState)
+        guard rawState == "none" || activity != nil else { return }
+        try? await service.reportAgentActivity(
             sessionID: sessionID,
             state: activity,
             agentSessionID: values["agent_session_id"]

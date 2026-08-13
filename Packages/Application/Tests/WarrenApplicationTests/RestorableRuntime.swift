@@ -16,6 +16,7 @@ actor RestorableRuntime: TerminalRuntime {
     private var streams: [TerminalSessionID: [UUID: AsyncStream<TerminalRuntimeEvent>.Continuation]] = [:]
     private var adoptionCounts: [TerminalSessionID: Int] = [:]
     private var adoptionOffsets: [TerminalSessionID: UInt64] = [:]
+    private var forcedPresence: TerminalRuntimePresence?
 
     func create(
         sessionID: TerminalSessionID,
@@ -55,7 +56,14 @@ actor RestorableRuntime: TerminalRuntime {
         }
     }
 
-    func exists(sessionID: TerminalSessionID) async -> Bool { records[sessionID]?.running == true }
+    func presence(sessionID: TerminalSessionID) async -> TerminalRuntimePresence {
+        if let forcedPresence { return forcedPresence }
+        return records[sessionID]?.running == true ? .present : .missing
+    }
+
+    func setPresence(_ presence: TerminalRuntimePresence?) {
+        forcedPresence = presence
+    }
 
     func events(for sessionID: TerminalSessionID) async -> AsyncStream<TerminalRuntimeEvent> {
         let pair = AsyncStream<TerminalRuntimeEvent>.makeStream()
@@ -118,6 +126,21 @@ actor RestorableRuntime: TerminalRuntime {
         for continuation in continuations {
             continuation.yield(.output(sessionID: sessionID, data: data))
         }
+        await Task.yield()
+    }
+
+    func emitExit(sessionID: TerminalSessionID, exitCode: Int? = nil) async throws {
+        guard var record = records[sessionID], record.running else {
+            throw TerminalRuntimeError.sessionNotFound
+        }
+        record.running = false
+        records[sessionID] = record
+        guard let continuations = streams[sessionID]?.values else { return }
+        for continuation in continuations {
+            continuation.yield(.exited(sessionID: sessionID, exitCode: exitCode))
+            continuation.finish()
+        }
+        streams[sessionID] = nil
         await Task.yield()
     }
 

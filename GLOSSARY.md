@@ -17,20 +17,39 @@ the repository identity and the set of Git Workspaces derived from that
 repository. It is metadata about the repository, not a terminal runtime.
 
 **Warren Terminal Session**:
-A Host-owned terminal runtime represented by one client Tab in Warren v1. The
-Session is backed by one tmux runtime session. Closing its Tab terminates the
-runtime and ends the Warren Terminal Session; it is not a background runtime.
+A Host-owned terminal execution resource belonging to one Workspace. It has a
+durable lifecycle independent of client connectivity; in Warren v1, closing its
+Tab is the user's command to end it.
+_Avoid_: Session
 
-**Agent Session ID**:
-An identifier assigned by an external agent CLI such as Codex or Claude Code.
-Warren may persist this identifier as metadata for future explicit resume, but
-does not automatically resume the agent conversation.
+**Runtime Binding**:
+The opaque association between a Warren Terminal Session and its runtime
+backend. It is recovery metadata, not a second terminal resource.
+
+**tmux Runtime Session**:
+The tmux-owned process container currently bound one-to-one to a Warren Terminal
+Session. It is an implementation of the runtime boundary, not Warren's durable
+Session identity.
+_Avoid_: Session
+
+**Agent Conversation**:
+A conversation owned by an external agent CLI such as Codex or Claude Code.
+Warren may retain its external identifier and observed activity, but does not
+own its lifecycle or equate it with a Warren Terminal Session.
+_Avoid_: Codex Session, Claude Session
+
+**Agent Activity**:
+The currently observed work state of an external Agent Conversation. It is
+optional and does not represent terminal lifecycle or client connectivity.
 
 **Tab**:
-A client-local entry that opens exactly one Warren Terminal Session in one
-window. In Warren v1, closing a Tab is also the explicit termination action for
-its Warren Terminal Session. A future multi-client sharing model may revise
-this rule.
+A device-local window entry that references one Warren Terminal Session. It
+does not own Host state, although Close Tab is the Warren v1 command for ending
+the referenced Session and removing the entry.
+
+**Attachment**:
+A temporary client connection to a Warren Terminal Session. Disconnecting an
+Attachment does not end the Session or its runtime.
 
 **Workspace display name**:
 The user-editable label shown for a Workspace. Renaming it does not rename or
@@ -41,8 +60,12 @@ The branch checked out in a Workspace's working directory. It is managed by
 Git and is not changed when the Workspace display name is edited.
 
 **Terminal display title**:
-The contextual label above a terminal, rendered from a Title Template and the Session's current metadata. It does not rename the Session or Tab.
+The contextual label above a terminal, rendered from a Title Template and the
+Warren Terminal Session's current metadata. It does not rename the Warren
+Terminal Session or Tab.
 _Avoid_: Session title, Tab title
 
 **Title Template**:
-A client preference containing placeholders for Session and runtime metadata. Warren clients share its placeholder language, while each client may keep its own preferred value.
+A client preference containing placeholders for Warren Terminal Session and
+runtime metadata. Warren clients share its placeholder language, while each
+client may keep its own preferred value.

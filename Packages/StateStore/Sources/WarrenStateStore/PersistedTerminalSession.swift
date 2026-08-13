@@ -1,11 +1,6 @@
 import Foundation
 import WarrenDomain
 
-public enum PersistedTerminalSessionLifecycle: String, Codable, Hashable, Sendable {
-    case running
-    case ended
-}
-
 /// The durable part of a Terminal Session needed to recover it after a Host
 /// restart.  Attachments, leases, and client layout are deliberately absent.
 public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendable {
@@ -19,7 +14,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
     public var kind: TerminalSessionKind
     public var agentSessionID: String?
     public var title: String?
-    public var lifecycle: PersistedTerminalSessionLifecycle
+    public var lifecycle: TerminalSessionLifecycle
     public var endedAt: Date?
 
     public init(
@@ -33,7 +28,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         kind: TerminalSessionKind = .shell,
         agentSessionID: String? = nil,
         title: String? = nil,
-        lifecycle: PersistedTerminalSessionLifecycle = .running,
+        lifecycle: TerminalSessionLifecycle = .running,
         endedAt: Date? = nil
     ) {
         self.id = id
@@ -105,7 +100,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         agentSessionID = try container.decodeIfPresent(String.self, forKey: .agentSessionID)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         lifecycle = try container.decodeIfPresent(
-            PersistedTerminalSessionLifecycle.self,
+            TerminalSessionLifecycle.self,
             forKey: .lifecycle
         ) ?? .running
         endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
