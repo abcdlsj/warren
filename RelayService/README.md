@@ -2,6 +2,40 @@
 
 Burrow Relay 是可独立部署的远端控制面。它保存 Host 身份、在线状态和撤销 generation，并转发 WebSocket 帧；Project、Workspace、Session、tmux 和 Terminal 输出均只存在于 macOS Host。Relay 不记录或解析终端业务帧。
 
+## 一键体验
+
+在仓库根目录运行：
+
+```bash
+mise run relay:dev
+```
+
+该命令会自动生成本地开发 Secret、启动 Relay、注册当前 Mac、构建并启动 Burrow、
+等待 Host 上线、完成一次性配对并打开 Web/PWA。生成的开发状态放在忽略提交的
+`.build/relay-dev/8080`，Secret 文件权限为 `0600`。本地 Relay 只监听 `127.0.0.1`，
+用于体验完整流程，不会把 Mac 暴露到局域网或公网。
+
+日常命令：
+
+```bash
+mise run relay:pair    # 再打开一个远端客户端
+mise run relay:status  # 查看 Relay 与 Host 状态
+mise run relay:stop    # 只停止 Relay，不退出 Burrow、不结束 tmux
+```
+
+连接已经部署好的公网 Relay 也只需一个命令；管理员 token 仅在该 Mac 首次注册时需要：
+
+```bash
+BURROW_RELAY_URL=https://relay.example.com \
+BURROW_RELAY_ADMIN_TOKEN='<admin-token>' \
+mise run relay:connect
+```
+
+之后同一地址会在 `~/Library/Application Support/Burrow/relay-cli/<relay-id>` 保存
+Host ID 和权限为 `0600` 的 Host credential；Burrow 自身仍将凭证导入 macOS Keychain。
+因此后续可以省略管理员 token。若 Host 已在线，重复运行也不会重建或重启 App，只生成
+新的配对 URL。若不希望自动打开浏览器，增加 `BURROW_RELAY_NO_OPEN=1`。
+
 ## 启动
 
 先生成三项 Secret：管理员 token、至少 32 字节的签名密钥。生产环境必须由 HTTPS/WSS 反向代理终止 TLS。
@@ -53,7 +87,7 @@ Burrow 只建立出站 WSS，默认不配置时仍仅监听 `127.0.0.1`。
 
 ## 配对、发现与撤销
 
-管理员为在线 Host 生成 10 分钟、一次性 pairing code：
+管理员或该 Host 自己的 credential 可以生成 10 分钟、一次性 pairing code：
 
 ```bash
 curl -sS -X POST https://relay.example.com/v1/hosts/<host-uuid>/pairing \

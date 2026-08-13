@@ -188,6 +188,58 @@ func TestAuthenticationAndHostOfflineContracts(t *testing.T) {
 	workerResponse.Body.Close()
 }
 
+func TestHostCredentialCanInspectAndPairOnlyItsOwnHost(t *testing.T) {
+	const hostID = "00000000-0000-4000-8000-000000000009"
+	const otherHostID = "00000000-0000-4000-8000-00000000000a"
+	server, err := NewServer(Config{
+		PublicURL:  "https://relay.example.test",
+		AdminToken: "admin-bootstrap",
+		SigningKey: []byte("0123456789abcdef0123456789abcdef"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	websocketBase := "ws" + strings.TrimPrefix(httpServer.URL, "http")
+	hostCredential := provisionHost(t, httpServer.URL, hostID)
+	_ = provisionHost(t, httpServer.URL, otherHostID)
+	host, _, err := websocket.DefaultDialer.Dial(
+		websocketBase+"/v1/host/connect?host_id="+hostID,
+		http.Header{"Authorization": []string{"Bearer " + hostCredential}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Close()
+	waitForHost(t, httpServer.URL, server, hostID)
+
+	for _, endpoint := range []string{
+		"/v1/hosts/" + hostID,
+		"/v1/hosts/" + hostID + "/pairing",
+	} {
+		method := http.MethodGet
+		if strings.HasSuffix(endpoint, "/pairing") {
+			method = http.MethodPost
+		}
+		request, _ := http.NewRequest(method, httpServer.URL+endpoint, nil)
+		request.Header.Set("Authorization", "Bearer "+hostCredential)
+		response, err := http.DefaultClient.Do(request)
+		if err != nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+			t.Fatalf("own Host endpoint rejected credential: endpoint=%s response=%v err=%v", endpoint, response, err)
+		}
+		response.Body.Close()
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, httpServer.URL+"/v1/hosts/"+otherHostID, nil)
+	request.Header.Set("Authorization", "Bearer "+hostCredential)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("Host credential crossed Host boundary: response=%v err=%v", response, err)
+	}
+	response.Body.Close()
+}
+
 func TestProvisionRejectsNonUUIDHostIdentity(t *testing.T) {
 	server, err := NewServer(Config{
 		PublicURL:  "https://relay.example.test",

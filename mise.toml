@@ -56,6 +56,34 @@ run = "bash scripts/verify-web.sh"
 description = "Run the remote Relay control plane"
 run = "go run ./RelayService/cmd/burrow-relay"
 
+[tasks."relay:dev"]
+description = "One command: start local Relay, connect Burrow, and open Remote Web"
+run = "bash scripts/relay-dev.sh up"
+
+[tasks."relay:connect"]
+description = "Connect this Mac to BURROW_RELAY_URL and open Remote Web"
+run = "bash scripts/relay-dev.sh up"
+
+[tasks."relay:start"]
+description = "Start the local development Relay in the background"
+run = "bash scripts/relay-dev.sh start"
+
+[tasks."relay:pair"]
+description = "Generate and open another Remote Web pairing URL"
+run = "bash scripts/relay-dev.sh pair"
+
+[tasks."relay:status"]
+description = "Show local Relay and Host presence"
+run = "bash scripts/relay-dev.sh status"
+
+[tasks."relay:logs"]
+description = "Follow the local development Relay log"
+run = "bash scripts/relay-dev.sh logs"
+
+[tasks."relay:stop"]
+description = "Stop the local development Relay"
+run = "bash scripts/relay-dev.sh stop"
+
 [tasks."relay:test"]
 description = "Run Relay auth, persistence and forwarding tests"
 run = "go test -race ./RelayService/..."

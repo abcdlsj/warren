@@ -167,11 +167,12 @@ func (server *Server) revokeHost(response http.ResponseWriter, request *http.Req
 }
 
 func (server *Server) beginPairing(response http.ResponseWriter, request *http.Request) {
-	if !secureEqual(bearerToken(request), server.config.AdminToken) {
+	hostID := request.PathValue("hostID")
+	credential := bearerToken(request)
+	if !secureEqual(credential, server.config.AdminToken) && !server.registry.authenticateHost(hostID, credential) {
 		http.Error(response, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	hostID := request.PathValue("hostID")
 	code, err := server.registry.beginPairing(hostID, server.config.PairingTTL)
 	if err != nil {
 		http.Error(response, err.Error(), http.StatusConflict)
@@ -214,7 +215,10 @@ func (server *Server) pair(response http.ResponseWriter, request *http.Request) 
 
 func (server *Server) getHost(response http.ResponseWriter, request *http.Request) {
 	hostID := request.PathValue("hostID")
-	if !server.authorizeAccess(bearerToken(request), hostID) {
+	credential := bearerToken(request)
+	if !secureEqual(credential, server.config.AdminToken) &&
+		!server.registry.authenticateHost(hostID, credential) &&
+		!server.authorizeAccess(credential, hostID) {
 		http.Error(response, "unauthorized", http.StatusUnauthorized)
 		return
 	}
