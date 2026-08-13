@@ -235,7 +235,7 @@
 
 - Hook 合并保留用户条目，连续安装两次只留下一个当前 Warren 条目。
 - PermissionRequest 为黄色呼吸，Stop 为绿色静态，失败为红色呼吸，Runtime 退出为灰色静态。
-- 没有打开 Tab 的后台 Session 仍影响 Workspace 状态。
+- 已关闭 Tab 的 ended Session 仅作为历史记录保留，不会产生后台 tmux，也不会被自动复用。
 - Web 和桌面同时 attach 后 Host 存在两个 Attachment，Web detach 不影响桌面 Attachment。
 - HTTP `/`、manifest、service worker、icon 可访问；WebSocket token 错误时拒绝连接。
 - 移动布局包含 Sidebar 抽屉、横向 Tabs、底部安全区快捷键栏；方向键发送 ANSI sequence。
@@ -293,8 +293,8 @@
 4. 在 Tabs 间快速切换。
 5. 切到 Workspace B 创建 Claude Tab。
 6. 返回 Workspace A，断言其 Tabs、输出和尺寸保持。
-7. 关闭 Tab，断言 tmux 仍存活。
-8. 从 Session 列表重新打开，断言可继续输入。
+7. 关闭 Tab，断言对应 tmux 已终止且 Session 记录为 ended。
+8. 再次打开终端时创建新的 Tab/Session，不复用已 ended 的 Session。
 
 ### J3：退出和恢复
 

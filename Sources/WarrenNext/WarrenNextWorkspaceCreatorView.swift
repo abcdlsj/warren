@@ -9,8 +9,8 @@ struct WarrenNextWorkspaceCreatorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var requestID = UUID()
+    @State private var displayName = ""
     @State private var branch = ""
-    @State private var path = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -20,18 +20,20 @@ struct WarrenNextWorkspaceCreatorView: View {
                 .font(WarrenTypography.body)
                 .foregroundStyle(.secondary)
 
+            TextField("Workspace name", text: $displayName)
+                .textFieldStyle(.roundedBorder)
+
             TextField("Branch", text: $branch)
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: branch) { _, value in
-                    guard !value.isEmpty else { return }
-                    let base = URL(fileURLWithPath: project.rootPath)
-                        .deletingLastPathComponent()
-                    path = base.appendingPathComponent(
-                        "\(project.name)-\(value.replacingOccurrences(of: "/", with: "-"))"
-                    ).path
+                    if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        displayName = value
+                    }
                 }
-            TextField("Worktree path", text: $path)
-                .textFieldStyle(.roundedBorder)
+
+            Text("Worktree files are stored under ~/.warren.")
+                .font(WarrenTypography.badge)
+                .foregroundStyle(.secondary)
 
             HStack {
                 Spacer()
@@ -39,13 +41,17 @@ struct WarrenNextWorkspaceCreatorView: View {
                 Button("Create") {
                     onCreate(WorkspaceCreationRequest(
                         requestID: requestID,
+                        displayName: displayName,
                         branch: branch,
-                        path: path
+                        path: ""
                     ))
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || path.isEmpty)
+                .disabled(
+                    branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
             }
         }
         .padding(24)

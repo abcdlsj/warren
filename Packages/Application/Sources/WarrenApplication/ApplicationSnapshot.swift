@@ -225,6 +225,11 @@ public enum WarrenApplicationDefaults {
         return base.appendingPathComponent("Warren/runtime", isDirectory: true)
     }
 
+    public static func worktreeRootDirectory(fileManager: FileManager = .default) -> URL {
+        fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".warren", isDirectory: true)
+    }
+
     public static func supersetDatabaseURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".superset/local.db", isDirectory: false)

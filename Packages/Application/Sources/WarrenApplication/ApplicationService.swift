@@ -44,6 +44,7 @@ public actor WarrenApplicationService {
     internal let clock: @Sendable () -> Date
     internal let gitMetadataReader: any GitMetadataReader
     internal let gitWorktreeManager: any GitWorktreeManaging
+    internal let worktreeRootDirectory: URL
     internal let coordinator: TerminalSessionCoordinator
     internal let transport: InProcessHostTransport
     internal let persistenceGate = WarrenApplicationPersistenceGate()
@@ -90,7 +91,8 @@ public actor WarrenApplicationService {
         hostName: String = "Local Mac",
         clock: @escaping @Sendable () -> Date = { Date() },
         gitMetadataReader: any GitMetadataReader = NoopGitMetadataReader(),
-        gitWorktreeManager: any GitWorktreeManaging = LocalGitWorktreeManager()
+        gitWorktreeManager: any GitWorktreeManaging = LocalGitWorktreeManager(),
+        worktreeRootDirectory: URL = WarrenApplicationDefaults.worktreeRootDirectory()
     ) {
         self.repository = repository
         self.runtime = runtime
@@ -101,6 +103,7 @@ public actor WarrenApplicationService {
         self.clock = clock
         self.gitMetadataReader = gitMetadataReader
         self.gitWorktreeManager = gitWorktreeManager
+        self.worktreeRootDirectory = worktreeRootDirectory.standardizedFileURL
         self.windowID = WarrenApplicationDefaults.mainWindowID
         self.layoutStore = try! ClientLayoutStore(
             clientID: clientID,
@@ -147,11 +150,23 @@ public actor WarrenApplicationService {
     /// future remote Host. Views never infer this state from terminal text.
     public func reportSessionActivity(
         sessionID: TerminalSessionID,
-        state activity: TerminalSessionActivityState
+        state activity: TerminalSessionActivityState,
+        agentSessionID: String? = nil
     ) async throws {
         try requireReady()
-        guard state.terminalSessions.contains(where: { $0.id == sessionID }) else {
+        guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
             throw WarrenApplicationError.sessionNotFound(sessionID)
+        }
+        if let value = agentSessionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty,
+           state.terminalSessions[index].agentSessionID != value {
+            try await withPersistenceMutation {
+                var candidate = state
+                candidate.terminalSessions[index].agentSessionID = value
+                try await save(candidate)
+                mergePendingSequences(into: &candidate)
+                state = candidate
+            }
         }
         sessionActivity[sessionID] = activity
         await publish()

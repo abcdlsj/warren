@@ -26,6 +26,23 @@ extension WarrenApplicationService {
         return state.workspaces.filter { $0.projectID == projectID }
     }
 
+    public func renameWorkspace(_ workspaceID: WorkspaceID, name: String) async throws {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { throw WarrenApplicationError.workspaceNameInvalid }
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+                throw WarrenApplicationError.workspaceNotFound(workspaceID)
+            }
+            var candidate = state
+            candidate.workspaces[index].name = value
+            try await save(candidate)
+            mergePendingSequences(into: &candidate)
+            state = candidate
+        }
+        await publish()
+    }
+
     /// Creates a new Git worktree and only then publishes it as a Workspace.
     /// If persistence fails, the adapter removes the just-created worktree so
     /// Git and Warren cannot disagree about ownership.
@@ -49,7 +66,13 @@ extension WarrenApplicationService {
                 guard Self.isValidBranchName(branch) else {
                     throw WarrenApplicationError.workspaceBranchInvalid(branch)
                 }
-                let path = try normalizeNewWorkspacePath(request.path)
+                let workspaceID = WorkspaceID()
+                let path = try normalizeNewWorkspacePath(
+                    request.path,
+                    project: project,
+                    workspaceID: workspaceID,
+                    branch: branch
+                )
                 guard !state.workspaces.contains(where: {
                     normalizeStoredPath($0.path) == path
                 }) else {
@@ -62,8 +85,9 @@ extension WarrenApplicationService {
                 )
                 try await gitWorktreeManager.create(creation)
                 let workspace = Workspace(
+                    id: workspaceID,
                     projectID: project.id,
-                    name: branch,
+                    name: request.displayName,
                     path: path,
                     branch: branch
                 )
@@ -190,12 +214,22 @@ extension WarrenApplicationService {
             .path
     }
 
-    private func normalizeNewWorkspacePath(_ path: String) throws -> String {
+    private func normalizeNewWorkspacePath(
+        _ path: String,
+        project: Project,
+        workspaceID: WorkspaceID,
+        branch: String
+    ) throws -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw WarrenApplicationError.projectPathInvalid(path)
-        }
-        let expanded = NSString(string: trimmed).expandingTildeInPath
+        let requested = trimmed.isEmpty
+            ? worktreeRootDirectory
+                .appendingPathComponent(project.id.shortDescription, isDirectory: true)
+                .appendingPathComponent(
+                    "\(workspaceID.shortDescription)-\(Self.pathSafeBranch(branch))",
+                    isDirectory: true
+                ).path
+            : trimmed
+        let expanded = NSString(string: requested).expandingTildeInPath
         return URL(fileURLWithPath: expanded)
             .standardizedFileURL
             .resolvingSymlinksInPath()
@@ -213,5 +247,15 @@ extension WarrenApplicationService {
                   $0.value < 0x20 || $0.value == 0x7f || " ~^:?*[\\".unicodeScalars.contains($0)
               }) else { return false }
         return true
+    }
+
+    private static func pathSafeBranch(_ branch: String) -> String {
+        let value = branch.replacingOccurrences(of: "/", with: "-")
+        let allowed = value.map { character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" || character == "."
+                ? String(character) : "-"
+        }.joined()
+        return allowed.trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+            .prefix(80).description
     }
 }

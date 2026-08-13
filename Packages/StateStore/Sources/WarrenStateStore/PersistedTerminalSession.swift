@@ -17,6 +17,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
     public var terminalSize: TerminalSize
     public var runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor?
     public var kind: TerminalSessionKind
+    public var agentSessionID: String?
     public var title: String?
     public var lifecycle: PersistedTerminalSessionLifecycle
     public var endedAt: Date?
@@ -30,6 +31,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         terminalSize: TerminalSize,
         runtimeAdoptionDescriptor: RuntimeAdoptionDescriptor? = nil,
         kind: TerminalSessionKind = .shell,
+        agentSessionID: String? = nil,
         title: String? = nil,
         lifecycle: PersistedTerminalSessionLifecycle = .running,
         endedAt: Date? = nil
@@ -42,6 +44,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         self.terminalSize = terminalSize
         self.runtimeAdoptionDescriptor = runtimeAdoptionDescriptor
         self.kind = kind
+        self.agentSessionID = agentSessionID
         self.title = title
         self.lifecycle = lifecycle
         self.endedAt = endedAt
@@ -67,6 +70,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         case terminalSize
         case runtimeAdoptionDescriptor
         case kind
+        case agentSessionID
         case title
         case lifecycle
         case endedAt
@@ -98,6 +102,7 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
             TerminalSessionKind.self,
             forKey: .kind
         ) ?? .shell
+        agentSessionID = try container.decodeIfPresent(String.self, forKey: .agentSessionID)
         title = try container.decodeIfPresent(String.self, forKey: .title)
         lifecycle = try container.decodeIfPresent(
             PersistedTerminalSessionLifecycle.self,

@@ -222,15 +222,21 @@ extension WarrenApplicationService {
     }
 
     public func closeTab(tabID: String, workspaceID: WorkspaceID) async throws {
-        guard let sessionID = try await layoutStore.removeTab(
+        guard let tab = await layoutStore.window(id: windowID)
+            .workspaceView(for: workspaceID)?.tabs.first(where: { $0.id == tabID }),
+              let sessionID = tab.sessionID else {
+            throw WarrenApplicationError.tabNotFound(tabID)
+        }
+        if state.terminalSessions.first(where: { $0.id == sessionID })?.lifecycle == .running {
+            try await terminateSession(sessionID: sessionID)
+        }
+        _ = try await layoutStore.removeTab(
             id: tabID,
             workspaceID: workspaceID,
             in: windowID
-        ) else {
-            throw WarrenApplicationError.tabNotFound(tabID)
-        }
+        )
         if let attachmentID = connections[sessionID]?.attachmentID {
-            try await detach(sessionID: sessionID, attachmentID: attachmentID, reason: "tab_closed")
+            try? await detach(sessionID: sessionID, attachmentID: attachmentID, reason: "tab_closed")
         }
         clearClientCaches(for: sessionID)
         await publish()
@@ -245,16 +251,14 @@ extension WarrenApplicationService {
     }
 
     public func closeTabs(in workspaceID: WorkspaceID, except tabID: String? = nil) async {
-        guard let removed = try? await layoutStore.removeTabs(
-            workspaceID: workspaceID,
-            except: tabID,
-            in: windowID
-        ) else { return }
-        for sessionID in removed {
-            if let attachmentID = connections[sessionID]?.attachmentID {
-                try? await detach(sessionID: sessionID, attachmentID: attachmentID, reason: "tab_closed")
+        let tabs = await layoutStore.window(id: windowID)
+            .workspaceView(for: workspaceID)?.tabs.filter { $0.id != tabID } ?? []
+        for tab in tabs {
+            do {
+                try await closeTab(tabID: tab.id, workspaceID: workspaceID)
+            } catch {
+                report(error.asApplicationError, id: "tab.\(tab.id).close")
             }
-            clearClientCaches(for: sessionID)
         }
         await publish()
     }
@@ -308,6 +312,9 @@ extension WarrenApplicationService {
     public func openSession(sessionID: TerminalSessionID) async throws -> String {
         try requireReady()
         guard let persisted = state.terminalSessions.first(where: { $0.id == sessionID }) else {
+            throw WarrenApplicationError.sessionNotFound(sessionID)
+        }
+        guard persisted.lifecycle == .running else {
             throw WarrenApplicationError.sessionNotFound(sessionID)
         }
         await ensureSessionRestored(sessionID)

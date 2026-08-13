@@ -92,7 +92,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     sql: """
                     SELECT s.id, s.workspace_id, s.epoch, s.sequence,
                            s.working_directory, s.columns, s.rows, s.kind,
-                           s.title, s.lifecycle, s.ended_at,
+                           s.title, s.agent_session_id, s.lifecycle, s.ended_at,
                            r.adapter, r.runtime_identifier, r.metadata_json
                     FROM terminal_sessions s
                     LEFT JOIN runtime_bindings r ON r.session_id = s.id
@@ -184,6 +184,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         terminalSize: terminalSize,
                         runtimeAdoptionDescriptor: descriptor,
                         kind: kind,
+                        agentSessionID: row["agent_session_id"],
                         title: row["title"],
                         lifecycle: lifecycle,
                         endedAt: row["ended_at"]
@@ -288,8 +289,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         sql: """
                         INSERT INTO terminal_sessions (
                             id, workspace_id, epoch, sequence, working_directory,
-                            columns, rows, kind, title, lifecycle, ended_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            columns, rows, kind, title, agent_session_id, lifecycle, ended_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             session.id.description,
@@ -301,6 +302,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             session.terminalSize.rows,
                             session.kind.rawValue,
                             session.title,
+                            session.agentSessionID,
                             session.lifecycle.rawValue,
                             session.endedAt,
                         ]
@@ -844,6 +846,11 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     SELECT RAISE(ABORT, 'tab workspace does not match session workspace');
                 END
                 """)
+        }
+        migrator.registerMigration("v3_agent_session_metadata") { database in
+            try database.alter(table: "terminal_sessions") { table in
+                table.add(column: "agent_session_id", .text)
+            }
         }
         return migrator
     }()

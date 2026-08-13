@@ -340,7 +340,7 @@ final class WarrenNextApplicationModel {
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession:
             reconcileSurfaces(with: snapshot)
-        case .addProject, .importSuperset, .requestNewWorkspace,
+        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace,
              .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
              .toggleInspector, .toggleSidebar:
@@ -403,6 +403,8 @@ final class WarrenNextApplicationModel {
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
             return selectedWorkspaceID
+        case .renameWorkspace(let workspaceID, _):
+            return workspaceID
         case .addProject, .importSuperset, .requestNewWorkspace,
              .selectProject, .selectTab,
              .toggleInspector, .toggleSidebar:
@@ -455,6 +457,8 @@ extension WarrenNextApplicationModel {
             await run {
                 try await service.deleteSession(sessionID: sessionID)
             }
+        case .renameWorkspace(let workspaceID, let name):
+            await run { try await service.renameWorkspace(workspaceID, name: name) }
         case .launchSession(let workspaceID, let request):
             do {
                 let tabID = try await service.addTab(
@@ -623,7 +627,7 @@ extension WarrenNextApplicationModel {
 private extension WarrenDesktopAction {
     var requiresHostSideEffect: Bool {
         switch self {
-        case .closeTab, .closeOtherTabs, .closeAllTabs,
+        case .closeTab, .closeOtherTabs, .closeAllTabs, .renameWorkspace,
              .openSession, .deleteSession, .launchSession:
             true
         case .addProject, .importSuperset, .requestNewWorkspace,

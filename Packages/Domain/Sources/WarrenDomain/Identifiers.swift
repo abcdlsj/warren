@@ -26,6 +26,13 @@ public struct DomainID<Tag: Sendable>: RawRepresentable, Codable, Hashable, Send
         rawValue.uuidString.lowercased()
     }
 
+    /// A stable, human-sized prefix for local paths and labels. The canonical
+    /// identity remains the complete UUID; this value is never persisted as a
+    /// second identifier.
+    public var shortDescription: String {
+        String(description.prefix(8))
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)

@@ -164,7 +164,8 @@ final class WarrenStateStoreTests: XCTestCase {
                 runtime: "tmux",
                 identifier: "warren-main",
                 metadata: ["window": "0"]
-            )
+            ),
+            agentSessionID: "codex-thread-123"
         )
         let state = PersistedHostState(
             hosts: [host],
@@ -180,6 +181,7 @@ final class WarrenStateStoreTests: XCTestCase {
         let loaded = try await repository.load()
 
         XCTAssertEqual(loaded, state)
+        XCTAssertEqual(loaded.terminalSessions[0].agentSessionID, "codex-thread-123")
         XCTAssertEqual(loaded.terminalSessions[0].terminalSession.epoch, 4)
         XCTAssertEqual(loaded.terminalSessions[0].terminalSize.columns, 120)
     }

@@ -572,7 +572,7 @@ final class WarrenApplicationTests: XCTestCase {
         )
     }
 
-    func testClosingTabsHidesClientTabsButKeepsRuntimeAndDurableSessions() async throws {
+    func testClosingTabsTerminatesRuntimeAndKeepsEndedHistory() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()
         let service = makeService(repository: repository, runtime: runtime)
@@ -598,15 +598,20 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertEqual(afterOthers.sessions.map(\.id), sessions)
         XCTAssertEqual(
             afterOthers.session(id: first.id)?.connectionState,
-            .disconnected
+            .exited
         )
 
         let durableAfterOthers = await service.persistedState()
-        for sessionID in sessions {
-            let runtimeAlive = await runtime.exists(sessionID: sessionID)
-            XCTAssertTrue(runtimeAlive)
-            XCTAssertNotNil(durableAfterOthers.terminalSessions.first { $0.id == sessionID })
-        }
+        let firstStillRunning = await runtime.exists(sessionID: first.id)
+        let secondStillRunning = await runtime.exists(sessionID: second.id)
+        let thirdStillRunning = await runtime.exists(sessionID: third.id)
+        XCTAssertFalse(firstStillRunning)
+        XCTAssertTrue(secondStillRunning)
+        XCTAssertFalse(thirdStillRunning)
+        XCTAssertEqual(
+            durableAfterOthers.terminalSessions.first { $0.id == first.id }?.lifecycle,
+            .ended
+        )
 
         // A stale close event is an idempotent no-op for the composition root.
         try await service.closeTabIfPresent(tabID: first.tabID, workspaceID: workspace.id)
@@ -617,20 +622,21 @@ final class WarrenApplicationTests: XCTestCase {
         let firstAlive = await runtime.exists(sessionID: first.id)
         let secondAlive = await runtime.exists(sessionID: second.id)
         let thirdAlive = await runtime.exists(sessionID: third.id)
-        XCTAssertTrue(firstAlive)
-        XCTAssertTrue(secondAlive)
-        XCTAssertTrue(thirdAlive)
+        XCTAssertFalse(firstAlive)
+        XCTAssertFalse(secondAlive)
+        XCTAssertFalse(thirdAlive)
         let durable = await service.persistedState()
         XCTAssertEqual(
             Set(durable.terminalSessions.map(\.id)),
             Set(sessions)
         )
 
-        let reopenedTabID = try await service.openSession(sessionID: first.id)
-        let reopened = await service.snapshot()
-        XCTAssertEqual(reopenedTabID, firstTabID)
-        XCTAssertEqual(reopened.tabs(in: workspace.id).map(\.id), [firstTabID])
-        XCTAssertEqual(reopened.session(id: first.id)?.connectionState, .attached)
+        do {
+            _ = try await service.openSession(sessionID: first.id)
+            XCTFail("An ended Session cannot be reopened as a live Tab")
+        } catch WarrenApplicationError.sessionNotFound {
+            // Expected. A new Tab creates a new Session.
+        }
     }
 
     func testClosingWorkspaceTabsDoesNotCloseAnotherWorkspace() async throws {
@@ -710,7 +716,8 @@ final class WarrenApplicationTests: XCTestCase {
                 XCTAssertFalse(closed.tabs(in: target).contains { $0.id == tabID })
                 XCTAssertNotNil(closed.session(id: sessionID))
                 let runtimeAlive = await runtime.exists(sessionID: sessionID)
-                XCTAssertTrue(runtimeAlive)
+                XCTAssertFalse(runtimeAlive)
+                XCTAssertEqual(closed.session(id: sessionID)?.connectionState, .exited)
             }
         }
 

@@ -505,7 +505,11 @@ public final class WebRelayServer {
               let sessionID = TerminalSessionID(uuidString: rawSession),
               let rawState = values["state"],
               let activity = TerminalSessionActivityState(rawValue: rawState) else { return }
-        try? await service.reportSessionActivity(sessionID: sessionID, state: activity)
+        try? await service.reportSessionActivity(
+            sessionID: sessionID,
+            state: activity,
+            agentSessionID: values["agent_session_id"]
+        )
     }
 
     fileprivate func attach(_ sessionID: TerminalSessionID, to peer: SocketConnection) async {

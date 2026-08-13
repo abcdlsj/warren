@@ -36,7 +36,6 @@ final class WebRelayTests: XCTestCase {
         XCTAssertEqual(Self.ids(in: roster, key: "sessions"), [sessionID.description])
         XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
 
-        try await service.terminateSession(sessionID: sessionID)
         roster = try Self.decodeJSON(await relay.rosterJSON())
         let sessions = try XCTUnwrap(roster["sessions"] as? [[String: String]])
         XCTAssertEqual(sessions.first?["state"], "exited")

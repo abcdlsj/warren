@@ -17,6 +17,8 @@ struct WarrenDesktopSidebarRows: View {
     @State private var expandedProjectIDs: Set<ProjectID> = []
     @State private var projectsCollapsed = false
     @State private var pendingDeletion: WarrenDesktopSession?
+    @State private var pendingRename: Workspace?
+    @State private var workspaceName = ""
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
@@ -93,7 +95,11 @@ struct WarrenDesktopSidebarRows: View {
                                 activity: workspaceActivity(workspace.id),
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),
-                                onSelect: { select(.workspace(workspace.id)) }
+                                onSelect: { select(.workspace(workspace.id)) },
+                                onRename: {
+                                    workspaceName = workspace.name
+                                    pendingRename = workspace
+                                }
                             )
                             .id(workspace.id)
                             .transition(.opacity)
@@ -119,6 +125,20 @@ struct WarrenDesktopSidebarRows: View {
             Button("Cancel", role: .cancel) { pendingDeletion = nil }
         } message: {
             Text("This closes every Tab for this Session, terminates its process if running, and removes its saved history.")
+        }
+        .alert("Rename Workspace", isPresented: Binding(
+            get: { pendingRename != nil },
+            set: { if !$0 { pendingRename = nil } }
+        )) {
+            TextField("Workspace name", text: $workspaceName)
+            Button("Rename") {
+                guard let workspace = pendingRename else { return }
+                pendingRename = nil
+                onAction(.renameWorkspace(workspace.id, workspaceName))
+            }
+            Button("Cancel", role: .cancel) { pendingRename = nil }
+        } message: {
+            Text("The Git branch name and worktree path are unchanged.")
         }
     }
 

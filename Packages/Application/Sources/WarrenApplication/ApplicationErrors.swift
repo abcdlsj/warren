@@ -17,6 +17,7 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
     case workspaceNotFound(WorkspaceID)
     case workspacePathAlreadyExists(String)
     case workspaceBranchInvalid(String)
+    case workspaceNameInvalid
     case gitWorktree(String)
     case sessionNotFound(TerminalSessionID)
     case attachmentNotFound(TerminalAttachmentID)
@@ -49,6 +50,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Workspace already exists: \(path)."
         case let .workspaceBranchInvalid(branch):
             return "Invalid workspace branch: \(branch)."
+        case .workspaceNameInvalid:
+            return "Workspace name cannot be empty."
         case let .gitWorktree(reason):
             return "Git worktree operation failed: \(reason)"
         case .sessionNotFound:
@@ -88,6 +91,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Select the existing workspace or choose another destination."
         case .workspaceBranchInvalid:
             return "Use a valid Git branch name without spaces or revision syntax."
+        case .workspaceNameInvalid:
+            return "Enter a short display name for the workspace."
         case .gitWorktree:
             return "Check the branch name, destination path, and Git repository state, then retry."
         case .sessionNotFound, .attachmentNotFound, .tabNotFound:

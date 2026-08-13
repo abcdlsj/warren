@@ -21,6 +21,14 @@ public struct LocalGitWorktreeManager: GitWorktreeManaging {
     public init() {}
 
     public func create(_ request: GitWorktreeCreation) async throws {
+        do {
+            try FileManager.default.createDirectory(
+                at: URL(fileURLWithPath: request.worktreePath).deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw WarrenApplicationError.gitWorktree(String(describing: error))
+        }
         try await run([
             "-C", request.repositoryPath,
             "worktree", "add", "-b", request.branch, request.worktreePath,
@@ -63,12 +71,21 @@ public struct LocalGitWorktreeManager: GitWorktreeManaging {
 
 public struct WorkspaceCreationRequest: Hashable, Sendable {
     public let requestID: UUID
+    public let displayName: String
     public let branch: String
     public let path: String
 
-    public init(requestID: UUID = UUID(), branch: String, path: String) {
+    public init(
+        requestID: UUID = UUID(),
+        displayName: String? = nil,
+        branch: String,
+        path: String = ""
+    ) {
         self.requestID = requestID
-        self.branch = branch
+        let normalizedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.displayName = normalizedName?.isEmpty == false ? normalizedName! : normalizedBranch
+        self.branch = normalizedBranch
         self.path = path
     }
 }

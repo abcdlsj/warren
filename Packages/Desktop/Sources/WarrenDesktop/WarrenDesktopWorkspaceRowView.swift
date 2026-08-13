@@ -13,6 +13,7 @@ struct WarrenDesktopWorkspaceRow: View {
     let isCollapsed: Bool
     let isSelected: Bool
     let onSelect: () -> Void
+    let onRename: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isFocused: Bool
@@ -57,6 +58,7 @@ struct WarrenDesktopWorkspaceRow: View {
             action: onSelect
         )
         .onHover { isHovered = $0 }
+        .contextMenu { Button("Rename Workspace", action: onRename) }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
     }
@@ -69,9 +71,7 @@ struct WarrenDesktopWorkspaceRow: View {
                     .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
                            height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
 
-                Text(workspace.branch?.isEmpty == false
-                     ? workspace.branch!
-                     : (workspace.name.isEmpty ? "Workspace" : workspace.name))
+                Text(workspace.name.isEmpty ? "Workspace" : workspace.name)
                     .font(WarrenTypography.workspaceRow)
                     .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
                     .lineLimit(1)
@@ -107,6 +107,7 @@ struct WarrenDesktopWorkspaceRow: View {
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
         .onHover { isHovered = $0 }
+        .contextMenu { Button("Rename Workspace", action: onRename) }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
     }

@@ -62,6 +62,8 @@ enum AgentHookInstaller {
         if [ -n "$1" ]; then INPUT=$1; else INPUT=$(cat); fi
         EVENT=$(printf '%s' "$INPUT" | sed -nE 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
         [ -n "$EVENT" ] || EVENT=$(printf '%s' "$INPUT" | sed -nE 's/.*"type"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
+        AGENT_SESSION_ID=$(printf '%s' "$INPUT" | sed -nE 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
+        [ -n "$AGENT_SESSION_ID" ] || AGENT_SESSION_ID=$(printf '%s' "$INPUT" | sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
         case "$EVENT" in
           SessionStart|UserPromptSubmit|Start|task_started|PostToolUse) STATE=working ;;
           PermissionRequest|exec_approval_request|apply_patch_approval_request|request_user_input) STATE=waitingForInput ;;
@@ -74,6 +76,7 @@ enum AgentHookInstaller {
           -G "$WARREN_HOOK_URL" \
           --data-urlencode "session=$WARREN_SESSION_ID" \
           --data-urlencode "state=$STATE" \
+          --data-urlencode "agent_session_id=$AGENT_SESSION_ID" \
           --data-urlencode "token=$WARREN_HOOK_TOKEN" \
           >/dev/null 2>&1 || true
         exit 0
