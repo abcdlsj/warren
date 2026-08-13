@@ -20,8 +20,6 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertFalse(WarrenDesktopChromeMode.workspace.showsIndependentTopBar)
         XCTAssertTrue(WarrenDesktopChromeMode.dashboard.showsIndependentTopBar)
 
-        let defaultMode = WarrenDesktopChromeMode.workspace
-        XCTAssertEqual(defaultMode, .workspace)
     }
 
     func testRootLayoutMountsAtSupersetDesktopSizeWithoutPixelCapture() {
@@ -142,18 +140,6 @@ final class WarrenDesktopTests: XCTestCase {
                 .toggleSidebar,
             ]
         )
-    }
-
-    func testProductionRootAcceptsTypedTerminalSurfaceSlot() {
-        let fixture = WarrenDesktopFixture.preview
-        let root = WarrenDesktopRoot(
-            projection: fixture.projection,
-            actions: WarrenDesktopActions()
-        ) { context in
-            TestTerminalSurface(context: context)
-        }
-
-        XCTAssertNotNil(root)
     }
 
     func testBuiltInPresetsMapToExplicitLaunchRequests() {

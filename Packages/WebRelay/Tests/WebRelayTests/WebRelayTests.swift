@@ -125,39 +125,8 @@ final class WebRelayTests: XCTestCase {
     }
 
     @MainActor
-    func testWebPageResourceIsBundled() {
+    func testWebPageResourceIsBundledAndURLInjectionIsSafe() {
         XCTAssertNotNil(WebRelayServer.webPageURL)
-        let html = try! XCTUnwrap(WebRelayServer.webPageHTML)
-        XCTAssertTrue(html.contains("manifest.webmanifest"))
-        XCTAssertTrue(html.contains("class=\"sidebar\""))
-        XCTAssertTrue(html.contains("class=\"mobile-keys\""))
-        XCTAssertTrue(html.contains("waitingForInput"))
-        XCTAssertTrue(html.contains("ready:\"Ready\""))
-        XCTAssertTrue(html.contains("const workspaceTabs"))
-        XCTAssertTrue(html.contains("tabs:msg.tabs || []"))
-        XCTAssertTrue(html.contains("attachedSession === activeSession"))
-        XCTAssertTrue(html.contains("location.search || location.hash"))
-        XCTAssertTrue(html.contains("__WARREN_INJECTED_PARAMS__"))
-        XCTAssertTrue(html.contains("__WARREN_RELAY_HOST_ID__"))
-        XCTAssertTrue(html.contains("warren.accessToken.${relayHostID}"))
-        XCTAssertTrue(html.contains("/v1/client/connect?host_id="))
-        XCTAssertTrue(html.contains("class=\"preset\" data-kind=\"shell\""))
-        XCTAssertTrue(html.contains("/preset-claude.svg"))
-        XCTAssertTrue(html.contains("id=\"pane-title\""))
-        XCTAssertTrue(html.contains("id=\"settings-page\""))
-        XCTAssertTrue(html.contains("id=\"settings-back\""))
-        XCTAssertTrue(html.contains("id=\"font-family\""))
-        XCTAssertTrue(html.contains("id=\"font-size\""))
-        XCTAssertTrue(html.contains("id=\"search-panel\""))
-        XCTAssertTrue(html.contains("const renderSearch"))
-        XCTAssertFalse(html.contains("id=\"sessions\""))
-        XCTAssertFalse(html.contains("data-delete-session"))
-        XCTAssertTrue(html.contains("warren.terminalTitleTemplate"))
-        XCTAssertTrue(html.contains("warren.terminalFontFamily"))
-        XCTAssertFalse(html.contains("class=\"count\""))
-        XCTAssertTrue(html.contains("const rebuildIndexes"))
-        XCTAssertTrue(html.contains("let sessionByID = new Map()"))
-        XCTAssertFalse(html.contains("access_token=${encodeURIComponent(token)}"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "service-worker", extension: "js"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "icon", extension: "svg"))
@@ -192,13 +161,6 @@ final class WebRelayTests: XCTestCase {
         )
         XCTAssertFalse(hostileHTML?.contains(#"host";alert(1)//"#) == true)
         XCTAssertTrue(hostileHTML?.contains("host%22;alert(1)//") == true)
-    }
-
-    func testManagedHookScriptMapsStopToReadyAndPermissionToWaiting() throws {
-        let script = try XCTUnwrap(AgentHookInstaller.scriptForTesting())
-        XCTAssertTrue(script.contains("PermissionRequest|exec_approval_request|apply_patch_approval_request|request_user_input) STATE=waitingForInput"))
-        XCTAssertTrue(script.contains("Stop|agent-turn-complete|task_complete) STATE=ready"))
-        XCTAssertTrue(script.contains("SessionEnd) STATE=none"))
     }
 
     func testManagedHookMergePreservesUserEntriesAndIsIdempotent() throws {

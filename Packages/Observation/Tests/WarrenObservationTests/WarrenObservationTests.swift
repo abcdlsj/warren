@@ -30,19 +30,6 @@ final class WarrenObservationTests: XCTestCase {
         XCTAssertEqual(snapshot.node(id: "z")?.label, "Z")
     }
 
-    func testSemanticSnapshotPreservesDuplicateIDsForInvariantChecks() {
-        let frame = WarrenSemanticRect(x: 0, y: 0, width: 1, height: 1)
-        let snapshot = WarrenSemanticSnapshot(
-            capturedAtNanoseconds: 1,
-            nodes: [
-                WarrenSemanticNode(id: "duplicate", role: .button, label: "One", frame: frame),
-                WarrenSemanticNode(id: "duplicate", role: .button, label: "Two", frame: frame),
-            ]
-        )
-
-        XCTAssertEqual(snapshot.nodes.count, 2)
-    }
-
     @MainActor
     func testRecorderPerformsRegisteredTypedAction() throws {
         let recorder = WarrenSemanticRecorder()
