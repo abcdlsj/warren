@@ -91,7 +91,7 @@ final class WebRelayTests: XCTestCase {
             "/", "/manifest.webmanifest", "/service-worker.js", "/icon.svg",
             "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png",
             "/preset-shell.svg", "/preset-claude.svg", "/preset-codex.svg",
-            "/preset-codex-white.svg",
+            "/preset-codex-white.svg", "/assets/app.js", "/assets/app.css",
         ] {
             let url = URL(string: path, relativeTo: base)!
             let (data, response) = try await URLSession.shared.data(from: url)
@@ -136,6 +136,10 @@ final class WebRelayTests: XCTestCase {
         for name in ["preset-shell", "preset-claude", "preset-codex", "preset-codex-white"] {
             XCTAssertNotNil(WebRelayServer.resourceData(named: name, extension: "svg"), name)
         }
+        XCTAssertNotNil(WebRelayServer.resourceData(at: "assets/app.js"))
+        XCTAssertNotNil(WebRelayServer.resourceData(at: "assets/app.css"))
+        XCTAssertEqual(WebRelayServer.contentType(for: "assets/app.js"), "text/javascript; charset=utf-8")
+        XCTAssertEqual(WebRelayServer.contentType(for: "assets/app.css"), "text/css; charset=utf-8")
         XCTAssertNotNil(WebRelayServer.webPageURLWithToken)
         XCTAssertEqual(WebRelayServer.localWebURL?.host, "127.0.0.1")
         XCTAssertEqual(WebRelayServer.localWebURL?.port, Int(WebRelayServer.defaultPort))

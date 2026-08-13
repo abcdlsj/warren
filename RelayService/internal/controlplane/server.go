@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -34,6 +36,17 @@ type Server struct {
 	web      fs.FS
 	upgrader websocket.Upgrader
 	mux      *http.ServeMux
+}
+
+var webStaticResources = map[string]string{
+	"apple-touch-icon.png":   "image/png",
+	"icon-192.png":           "image/png",
+	"icon-512.png":           "image/png",
+	"icon.svg":               "image/svg+xml",
+	"preset-claude.svg":      "image/svg+xml",
+	"preset-codex-white.svg": "image/svg+xml",
+	"preset-codex.svg":       "image/svg+xml",
+	"preset-shell.svg":       "image/svg+xml",
 }
 
 func NewServer(config Config) (*Server, error) {
@@ -91,10 +104,15 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /h/{hostID}/", server.webPage)
 	server.mux.HandleFunc("GET /h/{hostID}/manifest.webmanifest", server.hostManifest)
 	server.mux.HandleFunc("GET /h/{hostID}/service-worker.js", server.hostServiceWorker)
-	server.mux.HandleFunc("GET /h/{hostID}/icon.svg", server.webResource("icon.svg", "image/svg+xml"))
+	server.mux.HandleFunc("GET /h/{hostID}/assets/{name}", server.asset)
 	server.mux.HandleFunc("GET /manifest.webmanifest", server.webResource("manifest.webmanifest", "application/manifest+json"))
 	server.mux.HandleFunc("GET /service-worker.js", server.webResource("service-worker.js", "text/javascript; charset=utf-8"))
-	server.mux.HandleFunc("GET /icon.svg", server.webResource("icon.svg", "image/svg+xml"))
+	server.mux.HandleFunc("GET /assets/{name}", server.asset)
+	for name, contentType := range webStaticResources {
+		handler := server.webResource(name, contentType)
+		server.mux.HandleFunc("GET /"+name, handler)
+		server.mux.HandleFunc("GET /h/{hostID}/"+name, handler)
+	}
 }
 
 func (server *Server) health(response http.ResponseWriter, _ *http.Request) {
@@ -356,19 +374,34 @@ func (server *Server) verifyAccess(token, hostID string) (tokenClaims, error) {
 }
 
 func (server *Server) webPage(response http.ResponseWriter, request *http.Request) {
-	data, err := fs.ReadFile(server.web, "web.html")
+	data, err := fs.ReadFile(server.web, "index.html")
 	if err != nil {
 		http.Error(response, "web unavailable", http.StatusInternalServerError)
 		return
 	}
-	host := request.PathValue("hostID")
-	hostID, _ := json.Marshal(host)
-	page := strings.Replace(string(data), "\"__WARREN_RELAY_HOST_ID__\"", string(hostID), 1)
-	page = strings.ReplaceAll(page, "href=\"/manifest.webmanifest\"", fmt.Sprintf("href=\"/h/%s/manifest.webmanifest\"", url.PathEscape(host)))
-	page = strings.ReplaceAll(page, "href=\"/icon.svg\"", fmt.Sprintf("href=\"/h/%s/icon.svg\"", url.PathEscape(host)))
+	hostID, _ := json.Marshal(request.PathValue("hostID"))
+	prefix := "/h/" + url.PathEscape(request.PathValue("hostID"))
+	page := strings.Replace(string(data), "content=\"__WARREN_RELAY_HOST_ID__\"", fmt.Sprintf("content=%s", string(hostID)), 1)
+	page = scopeWebPage(page, prefix)
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = response.Write([]byte(page))
+}
+
+func scopeWebPage(page, prefix string) string {
+	for _, attribute := range []string{"href", "src", "srcset"} {
+		page = strings.ReplaceAll(page, attribute+"=\"/assets/", attribute+"=\""+prefix+"/assets/")
+	}
+	resources := []string{"manifest.webmanifest"}
+	for resource := range webStaticResources {
+		resources = append(resources, resource)
+	}
+	for _, resource := range resources {
+		for _, attribute := range []string{"href", "src", "srcset"} {
+			page = strings.ReplaceAll(page, attribute+"=\"/"+resource+"\"", attribute+"=\""+prefix+"/"+resource+"\"")
+		}
+	}
+	return page
 }
 
 func (server *Server) hostManifest(response http.ResponseWriter, request *http.Request) {
@@ -391,11 +424,17 @@ func (server *Server) hostManifest(response http.ResponseWriter, request *http.R
 
 func (server *Server) hostServiceWorker(response http.ResponseWriter, request *http.Request) {
 	host := url.PathEscape(request.PathValue("hostID"))
+	prefix := "/h/" + host
+	shell := []string{prefix + "/", prefix + "/manifest.webmanifest", prefix + "/assets/app.js", prefix + "/assets/app.css"}
+	for name := range webStaticResources {
+		shell = append(shell, prefix+"/"+name)
+	}
+	encodedShell, _ := json.Marshal(shell)
 	script := fmt.Sprintf(`const CACHE="warren-relay-%s-v1";
-const SHELL=["/h/%s/","/h/%s/manifest.webmanifest","/h/%s/icon.svg"];
+const SHELL=%s;
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting()});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x.startsWith("warren-relay-")&&x!==CACHE).map(x=>caches.delete(x)))));self.clients.claim()});
-self.addEventListener("fetch",e=>{if(e.request.method!=="GET"||new URL(e.request.url).pathname==="/v1/client/connect")return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))})`, host, host, host, host)
+self.addEventListener("fetch",e=>{if(e.request.method!=="GET"||new URL(e.request.url).pathname==="/v1/client/connect")return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))})`, host, encodedShell)
 	response.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	response.Header().Set("Service-Worker-Allowed", "/h/"+host+"/")
 	response.Header().Set("Cache-Control", "no-cache")
@@ -413,6 +452,29 @@ func (server *Server) webResource(name, contentType string) http.HandlerFunc {
 		response.Header().Set("Cache-Control", "public, max-age=300")
 		_, _ = response.Write(data)
 	}
+}
+
+func (server *Server) asset(response http.ResponseWriter, request *http.Request) {
+	server.serveAsset(response, request.PathValue("name"))
+}
+
+func (server *Server) serveAsset(response http.ResponseWriter, name string) {
+	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+		http.NotFound(response, nil)
+		return
+	}
+	data, err := fs.ReadFile(server.web, "assets/"+name)
+	if err != nil {
+		http.NotFound(response, nil)
+		return
+	}
+	contentType := mime.TypeByExtension(path.Ext(name))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	response.Header().Set("Content-Type", contentType)
+	response.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = response.Write(data)
 }
 
 func bearerToken(request *http.Request) string {

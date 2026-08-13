@@ -165,9 +165,36 @@ func TestAuthenticationAndHostOfflineContracts(t *testing.T) {
 	var page bytes.Buffer
 	_, _ = page.ReadFrom(response.Body)
 	response.Body.Close()
-	if !strings.Contains(page.String(), `const relayHostID = "`+hostID+`"`) {
+	if !strings.Contains(page.String(), `name="warren-relay-host-id" content="`+hostID+`"`) {
 		t.Fatal("relay host ID was not injected into web shell")
 	}
+	if !strings.Contains(page.String(), `/h/`+hostID+`/assets/app.js`) {
+		t.Fatal("relay web shell did not scope the Vite bundle to its host route")
+	}
+	for _, resource := range []string{
+		"apple-touch-icon.png",
+		"icon.svg",
+		"preset-claude.svg",
+		"preset-codex-white.svg",
+		"preset-codex.svg",
+		"preset-shell.svg",
+	} {
+		if !strings.Contains(page.String(), `/h/`+hostID+`/`+resource) {
+			t.Fatalf("relay web shell did not scope %s to its host route", resource)
+		}
+	}
+	for resource := range webStaticResources {
+		staticResponse, err := http.Get(httpServer.URL + "/h/" + hostID + "/" + resource)
+		if err != nil || staticResponse.StatusCode != http.StatusOK {
+			t.Fatalf("host static resource %s unavailable: response=%v err=%v", resource, staticResponse, err)
+		}
+		staticResponse.Body.Close()
+	}
+	assetResponse, err := http.Get(httpServer.URL + "/h/" + hostID + "/assets/app.js")
+	if err != nil || assetResponse.StatusCode != http.StatusOK || !strings.Contains(assetResponse.Header.Get("Content-Type"), "javascript") {
+		t.Fatalf("host Vite asset unavailable: response=%v err=%v", assetResponse, err)
+	}
+	assetResponse.Body.Close()
 	manifestResponse, err := http.Get(httpServer.URL + "/h/" + hostID + "/manifest.webmanifest")
 	if err != nil || manifestResponse.StatusCode != http.StatusOK {
 		t.Fatalf("host manifest unavailable: response=%v err=%v", manifestResponse, err)

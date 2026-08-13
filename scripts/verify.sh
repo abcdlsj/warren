@@ -25,10 +25,15 @@ run_package_tests() {
 }
 
 echo "==> swift build"
+npm --prefix "$repository_root/Web" ci
+npm --prefix "$repository_root/Web" run check
 swift build --package-path "$repository_root"
 
 echo "==> relay control plane"
 (cd "$repository_root" && bash -n scripts/relay-dev.sh && go vet ./RelayService/... && go test -race ./RelayService/...)
+
+echo "==> headless daemon and CLI"
+(cd "$repository_root" && go vet ./Headless/... && go test -race ./Headless/...)
 
 for package in \
     Domain Protocol StateStore Host LocalTransport ClientCore Transport \

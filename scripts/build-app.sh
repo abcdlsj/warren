@@ -14,10 +14,16 @@ esac
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 app_path="$repository_root/Warren.app"
 
+npm --prefix "$repository_root/Web" ci
+npm --prefix "$repository_root/Web" run build
+
 swift build \
     --package-path "$repository_root" \
     --configuration "$configuration" \
     --product WarrenNext
+
+go build -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
+go build -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
 
 binary_directory="$(
     swift build \
@@ -34,20 +40,14 @@ trap cleanup EXIT
 
 mkdir -p "$staging_path/Contents/MacOS" "$staging_path/Contents/Resources"
 install -m 755 "$binary_directory/WarrenNext" "$staging_path/Contents/MacOS/Warren"
+install -m 755 "$repository_root/.build/warren-cli" "$staging_path/Contents/MacOS/warren-cli"
+install -m 755 "$repository_root/.build/warren-headless" "$staging_path/Contents/MacOS/warren-headless"
 install -m 644 "$repository_root/Support/Info.plist" "$staging_path/Contents/Info.plist"
 install -m 644 "$repository_root/Assets/Brand/Warren.icns" "$staging_path/Contents/Resources/Warren.icns"
 cp -R \
     "$binary_directory/WarrenDesktop_WarrenDesktop.bundle" \
     "$staging_path/Contents/Resources/WarrenDesktop_WarrenDesktop.bundle"
-install -m 644 \
-    "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/web.html" \
-    "$staging_path/Contents/Resources/web.html"
-for resource in manifest.webmanifest service-worker.js icon.svg icon-192.png icon-512.png apple-touch-icon.png \
-    preset-shell.svg preset-claude.svg preset-codex.svg preset-codex-white.svg; do
-    install -m 644 \
-        "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/$resource" \
-        "$staging_path/Contents/Resources/$resource"
-done
+cp -R "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/." "$staging_path/Contents/Resources/"
 
 codesign --force --sign - "$staging_path"
 rm -rf "$app_path"

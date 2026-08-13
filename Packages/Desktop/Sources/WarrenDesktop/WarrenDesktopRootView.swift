@@ -17,6 +17,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let chromeMode: WarrenDesktopChromeMode
     public let webRelayStatus: WarrenDesktopWebRelayStatus
 
+    private let endpointOptions: [WarrenDesktopEndpointOption]
+    private let selectedEndpointID: String
+    private let onSelectEndpoint: (String) -> Void
+
     private let actions: WarrenDesktopActions
     private let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     private let onWebRelayStart: () -> Void
@@ -43,6 +47,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         chromeMode: WarrenDesktopChromeMode = .workspace,
         actions: WarrenDesktopActions = WarrenDesktopActions(),
         webRelayStatus: WarrenDesktopWebRelayStatus = .init(),
+        endpointOptions: [WarrenDesktopEndpointOption] = [
+            .init(id: "local", label: "Local", isLocal: true),
+        ],
+        selectedEndpointID: String = "local",
+        onSelectEndpoint: @escaping (String) -> Void = { _ in },
         onWebRelayStart: @escaping () -> Void = {},
         onWebRelayStop: @escaping () -> Void = {},
         onWebRelayOpenURL: @escaping (URL) -> Void = { _ in },
@@ -53,6 +62,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.navigation = navigation ?? WarrenDesktopNavigationReducer.initial(for: projection)
         self.chromeMode = chromeMode
         self.webRelayStatus = webRelayStatus
+        self.endpointOptions = endpointOptions
+        self.selectedEndpointID = selectedEndpointID
+        self.onSelectEndpoint = onSelectEndpoint
         self.actions = actions
         self.terminalSurface = terminalSurface
         self.onWebRelayStart = onWebRelayStart
@@ -99,6 +111,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,
                         isConnected: projection.isConnected,
+                        endpointOptions: endpointOptions,
+                        selectedEndpointID: selectedEndpointID,
                         webRelayStatus: webRelayStatus,
                         hasInspector: projection.inspector != nil,
                         isInspectorVisible: inspectorVisible,
@@ -110,6 +124,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             settingsPresented = true
                         },
                         onWebRelay: { webRelayPresented.toggle() },
+                        onSelectEndpoint: onSelectEndpoint,
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))

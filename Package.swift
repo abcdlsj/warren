@@ -52,10 +52,6 @@ let package = Package(
             ],
             path: "Sources/TerminalProbe"
         ),
-        .executableTarget(
-            name: "warren",
-            path: "Sources/warren"
-        ),
         .testTarget(
             name: "ApplicationIntegrationTests",
             dependencies: [

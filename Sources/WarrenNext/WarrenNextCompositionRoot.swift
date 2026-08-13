@@ -8,6 +8,7 @@ import WarrenStateStore
 
 struct WarrenNextCompositionRoot: View {
     @State private var model: WarrenNextApplicationModel
+    @State private var remoteModel = WarrenRemoteApplicationModel()
     @State private var isProjectImporterPresented = false
     @State private var isSupersetDatabaseImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
@@ -17,6 +18,8 @@ struct WarrenNextCompositionRoot: View {
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
     private var terminalFontSize = TerminalFontPreference.defaultSize
+    @AppStorage("executionEndpoint")
+    private var selectedEndpointID = "local"
 
     @MainActor
     init(model: WarrenNextApplicationModel = .live()) {
@@ -25,11 +28,14 @@ struct WarrenNextCompositionRoot: View {
 
     var body: some View {
         WarrenDesktopRoot(
-            projection: model.desktopProjection,
-            navigation: model.navigation,
+            projection: activeProjection,
+            navigation: activeNavigation,
             chromeMode: .workspace,
             actions: WarrenDesktopActions(send: handle),
             webRelayStatus: model.webRelayStatus,
+            endpointOptions: endpointOptions,
+            selectedEndpointID: selectedEndpointID,
+            onSelectEndpoint: selectEndpoint,
             onWebRelayStart: { model.startWebRelayFromUI() },
             onWebRelayStop: { model.stopWebRelay() },
             onWebRelayOpenURL: { model.openWebRelayURL($0) },
@@ -37,7 +43,7 @@ struct WarrenNextCompositionRoot: View {
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,
-                model: model
+                surfaces: isLocalEndpoint ? model.mountedSurfaces : remoteModel.mountedSurfaces
             )
         }
         .preferredColorScheme(.dark)
@@ -66,17 +72,25 @@ struct WarrenNextCompositionRoot: View {
         .sheet(isPresented: sessionCreatorBinding) {
             if let workspaceID = sessionCreatorWorkspaceID {
                 WarrenNextSessionCreatorView(
-                    workspaceName: model.desktopProjection.workspace(id: workspaceID)?.name ?? "Workspace"
+                    workspaceName: activeProjection.workspace(id: workspaceID)?.name ?? "Workspace"
                 ) { request in
-                    model.createSession(workspaceID: workspaceID, request: request)
+                    if isLocalEndpoint {
+                        model.createSession(workspaceID: workspaceID, request: request)
+                    } else {
+                        remoteModel.createSession(workspaceID: workspaceID, request: request)
+                    }
                 }
             }
         }
         .sheet(isPresented: workspaceCreatorBinding) {
             if let projectID = workspaceCreatorProjectID,
-               let project = model.desktopProjection.projectGroup(id: projectID)?.project {
+               let project = activeProjection.projectGroup(id: projectID)?.project {
                 WarrenNextWorkspaceCreatorView(project: project) { request in
-                    model.createWorkspace(projectID: projectID, request: request)
+                    if isLocalEndpoint {
+                        model.createWorkspace(projectID: projectID, request: request)
+                    } else {
+                        remoteModel.createWorkspace(projectID: projectID, request: request)
+                    }
                 }
             }
         }
@@ -100,6 +114,8 @@ struct WarrenNextCompositionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
             model.copySecureWebURL()
         }
+        .task { restoreEndpointSelection() }
+        .onChange(of: selectedEndpointID) { _, _ in connectSelectedEndpoint() }
     }
 
     private func updateTerminalFont() {
@@ -110,6 +126,16 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private func handle(_ action: WarrenDesktopAction) {
+        if !isLocalEndpoint {
+            if case .requestNewWorkspace(let projectID) = action {
+                workspaceCreatorProjectID = projectID
+            } else if case .requestNewSession(let workspaceID) = action {
+                sessionCreatorWorkspaceID = workspaceID
+            } else {
+                remoteModel.perform(action)
+            }
+            return
+        }
         if action == .addProject {
             isProjectImporterPresented = true
         } else if action == .importSuperset {
@@ -121,6 +147,46 @@ struct WarrenNextCompositionRoot: View {
         } else {
             model.perform(action)
         }
+    }
+
+    private var endpointCatalog: [WarrenRemoteEndpointConfiguration] {
+        WarrenEndpointCatalog.load().endpoints
+    }
+
+    private var endpointOptions: [WarrenDesktopEndpointOption] {
+        [.init(id: "local", label: "Local", isLocal: true)] + endpointCatalog.map {
+            .init(id: $0.id, label: $0.name)
+        }
+    }
+
+    private var isLocalEndpoint: Bool { selectedEndpointID == "local" }
+    private var activeProjection: WarrenDesktopProjection {
+        isLocalEndpoint ? model.desktopProjection : remoteModel.projection
+    }
+    private var activeNavigation: WarrenDesktopNavigationState {
+        isLocalEndpoint ? model.navigation : remoteModel.navigation
+    }
+
+    private func selectEndpoint(_ id: String) {
+        guard endpointOptions.contains(where: { $0.id == id }) else { return }
+        selectedEndpointID = id
+    }
+
+    private func restoreEndpointSelection() {
+        guard endpointOptions.contains(where: { $0.id == selectedEndpointID }) else {
+            selectedEndpointID = "local"
+            return
+        }
+        connectSelectedEndpoint()
+    }
+
+    private func connectSelectedEndpoint() {
+        guard !isLocalEndpoint,
+              let endpoint = endpointCatalog.first(where: { $0.id == selectedEndpointID }) else {
+            remoteModel.disconnect()
+            return
+        }
+        remoteModel.connect(endpoint)
     }
 
     private func beginSupersetImport() {
@@ -260,12 +326,10 @@ private struct WarrenNextSupersetImportView: View {
 
 private struct WarrenNextTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
-    let model: WarrenNextApplicationModel
+    let surfaces: [GhosttySurface]
     @State private var focusDriver = GhosttyFocusDriver()
 
     var body: some View {
-        let surfaces = model.mountedSurfaces
-
         if surfaces.isEmpty {
             VStack(spacing: 10) {
                 ProgressView()

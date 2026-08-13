@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#1c1918" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="warren-injected-params" content="__WARREN_INJECTED_PARAMS__" />
+  <meta name="warren-relay-host-id" content="__WARREN_RELAY_HOST_ID__" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <title>Warren</title>
+  <script type="module" crossorigin src="/assets/app.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/app.css">
+</head>
+<body>
+<div class="app" id="app">
+    <aside class="sidebar" aria-label="Projects and workspaces">
+      <div class="brand"><span class="brand-mark">B</span><span>Warren</span><span class="connection" id="connection"><span class="connection-dot"></span><span id="status">Connecting…</span></span></div>
+      <div class="sidebar-scroll"><div class="section-label">PROJECTS</div><div id="projects"></div></div>
+    </aside>
+    <button class="backdrop" id="backdrop" aria-label="Close navigation"></button>
+    <main class="main">
+      <header class="topbar"><button class="menu-button" id="menu" aria-label="Open navigation">☰</button><div class="tabs" id="tabs" role="tablist"></div><button class="new-session" id="new-session" aria-label="New shell">+</button><div class="chrome-spacer"></div><button class="chrome-button" id="settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.16.38.38.72.68 1 .3.28.69.42 1.1.4h.1v4h-.1A1.7 1.7 0 0 0 19.4 15Z"/></svg></button><button class="chrome-button" id="search" aria-label="Search projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></button></header>
+      <nav class="presetbar" aria-label="Session presets"><button class="preset" data-kind="shell"><img src="/preset-shell.svg" alt="">Shell</button><button class="preset" data-kind="claude"><img src="/preset-claude.svg" alt="">Claude</button><button class="preset" data-kind="codex"><picture><source media="(prefers-color-scheme:dark)" srcset="/preset-codex-white.svg"><img src="/preset-codex.svg" alt=""></picture>Codex</button></nav>
+      <div class="pane-title"><span id="pane-title"></span></div>
+      <section class="terminal-shell" aria-label="Terminal"><div id="terminal"></div><div class="terminal-empty" id="empty"><span>Select a Workspace to open its Sessions.</span></div></section>
+      <nav class="mobile-keys" aria-label="Terminal keys"><button class="mobile-key" data-key="escape">Esc</button><button class="mobile-key" data-key="tab">Tab</button><button class="mobile-key" data-key="ctrlC">Ctrl-C</button><button class="mobile-key" data-key="ctrlD">Ctrl-D</button><button class="mobile-key" data-key="up">↑</button><button class="mobile-key" data-key="down">↓</button><button class="mobile-key" data-key="left">←</button><button class="mobile-key" data-key="right">→</button></nav>
+    </main>
+  </div>
+  <section class="settings-page settings" id="settings-page" aria-label="Settings"><header class="settings-header"><button class="settings-back" id="settings-back" aria-label="Back to Warren">←</button><h1>Settings</h1></header><div class="settings-content"><section class="settings-section"><h2>Terminal font</h2><p class="settings-detail">Applied to every web terminal.</p><div class="settings-fields"><label>Font family<input id="font-family" autocomplete="off" spellcheck="false"></label><label>Size<input id="font-size" type="number" min="8" max="32" step="1"></label></div><div class="font-preview" id="font-preview">Aa&nbsp;&nbsp;The quick brown fox&nbsp;&nbsp;0123456789</div></section><section class="settings-section"><h2>Terminal title</h2><p class="settings-detail">Build a title from live Session metadata.</p><label>Title template<input id="title-template" autocomplete="off" spellcheck="false"></label><div class="settings-preview" id="title-preview"></div><div class="placeholder-list" id="placeholders"></div></section><div class="settings-footer"><button type="button" class="settings-reset" id="restore-title-default">Restore Terminal Defaults</button></div></div></section>
+  <section class="search-panel" id="search-panel" aria-label="Project search"><div class="search-input-wrap"><span>⌕</span><input class="search-input" id="search-input" placeholder="Search projects, branches, or sessions…" autocomplete="off"><button class="settings-reset" id="search-close" aria-label="Close search">esc</button></div><div class="search-results" id="search-results"></div></section>
+</body>
+</html>

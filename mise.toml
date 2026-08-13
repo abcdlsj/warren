@@ -19,6 +19,14 @@ run = "bash scripts/run-app.sh release"
 description = "Build the macOS app"
 run = "bash scripts/build-app.sh debug"
 
+[tasks."build:headless"]
+description = "Build cross-platform headless daemon and CLI"
+run = "mkdir -p .build/headless && go build -o .build/headless/warren-headless ./Headless/cmd/warren-headless && go build -o .build/headless/warren ./Headless/cmd/warren"
+
+[tasks."test:headless"]
+description = "Run headless daemon and CLI tests"
+run = "go test -race ./Headless/..."
+
 [tasks.install]
 description = "Build the release app and install Warren.app into /Applications"
 run = "bash scripts/install-app.sh"
@@ -55,6 +63,14 @@ run = "bash scripts/verify.sh"
 [tasks."verify:web"]
 description = "Launch app and verify HTTP page + WebSocket auth/roster"
 run = "bash scripts/verify-web.sh"
+
+[tasks."web:dev"]
+description = "Run the Vite development server"
+run = "npm --prefix Web run dev"
+
+[tasks."web:build"]
+description = "Build the Vite web client into WebRelay resources"
+run = "npm --prefix Web ci && npm --prefix Web run build"
 
 [tasks."relay:run"]
 description = "Run the remote Relay control plane"

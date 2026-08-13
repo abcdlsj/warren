@@ -144,10 +144,11 @@ public final class WebRelayServer {
     // MARK: - Web page / tunnel / token
 
     public static var webPageURL: URL? {
-        if let bundled = Bundle.main.url(forResource: "web", withExtension: "html") {
+        if let bundled = Bundle.main.url(forResource: "index", withExtension: "html") {
             return bundled
         }
-        return Bundle.module.url(forResource: "web", withExtension: "html")
+        return Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "Resources")
+            ?? Bundle.module.url(forResource: "index", withExtension: "html")
     }
 
     public static var webPageHTML: String? {
@@ -156,9 +157,39 @@ public final class WebRelayServer {
     }
 
     static func resourceData(named name: String, extension fileExtension: String) -> Data? {
-        let url = Bundle.main.url(forResource: name, withExtension: fileExtension)
-            ?? Bundle.module.url(forResource: name, withExtension: fileExtension)
-        return url.flatMap { try? Data(contentsOf: $0) }
+        resourceData(at: "\(name).\(fileExtension)")
+    }
+
+    static func resourceData(at path: String) -> Data? {
+        let normalized = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !normalized.isEmpty, !normalized.split(separator: "/").contains("..") else { return nil }
+        let roots = [
+            Bundle.main.resourceURL,
+            Bundle.module.resourceURL?.appendingPathComponent("Resources"),
+            Bundle.module.resourceURL,
+        ].compactMap { $0 }
+        for root in roots {
+            let candidate = normalized.split(separator: "/").reduce(root) {
+                $0.appendingPathComponent(String($1))
+            }
+            if let data = try? Data(contentsOf: candidate) {
+                return data
+            }
+        }
+        return nil
+    }
+
+    static func contentType(for path: String) -> String {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "css": "text/css; charset=utf-8"
+        case "html": "text/html; charset=utf-8"
+        case "js": "text/javascript; charset=utf-8"
+        case "json", "map": "application/json"
+        case "png": "image/png"
+        case "svg": "image/svg+xml"
+        case "webmanifest": "application/manifest+json"
+        default: "application/octet-stream"
+        }
     }
 
     public static var accessToken: String {
@@ -849,19 +880,19 @@ private final class SocketConnection {
             } else if method == "GET", path == "/" || path == "/index.html" {
                 sendHTTPPage()
             } else if method == "GET", path == "/manifest.webmanifest" {
-                sendResource(name: "manifest", extension: "webmanifest", contentType: "application/manifest+json")
+                sendStaticFile(path: "manifest.webmanifest", cacheControl: "no-cache")
             } else if method == "GET", path == "/service-worker.js" {
-                sendResource(name: "service-worker", extension: "js", contentType: "text/javascript; charset=utf-8")
+                sendStaticFile(path: "service-worker.js", cacheControl: "no-cache")
             } else if method == "GET", path == "/icon.svg" {
-                sendResource(name: "icon", extension: "svg", contentType: "image/svg+xml")
+                sendStaticFile(path: "icon.svg", cacheControl: "no-cache")
             } else if method == "GET", path == "/icon-192.png" || path == "/icon-512.png" {
-                let name = String(path.dropFirst().dropLast(4))
-                sendResource(name: name, extension: "png", contentType: "image/png")
+                sendStaticFile(path: String(path.dropFirst()), cacheControl: "no-cache")
             } else if method == "GET", path == "/apple-touch-icon.png" {
-                sendResource(name: "apple-touch-icon", extension: "png", contentType: "image/png")
+                sendStaticFile(path: "apple-touch-icon.png", cacheControl: "no-cache")
             } else if method == "GET", path.hasPrefix("/preset-") && path.hasSuffix(".svg") {
-                let name = String(path.dropFirst().dropLast(4))
-                sendResource(name: name, extension: "svg", contentType: "image/svg+xml")
+                sendStaticFile(path: String(path.dropFirst()), cacheControl: "no-cache")
+            } else if method == "GET", path.hasPrefix("/assets/") {
+                sendStaticFile(path: String(path.dropFirst()), cacheControl: "public, max-age=300")
             } else if method == "GET", path.hasPrefix("/hook?") {
                 Task { await server.reportHook(path: path) }
                 sendHTTP(status: 204, body: "")
@@ -1000,15 +1031,15 @@ private final class SocketConnection {
         writeThenShutdown(header.data(using: .utf8)! + data)
     }
 
-    private func sendResource(name: String, extension fileExtension: String, contentType: String) {
-        guard let data = WebRelayServer.resourceData(named: name, extension: fileExtension) else {
+    private func sendStaticFile(path: String, cacheControl: String) {
+        guard let data = WebRelayServer.resourceData(at: path) else {
             sendHTTP(status: 404, body: "Not Found")
             return
         }
         let header =
             "HTTP/1.1 200 OK\r\n" +
-            "Content-Type: \(contentType)\r\n" +
-            "Cache-Control: no-cache\r\n" +
+            "Content-Type: \(WebRelayServer.contentType(for: path))\r\n" +
+            "Cache-Control: \(cacheControl)\r\n" +
             "Content-Length: \(data.count)\r\n" +
             "Connection: close\r\n\r\n"
         writeThenShutdown(Data(header.utf8) + data)

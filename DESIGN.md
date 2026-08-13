@@ -6,11 +6,11 @@
 
 ## 1. 产品目标
 
-Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工作台。
+Warren 是以 Workspace 为边界、以持久终端为核心的本地与远程开发工作台。
 
-第一期以 macOS Host 和桌面端为核心，同时交付同一 Host 上的响应式 Web/PWA 客户端。用户可以管理 Project 和 Workspace，在每个 Workspace 内创建、切换、关闭和恢复 Terminal Session，并通过 Ghostty 或 Web Terminal 获得持续的输入、颜色、尺寸和交互体验。
+macOS Desktop 默认连接进程内 Local Host，也可连接运行于 VPS 的 `warren-headless`。用户可以在右上角切换 Local 与 Server，管理目标 Host 上的 Project、Workspace、Git worktree 和 Terminal Session，并通过 Ghostty 获得持续的终端交互。CLI 使用同一远端 API，并提供 SSH 启动和端口转发入口。
 
-系统必须为后续 iOS 原生端、远程 Host、Session 分享、Automation 和中心控制面保留稳定边界。Web 网络可达性由用户显式启用，不得在默认启动时开放公网入口。
+系统必须为后续 iOS 原生端、Session 分享、Automation 和中心控制面保留稳定边界。Web 网络可达性由用户显式启用；Desktop 和 headless daemon 默认均不得开放公网入口。
 
 ## 2. 第一原则
 
@@ -33,7 +33,7 @@ Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 
 ### 3.1 资源
 
-**Host**：持有 Project、Workspace、Terminal Session 和 Runtime 真实状态的执行节点。第一期是当前 Mac 上的本地 Host Service。
+**Host**：持有 Project、Workspace、Terminal Session 和 Runtime 真实状态的执行节点。Host 可以是当前 Mac 上的本地 Host Service，也可以是远端 VPS 上的 `warren-headless`。
 
 **Project**：一个 Git 仓库身份。Project 用于组织 Workspace，不是终端运行目录。
 
@@ -79,7 +79,7 @@ Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 
 ```text
 Resource Authority
-Local Host
+Selected Host
 └── Project
     └── Workspace
         └── Terminal Session
@@ -164,11 +164,15 @@ Local IPC / Direct WebSocket / Relay Transport
 Host Service or Host Daemon
 ```
 
-macOS Client 使用进程内组合；Web Client 通过 loopback WebSocket Adapter 连接同一 Host。后续将 Host 移入 daemon 时，不改变 Project、Workspace、Session、Client Layout 或 Host Protocol。
+macOS Client 对 Local 使用进程内组合，对 Server 使用版本化 WebSocket API。`warren-headless` 是远端 Host 的部署形态，持有独立资源树和 tmux runtime。Endpoint 切换只替换客户端投影与 renderer，不迁移或终止另一 Host 上的资源。
+
+SSH 只承担远端 daemon 引导和 loopback 端口转发。`warren ssh` 建立可达性后，Desktop 和 CLI 继续使用同一 WebSocket API；Git、tmux 和资源语义不得编码进 SSH transport。
 
 Tailscale、局域网、Cloudflare Tunnel 只提供网络可达性，不进入业务模型。中心 Relay Service 只提供 Host 注册、发现、配对、撤销、信令和 WebSocket Relay；Session 与进程仍由 Host 持有。
 
 WebRelay 默认只绑定 `127.0.0.1`。移动端访问和 PWA 安装使用用户显式启动的 Cloudflare Tunnel 或 Tailscale Serve HTTPS 地址；访问 URL 携带随机配对 token，WebSocket 握手后仍须认证。慢 Web Client 使用有界非阻塞发送队列，不能阻塞 macOS 主线程或 Host 输出。
+
+Web/PWA 客户端源码使用 Vite 组织，位于 `Web/`。`Packages/WebRelay/Sources/WebRelay/Resources` 只保存构建产物，由 Swift WebRelay 和 Go Relay Service 共同嵌入；不得直接维护单文件内嵌脚本副本。
 
 远端控制面是独立可部署进程。每台 Host 由管理员签发独立 credential，只向 Relay 建立出站 WSS；Relay 以 connection ID 多路复用 Web Client，不连接 macOS 入站端口。短期一次性 pairing code 换取绑定 Host 与 credential generation 的 HMAC access token；撤销或轮换 Host credential 必须立即断开 Host 并使旧 token 失效。Relay 持久化 credential hash、generation 和在线元数据，不保存 Project/Workspace/Session、Terminal 输出或用户输入。公网部署必须在 TLS 后、配置严格 Origin、强随机 Secret 和持久数据卷。
 

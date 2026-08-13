@@ -5,22 +5,38 @@ import json
 import os
 import plistlib
 import socket
+import subprocess
 import time
 
-prefs_path = os.path.expanduser("~/Library/Preferences/com.abcdlsj.warren.plist")
-with open(prefs_path, "rb") as f:
-    prefs = plistlib.load(f)
-token = prefs.get("webRelay.token", "")
+token = ""
+for domain in ("com.abcdlsj.warren", "WarrenNext"):
+    try:
+        token = subprocess.check_output(
+            ["defaults", "read", domain, "webRelay.token"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        continue
+    if token:
+        break
 if not token:
     raise SystemExit("missing webRelay.token")
 
 # HTTP page must answer Cloudflare health checks.
 http = socket.create_connection(("127.0.0.1", 8788), timeout=5)
 http.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
-http_data = http.recv(4096)
+chunks = []
+while True:
+    chunk = http.recv(65536)
+    if not chunk:
+        break
+    chunks.append(chunk)
+http_data = b"".join(chunks)
 http.close()
 assert b"200 OK" in http_data, http_data[:200]
 assert b"X-Warren: ok" in http_data, "health marker missing"
+assert b"/assets/app.js" in http_data, "Vite entry asset missing"
 print("http ok", flush=True)
 
 # WebSocket handshake + auth + roster.
@@ -62,8 +78,10 @@ def read_frame():
     return opcode, payload
 
 def read_text_frame():
-    opcode, payload = read_frame()
-    return json.loads(payload.decode())
+    while True:
+        opcode, payload = read_frame()
+        if opcode == 1:
+            return json.loads(payload.decode())
 
 send_text(json.dumps({"t": "auth", "token": token}))
 roster = read_text_frame()
@@ -74,14 +92,19 @@ attached = False
 if roster.get("tabs"):
     session_id = roster["tabs"][0]["session"]
     attached_msg = None
-    for _ in range(3):
-        send_text(json.dumps({"t": "attach", "session": session_id}))
+    send_text(json.dumps({"t": "attach", "session": session_id}))
+    deadline = time.time() + 15
+    while time.time() < deadline:
         try:
-            s.settimeout(15)
-            attached_msg = read_text_frame()
-            break
+            s.settimeout(deadline - time.time())
+            candidate = read_text_frame()
+            if candidate.get("t") == "attached":
+                attached_msg = candidate
+                break
+            if candidate.get("t") == "error":
+                raise AssertionError(candidate)
         except socket.timeout:
-            continue
+            break
     assert attached_msg is not None, "attach timed out"
     assert attached_msg.get("t") == "attached", attached_msg
     print("attach ok", flush=True)

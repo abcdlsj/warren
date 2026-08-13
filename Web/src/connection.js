@@ -1,0 +1,116 @@
+const connecting = 0;
+const open = 1;
+
+export function reconnectDelay(attempt, random = Math.random) {
+  const base = Math.min(30_000, 500 * (2 ** attempt));
+  return Math.round(base * (0.8 + random() * 0.4));
+}
+
+export class RelayConnection {
+  constructor({
+    url,
+    token,
+    WebSocketClass = WebSocket,
+    onMessage = () => {},
+    onState = () => {},
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+    random = Math.random,
+  }) {
+    this.url = url;
+    this.token = token;
+    this.WebSocketClass = WebSocketClass;
+    this.onMessage = onMessage;
+    this.onState = onState;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.random = random;
+    this.socket = null;
+    this.timer = null;
+    this.attempt = 0;
+    this.running = false;
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this.connect();
+  }
+
+  stop() {
+    this.running = false;
+    this.cancelTimer();
+    const socket = this.socket;
+    this.socket = null;
+    if (socket && socket.readyState <= open) socket.close();
+  }
+
+  reconnectNow() {
+    if (!this.running) return;
+    this.cancelTimer();
+    if (!this.socket || this.socket.readyState > open) this.connect();
+  }
+
+  markStable() {
+    this.attempt = 0;
+  }
+
+  reset() {
+    if (!this.running) return;
+    this.cancelTimer();
+    if (this.socket) {
+      this.socket.close();
+      return;
+    }
+    this.connect();
+  }
+
+  sendJSON(message) {
+    return this.send(JSON.stringify(message));
+  }
+
+  sendBinary(data) {
+    return this.send(new TextEncoder().encode(data));
+  }
+
+  send(data) {
+    if (this.socket?.readyState !== open) return false;
+    this.socket.send(data);
+    return true;
+  }
+
+  connect() {
+    if (!this.running || this.socket?.readyState <= open) return;
+    this.onState("connecting");
+    const socket = new this.WebSocketClass(this.url);
+    socket.binaryType = "arraybuffer";
+    this.socket = socket;
+
+    socket.onopen = () => {
+      if (socket !== this.socket) return;
+      this.onState("open");
+      this.sendJSON({ t: "auth", token: this.token });
+    };
+    socket.onmessage = event => {
+      if (socket === this.socket) this.onMessage(event);
+    };
+    socket.onerror = () => socket.close();
+    socket.onclose = () => {
+      if (socket !== this.socket) return;
+      this.socket = null;
+      if (!this.running) return;
+      this.onState("waiting");
+      const delay = reconnectDelay(this.attempt++, this.random);
+      this.timer = this.setTimer(() => {
+        this.timer = null;
+        this.connect();
+      }, delay);
+    };
+  }
+
+  cancelTimer() {
+    if (this.timer === null) return;
+    this.clearTimer(this.timer);
+    this.timer = null;
+  }
+}

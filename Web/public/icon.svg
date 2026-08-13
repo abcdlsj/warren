@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Warren app icon</title>
+  <desc id="desc">A warm white pixel W shaped like branching rabbit tunnels, with an amber cursor, on a charcoal pixel-rounded tile.</desc>
+
+  <!-- Pixel-rounded app tile. Every edge lands on the 32 px construction grid. -->
+  <path fill="#0f0d0c" d="M192 64h640v32h64v32h32v64h32v640h-32v64h-32v32h-64v32H192v-32h-64v-32H96v-64H64V192h32v-64h32V96h64z"/>
+  <path fill="#1c1918" d="M192 64h640v32h64v32h32v64h32v608h-32v64h-32v32h-64v32H192v-32h-64v-32H96v-64H64V192h32v-64h32V96h64z"/>
+
+  <!-- Quiet inset facets keep the tile dimensional without soft gradients. -->
+  <path fill="#24201e" d="M192 96h640v32h64v64h32v128h-32V224h-32v-64h-64v-32H224v32h-64v64h-32v320H96V192h32v-64h64z"/>
+  <path fill="#151110" d="M96 736h32v96h32v32h64v32h576v32H192v-32h-64v-32H96z"/>
+
+  <!-- Shadow and face of the W: two raised arms suggest rabbit ears; the lower forks suggest a warren. -->
+  <path fill="#0f0d0c" d="M160 256h128v160h32v128h32v128h64v-64h32v-96h128v96h32v64h64V544h32V416h32V256h128v192h-32v128h-32v128h-32v96H640v-64h-32v-64h-32v-64H448v64h-32v64h-32v64H256v-96h-32V576h-32V448h-32z" transform="translate(0 32)"/>
+  <path fill="#eae8e6" d="M160 256h128v160h32v128h32v128h64v-64h32v-96h128v96h32v64h64V544h32V416h32V256h128v192h-32v128h-32v128h-32v96H640v-64h-32v-64h-32v-64H448v64h-32v64h-32v64H256v-96h-32V576h-32V448h-32z"/>
+
+  <!-- Terminal cursor / rabbit-hole light. -->
+  <path fill="#f59e0b" d="M448 320h128v96H448z"/>
+  <path fill="#ffc247" d="M448 320h96v32h-96z"/>
+</svg>

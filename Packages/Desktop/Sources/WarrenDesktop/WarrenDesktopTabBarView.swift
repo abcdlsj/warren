@@ -11,6 +11,8 @@ struct WarrenDesktopTabBar: View {
     let chromeMode: WarrenDesktopChromeMode
     let isSidebarCollapsed: Bool
     let isConnected: Bool
+    let endpointOptions: [WarrenDesktopEndpointOption]
+    let selectedEndpointID: String
     let webRelayStatus: WarrenDesktopWebRelayStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
@@ -19,6 +21,7 @@ struct WarrenDesktopTabBar: View {
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWebRelay: () -> Void
+    let onSelectEndpoint: (String) -> Void
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
     let canAddTab: Bool
@@ -94,12 +97,15 @@ struct WarrenDesktopTabBar: View {
                 if chromeMode == .workspace {
                     WarrenDesktopWorkspaceTabTrailing(
                         isConnected: isConnected,
+                        endpointOptions: endpointOptions,
+                        selectedEndpointID: selectedEndpointID,
                         webRelayStatus: webRelayStatus,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
                         onCommandPalette: onCommandPalette,
                         onSettings: onSettings,
                         onWebRelay: onWebRelay,
+                        onSelectEndpoint: onSelectEndpoint,
                         onToggleInspector: onToggleInspector
                     )
                 }
@@ -148,16 +154,49 @@ private struct WarrenDesktopCollapsedWorkspaceLeading: View {
 
 private struct WarrenDesktopWorkspaceTabTrailing: View {
     let isConnected: Bool
+    let endpointOptions: [WarrenDesktopEndpointOption]
+    let selectedEndpointID: String
     let webRelayStatus: WarrenDesktopWebRelayStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWebRelay: () -> Void
+    let onSelectEndpoint: (String) -> Void
     let onToggleInspector: () -> Void
 
     var body: some View {
         HStack(spacing: WarrenSpacing.xs) {
+            Menu {
+                ForEach(endpointOptions) { endpoint in
+                    Button {
+                        onSelectEndpoint(endpoint.id)
+                    } label: {
+                        if endpoint.id == selectedEndpointID {
+                            Label(endpoint.label, systemImage: "checkmark")
+                        } else {
+                            Text(endpoint.label)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(isConnected ? Color.green : Color.orange)
+                        .frame(width: 6, height: 6)
+                    Text(endpointOptions.first(where: { $0.id == selectedEndpointID })?.label ?? "Server")
+                        .font(WarrenTypography.badge)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Execution server")
+
             WarrenDesktopChromeButton(
                 systemImage: "gearshape",
                 label: "Settings",
