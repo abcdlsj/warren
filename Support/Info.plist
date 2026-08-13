@@ -10,6 +10,8 @@
     <string>Warren</string>
     <key>CFBundleIdentifier</key>
     <string>com.abcdlsj.warren</string>
+    <key>CFBundleIconFile</key>
+    <string>Warren</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

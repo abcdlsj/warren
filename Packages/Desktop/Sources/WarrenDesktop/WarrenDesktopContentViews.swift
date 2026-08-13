@@ -10,6 +10,9 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let hasProjects: Bool
     let showsPaneHeader: Bool
     let branchSessions: [WarrenDesktopSession]
+    let hostName: String
+    let titleTemplate: TerminalDisplayTitleTemplate
+    let terminalFont: TerminalFontPreference
     let onAddProject: () -> Void
     let onImportSuperset: () -> Void
     let onNewSession: () -> Void
@@ -24,9 +27,18 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             WarrenDesktopPaneView(
                 workspace: workspace,
                 tab: tab,
+                session: tab.sessionID.flatMap { sessionID in
+                    branchSessions.first { $0.id == sessionID }
+                },
+                hostName: hostName,
+                titleTemplate: titleTemplate,
                 showsPaneHeader: showsPaneHeader,
                 terminalSurface: terminalSurface(
-                    WarrenDesktopTerminalContext(workspace: workspace, tab: tab)
+                    WarrenDesktopTerminalContext(
+                        workspace: workspace,
+                        tab: tab,
+                        font: terminalFont
+                    )
                 )
             )
         } else if workspace == nil, tab == nil, !hasProjects {
@@ -46,15 +58,12 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     }
 
     private func emptyWelcome(tokens: WarrenColorTokens) -> some View {
-        VStack(spacing: WarrenSpacing.medium) {
-            VStack(spacing: WarrenSpacing.xs) {
-                Text("Welcome to Warren")
-                    .font(WarrenTypography.screenTitle)
-                Text("Add a project folder, then start a shell or an agent CLI.")
-                    .font(WarrenTypography.body)
-                    .foregroundStyle(tokens.mutedForeground)
-                    .multilineTextAlignment(.center)
-            }
+        VStack(spacing: WarrenSpacing.standard) {
+            Image(systemName: "terminal")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(tokens.mutedForeground)
+            Text("Open a project to begin")
+                .font(WarrenTypography.screenTitle)
             Button(action: onAddProject) {
                 Text("Add Project…")
                     .font(WarrenTypography.bodyEmphasis)
@@ -68,50 +77,36 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 action: onAddProject
             )
             Button(action: onImportSuperset) {
-                Text("Import from Superset…")
-                    .font(WarrenTypography.bodyEmphasis)
+                Text("Import from Superset")
+                    .font(WarrenTypography.supporting)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
+            .buttonStyle(.plain)
+            .foregroundStyle(tokens.mutedForeground)
             .warrenSemanticElement(
                 id: "onboarding.import-superset",
                 role: .button,
                 label: "Import from Superset",
                 action: onImportSuperset
             )
-            HStack(spacing: WarrenSpacing.xs) {
-                Text("Or press")
-                Text("⌘K")
-                    .font(WarrenTypography.compactCode)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(tokens.fillHover)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-                Text("to open the command palette.")
-            }
-            .font(WarrenTypography.supporting)
-            .foregroundStyle(tokens.mutedForeground)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
     }
 
     private func emptyWorkspace(tokens: WarrenColorTokens, workspace: Workspace) -> some View {
-        VStack(spacing: WarrenSpacing.medium) {
-            VStack(spacing: WarrenSpacing.xs) {
-                Text(workspace.name)
-                    .font(WarrenTypography.screenTitle)
-                if let branch = workspace.branch {
-                    Text(branch)
-                        .font(WarrenTypography.code)
-                        .foregroundStyle(tokens.highlight)
-                }
-            }
-
+        VStack(spacing: WarrenSpacing.standard) {
             if branchSessions.isEmpty {
-                Text("No sessions in this branch")
-                    .font(WarrenTypography.body)
+                Image(systemName: "terminal")
+                    .font(.system(size: 26, weight: .light))
                     .foregroundStyle(tokens.mutedForeground)
+                Text("Start a session")
+                    .font(WarrenTypography.screenTitle)
+                Button(action: onNewSession) {
+                    Text("New Session…")
+                        .font(WarrenTypography.bodyEmphasis)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
             } else {
                 VStack(spacing: 2) {
                     ForEach(branchSessions) { session in
@@ -137,13 +132,6 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 }
                 .frame(maxWidth: 420)
             }
-
-            Button(action: onNewSession) {
-                Text("New Session…")
-                    .font(WarrenTypography.bodyEmphasis)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -153,6 +141,9 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
 private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
     let workspace: Workspace
     let tab: ClientTab
+    let session: WarrenDesktopSession?
+    let hostName: String
+    let titleTemplate: TerminalDisplayTitleTemplate
     let showsPaneHeader: Bool
     let terminalSurface: TerminalSurface
 
@@ -163,7 +154,7 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
         VStack(spacing: 0) {
             if showsPaneHeader {
                 HStack(spacing: WarrenSpacing.compact) {
-                    Text(tab.title)
+                    Text(displayTitle)
                         .font(WarrenTypography.paneHeader)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -196,6 +187,21 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Terminal panel \(tab.title)")
+    }
+
+    private var displayTitle: String {
+        titleTemplate.render(TerminalDisplayTitleContext(
+            session: session?.title ?? tab.title,
+            command: session?.runtimeProcess ?? tab.kind.displayName,
+            directory: session?.workingDirectory.isEmpty == false
+                ? session!.workingDirectory
+                : workspace.path,
+            workspace: workspace.name,
+            branch: workspace.branch ?? "",
+            host: hostName,
+            user: NSUserName(),
+            os: ProcessInfo.processInfo.operatingSystemVersionString
+        ))
     }
 }
 

@@ -73,6 +73,11 @@ public enum WarrenDesktopNavigationReducer {
                 selection: .workspace(session.workspaceID),
                 selectedTabID: session.tabID
             )
+        case .deleteSession(let sessionID):
+            guard projection.sessions.contains(where: { $0.id == sessionID }) else { return state }
+            let deletedTabID = projection.sessions.first { $0.id == sessionID }?.tabID
+            guard state.selectedTabID == deletedTabID else { return state }
+            return WarrenDesktopNavigationState(selection: state.selection, selectedTabID: nil)
         case .closeTab(let tabID):
             guard state.selectedTabID == tabID else { return state }
             let tabs = tabs(for: state.selection, projection: projection)

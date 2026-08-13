@@ -25,7 +25,10 @@ let package = Package(
                 .product(name: "WarrenDesignSystem", package: "DesignSystem"),
                 .product(name: "WarrenObservation", package: "Observation"),
             ],
-            path: "Sources/WarrenDesktop"
+            path: "Sources/WarrenDesktop",
+            resources: [
+                .process("Resources"),
+            ]
         ),
         .testTarget(
             name: "WarrenDesktopTests",

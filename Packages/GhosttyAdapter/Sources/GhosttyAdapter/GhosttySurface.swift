@@ -24,6 +24,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         id: TerminalSessionID,
         attachmentID: TerminalAttachmentID,
         workingDirectory: String,
+        font: TerminalFontPreference = .init(),
         onInput: @escaping @Sendable (Data) -> Void,
         onResize: @escaping @Sendable (Int, Int) -> Void
     ) {
@@ -53,8 +54,8 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         )
         let controller = TerminalController(theme: theme) { builder in
             builder.withBackgroundOpacity(1)
-            builder.withFontFamily("monospace")
-            builder.withFontSize(13)
+            builder.withFontFamily(font.family)
+            builder.withFontSize(Float(font.size))
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
         }
@@ -74,6 +75,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public func receive(_ payload: Data) {
         ansiObserver.receive(payload)
         inMemory.receive(payload)
+    }
+
+    public func apply(font: TerminalFontPreference) {
+        _ = state.controller.setTerminalConfiguration(TerminalConfiguration { builder in
+            builder.withBackgroundOpacity(1)
+            builder.withFontFamily(font.family)
+            builder.withFontSize(Float(font.size))
+            builder.withWindowPaddingX(0)
+            builder.withWindowPaddingY(0)
+        })
     }
 
     public func semanticSnapshot() -> TerminalSemanticSnapshot {

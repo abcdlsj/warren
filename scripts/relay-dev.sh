@@ -16,11 +16,28 @@ if [[ -n "${WARREN_RELAY_URL:-}" ]]; then
     default_state_directory="$HOME/Library/Application Support/Warren/relay-cli/$relay_identity"
 else
     manages_local_relay=1
-    relay_url="http://127.0.0.1:$relay_port"
     if [[ ! "$relay_port" =~ ^[0-9]+$ ]] || ((relay_port < 1 || relay_port > 65535)); then
         echo "WARREN_RELAY_DEV_PORT must be an integer from 1 to 65535." >&2
         exit 64
     fi
+    # The browser may run on another device. `127.0.0.1` would point back to
+    # that device, so local development publishes the Mac's LAN address by
+    # default. Override this when the Mac has multiple reachable networks.
+    relay_bind_host="${WARREN_RELAY_DEV_BIND_HOST:-0.0.0.0}"
+    relay_public_host="${WARREN_RELAY_DEV_HOST:-}"
+    if [[ -z "$relay_public_host" ]]; then
+        relay_public_host="$(
+            interface="$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+            if [[ -n "$interface" ]]; then
+                ipconfig getifaddr "$interface" 2>/dev/null || true
+            fi
+        )"
+    fi
+    if [[ -z "$relay_public_host" ]]; then
+        echo "无法发现 Mac 的局域网 IPv4 地址。请设置 WARREN_RELAY_DEV_HOST，例如 192.168.1.23。" >&2
+        exit 69
+    fi
+    relay_url="http://$relay_public_host:$relay_port"
     default_state_directory="$repository_root/.build/relay-dev/$relay_port"
 fi
 state_directory="${WARREN_RELAY_STATE_DIR:-${WARREN_RELAY_DEV_STATE_DIR:-$default_state_directory}}"
@@ -47,6 +64,10 @@ Usage: scripts/relay-dev.sh [up|start|pair|status|stop|logs]
   logs    Follow the local Relay log.
 
 Set WARREN_RELAY_NO_OPEN=1 to print the Web URL without opening a browser.
+For phone access, the local Relay listens on all interfaces and publishes the
+Mac LAN address. Set WARREN_RELAY_DEV_HOST when the default route is not the
+network reachable by your phone; set WARREN_RELAY_DEV_BIND_HOST to restrict
+the bind address.
 Set WARREN_RELAY_URL=https://relay.example.com to connect to a deployed Relay.
 The first remote connection also needs WARREN_RELAY_ADMIN_TOKEN for provisioning.
 EOF
@@ -134,8 +155,21 @@ start_relay() {
         write_secret "$signing_key_file" "$signing_key"
     fi
     if relay_is_running; then
-        wait_for_health
-        return
+        if wait_for_health; then
+            return
+        fi
+        # A process from an older script version may still be bound to
+        # 127.0.0.1. It is our exact binary/pid, but not reachable from the
+        # newly published LAN URL, so replace it with the current listener.
+        local stale_pid
+        stale_pid="$(relay_pid)"
+        echo "Existing Relay pid $stale_pid is not reachable at $relay_url; restarting it for LAN access." >&2
+        kill "$stale_pid" 2>/dev/null || true
+        for _ in {1..50}; do
+            kill -0 "$stale_pid" 2>/dev/null || break
+            sleep 0.1
+        done
+        rm -f "$pid_file"
     fi
     if /usr/sbin/lsof -nP -iTCP:"$relay_port" -sTCP:LISTEN >/dev/null 2>&1; then
         echo "Port $relay_port is already used by another process." >&2
@@ -143,13 +177,15 @@ start_relay() {
         exit 1
     fi
     go build -o "$relay_binary" ./RelayService/cmd/warren-relay
-    WARREN_RELAY_LISTEN="127.0.0.1:$relay_port" \
+    # Detach from the mise/terminal process group so the Relay remains alive
+    # after `relay:dev` finishes and can serve a phone browser.
+    WARREN_RELAY_LISTEN="$relay_bind_host:$relay_port" \
         WARREN_RELAY_PUBLIC_URL="$relay_url" \
         WARREN_RELAY_ALLOWED_ORIGIN="$relay_url" \
         WARREN_RELAY_ADMIN_TOKEN="$admin_token" \
         WARREN_RELAY_SIGNING_KEY="$signing_key" \
         WARREN_RELAY_DATA="$registry_file" \
-        "$relay_binary" >>"$log_file" 2>&1 &
+        nohup "$relay_binary" </dev/null >>"$log_file" 2>&1 &
     local pid=$!
     write_secret "$pid_file" "$pid"
     if ! wait_for_health; then
@@ -255,6 +291,10 @@ pair_host() {
     web_url="$(printf '%s' "$paired_response" | json_field web_url)"
     echo "Warren Remote is ready:"
     echo "$web_url"
+    if [[ "$manages_local_relay" == "1" ]]; then
+        echo "手机请与 Mac 处于同一网络，并访问上面的地址（Mac: $relay_public_host:$relay_port）。"
+        echo "若仍无法访问，请检查 macOS 防火墙是否允许 Warren Relay 接收入站连接。"
+    fi
     if [[ "${WARREN_RELAY_NO_OPEN:-0}" != "1" ]]; then
         open "$web_url"
     fi

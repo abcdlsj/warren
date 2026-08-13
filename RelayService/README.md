@@ -12,8 +12,11 @@ mise run relay:dev
 
 该命令会自动生成本地开发 Secret、启动 Relay、注册当前 Mac、构建并启动 Warren、
 等待 Host 上线、完成一次性配对并打开 Web/PWA。生成的开发状态放在忽略提交的
-`.build/relay-dev/8080`，Secret 文件权限为 `0600`。本地 Relay 只监听 `127.0.0.1`，
-用于体验完整流程，不会把 Mac 暴露到局域网或公网。
+`.build/relay-dev/8080`，Secret 文件权限为 `0600`。本地 Relay 默认监听所有局域网接口，
+并把 Mac 的局域网地址写入配对 URL，手机与 Mac 处于同一网络即可访问。可用
+`WARREN_RELAY_DEV_HOST=192.168.1.23` 指定手机可达的地址，或用
+`WARREN_RELAY_DEV_BIND_HOST=192.168.1.23` 把监听限制到单个接口。该开发模式只适合可信局域网，
+不应把端口暴露到公网。
 
 日常命令：
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WarrenDesignSystem
 import WarrenDomain
@@ -39,10 +40,15 @@ struct WarrenDesktopPresetBar: View {
                     Button {
                         onLaunch(preset.request)
                     } label: {
-                        Text(preset.title)
-                            .font(WarrenTypography.tabTitle)
-                            .lineLimit(1)
-                        .padding(.horizontal, WarrenSpacing.compact)
+                        HStack(spacing: 6) {
+                            WarrenPresetIcon(preset: preset)
+                                .frame(width: 14, height: 14)
+
+                            Text(preset.presetBarTitle)
+                                .font(.system(size: 12, weight: .regular))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 6)
                         .frame(height: 24)
                         .contentShape(.rect)
                     }
@@ -70,6 +76,47 @@ struct WarrenDesktopPresetBar: View {
         .accessibilityLabel("Command presets")
     }
 
+}
+
+private struct WarrenPresetIcon: View {
+    let preset: WarrenDesktopSessionPreset
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if let image = image {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                .opacity(0.9)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var image: NSImage? {
+        guard var name = preset.presetBarIconName else { return nil }
+        if name == "preset-codex", colorScheme == .dark {
+            name = "preset-codex-white"
+        }
+        guard let url = packagedResourceURL(name: name)
+            ?? Bundle.module.url(forResource: name, withExtension: "svg") else {
+            return nil
+        }
+        return NSImage(contentsOf: url)
+    }
+
+    private func packagedResourceURL(name: String) -> URL? {
+        Bundle.main.resourceURL?
+            .appendingPathComponent("WarrenDesktop_WarrenDesktop.bundle", isDirectory: true)
+            .appendingPathComponent("\(name).svg")
+            .existingFileURL
+    }
+}
+
+private extension URL {
+    var existingFileURL: URL? {
+        FileManager.default.fileExists(atPath: path) ? self : nil
+    }
 }
 
 private struct WarrenPresetHoverButtonStyle: ButtonStyle {

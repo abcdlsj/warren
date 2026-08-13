@@ -55,6 +55,25 @@ public struct TitleMessage: Codable, Hashable, Sendable {
     }
 }
 
+public struct RuntimeMetadataMessage: Codable, Hashable, Sendable {
+    public let version: ProtocolVersion
+    public let sessionID: TerminalSessionID
+    public let process: String
+    public let workingDirectory: String
+
+    public init(
+        version: ProtocolVersion = .current,
+        sessionID: TerminalSessionID,
+        process: String,
+        workingDirectory: String
+    ) {
+        self.version = version
+        self.sessionID = sessionID
+        self.process = process
+        self.workingDirectory = workingDirectory
+    }
+}
+
 public struct SyncedMessage: Codable, Hashable, Sendable {
     public let version: ProtocolVersion
     public let sessionID: TerminalSessionID
@@ -97,6 +116,7 @@ public enum ServerControlMessage: Codable, Hashable, Sendable {
     case error(ProtocolError)
     case exit(ExitMessage)
     case title(TitleMessage)
+    case runtimeMetadata(RuntimeMetadataMessage)
     case synced(SyncedMessage)
     case controlChanged(ControlChangedMessage)
 
@@ -106,6 +126,7 @@ public enum ServerControlMessage: Codable, Hashable, Sendable {
         case .error(let value): return value.version
         case .exit(let value): return value.version
         case .title(let value): return value.version
+        case .runtimeMetadata(let value): return value.version
         case .synced(let value): return value.version
         case .controlChanged(let value): return value.version
         }
@@ -128,6 +149,9 @@ public enum ServerControlMessage: Codable, Hashable, Sendable {
         case .title(let value):
             try container.encode("title", forKey: .type)
             try container.encode(value, forKey: .payload)
+        case .runtimeMetadata(let value):
+            try container.encode("runtime_metadata", forKey: .type)
+            try container.encode(value, forKey: .payload)
         case .synced(let value):
             try container.encode("synced", forKey: .type)
             try container.encode(value, forKey: .payload)
@@ -144,6 +168,9 @@ public enum ServerControlMessage: Codable, Hashable, Sendable {
         case "error": self = .error(try container.decode(ProtocolError.self, forKey: .payload))
         case "exit": self = .exit(try container.decode(ExitMessage.self, forKey: .payload))
         case "title": self = .title(try container.decode(TitleMessage.self, forKey: .payload))
+        case "runtime_metadata": self = .runtimeMetadata(
+            try container.decode(RuntimeMetadataMessage.self, forKey: .payload)
+        )
         case "synced": self = .synced(try container.decode(SyncedMessage.self, forKey: .payload))
         case "control_changed": self = .controlChanged(try container.decode(ControlChangedMessage.self, forKey: .payload))
         default:

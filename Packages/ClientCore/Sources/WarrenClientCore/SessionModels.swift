@@ -31,6 +31,8 @@ public struct ClientSessionSnapshot: Hashable, Sendable {
     public let connectionState: ClientConnectionState
     public let recoveryAnchor: RecoveryAnchor?
     public let title: String?
+    public let runtimeProcess: String
+    public let workingDirectory: String
     public let capabilities: ProtocolCapabilities
     public let reanchorRequired: Bool
     public let lastError: ProtocolError?
@@ -45,6 +47,8 @@ public struct ClientSessionSnapshot: Hashable, Sendable {
         connectionState: ClientConnectionState,
         recoveryAnchor: RecoveryAnchor?,
         title: String?,
+        runtimeProcess: String = "",
+        workingDirectory: String = "",
         capabilities: ProtocolCapabilities,
         reanchorRequired: Bool,
         lastError: ProtocolError?
@@ -58,6 +62,8 @@ public struct ClientSessionSnapshot: Hashable, Sendable {
         self.connectionState = connectionState
         self.recoveryAnchor = recoveryAnchor
         self.title = title
+        self.runtimeProcess = runtimeProcess
+        self.workingDirectory = workingDirectory
         self.capabilities = capabilities
         self.reanchorRequired = reanchorRequired
         self.lastError = lastError
@@ -76,6 +82,7 @@ public enum ClientSessionUpdate: Hashable, Sendable {
     case exit(ClientSessionSnapshot)
     case error(ClientSessionSnapshot)
     case title(ClientSessionSnapshot)
+    case runtimeMetadata(ClientSessionSnapshot)
     case binary(BinaryOutputFrame, ClientSessionSnapshot)
     case binaryHeader(BinaryOutputFrameHeader, ClientSessionSnapshot)
 }

@@ -14,16 +14,29 @@ extension TmuxRuntime {
         )
     }
 
-    func probeManagedSessionNames() async -> Set<String>? {
+    func probeManagedSessions() async -> [String: TerminalRuntimeMetadata]? {
         do {
-            let arguments = ["list-sessions", "-F", "#{session_name}"]
+            let separator = "|"
+            let arguments = [
+                "list-panes", "-a", "-F",
+                "#{session_name}\(separator)#{pane_current_command}\(separator)#{pane_current_path}",
+            ]
             let result = try await execute(arguments: arguments)
             // tmux exits 1 when no server/sessions exist. That is a valid
             // empty snapshot; higher exit codes and executor failures remain
             // transient observation errors.
-            if result.exitCode == 1 { return [] }
+            if result.exitCode == 1 { return [:] }
             guard result.exitCode == 0 else { return nil }
-            return Set(result.stdoutText.split(whereSeparator: \.isNewline).map(String.init))
+            var observations: [String: TerminalRuntimeMetadata] = [:]
+            for line in result.stdoutText.split(whereSeparator: \.isNewline) {
+                let fields = line.split(separator: Character(separator), maxSplits: 2, omittingEmptySubsequences: false)
+                guard fields.count == 3 else { continue }
+                observations[String(fields[0])] = TerminalRuntimeMetadata(
+                    process: String(fields[1]),
+                    workingDirectory: String(fields[2])
+                )
+            }
+            return observations
         } catch {
             // A transient tmux invocation failure must not immediately report
             // an exit. The next monitor tick gets another chance.

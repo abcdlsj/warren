@@ -72,6 +72,8 @@ extension WarrenApplicationService {
             case let .title(snapshot):
                 connection.title = snapshot.title ?? connection.title
                 connections[sessionID] = connection
+            case .runtimeMetadata:
+                connections[sessionID] = connection
             case .binary, .binaryHeader:
                 connections[sessionID] = connection
             }
@@ -121,6 +123,7 @@ extension WarrenApplicationService {
         case let .error(value): return value.sessionID ?? soleSessionID()
         case let .exit(value): return value.sessionID
         case let .title(value): return value.sessionID
+        case let .runtimeMetadata(value): return value.sessionID
         case let .synced(value): return value.sessionID
         case let .controlChanged(value): return value.sessionID
         }

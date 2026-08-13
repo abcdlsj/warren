@@ -17,7 +17,9 @@ Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 1. Session 属于 Host，Tab 属于 Window，Runtime 属于 Session。三者生命周期互不替代。
 2. Workspace 是终端、Tab 和异步命令的隔离边界。
 3. tmux 是可替换的 Runtime Adapter，不是产品领域模型。
-4. 关闭 Tab、切换 Workspace、关闭窗口或退出 Client 不结束 Session。
+4. Warren v1 中，一个打开的 Tab 对应一个 Warren Terminal Session；关闭 Tab
+   就是显式终止该 Session 的 Runtime。切换 Workspace 或退出 Client 不会
+   额外终止仍被保留在客户端布局中的 Tab/Session。
 5. 只有显式终止 Session 才能结束其 Runtime。
 6. UI 只展示投影并发送 typed intent，不直接操作 tmux、数据库或 Ghostty 生命周期。
 7. 每类状态只有一个写入权威；缓存和投影不得成为第二权威。
@@ -49,7 +51,9 @@ Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 
 **Workspace View**：一个 Window 为一个 Workspace 保存的本地展示状态，包含有序 Tabs 和 Active Tab。
 
-**Tab**：Workspace View 中指向 Terminal Session 的本地入口。关闭 Tab 不终止 Session；同一个 Session 在一个 Workspace View 中最多有一个 Tab。
+**Tab**：Workspace View 中指向 Terminal Session 的本地入口。Warren v1 中
+一个打开的 Tab 对应一个 Session；关闭 Tab 会终止该 Session 的 Runtime。
+同一个活动 Session 不在一个 Workspace View 中重复打开。
 
 **Renderer Surface**：客户端为一个 Tab 挂载的 Ghostty 表面。Surface 不拥有 Session。
 
@@ -113,7 +117,8 @@ Terminal Session
 6. 一个 Window 同时只有一个 Active Workspace；一个 Workspace View 同时最多只有一个 Active Tab。
 7. 后台 Workspace 不挂载 Surface，不发送输入，不发送 resize。
 8. 一个 Session 同时最多有一个 Input Lease 和一个 Canonical Viewport Owner。
-9. 关闭 Tab 不 detach 其他 Client，也不 kill tmux。
+9. Warren v1 关闭 Tab 会终止其对应 Runtime；它不是仅 detach。没有 Tab
+   的 ended Session 记录仍可保留供历史查看和后续清理。
 10. Project 的新增动作创建 Workspace；Workspace 或 Tab 条的新增动作创建 Session。
 11. 创建 Session 必须携带固定 Workspace ID 和 Request ID；相同 Request ID 最多创建一个 Session。
 12. App 初始化不得自动创建 shell、Codex 或 Claude Session。
@@ -291,7 +296,7 @@ Resize 按 Session 使用单一 worker，latest wins；激活 Surface 后强制�
 
 ### 9.6 关闭、退出与恢复
 
-- Close Tab：移除本地 Tab 和 Surface，不终止 Session。
+- Close Tab：终止对应 Runtime，记录 Session 为 ended，再移除本地 Tab 和 Surface。
 - Detach：断开一个 Attachment，不终止 Session。
 - Terminate Session：请求 Runtime 结束 tmux，并记录 ended 状态。
 - Quit Client：停止 UI、连接和观察任务；tmux 保持运行。

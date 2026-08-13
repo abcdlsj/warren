@@ -35,10 +35,15 @@ trap cleanup EXIT
 mkdir -p "$staging_path/Contents/MacOS" "$staging_path/Contents/Resources"
 install -m 755 "$binary_directory/WarrenNext" "$staging_path/Contents/MacOS/Warren"
 install -m 644 "$repository_root/Support/Info.plist" "$staging_path/Contents/Info.plist"
+install -m 644 "$repository_root/Assets/Brand/Warren.icns" "$staging_path/Contents/Resources/Warren.icns"
+cp -R \
+    "$binary_directory/WarrenDesktop_WarrenDesktop.bundle" \
+    "$staging_path/Contents/Resources/WarrenDesktop_WarrenDesktop.bundle"
 install -m 644 \
     "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/web.html" \
     "$staging_path/Contents/Resources/web.html"
-for resource in manifest.webmanifest service-worker.js icon.svg; do
+for resource in manifest.webmanifest service-worker.js icon.svg icon-192.png icon-512.png apple-touch-icon.png \
+    preset-shell.svg preset-claude.svg preset-codex.svg preset-codex-white.svg; do
     install -m 644 \
         "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/$resource" \
         "$staging_path/Contents/Resources/$resource"

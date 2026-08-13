@@ -17,6 +17,7 @@ public actor TerminalSessionCoordinator {
         var attachments: [TerminalAttachmentID: AttachmentState]
         var controllerLease: ControlLease?
         var output: OutputRing
+        var runtimeMetadata: TerminalRuntimeMetadata?
     }
 
     package let runtime: any TerminalRuntime

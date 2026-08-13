@@ -894,6 +894,59 @@ final class WarrenApplicationTests: XCTestCase {
         )
     }
 
+    func testDeleteSessionTerminatesRuntimeAndRemovesTabAndDurableRecord() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let deletedTabID = try await service.addTab(workspaceID: workspace.id, title: "Delete")
+        let retainedTabID = try await service.addTab(workspaceID: workspace.id, title: "Keep")
+        let before = await service.snapshot()
+        let deletedSessionID = try XCTUnwrap(
+            before.tabs(in: workspace.id).first { $0.id == deletedTabID }?.sessionID
+        )
+        let retainedSessionID = try XCTUnwrap(
+            before.tabs(in: workspace.id).first { $0.id == retainedTabID }?.sessionID
+        )
+
+        try await service.deleteSession(sessionID: deletedSessionID)
+
+        let deletedRuntimeExists = await runtime.exists(sessionID: deletedSessionID)
+        let retainedRuntimeExists = await runtime.exists(sessionID: retainedSessionID)
+        XCTAssertFalse(deletedRuntimeExists)
+        XCTAssertTrue(retainedRuntimeExists)
+        let after = await service.snapshot()
+        XCTAssertNil(after.session(id: deletedSessionID))
+        XCTAssertEqual(after.tabs(in: workspace.id).map(\.id), [retainedTabID])
+        let persisted = await service.persistedState()
+        XCTAssertFalse(persisted.terminalSessions.contains { $0.id == deletedSessionID })
+        XCTAssertTrue(persisted.terminalSessions.contains { $0.id == retainedSessionID })
+    }
+
+    func testDeleteAlreadyExitedSessionRemovesHistoryWithoutRevivingRuntime() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let service = makeService(runtime: runtime)
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let session = try await service.createSession(workspaceID: workspace.id)
+        try await service.terminateSession(sessionID: session.id)
+
+        try await service.deleteSession(sessionID: session.id)
+
+        let runtimeExists = await runtime.exists(sessionID: session.id)
+        let snapshot = await service.snapshot()
+        let persisted = await service.persistedState()
+        XCTAssertFalse(runtimeExists)
+        XCTAssertNil(snapshot.session(id: session.id))
+        XCTAssertFalse(persisted.terminalSessions.contains { $0.id == session.id })
+    }
+
     func testRuntimeExitAndTerminateRaceKeepsFirstEndedTimestamp() async throws {
         let runtime = RestorableRuntime()
         let repository = InMemoryHostStateRepository()

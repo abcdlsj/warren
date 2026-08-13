@@ -101,6 +101,23 @@ final class WarrenClientCoreTests: XCTestCase {
         XCTAssertEqual(snapshot.controlLeaseID, leaseID)
     }
 
+    func testRuntimeMetadataProjectsAndSurvivesTransportDisconnect() async throws {
+        let store = ClientSessionStore(sessionID: sessionID, clientID: clientID)
+        _ = try await store.consume(.runtimeMetadata(
+            RuntimeMetadataMessage(
+                sessionID: sessionID,
+                process: "codex",
+                workingDirectory: "/tmp/warren"
+            )
+        ))
+        await store.markDisconnected()
+
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.runtimeProcess, "codex")
+        XCTAssertEqual(snapshot.workingDirectory, "/tmp/warren")
+        XCTAssertEqual(snapshot.connectionState, .disconnected)
+    }
+
     func testOutOfOrderAndEpochChangedBinaryHeadersAreRejected() async throws {
         let store = ClientSessionStore(sessionID: sessionID, clientID: clientID)
         _ = try await store.consume(.attached(
@@ -215,5 +232,35 @@ final class WarrenClientCoreTests: XCTestCase {
         XCTAssertEqual(window.workspaceView(for: workspaceID)?.activeTabID, "tab-a")
         XCTAssertEqual(window.workspaceView(for: secondWorkspaceID)?.tabs.map(\.id), ["tab-b"])
         XCTAssertEqual(window.workspaceView(for: secondWorkspaceID)?.activeTabID, "tab-b")
+    }
+
+    func testRemovingSessionReferencesCleansTabsAndSelectionAcrossWindows() async throws {
+        let secondWindowID = ClientWindowID()
+        let retainedSessionID = TerminalSessionID()
+        let layouts = try ClientLayoutStore(clientID: clientID, defaultWindowID: windowID)
+        try await layouts.start()
+        for targetWindow in [windowID, secondWindowID] {
+            try await layouts.upsertTab(
+                ClientTab(id: "delete-\(targetWindow)", title: "Delete", sessionID: sessionID),
+                workspaceID: workspaceID,
+                select: true,
+                in: targetWindow
+            )
+            try await layouts.upsertTab(
+                ClientTab(id: "keep-\(targetWindow)", title: "Keep", sessionID: retainedSessionID),
+                workspaceID: workspaceID,
+                select: false,
+                in: targetWindow
+            )
+        }
+
+        let removed = try await layouts.removeReferences(to: sessionID)
+
+        XCTAssertEqual(removed.count, 2)
+        for targetWindow in [windowID, secondWindowID] {
+            let view = await layouts.window(id: targetWindow).workspaceView(for: workspaceID)
+            XCTAssertEqual(view?.tabs.compactMap(\.sessionID), [retainedSessionID])
+            XCTAssertEqual(view?.activeTabID, "keep-\(targetWindow)")
+        }
     }
 }

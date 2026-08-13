@@ -231,8 +231,51 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         let observationCalls = await executor.calls.dropFirst(callsBeforeObservation)
         XCTAssertTrue(shouldContinue)
         XCTAssertEqual(observationCalls.map(\.arguments), [
-            ["list-sessions", "-F", "#{session_name}"],
+            [
+                "list-panes", "-a", "-F",
+                "#{session_name}|#{pane_current_command}|#{pane_current_path}",
+            ],
         ])
+        await runtime.shutdown()
+    }
+
+    func testLifecycleObservationPublishesPaneMetadataOnlyWhenItChanges() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 60_000_000_000
+        )
+        let stream = await runtime.events(for: sessionID)
+        let recorder = RuntimeEventRecorder()
+        let recorderTask = Task {
+            for await event in stream {
+                await recorder.append(event)
+            }
+        }
+        defer { recorderTask.cancel() }
+        _ = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+
+        let firstObservationContinues = await runtime.observeManagedSessions()
+        XCTAssertTrue(firstObservationContinues)
+        try await Task.sleep(for: .milliseconds(20))
+        let firstEvents = await recorder.events
+        guard case .metadata(let receivedSessionID, let metadata)? = firstEvents.first else {
+            return XCTFail("The first pane observation must publish metadata")
+        }
+        XCTAssertEqual(receivedSessionID, sessionID)
+        XCTAssertEqual(metadata, TerminalRuntimeMetadata(process: "fish", workingDirectory: "/tmp"))
+
+        let secondObservationContinues = await runtime.observeManagedSessions()
+        XCTAssertTrue(secondObservationContinues)
+        try await Task.sleep(for: .milliseconds(20))
+        let finalEventCount = await recorder.events.count
+        XCTAssertEqual(finalEventCount, 1)
         await runtime.shutdown()
     }
 
@@ -632,6 +675,14 @@ private enum RuntimeTestError: Error {
     case timeout
 }
 
+private actor RuntimeEventRecorder {
+    private(set) var events: [TerminalRuntimeEvent] = []
+
+    func append(_ event: TerminalRuntimeEvent) {
+        events.append(event)
+    }
+}
+
 private actor RecordingTmuxExecutor: TmuxCommandExecuting {
     struct Call: Sendable, Equatable {
         let arguments: [String]
@@ -652,6 +703,12 @@ private actor RecordingTmuxExecutor: TmuxCommandExecuting {
             return TmuxCommandResult(exitCode: sessions.contains(name) ? 0 : 1)
         case "list-sessions":
             let output = sessions.sorted().joined(separator: "\n")
+            return TmuxCommandResult(
+                stdout: Data((output.isEmpty ? output : output + "\n").utf8),
+                exitCode: sessions.isEmpty ? 1 : 0
+            )
+        case "list-panes":
+            let output = sessions.sorted().map { "\($0)|fish|/tmp" }.joined(separator: "\n")
             return TmuxCommandResult(
                 stdout: Data((output.isEmpty ? output : output + "\n").utf8),
                 exitCode: sessions.isEmpty ? 1 : 0
@@ -700,6 +757,12 @@ private actor YieldingTmuxExecutor: TmuxCommandExecuting {
             return TmuxCommandResult(exitCode: sessions.contains(arguments.last ?? "") ? 0 : 1)
         case "list-sessions":
             let output = sessions.sorted().joined(separator: "\n")
+            return TmuxCommandResult(
+                stdout: Data((output.isEmpty ? output : output + "\n").utf8),
+                exitCode: sessions.isEmpty ? 1 : 0
+            )
+        case "list-panes":
+            let output = sessions.sorted().map { "\($0)|fish|/tmp" }.joined(separator: "\n")
             return TmuxCommandResult(
                 stdout: Data((output.isEmpty ? output : output + "\n").utf8),
                 exitCode: sessions.isEmpty ? 1 : 0

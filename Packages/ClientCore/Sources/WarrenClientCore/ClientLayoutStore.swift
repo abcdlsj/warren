@@ -262,6 +262,45 @@ public actor ClientLayoutStore {
         return removed.compactMap(\.sessionID)
     }
 
+    /// Removes every client-local Tab and Pane reference to one Host Session.
+    /// This is used only by explicit Session deletion; ordinary Tab closure
+    /// must continue to leave the durable Session alive.
+    @discardableResult
+    public func removeReferences(
+        to sessionID: TerminalSessionID
+    ) async throws -> [ClientTab] {
+        var removed: [ClientTab] = []
+        for windowIndex in layout.windows.indices {
+            for viewIndex in layout.windows[windowIndex].workspaceViews.indices {
+                let tabs = layout.windows[windowIndex].workspaceViews[viewIndex].tabs
+                let matching = tabs.filter { $0.sessionID == sessionID }
+                guard !matching.isEmpty else { continue }
+                let removedIDs = Set(matching.map(\.id))
+                removed.append(contentsOf: matching)
+                layout.windows[windowIndex].workspaceViews[viewIndex].tabs.removeAll {
+                    $0.sessionID == sessionID
+                }
+                if let active = layout.windows[windowIndex].workspaceViews[viewIndex].activeTabID,
+                   removedIDs.contains(active) {
+                    layout.windows[windowIndex].workspaceViews[viewIndex].activeTabID =
+                        layout.windows[windowIndex].workspaceViews[viewIndex].tabs.first?.id
+                }
+                layout.windows[windowIndex].workspaceViews[viewIndex].panes.removeAll {
+                    $0.sessionID == sessionID || $0.tabID.map(removedIDs.contains) == true
+                }
+                if let activePaneID = layout.windows[windowIndex].workspaceViews[viewIndex].activePaneID,
+                   !layout.windows[windowIndex].workspaceViews[viewIndex].panes.contains(where: {
+                       $0.id == activePaneID
+                   }) {
+                    layout.windows[windowIndex].workspaceViews[viewIndex].activePaneID = nil
+                }
+            }
+        }
+        guard !removed.isEmpty else { return [] }
+        try await persist()
+        return removed
+    }
+
     public func setSidebarCollapsed(_ collapsed: Bool, in windowID: ClientWindowID) async throws {
         var window = ensureWindow(id: windowID)
         window.sidebarCollapsed = collapsed

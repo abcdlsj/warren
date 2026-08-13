@@ -16,6 +16,7 @@ struct WarrenDesktopTabBar: View {
     let onToggleSidebar: () -> Void
     let onToggleInspector: () -> Void
     let onCommandPalette: () -> Void
+    let onSettings: () -> Void
     let onSelectTab: (String) -> Void
     let canAddTab: Bool
     let onAddTab: () -> Void
@@ -84,6 +85,7 @@ struct WarrenDesktopTabBar: View {
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
                         onCommandPalette: onCommandPalette,
+                        onSettings: onSettings,
                         onToggleInspector: onToggleInspector
                     )
                 }
@@ -130,10 +132,17 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onCommandPalette: () -> Void
+    let onSettings: () -> Void
     let onToggleInspector: () -> Void
 
     var body: some View {
         HStack(spacing: WarrenSpacing.xs) {
+            WarrenDesktopChromeButton(
+                systemImage: "gearshape",
+                label: "Settings",
+                hint: "Open Warren settings",
+                action: onSettings
+            )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",
                 label: "Command palette",

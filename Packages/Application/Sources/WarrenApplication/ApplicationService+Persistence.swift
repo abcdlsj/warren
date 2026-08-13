@@ -183,16 +183,16 @@ extension WarrenApplicationService {
 
         for connection in sorted {
             let client = await connection.store.snapshot()
-            let state: WarrenApplicationConnectionState
+            let connectionState: WarrenApplicationConnectionState
             if connection.runtimeEnded {
-                state = .exited
+                connectionState = .exited
             } else { switch client.connectionState {
-            case .disconnected: state = .disconnected
-            case .connecting: state = .connecting
-            case .attached: state = .attached
-            case .reconnecting: state = .reconnecting
-            case .exited: state = .exited
-            case .failed: state = .failed
+            case .disconnected: connectionState = .disconnected
+            case .connecting: connectionState = .connecting
+            case .attached: connectionState = .attached
+            case .reconnecting: connectionState = .reconnecting
+            case .exited: connectionState = .exited
+            case .failed: connectionState = .failed
             } }
 
             let output: WarrenApplicationOutputSnapshot?
@@ -217,8 +217,12 @@ extension WarrenApplicationService {
                     tabID: connection.tabID,
                     title: connection.title,
                     kind: connection.kind,
-                    connectionState: state,
-                    activityState: activityState(for: connection.session.id, connectionState: state),
+                    connectionState: connectionState,
+                    activityState: activityState(for: connection.session.id, connectionState: connectionState),
+                    runtimeProcess: client.runtimeProcess,
+                    workingDirectory: client.workingDirectory.isEmpty
+                        ? (state.workspaces.first { $0.id == connection.workspaceID }?.path ?? "")
+                        : client.workingDirectory,
                     attachmentID: client.attachmentID ?? connection.attachmentID,
                     controllerAttachmentID: client.controllerAttachmentID,
                     controlLeaseID: client.controlLeaseID,
@@ -245,6 +249,7 @@ extension WarrenApplicationService {
                 kind: persisted.kind,
                 connectionState: persisted.lifecycle == .ended ? .exited : .disconnected,
                 activityState: persisted.lifecycle == .ended ? .exited : .connecting,
+                workingDirectory: persisted.workingDirectory,
                 recoveryAnchor: RecoveryAnchor(
                     epoch: persisted.epoch,
                     sequence: persisted.sequence

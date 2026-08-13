@@ -68,6 +68,7 @@ public struct HostSessionSnapshot: Hashable, Sendable, Identifiable {
     public let attachments: [TerminalAttachment]
     public let controllerLease: ControlLease?
     public let output: OutputRingSnapshot
+    public let runtimeMetadata: TerminalRuntimeMetadata?
 
     public var id: TerminalSessionID { session.id }
     public var controllerAttachmentID: TerminalAttachmentID? {
@@ -104,7 +105,8 @@ extension TerminalSessionCoordinator {
             session: session,
             attachments: [:],
             controllerLease: nil,
-            output: OutputRing(epoch: session.epoch, capacity: outputCapacity)
+            output: OutputRing(epoch: session.epoch, capacity: outputCapacity),
+            runtimeMetadata: nil
         )
         try startRuntimeStream(sessionID: session.id, stream: runtimeEvents)
         return TerminalSessionRuntimeBinding(session: session, descriptor: descriptor)
@@ -137,7 +139,8 @@ extension TerminalSessionCoordinator {
                 epoch: session.epoch,
                 capacity: outputCapacity,
                 nextSequence: session.sequence
-            )
+            ),
+            runtimeMetadata: nil
         )
         try startRuntimeStream(sessionID: session.id, stream: runtimeEvents)
         return session
@@ -162,8 +165,24 @@ extension TerminalSessionCoordinator {
                 lowerSequence: state.output.lowerSequence,
                 upperSequence: state.output.upperSequence,
                 frames: state.output.frames
-            )
+            ),
+            runtimeMetadata: state.runtimeMetadata
         )
+    }
+
+    /// Forgets an already-stopped Host Session after its durable record and
+    /// client references are being explicitly deleted. Refusing a live
+    /// runtime keeps cleanup from accidentally becoming another terminate API.
+    public func discardStoppedSession(_ sessionID: TerminalSessionID) async throws {
+        guard let state = sessions[sessionID] else { return }
+        guard !(await runtime.exists(sessionID: sessionID)) else {
+            throw protocolError(.invalidMessage, "A live terminal runtime must be terminated before deletion.")
+        }
+        for attachmentID in state.attachments.keys {
+            eventContinuations.removeValue(forKey: attachmentID)?.continuation.finish()
+        }
+        detachRuntimeStream(sessionID: sessionID)
+        sessions.removeValue(forKey: sessionID)
     }
 
     public func attach(
@@ -220,6 +239,15 @@ extension TerminalSessionCoordinator {
         // attached cursor therefore points at the first retained byte; the
         // final synced marker advances it to the current upper sequence.
         continuation.yield(.control(.attached(result.attachedMessage)))
+        if let metadata = sessions[result.sessionID]?.runtimeMetadata {
+            continuation.yield(.control(.runtimeMetadata(
+                RuntimeMetadataMessage(
+                    sessionID: result.sessionID,
+                    process: metadata.process,
+                    workingDirectory: metadata.workingDirectory
+                )
+            )))
+        }
         for frame in recovery.frames {
             continuation.yield(.binary(frame))
         }

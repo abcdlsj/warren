@@ -29,7 +29,18 @@ public struct TerminalRuntimeDescriptor: Codable, Hashable, Sendable {
 /// Client side.
 public enum TerminalRuntimeEvent: Hashable, Sendable {
     case output(sessionID: TerminalSessionID, data: Data)
+    case metadata(sessionID: TerminalSessionID, value: TerminalRuntimeMetadata)
     case exited(sessionID: TerminalSessionID, exitCode: Int?)
+}
+
+public struct TerminalRuntimeMetadata: Codable, Hashable, Sendable {
+    public let process: String
+    public let workingDirectory: String
+
+    public init(process: String = "", workingDirectory: String = "") {
+        self.process = process
+        self.workingDirectory = workingDirectory
+    }
 }
 
 public enum TerminalRuntimeLaunchSpec: Codable, Hashable, Sendable {
@@ -59,15 +70,18 @@ public struct TerminalRuntimeInspection: Codable, Hashable, Sendable {
     public let isRunning: Bool
     public let descriptor: TerminalRuntimeDescriptor?
     public let paneProcess: String?
+    public let workingDirectory: String?
 
     public init(
         isRunning: Bool,
         descriptor: TerminalRuntimeDescriptor? = nil,
-        paneProcess: String? = nil
+        paneProcess: String? = nil,
+        workingDirectory: String? = nil
     ) {
         self.isRunning = isRunning
         self.descriptor = descriptor
         self.paneProcess = paneProcess
+        self.workingDirectory = workingDirectory
     }
 }
 

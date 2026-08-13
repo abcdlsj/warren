@@ -43,6 +43,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
     public let kind: TerminalSessionKind
     public let state: WarrenDesktopSessionState
     public let activity: TerminalSessionActivityState
+    public let runtimeProcess: String
+    public let workingDirectory: String
 
     public init(
         id: TerminalSessionID,
@@ -51,7 +53,9 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         title: String,
         kind: TerminalSessionKind = .shell,
         state: WarrenDesktopSessionState = .attached,
-        activity: TerminalSessionActivityState? = nil
+        activity: TerminalSessionActivityState? = nil,
+        runtimeProcess: String = "",
+        workingDirectory: String = ""
     ) {
         self.id = id
         self.workspaceID = workspaceID
@@ -60,6 +64,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         self.kind = kind
         self.state = state
         self.activity = activity ?? Self.defaultActivity(for: state)
+        self.runtimeProcess = runtimeProcess
+        self.workingDirectory = workingDirectory
     }
 
     private static func defaultActivity(
@@ -452,6 +458,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
     case openSession(TerminalSessionID)
+    case deleteSession(TerminalSessionID)
     case selectTab(String)
     case requestNewSession(WorkspaceID)
     case launchSession(WorkspaceID, TerminalSessionLaunchRequest)
@@ -488,9 +495,15 @@ public struct WarrenDesktopActions {
 public struct WarrenDesktopTerminalContext: Hashable, Sendable {
     public let workspace: Workspace
     public let tab: ClientTab
+    public let font: TerminalFontPreference
 
-    public init(workspace: Workspace, tab: ClientTab) {
+    public init(
+        workspace: Workspace,
+        tab: ClientTab,
+        font: TerminalFontPreference = .init()
+    ) {
         self.workspace = workspace
         self.tab = tab
+        self.font = font
     }
 }

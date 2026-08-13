@@ -22,6 +22,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
+    @State private var settingsPresented = false
+    @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
+    private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
+    @AppStorage(WarrenPreferenceKey.terminalFontFamily)
+    private var terminalFontFamily = TerminalFontPreference.defaultFamily
+    @AppStorage(WarrenPreferenceKey.terminalFontSize)
+    private var terminalFontSize = TerminalFontPreference.defaultSize
     @Environment(\.warrenSemanticRecorder) private var semanticRecorder
 
     public init(
@@ -43,7 +50,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
+            if settingsPresented {
+                WarrenDesktopSettingsView(onBack: { settingsPresented = false })
+                    .transition(.opacity)
+            } else {
+                HStack(spacing: 0) {
                 WarrenDesktopSidebar(
                     projection: projection,
                     sidebarState: $sidebarState,
@@ -78,6 +89,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onToggleSidebar: toggleSidebar,
                         onToggleInspector: toggleInspector,
                         onCommandPalette: { commandPalettePresented = true },
+                        onSettings: {
+                            commandPalettePresented = false
+                            settingsPresented = true
+                        },
                         onSelectTab: { dispatch(.selectTab($0)) },
                         canAddTab: selectedWorkspace != nil,
                         onAddTab: {
@@ -112,6 +127,12 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                                     $0.workspaceID == workspace.id
                                 }
                             } ?? [],
+                            hostName: projection.host.name,
+                            titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
+                            terminalFont: TerminalFontPreference(
+                                family: terminalFontFamily,
+                                size: terminalFontSize
+                            ),
                             onAddProject: { dispatch(.addProject) },
                             onImportSuperset: { dispatch(.importSuperset) },
                             onNewSession: {
@@ -131,7 +152,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
         }
         .frame(
@@ -163,14 +185,17 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.toggleInspector)) { _ in
             toggleInspector()
         }
-        .sheet(isPresented: $commandPalettePresented) {
-            WarrenDesktopCommandPalette(
-                projection: projection,
-                onAction: { action in
-                    dispatch(action)
-                }
-            )
-            .padding(40)
+        .overlay(alignment: .topLeading) {
+            if commandPalettePresented && !settingsPresented {
+                WarrenDesktopCommandPalette(
+                    projection: projection,
+                    onAction: dispatch,
+                    onDismiss: { commandPalettePresented = false }
+                )
+                .padding(.leading, sidebarState.renderedWidth + WarrenSpacing.large)
+                .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.medium)
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+            }
         }
         .warrenSemanticObservationRoot(recorder: semanticRecorder)
     }

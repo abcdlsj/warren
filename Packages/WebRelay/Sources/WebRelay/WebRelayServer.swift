@@ -436,7 +436,10 @@ public final class WebRelayServer {
     /// layout projection and must never be inferred from the Session roster:
     /// a closed Tab deliberately leaves its Session and runtime alive.
     func rosterJSON() async -> String {
-        let snapshot = await service.snapshot()
+        rosterJSON(snapshot: await service.snapshot())
+    }
+
+    func rosterJSON(snapshot: WarrenApplicationSnapshot) -> String {
         let projects = snapshot.projects.map {
             ["id": $0.id.description, "name": $0.name, "path": $0.rootPath]
         }
@@ -446,6 +449,7 @@ public final class WebRelayServer {
                 "project": $0.projectID.description,
                 "name": $0.name,
                 "branch": $0.branch ?? "",
+                "path": $0.path,
             ]
         }
         let sessions = snapshot.sessions.map {
@@ -456,6 +460,8 @@ public final class WebRelayServer {
                 "kind": $0.kind.rawValue,
                 "state": String(describing: $0.connectionState),
                 "activity": $0.activityState.rawValue,
+                "process": $0.runtimeProcess,
+                "directory": $0.workingDirectory,
             ]
         }
         let sessionsByID = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
@@ -475,6 +481,12 @@ public final class WebRelayServer {
         }
         return Self.json([
             "t": "roster",
+            "host": [
+                "id": snapshot.host.id.description,
+                "name": snapshot.host.name,
+                "user": NSUserName(),
+                "os": ProcessInfo.processInfo.operatingSystemVersionString,
+            ],
             "projects": projects,
             "workspaces": workspaces,
             "sessions": sessions,
@@ -613,6 +625,29 @@ public final class WebRelayServer {
         )
     }
 
+    fileprivate func delete(
+        _ sessionID: TerminalSessionID,
+        from peer: SocketConnection
+    ) async {
+        do {
+            if peer.sessionID == sessionID {
+                peer.stopOutputStream()
+                peer.sessionID = nil
+                peer.attachmentID = nil
+            }
+            try await service.deleteSession(sessionID: sessionID)
+            peer.sendText(Self.json([
+                "t": "sessionDeleted",
+                "session": sessionID.description,
+            ]))
+        } catch {
+            peer.sendText(Self.json([
+                "t": "error",
+                "message": String(describing: error),
+            ]))
+        }
+    }
+
     fileprivate func streamOutput(
         sessionID: TerminalSessionID,
         events: AsyncStream<HostSessionEvent>,
@@ -639,6 +674,13 @@ public final class WebRelayServer {
                     "t": "error",
                     "message": error.message,
                 ]))
+            case .control(.runtimeMetadata(let metadata)):
+                peer.sendText(Self.json([
+                    "t": "runtimeMetadata",
+                    "session": sessionID.description,
+                    "process": metadata.process,
+                    "directory": metadata.workingDirectory,
+                ]))
             case .control:
                 break
             }
@@ -648,9 +690,9 @@ public final class WebRelayServer {
     fileprivate func streamRoster(to peer: SocketConnection) async {
         var lastRoster: String?
         let stream = await service.snapshots()
-        for await _ in stream {
+        for await snapshot in stream {
             guard !Task.isCancelled else { return }
-            let roster = await rosterJSON()
+            let roster = rosterJSON(snapshot: snapshot)
             guard roster != lastRoster else { continue }
             lastRoster = roster
             peer.sendText(roster)
@@ -813,6 +855,14 @@ private final class SocketConnection {
                 sendResource(name: "service-worker", extension: "js", contentType: "text/javascript; charset=utf-8")
             } else if method == "GET", path == "/icon.svg" {
                 sendResource(name: "icon", extension: "svg", contentType: "image/svg+xml")
+            } else if method == "GET", path == "/icon-192.png" || path == "/icon-512.png" {
+                let name = String(path.dropFirst().dropLast(4))
+                sendResource(name: name, extension: "png", contentType: "image/png")
+            } else if method == "GET", path == "/apple-touch-icon.png" {
+                sendResource(name: "apple-touch-icon", extension: "png", contentType: "image/png")
+            } else if method == "GET", path.hasPrefix("/preset-") && path.hasSuffix(".svg") {
+                let name = String(path.dropFirst().dropLast(4))
+                sendResource(name: name, extension: "svg", contentType: "image/svg+xml")
             } else if method == "GET", path.hasPrefix("/hook?") {
                 Task { await server.reportHook(path: path) }
                 sendHTTP(status: 204, body: "")
@@ -906,6 +956,14 @@ private final class SocketConnection {
             guard authenticated else { return }
             enqueueCommand { peer in
                 await peer.server.detach(peer)
+            }
+        case "deleteSession":
+            guard authenticated,
+                  let raw = envelope.session,
+                  let uuid = UUID(uuidString: raw) else { return }
+            let sessionID = TerminalSessionID(rawValue: uuid)
+            enqueueCommand { peer in
+                await peer.server.delete(sessionID, from: peer)
             }
         default:
             break

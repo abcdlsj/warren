@@ -28,7 +28,14 @@ let package = Package(
                 .copy("Resources/web.html"),
                 .copy("Resources/manifest.webmanifest"),
                 .copy("Resources/service-worker.js"),
-                .copy("Resources/icon.svg")
+                .copy("Resources/icon.svg"),
+                .copy("Resources/icon-192.png"),
+                .copy("Resources/icon-512.png"),
+                .copy("Resources/apple-touch-icon.png"),
+                .copy("Resources/preset-shell.svg"),
+                .copy("Resources/preset-claude.svg"),
+                .copy("Resources/preset-codex.svg"),
+                .copy("Resources/preset-codex-white.svg")
             ]
         ),
         .testTarget(

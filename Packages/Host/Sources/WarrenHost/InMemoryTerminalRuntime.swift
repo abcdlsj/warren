@@ -161,6 +161,29 @@ public actor InMemoryTerminalRuntime: TerminalRuntime {
         await Task.yield()
     }
 
+    /// Feeds deterministic pane metadata to subscribers. Production adapters
+    /// publish the same event after their batched runtime observation pass.
+    public func emitMetadata(
+        sessionID: TerminalSessionID,
+        process: String,
+        workingDirectory: String
+    ) async throws {
+        guard records[sessionID]?.isRunning == true else {
+            throw TerminalRuntimeError.sessionNotFound
+        }
+        broadcast(
+            .metadata(
+                sessionID: sessionID,
+                value: TerminalRuntimeMetadata(
+                    process: process,
+                    workingDirectory: workingDirectory
+                )
+            ),
+            for: sessionID
+        )
+        await Task.yield()
+    }
+
     /// Simulates the runtime process exiting without deleting its historical
     /// record, which is useful for Host lifecycle tests.
     public func emitExit(sessionID: TerminalSessionID, exitCode: Int? = nil) async throws {

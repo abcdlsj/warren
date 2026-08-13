@@ -16,6 +16,7 @@ public actor TmuxRuntime: TerminalRuntime {
         let inputBufferName: String
         let watcher: OutputSpoolWatcher
         var isRunning: Bool
+        var metadata: TerminalRuntimeMetadata?
     }
 
     struct WriteTail {
@@ -323,20 +324,25 @@ public actor TmuxRuntime: TerminalRuntime {
         }
         let descriptor = sessions[sessionID]?.descriptor
         let target = sessions[sessionID]?.paneTarget ?? name
-        let result = try await execute(
-            arguments: ["display-message", "-p", "-t", target, "#{pane_current_command}"]
-        )
+        let separator = "|"
+        let format = "#{pane_current_command}\(separator)#{pane_current_path}"
+        let arguments = ["display-message", "-p", "-t", target, format]
+        let result = try await execute(arguments: arguments)
         guard result.exitCode == 0 else {
             throw commandError(
-                arguments: ["display-message", "-p", "-t", target, "#{pane_current_command}"],
+                arguments: arguments,
                 result: result,
                 recovery: "Ensure the tmux pane is still alive, then retry inspection."
             )
         }
+        let fields = result.stdoutText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: Character(separator), maxSplits: 1, omittingEmptySubsequences: false)
         return TerminalRuntimeInspection(
             isRunning: true,
             descriptor: descriptor,
-            paneProcess: result.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+            paneProcess: fields.first.map(String.init),
+            workingDirectory: fields.count > 1 ? String(fields[1]) : nil
         )
     }
 

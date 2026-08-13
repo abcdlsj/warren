@@ -93,7 +93,12 @@ final class WebRelayTests: XCTestCase {
         }
         let base = URL(string: "http://127.0.0.1:\(port)")!
 
-        for path in ["/", "/manifest.webmanifest", "/service-worker.js", "/icon.svg"] {
+        for path in [
+            "/", "/manifest.webmanifest", "/service-worker.js", "/icon.svg",
+            "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png",
+            "/preset-shell.svg", "/preset-claude.svg", "/preset-codex.svg",
+            "/preset-codex-white.svg",
+        ] {
             let url = URL(string: path, relativeTo: base)!
             let (data, response) = try await URLSession.shared.data(from: url)
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, path)
@@ -142,10 +147,33 @@ final class WebRelayTests: XCTestCase {
         XCTAssertTrue(html.contains("__WARREN_RELAY_HOST_ID__"))
         XCTAssertTrue(html.contains("warren.accessToken.${relayHostID}"))
         XCTAssertTrue(html.contains("/v1/client/connect?host_id="))
+        XCTAssertTrue(html.contains("class=\"preset\" data-kind=\"shell\""))
+        XCTAssertTrue(html.contains("/preset-claude.svg"))
+        XCTAssertTrue(html.contains("id=\"pane-title\""))
+        XCTAssertTrue(html.contains("id=\"settings-page\""))
+        XCTAssertTrue(html.contains("id=\"settings-back\""))
+        XCTAssertTrue(html.contains("id=\"font-family\""))
+        XCTAssertTrue(html.contains("id=\"font-size\""))
+        XCTAssertTrue(html.contains("id=\"search-panel\""))
+        XCTAssertTrue(html.contains("const renderSearch"))
+        XCTAssertTrue(html.contains("id=\"sessions\""))
+        XCTAssertTrue(html.contains("data-delete-session"))
+        XCTAssertTrue(html.contains("t:\"deleteSession\""))
+        XCTAssertTrue(html.contains("warren.terminalTitleTemplate"))
+        XCTAssertTrue(html.contains("warren.terminalFontFamily"))
+        XCTAssertFalse(html.contains("class=\"count\""))
+        XCTAssertTrue(html.contains("const rebuildIndexes"))
+        XCTAssertTrue(html.contains("let sessionByID = new Map()"))
         XCTAssertFalse(html.contains("access_token=${encodeURIComponent(token)}"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "service-worker", extension: "js"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "icon", extension: "svg"))
+        XCTAssertNotNil(WebRelayServer.resourceData(named: "icon-192", extension: "png"))
+        XCTAssertNotNil(WebRelayServer.resourceData(named: "icon-512", extension: "png"))
+        XCTAssertNotNil(WebRelayServer.resourceData(named: "apple-touch-icon", extension: "png"))
+        for name in ["preset-shell", "preset-claude", "preset-codex", "preset-codex-white"] {
+            XCTAssertNotNil(WebRelayServer.resourceData(named: name, extension: "svg"), name)
+        }
         XCTAssertNotNil(WebRelayServer.webPageURLWithToken)
         XCTAssertEqual(WebRelayServer.localWebURL?.host, "127.0.0.1")
         XCTAssertEqual(WebRelayServer.localWebURL?.port, Int(WebRelayServer.defaultPort))

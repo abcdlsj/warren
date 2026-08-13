@@ -72,6 +72,26 @@ public struct WarrenDesktopSessionPreset: Identifiable, Hashable, Sendable {
     ]
 
     public static let pinned = builtIns.filter(\.isPinned)
+
+    /// Compact labels mirror Superset's 24pt preset bar without weakening the
+    /// descriptive names used by the full session launcher.
+    public var presetBarTitle: String {
+        switch id {
+        case "shell": "Shell"
+        case "claude": "Claude"
+        case "codex": "Codex"
+        default: title
+        }
+    }
+
+    var presetBarIconName: String? {
+        switch id {
+        case "shell": "preset-shell"
+        case "claude": "preset-claude"
+        case "codex": "preset-codex"
+        default: nil
+        }
+    }
 }
 
 extension TerminalSessionKind {

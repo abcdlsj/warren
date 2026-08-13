@@ -56,6 +56,41 @@ final class WarrenHostTests: XCTestCase {
         XCTAssertEqual(second.recovery.result, .reanchor(second.recovery.snapshot))
     }
 
+    func testRuntimeMetadataIsCachedAndReplayedOnAttach() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let coordinator = TerminalSessionCoordinator(runtime: runtime)
+        let session = try await coordinator.createSession(workspace: workspace())
+        let metadata = TerminalRuntimeMetadata(
+            process: "claude",
+            workingDirectory: "/tmp/warren/Sources"
+        )
+
+        try await runtime.emitMetadata(
+            sessionID: session.id,
+            process: metadata.process,
+            workingDirectory: metadata.workingDirectory
+        )
+        try await Task.sleep(for: .milliseconds(20))
+        let snapshot = try await coordinator.snapshot(of: session.id)
+        XCTAssertEqual(snapshot.runtimeMetadata, metadata)
+
+        let channel = try await coordinator.attachAndSubscribe(
+            AttachRequest(sessionID: session.id, clientID: clientA)
+        )
+        var iterator = channel.events.makeAsyncIterator()
+        guard case .control(.attached)? = await iterator.next() else {
+            return XCTFail("Attach must begin with the attachment identity")
+        }
+        guard case .control(.runtimeMetadata(let replayed))? = await iterator.next() else {
+            return XCTFail("Attach must replay the latest runtime metadata")
+        }
+        XCTAssertEqual(replayed.process, metadata.process)
+        XCTAssertEqual(replayed.workingDirectory, metadata.workingDirectory)
+        guard case .control(.synced)? = await iterator.next() else {
+            return XCTFail("Metadata replay must stay inside the attach recovery boundary")
+        }
+    }
+
     func testControlTransferAndControllerOnlyOperations() async throws {
         let runtime = InMemoryTerminalRuntime()
         let coordinator = TerminalSessionCoordinator(runtime: runtime, leaseDuration: 30)

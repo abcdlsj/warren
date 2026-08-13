@@ -15,6 +15,8 @@ public actor ClientSessionStore {
     private var connectionState: ClientConnectionState = .disconnected
     private var recoveryAnchor: RecoveryAnchor?
     private var title: String?
+    private var runtimeProcess = ""
+    private var workingDirectory = ""
     private var capabilities: ProtocolCapabilities = .core
     private var reanchorRequired = false
     private var lastError: ProtocolError?
@@ -50,6 +52,8 @@ public actor ClientSessionStore {
             connectionState: connectionState,
             recoveryAnchor: recoveryAnchor,
             title: title,
+            runtimeProcess: runtimeProcess,
+            workingDirectory: workingDirectory,
             capabilities: capabilities,
             reanchorRequired: reanchorRequired,
             lastError: lastError
@@ -151,6 +155,12 @@ public actor ClientSessionStore {
             try validateSession(value.sessionID)
             title = value.title
             return .title(snapshot())
+
+        case .runtimeMetadata(let value):
+            try validateSession(value.sessionID)
+            runtimeProcess = value.process
+            workingDirectory = value.workingDirectory
+            return .runtimeMetadata(snapshot())
         }
     }
 

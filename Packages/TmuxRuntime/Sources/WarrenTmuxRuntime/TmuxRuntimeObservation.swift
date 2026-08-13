@@ -34,7 +34,8 @@ extension TmuxRuntime {
             spoolURL: spoolURL,
             inputBufferName: inputBufferName,
             watcher: watcher,
-            isRunning: true
+            isRunning: true,
+            metadata: nil
         )
 
         do {
@@ -92,9 +93,17 @@ extension TmuxRuntime {
             lifecycleMonitorTask = nil
             return false
         }
-        guard let liveNames = await probeManagedSessionNames() else { return true }
-        for (sessionID, managed) in running where !liveNames.contains(managed.descriptor.identifier) {
-            finishSession(sessionID: sessionID, exitCode: nil)
+        guard let observations = await probeManagedSessions() else { return true }
+        for (sessionID, var managed) in running {
+            guard let metadata = observations[managed.descriptor.identifier] else {
+                finishSession(sessionID: sessionID, exitCode: nil)
+                continue
+            }
+            if managed.metadata != metadata {
+                managed.metadata = metadata
+                sessions[sessionID] = managed
+                broadcast(.metadata(sessionID: sessionID, value: metadata), for: sessionID)
+            }
         }
         if !sessions.values.contains(where: \.isRunning) {
             lifecycleMonitorTask = nil

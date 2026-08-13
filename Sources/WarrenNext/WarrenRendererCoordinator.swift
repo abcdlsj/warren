@@ -45,6 +45,7 @@ final class WarrenRendererCoordinator {
     @ObservationIgnored private var snapshot = WarrenApplicationSnapshot.empty()
     @ObservationIgnored private var activeWorkspaceID: WorkspaceID?
     @ObservationIgnored private var activeSessionID: TerminalSessionID?
+    @ObservationIgnored private var terminalFont = TerminalFontPreference()
     @ObservationIgnored private var reportError: (Error) -> Void = { _ in }
 
     init(
@@ -59,11 +60,14 @@ final class WarrenRendererCoordinator {
         snapshot: WarrenApplicationSnapshot,
         activeWorkspaceID: WorkspaceID?,
         activeSessionID: TerminalSessionID?,
+        terminalFont: TerminalFontPreference = .init(),
         reportError: @escaping (Error) -> Void
     ) {
         self.snapshot = snapshot
         self.activeWorkspaceID = activeWorkspaceID
         self.activeSessionID = activeSessionID
+        let fontChanged = terminalFont != self.terminalFont
+        self.terminalFont = terminalFont
         self.reportError = reportError
 
         let visibleTabs = activeWorkspaceID.map { snapshot.tabs(in: $0) } ?? []
@@ -99,6 +103,8 @@ final class WarrenRendererCoordinator {
             }
             if surfaces[key] == nil {
                 surfaces[key] = makeSurface(for: session, attachmentID: attachmentID, key: key)
+            } else if fontChanged {
+                surfaces[key]?.apply(font: terminalFont)
             }
             renderAvailableOutput(for: session, key: key)
         }
@@ -149,6 +155,7 @@ final class WarrenRendererCoordinator {
             id: session.id,
             attachmentID: attachmentID,
             workingDirectory: snapshot.workspace(id: session.workspaceID)?.path ?? "",
+            font: terminalFont,
             onInput: { [weak self] data in
                 Task { @MainActor in await self?.receiveInput(data, from: key) }
             },

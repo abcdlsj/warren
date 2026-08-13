@@ -117,6 +117,7 @@ final class WarrenDesktopTests: XCTestCase {
         actions(.requestNewWorkspace(projectID))
         actions(.selectWorkspace(workspaceID))
         actions(.openSession(sessionID))
+        actions(.deleteSession(sessionID))
         actions(.requestNewSession(workspaceID))
         actions(.launchSession(workspaceID, .claude))
         actions(.selectTab("tab-main"))
@@ -132,6 +133,7 @@ final class WarrenDesktopTests: XCTestCase {
                 .requestNewWorkspace(projectID),
                 .selectWorkspace(workspaceID),
                 .openSession(sessionID),
+                .deleteSession(sessionID),
                 .requestNewSession(workspaceID),
                 .launchSession(workspaceID, .claude),
                 .selectTab("tab-main"),
@@ -156,6 +158,14 @@ final class WarrenDesktopTests: XCTestCase {
 
     func testBuiltInPresetsMapToExplicitLaunchRequests() {
         XCTAssertEqual(WarrenDesktopSessionPreset.pinned.map(\.id), ["shell", "claude", "codex"])
+        XCTAssertEqual(
+            WarrenDesktopSessionPreset.pinned.map(\.presetBarTitle),
+            ["Shell", "Claude", "Codex"]
+        )
+        XCTAssertEqual(
+            WarrenDesktopSessionPreset.pinned.compactMap(\.presetBarIconName),
+            ["preset-shell", "preset-claude", "preset-codex"]
+        )
         XCTAssertEqual(WarrenDesktopSessionPreset.pinned.map(\.request), [.shell, .claude, .codex])
         XCTAssertNil(TerminalSessionLaunchRequest.shell.command)
         XCTAssertEqual(TerminalSessionLaunchRequest.claude.command, "claude")

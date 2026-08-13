@@ -90,4 +90,60 @@ final class WarrenDomainTests: XCTestCase {
         XCTAssertFalse(lease.isActive(at: expiresAt))
         XCTAssertFalse(lease.isActive(at: expiresAt.addingTimeInterval(0.001)))
     }
+
+    func testTerminalDisplayTitleRendersSharedPlaceholders() {
+        let context = TerminalDisplayTitleContext(
+            session: "Claude",
+            command: "claude",
+            directory: "/Users/me/Workspace/warren",
+            workspace: "warren",
+            branch: "main",
+            host: "studio",
+            user: "me",
+            os: "macOS 15"
+        )
+
+        XCTAssertEqual(
+            TerminalDisplayTitleTemplate.defaultValue.render(context),
+            "claude — warren"
+        )
+        XCTAssertEqual(
+            TerminalDisplayTitleTemplate(
+                rawValue: "{session} · {workspace}/{branch} · {user}@{host} · {os}"
+            ).render(context),
+            "Claude · warren/main · me@studio · macOS 15"
+        )
+    }
+
+    func testTerminalDisplayTitleCleansMissingValuesAndFallsBackToSession() {
+        let context = TerminalDisplayTitleContext(session: "Shell")
+
+        XCTAssertEqual(
+            TerminalDisplayTitleTemplate(rawValue: "{command} — {directoryName}").render(context),
+            "Shell"
+        )
+        XCTAssertEqual(
+            TerminalDisplayTitleTemplate(rawValue: "{workspace} / {branch} — {session}").render(context),
+            "Shell"
+        )
+        XCTAssertEqual(
+            TerminalDisplayTitleTemplate(rawValue: "   ").rawValue,
+            TerminalDisplayTitleTemplate.defaultValue.rawValue
+        )
+    }
+
+    func testTerminalFontPreferenceNormalizesInvalidValuesAtTheBoundary() {
+        XCTAssertEqual(
+            TerminalFontPreference(family: "   ", size: .nan),
+            TerminalFontPreference()
+        )
+        XCTAssertEqual(
+            TerminalFontPreference(family: "  JetBrains Mono  ", size: 2),
+            TerminalFontPreference(family: "JetBrains Mono", size: 8)
+        )
+        XCTAssertEqual(
+            TerminalFontPreference(family: "Berkeley Mono", size: 80),
+            TerminalFontPreference(family: "Berkeley Mono", size: 32)
+        )
+    }
 }

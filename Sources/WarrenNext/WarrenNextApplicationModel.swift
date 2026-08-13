@@ -131,7 +131,9 @@ final class WarrenNextApplicationModel {
                     title: session.title,
                     kind: session.kind,
                     state: Self.desktopSessionState(for: session.connectionState),
-                    activity: session.activityState
+                    activity: session.activityState,
+                    runtimeProcess: session.runtimeProcess,
+                    workingDirectory: session.workingDirectory
                 )
             },
             tabs: tabs,
@@ -336,7 +338,7 @@ final class WarrenNextApplicationModel {
         )
 
         switch action {
-        case .selectProject, .selectWorkspace, .selectTab, .openSession:
+        case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession:
             reconcileSurfaces(with: snapshot)
         case .addProject, .importSuperset, .requestNewWorkspace,
              .requestNewSession, .launchSession,
@@ -395,6 +397,8 @@ final class WarrenNextApplicationModel {
             return workspaceID
         case .openSession(let sessionID):
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
+        case .deleteSession(let sessionID):
+            return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
         case .closeTab(let tabID), .closeOtherTabs(let tabID):
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
@@ -408,7 +412,7 @@ final class WarrenNextApplicationModel {
 
 }
 
-private extension WarrenNextApplicationModel {
+extension WarrenNextApplicationModel {
     func ensureDefaultShellTab(in workspaceID: WorkspaceID) async {
         do {
             let tabID = try await service.ensureDefaultShellTab(workspaceID: workspaceID)
@@ -446,6 +450,10 @@ private extension WarrenNextApplicationModel {
                 }
             } catch {
                 present(error)
+            }
+        case .deleteSession(let sessionID):
+            await run {
+                try await service.deleteSession(sessionID: sessionID)
             }
         case .launchSession(let workspaceID, let request):
             do {
@@ -530,13 +538,28 @@ private extension WarrenNextApplicationModel {
         reconcileSurfaces(with: value)
     }
 
-    func reconcileSurfaces(with value: WarrenApplicationSnapshot) {
+    func reconcileSurfaces(
+        with value: WarrenApplicationSnapshot,
+        terminalFont: TerminalFontPreference? = nil
+    ) {
+        let defaults = UserDefaults.standard
+        let font = terminalFont ?? TerminalFontPreference(
+            family: defaults.string(forKey: WarrenPreferenceKey.terminalFontFamily)
+                ?? TerminalFontPreference.defaultFamily,
+            size: defaults.object(forKey: WarrenPreferenceKey.terminalFontSize) as? Double
+                ?? TerminalFontPreference.defaultSize
+        )
         renderer.reconcile(
             snapshot: value,
             activeWorkspaceID: selectedWorkspaceID,
             activeSessionID: selectedTerminalSessionID,
+            terminalFont: font,
             reportError: { [weak self] error in self?.present(error) }
         )
+    }
+
+    func updateTerminalFont(_ preference: TerminalFontPreference) {
+        reconcileSurfaces(with: snapshot, terminalFont: preference)
     }
 
     func run(_ operation: () async throws -> Void) async {
@@ -601,7 +624,7 @@ private extension WarrenDesktopAction {
     var requiresHostSideEffect: Bool {
         switch self {
         case .closeTab, .closeOtherTabs, .closeAllTabs,
-             .openSession, .launchSession:
+             .openSession, .deleteSession, .launchSession:
             true
         case .addProject, .importSuperset, .requestNewWorkspace,
              .requestNewSession, .selectProject,

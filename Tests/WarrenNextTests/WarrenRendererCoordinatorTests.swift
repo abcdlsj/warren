@@ -72,6 +72,38 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testChangingTerminalFontReconfiguresTheExistingSurfaceInPlace() {
+        let fixture = Fixture()
+        let coordinator = WarrenRendererCoordinator(
+            service: RendererServiceSpy(),
+            windowID: fixture.windowID
+        )
+        coordinator.reconcile(
+            snapshot: fixture.snapshot,
+            activeWorkspaceID: fixture.firstWorkspace.id,
+            activeSessionID: fixture.firstSession.id,
+            reportError: { _ in }
+        )
+        let originalSurface = coordinator.mountedSurfaces.first
+
+        coordinator.reconcile(
+            snapshot: fixture.snapshot,
+            activeWorkspaceID: fixture.firstWorkspace.id,
+            activeSessionID: fixture.firstSession.id,
+            terminalFont: TerminalFontPreference(family: "Menlo", size: 16),
+            reportError: { _ in }
+        )
+
+        XCTAssertEqual(coordinator.mountedSurfaces.count, 1)
+        XCTAssertTrue(coordinator.mountedSurfaces.first === originalSurface)
+        XCTAssertEqual(coordinator.mountedSurfaces.first?.id, fixture.firstSession.id)
+        XCTAssertEqual(
+            coordinator.mountedSurfaces.first?.attachmentID,
+            fixture.firstSession.attachmentID
+        )
+    }
+
+    @MainActor
     func testResizeBurstIsSerializedAndLatestValueWins() async {
         let fixture = Fixture()
         let service = RendererServiceSpy(resizeDelay: .milliseconds(10))

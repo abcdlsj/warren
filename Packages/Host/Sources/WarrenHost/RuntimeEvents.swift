@@ -151,6 +151,21 @@ extension TerminalSessionCoordinator {
                 publishRuntimeError(protocolError, sessionID: sessionID)
             }
 
+        case .metadata(let sessionID, let value):
+            guard var state = sessions[sessionID], state.runtimeMetadata != value else { return }
+            state.runtimeMetadata = value
+            sessions[sessionID] = state
+            let message = ServerControlMessage.runtimeMetadata(
+                RuntimeMetadataMessage(
+                    sessionID: sessionID,
+                    process: value.process,
+                    workingDirectory: value.workingDirectory
+                )
+            )
+            for attachmentID in state.attachments.keys {
+                yieldRuntimeEvent(.control(message), to: attachmentID)
+            }
+
         case .exited(let sessionID, let exitCode):
             guard let state = sessions[sessionID] else { return }
             let exit = ServerControlMessage.exit(

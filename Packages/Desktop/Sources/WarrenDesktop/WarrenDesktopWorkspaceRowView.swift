@@ -9,7 +9,6 @@ import WarrenObservation
 struct WarrenDesktopWorkspaceRow: View {
     let workspace: Workspace
     let semanticScope: String
-    let sessionCount: Int
     let activity: TerminalSessionActivityState?
     let isCollapsed: Bool
     let isSelected: Bool
@@ -83,17 +82,6 @@ struct WarrenDesktopWorkspaceRow: View {
                 }
 
                 Spacer(minLength: 0)
-
-                if sessionCount > 0 {
-                    Text("\(sessionCount)")
-                        .font(WarrenTypography.activityChip)
-                        .foregroundStyle(tokens.mutedForeground)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(tokens.fillHover)
-                        .clipShape(.rect(cornerRadius: WarrenRadius.small))
-                        .accessibilityLabel("\(sessionCount) sessions")
-                }
             }
             .frame(minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
             .frame(maxWidth: .infinity, alignment: .leading)

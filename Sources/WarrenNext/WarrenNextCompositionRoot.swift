@@ -13,6 +13,10 @@ struct WarrenNextCompositionRoot: View {
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var sessionCreatorWorkspaceID: WorkspaceID?
     @State private var workspaceCreatorProjectID: ProjectID?
+    @AppStorage(WarrenPreferenceKey.terminalFontFamily)
+    private var terminalFontFamily = TerminalFontPreference.defaultFamily
+    @AppStorage(WarrenPreferenceKey.terminalFontSize)
+    private var terminalFontSize = TerminalFontPreference.defaultSize
 
     @MainActor
     init(model: WarrenNextApplicationModel = .live()) {
@@ -74,6 +78,8 @@ struct WarrenNextCompositionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copyLocalURL)) { _ in
             model.copyLocalWebURL()
         }
+        .onChange(of: terminalFontFamily) { _, _ in updateTerminalFont() }
+        .onChange(of: terminalFontSize) { _, _ in updateTerminalFont() }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startCloudflare)) { _ in
             model.startCloudflareWebAccess()
         }
@@ -89,6 +95,13 @@ struct WarrenNextCompositionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
             model.copySecureWebURL()
         }
+    }
+
+    private func updateTerminalFont() {
+        model.updateTerminalFont(TerminalFontPreference(
+            family: terminalFontFamily,
+            size: terminalFontSize
+        ))
     }
 
     private func handle(_ action: WarrenDesktopAction) {

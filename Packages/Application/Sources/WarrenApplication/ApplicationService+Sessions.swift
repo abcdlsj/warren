@@ -259,6 +259,51 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    /// Permanently deletes one Session. This is intentionally stronger than
+    /// closing a Tab: a live runtime is terminated, every client layout
+    /// reference is removed, and the Host's durable record is deleted.
+    public func deleteSession(sessionID: TerminalSessionID) async throws {
+        do {
+            try requireReady()
+            guard let persisted = state.terminalSessions.first(where: { $0.id == sessionID }) else {
+                throw WarrenApplicationError.sessionNotFound(sessionID)
+            }
+
+            if persisted.lifecycle == .running {
+                await ensureSessionRestored(sessionID)
+                if await runtime.exists(sessionID: sessionID) {
+                    if await coordinator.session(sessionID) != nil {
+                        try await coordinator.terminateRuntime(sessionID: sessionID)
+                    } else {
+                        try await runtime.terminate(sessionID: sessionID)
+                    }
+                }
+            }
+
+            _ = try await layoutStore.removeReferences(to: sessionID)
+            try await withPersistenceMutation {
+                var candidate = state
+                candidate.terminalSessions.removeAll { $0.id == sessionID }
+                candidate.requestReceipts.removeAll { $0.resourceID == sessionID.description }
+                try await save(candidate)
+                state = candidate
+            }
+
+            try await coordinator.discardStoppedSession(sessionID)
+            connections.removeValue(forKey: sessionID)
+            restorationTasks.removeValue(forKey: sessionID)?.cancel()
+            sessionActivity.removeValue(forKey: sessionID)
+            pendingSequenceAnchors.removeValue(forKey: sessionID)
+            clearClientCaches(for: sessionID)
+            await publish()
+        } catch {
+            let appError = error.asApplicationError
+            report(appError, id: "session.\(sessionID).delete")
+            await publish()
+            throw appError
+        }
+    }
+
     @discardableResult
     public func openSession(sessionID: TerminalSessionID) async throws -> String {
         try requireReady()

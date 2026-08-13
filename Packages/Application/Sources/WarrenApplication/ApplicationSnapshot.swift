@@ -72,6 +72,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
     public let kind: TerminalSessionKind
     public let connectionState: WarrenApplicationConnectionState
     public let activityState: TerminalSessionActivityState
+    public let runtimeProcess: String
+    public let workingDirectory: String
     public let attachmentID: TerminalAttachmentID?
     public let controllerAttachmentID: TerminalAttachmentID?
     public let controlLeaseID: ControlLeaseID?
@@ -88,6 +90,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         kind: TerminalSessionKind = .shell,
         connectionState: WarrenApplicationConnectionState,
         activityState: TerminalSessionActivityState? = nil,
+        runtimeProcess: String = "",
+        workingDirectory: String = "",
         attachmentID: TerminalAttachmentID? = nil,
         controllerAttachmentID: TerminalAttachmentID? = nil,
         controlLeaseID: ControlLeaseID? = nil,
@@ -103,6 +107,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         self.kind = kind
         self.connectionState = connectionState
         self.activityState = activityState ?? Self.defaultActivity(for: connectionState)
+        self.runtimeProcess = runtimeProcess
+        self.workingDirectory = workingDirectory
         self.attachmentID = attachmentID
         self.controllerAttachmentID = controllerAttachmentID
         self.controlLeaseID = controlLeaseID

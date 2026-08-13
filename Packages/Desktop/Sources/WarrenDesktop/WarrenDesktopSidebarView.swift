@@ -29,6 +29,7 @@ struct WarrenDesktopSidebar: View {
                         sessions: projection.sessions,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,
+                        selectedTabID: selectedTabID,
                         onAddProject: { onAction(.addProject) },
                         onAction: onAction
                     )
