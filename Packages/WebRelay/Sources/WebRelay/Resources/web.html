@@ -155,7 +155,7 @@
     const tabsElement = document.getElementById("tabs");
     const empty = document.getElementById("empty");
     const app = document.getElementById("app");
-    let roster = { projects: [], workspaces: [], sessions: [] };
+    let roster = { projects: [], workspaces: [], sessions: [], tabs: [] };
     let activeWorkspace = localStorage.getItem("warren.activeWorkspace");
     let activeSession = null;
     let attachedSession = null;
@@ -166,6 +166,13 @@
     const sessionActivity = session => session.activity || (session.state === "attached" ? "working" : session.state);
     const send = message => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(message));
     const workspaceSessions = id => roster.sessions.filter(session => session.workspace === id);
+    const workspaceTabs = id => roster.tabs
+      .filter(tab => tab.workspace === id)
+      .map(tab => {
+        const session = roster.sessions.find(candidate => candidate.id === tab.session);
+        return session ? { ...session, tabID:tab.id, title:tab.title || session.title, kind:tab.kind || session.kind } : null;
+      })
+      .filter(Boolean);
     const aggregateActivity = id => workspaceSessions(id).map(sessionActivity).sort((a,b) => (priority[b]||0)-(priority[a]||0))[0];
     const activityDot = activity => activity ? `<span class="activity ${activity} ${activity === "ready" || activity === "exited" ? "" : "pulse"}" title="${labels[activity] || activity}" aria-label="${labels[activity] || activity}"></span>` : "";
     const escapeHTML = value => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
@@ -187,12 +194,11 @@
       }).join("");
       projectsElement.innerHTML = projects || '<div class="workspace-row">No projects on this Host</div>';
 
-      const sessions = activeWorkspace ? workspaceSessions(activeWorkspace) : [];
-      if (activeSession && !sessions.some(session => session.id === activeSession)) activeSession = null;
-      tabsElement.innerHTML = sessions.map(session => `<button role="tab" aria-selected="${session.id === activeSession}" class="tab ${session.id === activeSession ? "active" : ""}" data-session="${session.id}">${activityDot(sessionActivity(session))}<span class="tab-title">${escapeHTML(session.title)}</span></button>`).join("");
+      const tabs = activeWorkspace ? workspaceTabs(activeWorkspace) : [];
+      tabsElement.innerHTML = tabs.map(session => `<button role="tab" aria-selected="${session.id === activeSession}" class="tab ${session.id === activeSession ? "active" : ""}" data-tab="${escapeHTML(session.tabID)}" data-session="${session.id}">${activityDot(sessionActivity(session))}<span class="tab-title">${escapeHTML(session.title)}</span></button>`).join("");
       empty.hidden = Boolean(activeSession && attachedSession === activeSession);
       empty.innerHTML = activeWorkspace
-        ? (activeSession ? '<span class="terminal-loading"><span class="spinner"></span>Connecting to Session…</span>' : (sessions.length ? '<span>Select a Session.</span>' : '<span>No Sessions yet. Start Shell, Claude, or Codex.</span>'))
+        ? (activeSession ? '<span class="terminal-loading"><span class="spinner"></span>Connecting to Session…</span>' : (tabs.length ? '<span>Select a Session.</span>' : '<span>No Sessions yet. Start Shell, Claude, or Codex.</span>'))
         : '<span>Select a Workspace to open its Sessions.</span>';
       localStorage.setItem("warren.activeWorkspace", activeWorkspace || "");
       localStorage.setItem("warren.expandedProjects", JSON.stringify([...expandedProjects]));
@@ -208,13 +214,16 @@
     }
 
     function chooseWorkspace(workspaceID) {
+      const hadAttachment = Boolean(activeSession || attachedSession);
       activeWorkspace = workspaceID;
-      const sessions = workspaceSessions(workspaceID);
+      const tabs = workspaceTabs(workspaceID);
       activeSession = null;
       attachedSession = null;
+      term.clear();
       render();
       app.classList.remove("drawer-open");
-      if (sessions.length) attachSession(sessions[0].id);
+      if (tabs.length) attachSession(tabs[0].id);
+      else if (hadAttachment) send({ t:"detach" });
     }
 
     function createSession(kind) {
@@ -238,9 +247,17 @@
       }
       const msg = JSON.parse(event.data);
       if (msg.t === "roster") {
-        roster = { projects:msg.projects || [], workspaces:msg.workspaces || [], sessions:msg.sessions || [] };
+        roster = { projects:msg.projects || [], workspaces:msg.workspaces || [], sessions:msg.sessions || [], tabs:msg.tabs || [] };
+        const tabs = activeWorkspace ? workspaceTabs(activeWorkspace) : [];
+        const removedActiveTab = activeSession && !tabs.some(session => session.id === activeSession);
+        if (removedActiveTab) {
+          activeSession = null;
+          attachedSession = null;
+          term.clear();
+        }
         render();
-        if (!activeSession && activeWorkspace && workspaceSessions(activeWorkspace).length) attachSession(workspaceSessions(activeWorkspace)[0].id);
+        if (!activeSession && tabs.length) attachSession(tabs[0].id);
+        else if (removedActiveTab) send({ t:"detach" });
       } else if (msg.t === "attached") {
         activeSession = msg.session;
         attachedSession = msg.session;
@@ -286,14 +303,14 @@
     };
     document.querySelectorAll("[data-key]").forEach(button => button.onclick = () => {
       const data = mobileKeyData[button.dataset.key];
-      if (data && activeSession && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
+      if (data && activeSession && attachedSession === activeSession && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
     });
 
     term.onData(data => {
-      if (activeSession && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
+      if (activeSession && attachedSession === activeSession && ws.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(data));
     });
     term.onResize(size => {
-      if (activeSession) send({ t:"resize", cols:size.cols, rows:size.rows });
+      if (activeSession && attachedSession === activeSession) send({ t:"resize", cols:size.cols, rows:size.rows });
     });
     function fitTerminal() {
       const container = document.getElementById("terminal");

@@ -71,11 +71,11 @@ assert roster.get("t") == "roster", roster
 print("auth/roster ok", flush=True)
 
 attached = False
-if roster.get("sessions"):
-    session = roster["sessions"][0]
+if roster.get("tabs"):
+    session_id = roster["tabs"][0]["session"]
     attached_msg = None
     for _ in range(3):
-        send_text(json.dumps({"t": "attach", "session": session["id"]}))
+        send_text(json.dumps({"t": "attach", "session": session_id}))
         try:
             s.settimeout(15)
             attached_msg = read_text_frame()

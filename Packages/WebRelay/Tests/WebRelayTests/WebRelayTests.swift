@@ -7,6 +7,42 @@ import WarrenStateStore
 @testable import WebRelay
 
 final class WebRelayTests: XCTestCase {
+    @MainActor
+    func testRosterKeepsHostSessionsSeparateFromVisibleTabs() async throws {
+        let service = WarrenApplicationService(
+            repository: InMemoryHostStateRepository(),
+            runtime: InMemoryTerminalRuntime()
+        )
+        try await service.start()
+        defer { Task { await service.shutdown() } }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("warren-web-roster-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let project = try await service.addProject(folder: directory)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let tabID = try await service.addTab(workspaceID: workspace.id, title: "Visible")
+        let snapshot = await service.snapshot()
+        let sessionID = try XCTUnwrap(snapshot.tabs(in: workspace.id).first?.sessionID)
+        let relay = WebRelayServer(service: service)
+
+        var roster = try Self.decodeJSON(await relay.rosterJSON())
+        XCTAssertEqual(Self.ids(in: roster, key: "sessions"), [sessionID.description])
+        XCTAssertEqual(Self.ids(in: roster, key: "tabs"), [tabID])
+
+        try await service.closeTab(tabID: tabID, workspaceID: workspace.id)
+        roster = try Self.decodeJSON(await relay.rosterJSON())
+        XCTAssertEqual(Self.ids(in: roster, key: "sessions"), [sessionID.description])
+        XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
+
+        try await service.terminateSession(sessionID: sessionID)
+        roster = try Self.decodeJSON(await relay.rosterJSON())
+        let sessions = try XCTUnwrap(roster["sessions"] as? [[String: String]])
+        XCTAssertEqual(sessions.first?["state"], "exited")
+        XCTAssertTrue(Self.ids(in: roster, key: "tabs").isEmpty)
+    }
+
     func testRelayEnvelopeRoundTripAndAuthRewriteStaysAtHostEdge() throws {
         let connectionID = RelayHostConnector.ConnectionID(
             bytes: Data((0..<16).map(UInt8.init))
@@ -98,6 +134,9 @@ final class WebRelayTests: XCTestCase {
         XCTAssertTrue(html.contains("class=\"mobile-keys\""))
         XCTAssertTrue(html.contains("waitingForInput"))
         XCTAssertTrue(html.contains("ready:\"Ready\""))
+        XCTAssertTrue(html.contains("const workspaceTabs"))
+        XCTAssertTrue(html.contains("tabs:msg.tabs || []"))
+        XCTAssertTrue(html.contains("attachedSession === activeSession"))
         XCTAssertTrue(html.contains("location.search || location.hash"))
         XCTAssertTrue(html.contains("__WARREN_INJECTED_PARAMS__"))
         XCTAssertTrue(html.contains("__WARREN_RELAY_HOST_ID__"))
@@ -170,6 +209,16 @@ final class WebRelayTests: XCTestCase {
         let encoded = String(decoding: try JSONSerialization.data(withJSONObject: result), as: UTF8.self)
         XCTAssertTrue(encoded.contains("user-notify"))
         XCTAssertEqual(encoded.components(separatedBy: AgentHookInstaller.marker).count - 1, 2)
+    }
+
+    private static func decodeJSON(_ value: String) throws -> [String: Any] {
+        try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any]
+        )
+    }
+
+    private static func ids(in object: [String: Any], key: String) -> [String] {
+        (object[key] as? [[String: String]] ?? []).compactMap { $0["id"] }
     }
 
     @MainActor

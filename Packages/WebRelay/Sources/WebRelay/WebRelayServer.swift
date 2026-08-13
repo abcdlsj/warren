@@ -432,7 +432,10 @@ public final class WebRelayServer {
 
     // MARK: - Relay logic
 
-    fileprivate func rosterJSON() async -> String {
+    /// Projects and Sessions are Host resources. Tabs are a separate Client
+    /// layout projection and must never be inferred from the Session roster:
+    /// a closed Tab deliberately leaves its Session and runtime alive.
+    func rosterJSON() async -> String {
         let snapshot = await service.snapshot()
         let projects = snapshot.projects.map {
             ["id": $0.id.description, "name": $0.name, "path": $0.rootPath]
@@ -455,11 +458,27 @@ public final class WebRelayServer {
                 "activity": $0.activityState.rawValue,
             ]
         }
+        let sessionsByID = Dictionary(uniqueKeysWithValues: snapshot.sessions.map { ($0.id, $0) })
+        let tabs = snapshot.windowLayout.workspaceViews.flatMap { view in
+            view.tabs.compactMap { tab -> [String: String]? in
+                guard let sessionID = tab.sessionID,
+                      let session = sessionsByID[sessionID],
+                      session.workspaceID == view.workspaceID else { return nil }
+                return [
+                    "id": tab.id,
+                    "workspace": view.workspaceID.description,
+                    "session": sessionID.description,
+                    "title": tab.title,
+                    "kind": tab.kind.rawValue,
+                ]
+            }
+        }
         return Self.json([
             "t": "roster",
             "projects": projects,
             "workspaces": workspaces,
             "sessions": sessions,
+            "tabs": tabs,
         ])
     }
 
@@ -480,12 +499,21 @@ public final class WebRelayServer {
     fileprivate func attach(_ sessionID: TerminalSessionID, to peer: SocketConnection) async {
         do {
             await detach(peer)
+            guard peer.isOpen else { return }
             let attachmentID = TerminalAttachmentID()
             let channel = try await service.openClientAttachment(
                 sessionID: sessionID,
                 clientID: peer.clientID,
                 attachmentID: attachmentID
             )
+            guard peer.isOpen else {
+                await service.closeClientAttachment(
+                    sessionID: sessionID,
+                    attachmentID: channel.result.attachmentID,
+                    reason: "web_connection_closed"
+                )
+                return
+            }
             peer.attachmentID = channel.result.attachmentID
             peer.sessionID = sessionID
             peer.startOutputStream(channel.events)
@@ -506,16 +534,21 @@ public final class WebRelayServer {
     ) async {
         do {
             WebRelayServer.log("create begin")
-            let session = try await service.createSession(
+            let tabID = try await service.addTab(
                 workspaceID: workspaceID,
                 launchCommand: command,
                 kind: kind,
                 title: title
             )
-            WebRelayServer.log("create done \(session.id)")
+            let snapshot = await service.snapshot()
+            guard let sessionID = snapshot.tabs(in: workspaceID)
+                .first(where: { $0.id == tabID })?.sessionID else {
+                throw WarrenApplicationError.tabNotFound(tabID)
+            }
+            WebRelayServer.log("create done \(sessionID)")
             peer.sendText(Self.json([
                 "t": "created",
-                "session": session.id.description,
+                "session": sessionID.description,
             ]))
         } catch {
             peer.sendText(Self.json([
@@ -666,6 +699,8 @@ private struct RelayEnvelope: Decodable {
 
 @MainActor
 private final class SocketConnection {
+    private typealias Command = @MainActor (SocketConnection) async -> Void
+
     let fd: Int32
     let clientID = ClientID()
     private let server: WebRelayServer
@@ -681,6 +716,13 @@ private final class SocketConnection {
     var sessionID: TerminalSessionID?
     private var outputTask: Task<Void, Never>?
     private var rosterTask: Task<Void, Never>?
+    /// WebSocket frames arrive in order, so commands derived from them must
+    /// retain that order across actor suspension points as well. Independent
+    /// Tasks let a later detach/input overtake an earlier attach.
+    private var commandTask: Task<Void, Never>?
+    private var pendingCommands: [Command] = []
+
+    var isOpen: Bool { !closed }
 
     init(fd: Int32, server: WebRelayServer) {
         self.fd = fd
@@ -787,7 +829,10 @@ private final class SocketConnection {
                     handleText(text)
                 }
             case 0x2:
-                Task { await server.input(frame.payload, to: self) }
+                guard authenticated else { continue }
+                enqueueCommand { peer in
+                    await peer.server.input(frame.payload, to: peer)
+                }
             case 0x8:
                 close()
                 return
@@ -827,32 +872,61 @@ private final class SocketConnection {
                   let raw = envelope.session,
                   let uuid = UUID(uuidString: raw) else { return }
             let sessionID = TerminalSessionID(rawValue: uuid)
-            Task { await server.attach(sessionID, to: self) }
+            enqueueCommand { peer in
+                await peer.server.attach(sessionID, to: peer)
+            }
         case "create":
             guard authenticated,
                   let rawWorkspace = envelope.workspace,
                   let uuid = UUID(uuidString: rawWorkspace) else { return }
             let workspaceID = WorkspaceID(rawValue: uuid)
             let kind = envelope.kind.flatMap(TerminalSessionKind.init(rawValue:)) ?? .shell
-            Task { await server.create(
-                workspaceID: workspaceID,
-                command: envelope.command,
-                kind: kind,
-                title: envelope.title,
-                to: self
-            ) }
+            enqueueCommand { peer in
+                await peer.server.create(
+                    workspaceID: workspaceID,
+                    command: envelope.command,
+                    kind: kind,
+                    title: envelope.title,
+                    to: peer
+                )
+            }
         case "input":
             guard authenticated,
                   let raw = envelope.data,
                   let payload = Data(base64Encoded: raw) else { return }
-            Task { await server.input(payload, to: self) }
+            enqueueCommand { peer in
+                await peer.server.input(payload, to: peer)
+            }
         case "resize":
             guard authenticated, let cols = envelope.cols, let rows = envelope.rows else { return }
-            Task { await server.resize(cols: cols, rows: rows, to: self) }
+            enqueueCommand { peer in
+                await peer.server.resize(cols: cols, rows: rows, to: peer)
+            }
         case "detach":
-            Task { await server.detach(self) }
+            guard authenticated else { return }
+            enqueueCommand { peer in
+                await peer.server.detach(peer)
+            }
         default:
             break
+        }
+    }
+
+    private func enqueueCommand(
+        _ operation: @escaping Command
+    ) {
+        pendingCommands.append(operation)
+        guard commandTask == nil else { return }
+        commandTask = Task { @MainActor [weak self] in
+            await self?.drainCommands()
+        }
+    }
+
+    private func drainCommands() async {
+        defer { commandTask = nil }
+        while !closed, !Task.isCancelled, !pendingCommands.isEmpty {
+            let command = pendingCommands.removeFirst()
+            await command(self)
         }
     }
 
@@ -1007,6 +1081,9 @@ private final class SocketConnection {
         }
         rosterTask?.cancel()
         rosterTask = nil
+        commandTask?.cancel()
+        commandTask = nil
+        pendingCommands.removeAll(keepingCapacity: false)
         writeSource?.cancel()
         writeSource = nil
         outbound.removeAll(keepingCapacity: false)
