@@ -20,6 +20,7 @@ final class WarrenNextApplicationModel {
     private(set) var navigation: WarrenDesktopNavigationState
     private(set) var presentedIssue: WarrenApplicationIssue?
     private(set) var pendingDefaultShellWorkspaceIDs: Set<WorkspaceID> = []
+    private(set) var webRelayStatus = WarrenDesktopWebRelayStatus()
 
     @ObservationIgnored private let service: WarrenApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
@@ -55,6 +56,7 @@ final class WarrenNextApplicationModel {
         // Startup/session restoration may be expensive; remote availability
         // must not depend on SwiftUI finishing its first transaction.
         startWebRelay()
+        startControlPlaneConnectorIfConfigured()
     }
 
     static func live() -> WarrenNextApplicationModel {
@@ -197,6 +199,7 @@ final class WarrenNextApplicationModel {
         renderer.shutdown()
         webRelay?.stop()
         webRelay = nil
+        webRelayStatus = WarrenDesktopWebRelayStatus()
         if let relayHostConnector {
             self.relayHostConnector = nil
             relayStopTask = Task { await relayHostConnector.stop() }
@@ -240,8 +243,42 @@ final class WarrenNextApplicationModel {
         let relay = WebRelayServer(service: service)
         relay.start()
         webRelay = relay
+        updateWebRelayStatus()
         guard relay.listeningPort == WebRelayServer.defaultPort else { return }
         startControlPlaneConnectorIfConfigured()
+    }
+
+    func startWebRelayFromUI() {
+        if webRelay == nil {
+            let relay = WebRelayServer(service: service)
+            relay.start()
+            webRelay = relay
+        } else if webRelay?.listeningPort == nil {
+            webRelay?.start()
+        }
+        updateWebRelayStatus()
+    }
+
+    func stopWebRelay() {
+        webRelay?.stop()
+        updateWebRelayStatus()
+    }
+
+    private func updateWebRelayStatus() {
+        webRelayStatus = WarrenDesktopWebRelayStatus(
+            isRunning: webRelay?.listeningPort == WebRelayServer.defaultPort,
+            localURL: WebRelayServer.localWebURL,
+            secureURL: webRelay?.secureWebURL
+        )
+    }
+
+    func openWebRelayURL(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+
+    func copyWebRelayURL(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     /// Remote control is opt-in. Defining both environment values creates one
@@ -262,7 +299,9 @@ final class WarrenNextApplicationModel {
             localPairingToken: WebRelayServer.accessToken
         ))
         relayHostConnector = connector
-        Task { await connector.start() }
+        // Do not inherit the SwiftUI main actor here. A busy AttributeGraph
+        // update must not prevent the Host WebSocket from reaching Relay.
+        Task.detached { await connector.start() }
     }
 
     func copyLocalWebURL() {

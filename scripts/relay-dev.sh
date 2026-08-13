@@ -298,6 +298,10 @@ wait_for_host() {
         if host_is_online "$host_id" "$host_token"; then
             return 0
         fi
+        if ((attempt % 10 == 0)) && ! pgrep -f "$app_executable$" >/dev/null 2>&1; then
+            echo "Warren exited before connecting to Relay. See Console logs and $log_file" >&2
+            return 1
+        fi
         sleep 0.1
     done
     echo "Warren did not connect to Relay. See $log_file" >&2

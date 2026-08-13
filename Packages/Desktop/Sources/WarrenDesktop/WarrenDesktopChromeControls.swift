@@ -6,6 +6,7 @@ struct WarrenDesktopChromeButton: View {
     let label: String
     let hint: String
     let action: () -> Void
+    var tint: Color? = nil
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
@@ -20,7 +21,7 @@ struct WarrenDesktopChromeButton: View {
         .buttonStyle(.plain)
         .frame(width: 28, height: 28)
         .contentShape(.rect)
-        .foregroundStyle(tokens.mutedForeground)
+        .foregroundStyle(tint ?? tokens.mutedForeground)
         .background(isHovered ? tokens.fillHover : .clear)
         .clipShape(.rect(cornerRadius: WarrenRadius.small))
         .onHover { isHovered = $0 }

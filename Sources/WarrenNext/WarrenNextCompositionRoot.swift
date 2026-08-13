@@ -28,7 +28,12 @@ struct WarrenNextCompositionRoot: View {
             projection: model.desktopProjection,
             navigation: model.navigation,
             chromeMode: .workspace,
-            actions: WarrenDesktopActions(send: handle)
+            actions: WarrenDesktopActions(send: handle),
+            webRelayStatus: model.webRelayStatus,
+            onWebRelayStart: { model.startWebRelayFromUI() },
+            onWebRelayStop: { model.stopWebRelay() },
+            onWebRelayOpenURL: { model.openWebRelayURL($0) },
+            onWebRelayCopyURL: { model.copyWebRelayURL($0) }
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,

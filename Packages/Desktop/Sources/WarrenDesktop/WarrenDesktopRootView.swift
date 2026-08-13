@@ -15,14 +15,20 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let projection: WarrenDesktopProjection
     public let navigation: WarrenDesktopNavigationState
     public let chromeMode: WarrenDesktopChromeMode
+    public let webRelayStatus: WarrenDesktopWebRelayStatus
 
     private let actions: WarrenDesktopActions
     private let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
+    private let onWebRelayStart: () -> Void
+    private let onWebRelayStop: () -> Void
+    private let onWebRelayOpenURL: (URL) -> Void
+    private let onWebRelayCopyURL: (URL) -> Void
     @State private var sidebarState: WarrenDesktopSidebarState
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
     @State private var settingsPresented = false
+    @State private var webRelayPresented = false
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -36,13 +42,23 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         navigation: WarrenDesktopNavigationState? = nil,
         chromeMode: WarrenDesktopChromeMode = .workspace,
         actions: WarrenDesktopActions = WarrenDesktopActions(),
+        webRelayStatus: WarrenDesktopWebRelayStatus = .init(),
+        onWebRelayStart: @escaping () -> Void = {},
+        onWebRelayStop: @escaping () -> Void = {},
+        onWebRelayOpenURL: @escaping (URL) -> Void = { _ in },
+        onWebRelayCopyURL: @escaping (URL) -> Void = { _ in },
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
         self.projection = projection
         self.navigation = navigation ?? WarrenDesktopNavigationReducer.initial(for: projection)
         self.chromeMode = chromeMode
+        self.webRelayStatus = webRelayStatus
         self.actions = actions
         self.terminalSurface = terminalSurface
+        self.onWebRelayStart = onWebRelayStart
+        self.onWebRelayStop = onWebRelayStop
+        self.onWebRelayOpenURL = onWebRelayOpenURL
+        self.onWebRelayCopyURL = onWebRelayCopyURL
         _sidebarState = State(initialValue: Self.restoredSidebarState())
         _inspectorVisible = State(initialValue: projection.inspector != nil)
         _inspectorWasAvailable = State(initialValue: projection.inspector != nil)
@@ -84,6 +100,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,
                         isConnected: projection.isConnected,
+                        webRelayStatus: webRelayStatus,
                         hasInspector: projection.inspector != nil,
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
@@ -93,6 +110,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             commandPalettePresented = false
                             settingsPresented = true
                         },
+                        onWebRelay: { webRelayPresented.toggle() },
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))
@@ -198,6 +216,19 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 .padding(.leading, sidebarState.renderedWidth + WarrenSpacing.large)
                 .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.medium)
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if webRelayPresented && !settingsPresented {
+                WarrenDesktopWebRelayPanel(
+                    status: webRelayStatus,
+                    onStart: onWebRelayStart,
+                    onStop: onWebRelayStop,
+                    onOpenURL: onWebRelayOpenURL,
+                    onCopyURL: onWebRelayCopyURL
+                )
+                .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.small)
+                .padding(.trailing, WarrenSpacing.medium)
             }
         }
         .warrenSemanticObservationRoot(recorder: semanticRecorder)

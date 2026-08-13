@@ -11,12 +11,14 @@ struct WarrenDesktopTabBar: View {
     let chromeMode: WarrenDesktopChromeMode
     let isSidebarCollapsed: Bool
     let isConnected: Bool
+    let webRelayStatus: WarrenDesktopWebRelayStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onToggleSidebar: () -> Void
     let onToggleInspector: () -> Void
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
+    let onWebRelay: () -> Void
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
     let canAddTab: Bool
@@ -92,10 +94,12 @@ struct WarrenDesktopTabBar: View {
                 if chromeMode == .workspace {
                     WarrenDesktopWorkspaceTabTrailing(
                         isConnected: isConnected,
+                        webRelayStatus: webRelayStatus,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
                         onCommandPalette: onCommandPalette,
                         onSettings: onSettings,
+                        onWebRelay: onWebRelay,
                         onToggleInspector: onToggleInspector
                     )
                 }
@@ -144,10 +148,12 @@ private struct WarrenDesktopCollapsedWorkspaceLeading: View {
 
 private struct WarrenDesktopWorkspaceTabTrailing: View {
     let isConnected: Bool
+    let webRelayStatus: WarrenDesktopWebRelayStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
+    let onWebRelay: () -> Void
     let onToggleInspector: () -> Void
 
     var body: some View {
@@ -157,6 +163,13 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                 label: "Settings",
                 hint: "Open Warren settings",
                 action: onSettings
+            )
+            WarrenDesktopChromeButton(
+                systemImage: "globe",
+                label: "Web Relay",
+                hint: webRelayStatus.isRunning ? "Web Relay is running" : "Web Relay is stopped",
+                action: onWebRelay,
+                tint: webRelayStatus.isRunning ? .green : nil
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",
