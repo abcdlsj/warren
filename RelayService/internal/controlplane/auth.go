@@ -25,7 +25,7 @@ type tokenSigner struct {
 
 func newTokenSigner(key []byte) (*tokenSigner, error) {
 	if len(key) < 32 {
-		return nil, errors.New("BURROW_RELAY_SIGNING_KEY must contain at least 32 bytes")
+		return nil, errors.New("WARREN_RELAY_SIGNING_KEY must contain at least 32 bytes")
 	}
 	return &tokenSigner{key: append([]byte(nil), key...), now: time.Now}, nil
 }

@@ -3,29 +3,29 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowProtocol",
+    name: "WarrenProtocol",
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BurrowProtocol", targets: ["BurrowProtocol"]),
+        .library(name: "WarrenProtocol", targets: ["WarrenProtocol"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
     ],
     targets: [
         .target(
-            name: "BurrowProtocol",
+            name: "WarrenProtocol",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "WarrenDomain", package: "Domain"),
             ],
-            path: "Sources/BurrowProtocol"
+            path: "Sources/WarrenProtocol"
         ),
         .testTarget(
-            name: "BurrowProtocolTests",
-            dependencies: ["BurrowProtocol"],
-            path: "Tests/BurrowProtocolTests"
+            name: "WarrenProtocolTests",
+            dependencies: ["WarrenProtocol"],
+            path: "Tests/WarrenProtocolTests"
         ),
     ]
 )

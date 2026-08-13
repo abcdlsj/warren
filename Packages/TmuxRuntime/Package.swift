@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowTmuxRuntime",
+    name: "WarrenTmuxRuntime",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .library(name: "BurrowTmuxRuntime", targets: ["BurrowTmuxRuntime"]),
+        .library(name: "WarrenTmuxRuntime", targets: ["WarrenTmuxRuntime"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -16,17 +16,17 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowTmuxRuntime",
+            name: "WarrenTmuxRuntime",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowHost", package: "Host"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenHost", package: "Host"),
             ],
-            path: "Sources/BurrowTmuxRuntime"
+            path: "Sources/WarrenTmuxRuntime"
         ),
         .testTarget(
-            name: "BurrowTmuxRuntimeTests",
-            dependencies: ["BurrowTmuxRuntime"],
-            path: "Tests/BurrowTmuxRuntimeTests"
+            name: "WarrenTmuxRuntimeTests",
+            dependencies: ["WarrenTmuxRuntime"],
+            path: "Tests/WarrenTmuxRuntimeTests"
         ),
     ]
 )

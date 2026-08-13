@@ -3,23 +3,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowDesignSystem",
+    name: "WarrenDesignSystem",
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BurrowDesignSystem", targets: ["BurrowDesignSystem"]),
+        .library(name: "WarrenDesignSystem", targets: ["WarrenDesignSystem"]),
     ],
     targets: [
         .target(
-            name: "BurrowDesignSystem",
-            path: "Sources/BurrowDesignSystem"
+            name: "WarrenDesignSystem",
+            path: "Sources/WarrenDesignSystem"
         ),
         .testTarget(
-            name: "BurrowDesignSystemTests",
-            dependencies: ["BurrowDesignSystem"],
-            path: "Tests/BurrowDesignSystemTests"
+            name: "WarrenDesignSystemTests",
+            dependencies: ["WarrenDesignSystem"],
+            path: "Tests/WarrenDesignSystemTests"
         ),
     ]
 )

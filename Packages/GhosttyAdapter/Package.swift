@@ -23,7 +23,7 @@ let package = Package(
             name: "GhosttyAdapter",
             dependencies: [
                 .product(name: "GhosttyTerminal", package: "libghostty-swift"),
-                .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "WarrenDomain", package: "Domain"),
             ]
         ),
         .testTarget(

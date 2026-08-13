@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Burrow",
+    name: "Warren",
     platforms: [
         .macOS(.v14),
     ],
@@ -21,68 +21,68 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "BurrowNext",
+            name: "WarrenNext",
             dependencies: [
-                .product(name: "BurrowApplication", package: "Application"),
-                .product(name: "BurrowDesktop", package: "Desktop"),
-                .product(name: "BurrowTmuxRuntime", package: "TmuxRuntime"),
-                .product(name: "BurrowStateStore", package: "StateStore"),
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
+                .product(name: "WarrenApplication", package: "Application"),
+                .product(name: "WarrenDesktop", package: "Desktop"),
+                .product(name: "WarrenTmuxRuntime", package: "TmuxRuntime"),
+                .product(name: "WarrenStateStore", package: "StateStore"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
                 .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
                 .product(name: "WebRelay", package: "WebRelay"),
             ],
-            path: "Sources/BurrowNext"
+            path: "Sources/WarrenNext"
         ),
         .executableTarget(
             name: "UIProbe",
             dependencies: [
-                .product(name: "BurrowDesktop", package: "Desktop"),
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowObservation", package: "Observation"),
+                .product(name: "WarrenDesktop", package: "Desktop"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenObservation", package: "Observation"),
             ],
             path: "Sources/UIProbe"
         ),
         .executableTarget(
             name: "TerminalProbe",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
+                .product(name: "WarrenDomain", package: "Domain"),
                 .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
             ],
             path: "Sources/TerminalProbe"
         ),
         .executableTarget(
-            name: "burrow",
-            path: "Sources/burrow"
+            name: "warren",
+            path: "Sources/warren"
         ),
         .testTarget(
             name: "ApplicationIntegrationTests",
             dependencies: [
-                .product(name: "BurrowApplication", package: "Application"),
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowStateStore", package: "StateStore"),
-                .product(name: "BurrowTmuxRuntime", package: "TmuxRuntime"),
+                .product(name: "WarrenApplication", package: "Application"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenStateStore", package: "StateStore"),
+                .product(name: "WarrenTmuxRuntime", package: "TmuxRuntime"),
             ],
             path: "Tests/ApplicationIntegrationTests"
         ),
         .testTarget(
-            name: "BurrowNextTests",
+            name: "WarrenNextTests",
             dependencies: [
-                "BurrowNext",
-                .product(name: "BurrowApplication", package: "Application"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowDomain", package: "Domain"),
+                "WarrenNext",
+                .product(name: "WarrenApplication", package: "Application"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenDomain", package: "Domain"),
             ],
-            path: "Tests/BurrowNextTests"
+            path: "Tests/WarrenNextTests"
         ),
         .testTarget(
-            name: "BurrowProcessTests",
+            name: "WarrenProcessTests",
             dependencies: [
-                "BurrowNext",
-                .product(name: "BurrowStateStore", package: "StateStore"),
+                "WarrenNext",
+                .product(name: "WarrenStateStore", package: "StateStore"),
             ],
-            path: "Tests/BurrowProcessTests"
+            path: "Tests/WarrenProcessTests"
         ),
     ]
 )

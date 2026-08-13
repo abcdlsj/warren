@@ -7,5 +7,5 @@ swift run --package-path "$repository_root" UIProbe
 
 echo
 echo "Read the non-visual semantic report with:"
-echo "  cat /tmp/burrow-observation/ui-probe/result.json"
-echo "  cat /tmp/burrow-observation/ui-probe/semantic-ui.json"
+echo "  cat /tmp/warren-observation/ui-probe/result.json"
+echo "  cat /tmp/warren-observation/ui-probe/semantic-ui.json"

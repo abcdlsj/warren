@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowMobile",
+    name: "WarrenMobile",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
-        .library(name: "BurrowMobile", targets: ["BurrowMobile"]),
+        .library(name: "WarrenMobile", targets: ["WarrenMobile"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -18,18 +18,18 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowMobile",
+            name: "WarrenMobile",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowDesignSystem", package: "DesignSystem"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenDesignSystem", package: "DesignSystem"),
             ],
-            path: "Sources/BurrowMobile"
+            path: "Sources/WarrenMobile"
         ),
         .testTarget(
-            name: "BurrowMobileTests",
-            dependencies: ["BurrowMobile"],
-            path: "Tests/BurrowMobileTests"
+            name: "WarrenMobileTests",
+            dependencies: ["WarrenMobile"],
+            path: "Tests/WarrenMobileTests"
         ),
     ]
 )

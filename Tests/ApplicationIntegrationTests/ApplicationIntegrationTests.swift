@@ -1,14 +1,14 @@
 import Foundation
 import XCTest
-import BurrowApplication
-import BurrowDomain
-import BurrowStateStore
-import BurrowTmuxRuntime
+import WarrenApplication
+import WarrenDomain
+import WarrenStateStore
+import WarrenTmuxRuntime
 
 final class ApplicationIntegrationTests: XCTestCase {
     func testLocalTmuxSessionSurvivesAdapterRestartAndReplaysOutput() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("burrow-e2e-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("warren-e2e-\(UUID().uuidString)", isDirectory: true)
         let workspaceURL = root.appendingPathComponent("workspace", isDirectory: true)
         let stateURL = root.appendingPathComponent("state/host-state.json")
         let outputURL = root.appendingPathComponent("runtime", isDirectory: true)
@@ -17,7 +17,7 @@ final class ApplicationIntegrationTests: XCTestCase {
 
         let repository = JSONFileHostStateRepository(fileURL: stateURL)
         let firstRuntime = TmuxRuntime(outputDirectory: outputURL)
-        let firstService = BurrowApplicationService(repository: repository, runtime: firstRuntime)
+        let firstService = WarrenApplicationService(repository: repository, runtime: firstRuntime)
         try await firstService.start()
         let project = try await firstService.addProject(folder: workspaceURL)
         let projectSnapshot = await firstService.snapshot()
@@ -31,7 +31,7 @@ final class ApplicationIntegrationTests: XCTestCase {
         defer { try? Self.killTmuxSession(named: tmuxName) }
 
         let attachmentID = try XCTUnwrap(created.attachmentID)
-        let marker = "DEN_E2E_\(UUID().uuidString)"
+        let marker = "WARREN_E2E_\(UUID().uuidString)"
         try await firstService.sendInput(
             sessionID: created.id,
             attachmentID: attachmentID,
@@ -57,7 +57,7 @@ final class ApplicationIntegrationTests: XCTestCase {
         XCTAssertTrue(isAliveAfterRestart)
 
         let secondRuntime = TmuxRuntime(outputDirectory: outputURL)
-        let secondService = BurrowApplicationService(repository: repository, runtime: secondRuntime)
+        let secondService = WarrenApplicationService(repository: repository, runtime: secondRuntime)
         try await secondService.start()
         _ = try await secondService.openSession(sessionID: created.id)
         let restored = try await snapshot(from: secondService, sessionID: created.id) {
@@ -73,12 +73,12 @@ final class ApplicationIntegrationTests: XCTestCase {
     }
 
     private func snapshot(
-        from service: BurrowApplicationService,
+        from service: WarrenApplicationService,
         sessionID: TerminalSessionID,
-        matching predicate: @escaping @Sendable (BurrowApplicationSession) -> Bool
-    ) async throws -> BurrowApplicationSession {
+        matching predicate: @escaping @Sendable (WarrenApplicationSession) -> Bool
+    ) async throws -> WarrenApplicationSession {
         let stream = await service.snapshots()
-        return try await withThrowingTaskGroup(of: BurrowApplicationSession.self) { group in
+        return try await withThrowingTaskGroup(of: WarrenApplicationSession.self) { group in
             group.addTask {
                 for await value in stream {
                     if let session = value.session(id: sessionID), predicate(session) {

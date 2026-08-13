@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowStateStore",
+    name: "WarrenStateStore",
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BurrowStateStore", targets: ["BurrowStateStore"]),
+        .library(name: "WarrenStateStore", targets: ["WarrenStateStore"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -18,21 +18,21 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowStateStore",
+            name: "WarrenStateStore",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
-            path: "Sources/BurrowStateStore"
+            path: "Sources/WarrenStateStore"
         ),
         .testTarget(
-            name: "BurrowStateStoreTests",
+            name: "WarrenStateStoreTests",
             dependencies: [
-                "BurrowStateStore",
+                "WarrenStateStore",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
-            path: "Tests/BurrowStateStoreTests"
+            path: "Tests/WarrenStateStoreTests"
         ),
     ]
 )

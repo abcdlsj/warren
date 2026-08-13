@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowTerminalRenderer",
+    name: "WarrenTerminalRenderer",
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BurrowTerminalRenderer", targets: ["BurrowTerminalRenderer"]),
+        .library(name: "WarrenTerminalRenderer", targets: ["WarrenTerminalRenderer"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -18,18 +18,18 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowTerminalRenderer",
+            name: "WarrenTerminalRenderer",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
             ],
-            path: "Sources/BurrowTerminalRenderer"
+            path: "Sources/WarrenTerminalRenderer"
         ),
         .testTarget(
-            name: "BurrowTerminalRendererTests",
-            dependencies: ["BurrowTerminalRenderer"],
-            path: "Tests/BurrowTerminalRendererTests"
+            name: "WarrenTerminalRendererTests",
+            dependencies: ["WarrenTerminalRenderer"],
+            path: "Tests/WarrenTerminalRendererTests"
         ),
     ]
 )

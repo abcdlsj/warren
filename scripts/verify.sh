@@ -7,7 +7,7 @@ run_package_tests() {
     local package="$1"
     local package_path="$repository_root/Packages/$package"
     local log
-    log="$(mktemp -t "burrow-${package}-test.XXXXXX")"
+    log="$(mktemp -t "warren-${package}-test.XXXXXX")"
     if swift test --package-path "$package_path" 2>&1 | tee "$log"; then
         rm -f "$log"
         return 0
@@ -43,15 +43,15 @@ echo "==> tmux integration test"
 swift test --package-path "$repository_root" --filter ApplicationIntegrationTests
 
 echo "==> process lifecycle contracts"
-BURROW_APP_EXECUTABLE="$repository_root/.build/debug/BurrowNext" \
-    swift test --package-path "$repository_root" --filter BurrowProcessTests
+WARREN_APP_EXECUTABLE="$repository_root/.build/debug/WarrenNext" \
+    swift test --package-path "$repository_root" --filter WarrenProcessTests
 
 echo "==> non-visual semantic UI acceptance"
-BURROW_ARTIFACT_DIR="${BURROW_ARTIFACT_DIR:-/tmp/burrow-observation/ui-probe}" \
+WARREN_ARTIFACT_DIR="${WARREN_ARTIFACT_DIR:-/tmp/warren-observation/ui-probe}" \
     swift run --package-path "$repository_root" UIProbe
 
 echo "==> headless terminal color semantics"
-BURROW_ARTIFACT_DIR="${BURROW_TERMINAL_ARTIFACT_DIR:-/tmp/burrow-observation/terminal-probe}" \
+WARREN_ARTIFACT_DIR="${WARREN_TERMINAL_ARTIFACT_DIR:-/tmp/warren-observation/terminal-probe}" \
     swift run --package-path "$repository_root" TerminalProbe
 
 echo "==> build app"

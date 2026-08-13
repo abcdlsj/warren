@@ -7,7 +7,7 @@ import plistlib
 import socket
 import time
 
-prefs_path = os.path.expanduser("~/Library/Preferences/com.abcdlsj.burrow.plist")
+prefs_path = os.path.expanduser("~/Library/Preferences/com.abcdlsj.warren.plist")
 with open(prefs_path, "rb") as f:
     prefs = plistlib.load(f)
 token = prefs.get("webRelay.token", "")
@@ -20,7 +20,7 @@ http.sendall(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
 http_data = http.recv(4096)
 http.close()
 assert b"200 OK" in http_data, http_data[:200]
-assert b"X-Burrow: ok" in http_data, "health marker missing"
+assert b"X-Warren: ok" in http_data, "health marker missing"
 print("http ok", flush=True)
 
 # WebSocket handshake + auth + roster.

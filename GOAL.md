@@ -1,4 +1,4 @@
-# Burrow 第一期交付目标
+# Warren 第一期交付目标
 
 状态：执行中  
 设计依据：`DESIGN.md`  
@@ -27,7 +27,7 @@
 2. 所有架构不变量有自动测试。
 3. 全量 Swift 测试、集成测试和无干扰 UI 验收连续通过三次。
 4. 测试前后前台应用 PID 和鼠标位置一致。
-5. 测试不读取或修改用户 Burrow、Superset、Git 和 tmux 状态。
+5. 测试不读取或修改用户 Warren、Superset、Git 和 tmux 状态。
 6. 冷启动、恢复、切换和退出没有遗留未受管 Task 或重复前台进程。
 7. `git diff --check` 通过，工作树只包含本目标相关变更。
 
@@ -74,7 +74,7 @@
 
 交付：
 
-- 一个 Burrow Session 严格映射一个独立 tmux session。
+- 一个 Warren Session 严格映射一个独立 tmux session。
 - 创建、adopt、attach、detach、input、special key、resize、terminate、inspect 全部是 typed operation。
 - 普通输入使用唯一 buffer 的 load/paste，每 Session 保序。
 - 输出保留原始 ANSI/OSC/Unicode 字节，并同时进入内存恢复环和持久日志。
@@ -108,11 +108,11 @@
 
 - 空数据首次启动的 Session 数为 0。
 - 连续启动五次只有一个前台实例。
-- Quit 后在限定时间内无 Burrow App 进程。
+- Quit 后在限定时间内无 Warren App 进程。
 - Quit 后已有 tmux Session 仍存在。
 - 连续冷启动和退出 20 次无僵尸进程、重复监听器和额外 shell。
 
-### G5：Burrow 本地数据存储（P0）
+### G5：Warren 本地数据存储（P0）
 
 交付：
 
@@ -139,7 +139,7 @@
 - Source Adapter 只读并探测 Superset schema。
 - 导入 Project、主检出 Workspace 和有效 worktree Workspace。
 - 使用 realpath、Git common-dir 和路径做归属与去重。
-- 使用 Burrow 新 ID，写入来源摘要和 Import Receipt。
+- 使用 Warren 新 ID，写入来源摘要和 Import Receipt。
 - 不导入任何 tmux、Terminal Session、Tab 或云端数据。
 - 成功后不再自动提示、扫描或同步 Superset。
 
@@ -150,7 +150,7 @@
 - 导入成功后 Project/Workspace 关系、名称、branch 和路径正确。
 - Superset 数据库文件 hash、mtime 和内容不变。
 - Git worktree 列表和 tmux session 列表不变。
-- 任一步失败时 Burrow 数据和 Import Receipt 均不变化。
+- 任一步失败时 Warren 数据和 Import Receipt 均不变化。
 - 再次启动不执行扫描；显式重复导入不产生重复资源。
 
 ### G7：macOS 基础界面与交互（P0）
@@ -223,7 +223,7 @@
 
 交付：
 
-- Claude/Codex Hook 以 Burrow Session 环境变量上报明确状态，不扫描终端文本。
+- Claude/Codex Hook 以 Warren Session 环境变量上报明确状态，不扫描终端文本。
 - Workspace 聚合所有 Host Session，按 failed、waiting、connecting、working、ready、exited 排序。
 - 响应式 Web UI 提供 Project/Workspace Sidebar、Session Tabs、Preset、Terminal 和移动快捷键栏。
 - PWA 提供 manifest、service worker、standalone 安装、safe-area 和 token 恢复。
@@ -233,7 +233,7 @@
 
 验收：
 
-- Hook 合并保留用户条目，连续安装两次只留下一个当前 Burrow 条目。
+- Hook 合并保留用户条目，连续安装两次只留下一个当前 Warren 条目。
 - PermissionRequest 为黄色呼吸，Stop 为绿色静态，失败为红色呼吸，Runtime 退出为灰色静态。
 - 没有打开 Tab 的后台 Session 仍影响 Workspace 状态。
 - Web 和桌面同时 attach 后 Host 存在两个 Attachment，Web detach 不影响桌面 Attachment。
@@ -353,53 +353,53 @@ Known limitations:
 Goal: tmux Runtime、Session lifecycle 与 Renderer Coordinator 基线
 Commit: `5760922`, `d71d490`
 Tests: Host 7；TmuxRuntime 12；Application 23；Renderer Coordinator 3；真实 tmux 恢复 1
-Artifacts: `/tmp/burrow-observation/ui-probe/result.json`
+Artifacts: `/tmp/warren-observation/ui-probe/result.json`
 Known limitations: Ghostty 上游尚未公开最终 cell attribute dump；当前颜色验收使用同一输出边界的 ANSI 状态。
 
 Goal: Project 下创建 Git worktree Workspace
 Commit: `49b9857`
 Tests: Request Receipt 幂等、Git adapter contract、真实临时 Git worktree 创建与删除、Desktop typed action、UI semantic action
-Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
+Artifacts: `/tmp/warren-observation/ui-probe/semantic-ui.json`
 Known limitations: 第一期只创建新 branch worktree；不接管或删除用户已有 worktree。
 
 Goal: 无截图、无焦点终端颜色与单实例验收
 Commit: `e6a9694`, `d3ce8fc`
-Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；真实 BurrowNext headless 空启动/退出；第二实例拒绝；退出后 tmux 保活；全量 `scripts/verify.sh`
-Artifacts: `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `/tmp/burrow-observation/ui-probe/result.json`
+Tests: GhosttyAdapter ANSI/Unicode semantic test；TerminalProbe；单实例锁连续 5 次竞争；真实 WarrenNext headless 空启动/退出；第二实例拒绝；退出后 tmux 保活；全量 `scripts/verify.sh`
+Artifacts: `/tmp/warren-observation/terminal-probe/terminal-semantics.json`, `/tmp/warren-observation/ui-probe/result.json`
 Known limitations: Process E2E 使用真实产品入口的测试专用 headless 模式，不创建 NSApplication 或窗口；AppKit 前台窗口的系统 Quit 仍由同一 shutdown path 驱动，但不在自动测试中抢用户焦点。
 
 Goal: Superset 风格的字体层级和克制图标
 Commit: `7d67f1a`
-Tests: Desktop 15；UIProbe 18 个语义节点；BurrowNext product build
-Artifacts: `/tmp/burrow-observation/ui-probe/semantic-ui.json`
+Tests: Desktop 15；UIProbe 18 个语义节点；WarrenNext product build
+Artifacts: `/tmp/warren-observation/ui-probe/semantic-ui.json`
 Known limitations: 只统一产品级文字 token；终端字体仍由 Ghostty terminal configuration 独立管理。
 
 Goal: CreateSession Request ID 幂等
 Commit: `4ede507`
-Tests: 相同 Request ID 连续创建只产生一个 Session、一个 runtime 和一条 receipt；Application、Desktop、BurrowNext build
+Tests: 相同 Request ID 连续创建只产生一个 Session、一个 runtime 和一条 receipt；Application、Desktop、WarrenNext build
 Artifacts: SQLite `request_receipts` 中的 `create_session` 记录
 Known limitations: Request Receipt 当前无自动过期；一期保留完整历史以优先保证重试安全。
 
 Goal: 一期隔离压力与无干扰验收收口
 Commit: `0f06ada`, `3514c12`
 Tests: Workspace/Tab/Session 跨 Workspace 并发 100 轮；Renderer resize burst 100 次；真实产品 headless 启停 20 次；独立 tmux socket；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
-Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
+Artifacts: `/tmp/warren-observation/ui-probe/result.json`, `/tmp/warren-observation/ui-probe/semantic-ui.json`, `/tmp/warren-observation/terminal-probe/terminal-semantics.json`
 Known limitations: Ghostty 上游尚未公开最终 GPU cell attribute dump；TerminalProbe 在送入 Ghostty 的同一 ANSI/Unicode 输出边界验证样式语义。测试模式不启动 AppKit 前台窗口，因此不会覆盖系统窗口服务器本身的聚焦行为。
 
 Goal: 默认 Shell、tmux 批量观察与高密度 Sidebar
 Commit: `6beda2d`, `e316032`, `6e5ba98`, `5d5b00b`
 Tests: 多 Session 单次 `list-sessions`；空 Workspace 三次并发选择只创建一个 Shell；Application 26；TmuxRuntime 14；Desktop 15；DesignSystem 3；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 构建
-Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/ui-probe/semantic-ui.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`
+Artifacts: `/tmp/warren-observation/ui-probe/result.json`, `/tmp/warren-observation/ui-probe/semantic-ui.json`, `/tmp/warren-observation/terminal-probe/terminal-semantics.json`
 Known limitations: Project 展开状态当前是 Window View 的瞬时 UI 状态，App 重启后按默认策略重新收缩。
 
 Goal: Workspace Agent activity 与响应式 Web/PWA
 Commit: 本次 `feat: add agent activity and responsive web client` 提交
-Tests: WebRelay 5；Desktop 18；Application 28；TmuxRuntime 15；BurrowNext build；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
-Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `./Burrow.app`
+Tests: WebRelay 5；Desktop 18；Application 28；TmuxRuntime 15；WarrenNext build；18 个 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
+Artifacts: `/tmp/warren-observation/ui-probe/result.json`, `/tmp/warren-observation/terminal-probe/terminal-semantics.json`, `./Warren.app`
 Known limitations: PWA 离线时只保留静态 UI 壳，Host roster 与 Terminal 必须在 macOS Host 和显式 HTTPS 可达入口在线时使用；Cloudflare/Tailscale 的外部网络连通性不在无网络副作用的自动验收中启动。
 
 Goal: Relay Service 远端控制面
 Commit: 本次 `feat: add remote relay control plane` 提交
-Tests: Go Relay race test（Host provision/credential 隔离、registry 持久化与权限、pairing 过期/防重放、generation 撤销、PWA scope、文本/二进制双向转发）；WebRelay 6；TmuxRuntime 15；BurrowNext build；全部 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
-Artifacts: `/tmp/burrow-observation/ui-probe/result.json`, `/tmp/burrow-observation/terminal-probe/terminal-semantics.json`, `./Burrow.app`, `RelayService/Dockerfile`
+Tests: Go Relay race test（Host provision/credential 隔离、registry 持久化与权限、pairing 过期/防重放、generation 撤销、PWA scope、文本/二进制双向转发）；WebRelay 6；TmuxRuntime 15；WarrenNext build；全部 Swift package；真实 tmux integration；Process E2E；UIProbe；TerminalProbe；App 打包；全量 `scripts/verify.sh`
+Artifacts: `/tmp/warren-observation/ui-probe/result.json`, `/tmp/warren-observation/terminal-probe/terminal-semantics.json`, `./Warren.app`, `RelayService/Dockerfile`
 Known limitations: 当前 registry 与 Host tunnel 是单 Relay 实例设计；横向扩容需要共享 registry/presence/routing。容器定义已提供，但本机 Docker daemon 未运行，因此本轮未执行镜像构建；Go 静态二进制、HTTP/WS 协议和 Docker build inputs 均已在测试或编译中验证。

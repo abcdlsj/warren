@@ -1,5 +1,5 @@
 import XCTest
-import BurrowDomain
+import WarrenDomain
 @testable import GhosttyAdapter
 
 final class GhosttyAdapterTests: XCTestCase {

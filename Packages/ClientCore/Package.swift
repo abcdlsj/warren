@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowClientCore",
+    name: "WarrenClientCore",
     platforms: [
         .macOS(.v14),
         .iOS(.v17),
     ],
     products: [
-        .library(name: "BurrowClientCore", targets: ["BurrowClientCore"]),
+        .library(name: "WarrenClientCore", targets: ["WarrenClientCore"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -17,17 +17,17 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowClientCore",
+            name: "WarrenClientCore",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
             ],
-            path: "Sources/BurrowClientCore"
+            path: "Sources/WarrenClientCore"
         ),
         .testTarget(
-            name: "BurrowClientCoreTests",
-            dependencies: ["BurrowClientCore"],
-            path: "Tests/BurrowClientCoreTests"
+            name: "WarrenClientCoreTests",
+            dependencies: ["WarrenClientCore"],
+            path: "Tests/WarrenClientCoreTests"
         ),
     ]
 )

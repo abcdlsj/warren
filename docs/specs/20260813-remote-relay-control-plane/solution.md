@@ -10,8 +10,8 @@
 | --- | --- |
 | `Packages/WebRelay/Sources/WebRelay/WebRelayServer.swift` | 本地 WebRelay 已在 loopback 上承载现有 Host Protocol，并持有本地 pairing token |
 | `Packages/WebRelay/Sources/WebRelay/Resources/web.html` | 响应式 Web/PWA 已有认证首帧、终端帧和本地 token 恢复逻辑，可按 Host 上下文切换 endpoint |
-| `Sources/BurrowNext/BurrowNextApplicationModel.swift` | Composition Root 负责启动/停止本地 WebRelay，适合托管一个可选的出站 connector |
-| `Packages/TmuxRuntime/Sources/BurrowTmuxRuntime/TmuxCommandExecutor.swift` | tmux 子进程环境由集中白名单/剔除规则构建，可在这里阻止控制面 Secret 继承 |
+| `Sources/WarrenNext/WarrenNextApplicationModel.swift` | Composition Root 负责启动/停止本地 WebRelay，适合托管一个可选的出站 connector |
+| `Packages/TmuxRuntime/Sources/WarrenTmuxRuntime/TmuxCommandExecutor.swift` | tmux 子进程环境由集中白名单/剔除规则构建，可在这里阻止控制面 Secret 继承 |
 | `RelayService/internal/controlplane/registry.go` | Host credential hash、generation、presence 和 tunnel 的单实例权威已集中在 registry |
 | `RelayService/internal/controlplane/tunnel.go` | `BRLY` envelope、connection ID、有界 route queue 和 WebSocket 生命周期形成内容不可知的转发层 |
 | `RelayService/internal/controlplane/server_test.go` | 现有测试可真实建立 Host/Client WebSocket，覆盖配对、持久化、撤销和双向帧转发 |

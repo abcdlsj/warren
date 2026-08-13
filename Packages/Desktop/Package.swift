@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowDesktop",
+    name: "WarrenDesktop",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .library(name: "BurrowDesktop", targets: ["BurrowDesktop"]),
+        .library(name: "WarrenDesktop", targets: ["WarrenDesktop"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -18,22 +18,22 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowDesktop",
+            name: "WarrenDesktop",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowDesignSystem", package: "DesignSystem"),
-                .product(name: "BurrowObservation", package: "Observation"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenDesignSystem", package: "DesignSystem"),
+                .product(name: "WarrenObservation", package: "Observation"),
             ],
-            path: "Sources/BurrowDesktop"
+            path: "Sources/WarrenDesktop"
         ),
         .testTarget(
-            name: "BurrowDesktopTests",
+            name: "WarrenDesktopTests",
             dependencies: [
-                "BurrowDesktop",
-                .product(name: "BurrowDesignSystem", package: "DesignSystem"),
+                "WarrenDesktop",
+                .product(name: "WarrenDesignSystem", package: "DesignSystem"),
             ],
-            path: "Tests/BurrowDesktopTests"
+            path: "Tests/WarrenDesktopTests"
         ),
     ]
 )

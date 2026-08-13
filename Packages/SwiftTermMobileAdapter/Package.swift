@@ -3,13 +3,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowSwiftTermMobileAdapter",
+    name: "WarrenSwiftTermMobileAdapter",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
-        .library(name: "BurrowSwiftTermMobileAdapter", targets: ["BurrowSwiftTermMobileAdapter"]),
+        .library(name: "WarrenSwiftTermMobileAdapter", targets: ["WarrenSwiftTermMobileAdapter"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -23,20 +23,20 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BurrowSwiftTermMobileAdapter",
+            name: "WarrenSwiftTermMobileAdapter",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowTerminalRenderer", package: "TerminalRenderer"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenTerminalRenderer", package: "TerminalRenderer"),
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
-            path: "Sources/BurrowSwiftTermMobileAdapter"
+            path: "Sources/WarrenSwiftTermMobileAdapter"
         ),
         .testTarget(
-            name: "BurrowSwiftTermMobileAdapterTests",
-            dependencies: ["BurrowSwiftTermMobileAdapter"],
-            path: "Tests/BurrowSwiftTermMobileAdapterTests"
+            name: "WarrenSwiftTermMobileAdapterTests",
+            dependencies: ["WarrenSwiftTermMobileAdapter"],
+            path: "Tests/WarrenSwiftTermMobileAdapterTests"
         ),
     ]
 )

@@ -1,4 +1,4 @@
-# Burrow 产品与系统设计
+# Warren 产品与系统设计
 
 状态：第一期唯一设计事实源  
 适用范围：产品、领域模型、架构、数据、终端运行时、界面和验收  
@@ -6,7 +6,7 @@
 
 ## 1. 产品目标
 
-Burrow 是以 Workspace 为边界、以持久终端为核心的本地开发工作台。
+Warren 是以 Workspace 为边界、以持久终端为核心的本地开发工作台。
 
 第一期以 macOS Host 和桌面端为核心，同时交付同一 Host 上的响应式 Web/PWA 客户端。用户可以管理 Project 和 Workspace，在每个 Workspace 内创建、切换、关闭和恢复 Terminal Session，并通过 Ghostty 或 Web Terminal 获得持续的输入、颜色、尺寸和交互体验。
 
@@ -37,7 +37,7 @@ Burrow 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 
 **Terminal Session**：Host 上持续存在的交互式终端上下文。它只属于一个 Workspace，并独立于窗口、Tab、Renderer 和 Attachment 存活。
 
-**Runtime Binding**：Terminal Session 到具体运行实现的持久映射。第一期实现为一个 Burrow Session 对应一个独立 tmux session 和一个 pane。
+**Runtime Binding**：Terminal Session 到具体运行实现的持久映射。第一期实现为一个 Warren Session 对应一个独立 tmux session 和一个 pane。
 
 ### 3.2 客户端
 
@@ -61,7 +61,7 @@ Burrow 是以 Workspace 为边界、以持久终端为核心的本地开发工�
 
 ### 3.3 导入与自动化
 
-**Superset Import**：从 Superset 本地数据库读取 Project 和 Workspace 元数据，并一次性复制为 Burrow 自有数据的 onboarding 操作。它不是同步。
+**Superset Import**：从 Superset 本地数据库读取 Project 和 Workspace 元数据，并一次性复制为 Warren 自有数据的 onboarding 操作。它不是同步。
 
 **Import Receipt**：成功导入的持久记录，包含来源、版本、时间和摘要。成功后不再自动提示或重复导入。
 
@@ -167,12 +167,12 @@ Session 分享通过 Principal、Share Grant、Capability 和多个 Attachment �
 
 ## 7. 本地数据设计
 
-Burrow 使用自己的版本化 SQLite 数据库，开启 WAL、foreign keys 和 busy timeout。JSON 文件不得承担并发资源状态。
+Warren 使用自己的版本化 SQLite 数据库，开启 WAL、foreign keys 和 busy timeout。JSON 文件不得承担并发资源状态。
 
 默认目录：
 
 ```text
-~/Library/Application Support/Burrow/
+~/Library/Application Support/Warren/
 ├── state.sqlite3
 ├── state.sqlite3-wal
 ├── state.sqlite3-shm
@@ -235,7 +235,7 @@ request_receipts(request_id, command_kind, resource_id, completed_at)
 → 构建候选 Project/Workspace
 → realpath、Git common-dir 和 branch 校验
 → 展示可导入、重复、缺失和无效摘要
-→ 单一 SQLite 事务写入 Burrow 新 ID
+→ 单一 SQLite 事务写入 Warren 新 ID
 → 写入 Import Receipt
 → 选择首个有效 Workspace
 ```
@@ -248,7 +248,7 @@ request_receipts(request_id, command_kind, resource_id, completed_at)
 
 一个 Terminal Session 对应一个唯一命名的 tmux session。第一期只使用其首个 pane，不把 tmux window/pane 暴露为 UI 领域对象。
 
-tmux session 名由 Burrow Session ID 确定，不使用用户标题、branch 或路径，避免重命名和字符转义影响身份。
+tmux session 名由 Warren Session ID 确定，不使用用户标题、branch 或路径，避免重命名和字符转义影响身份。
 
 ### 9.2 创建
 
@@ -332,8 +332,8 @@ Window
 - 自绘无标题窗口只允许顶部明确的空白 chrome 叶节点调用 AppKit `performDrag`；Tab、按钮和 Terminal 不继承窗口拖动行为。
 - Workspace 汇总所有 Host Session 的明确 activity，优先级为 `failed > waitingForInput > connecting > working > ready > exited`；不能只查看当前 Tab。
 - Superset 风格状态点：failed 红色呼吸、waitingForInput 黄色呼吸、working 琥珀色呼吸、ready 绿色静态、exited 灰色静态。
-- Agent activity 由 Burrow 管理的 Claude/Codex Hook 上报。Hook 只读取事件类型和 `BURROW_SESSION_ID`，不读取或上传对话内容；配置合并必须保留用户条目并可幂等更新。
-- Burrow 启动 Codex 时只使用 `--dangerously-bypass-hook-trust` 信任由 Burrow 生成和校验的 Hook；不得因此绕过 Codex command approval 或 sandbox。
+- Agent activity 由 Warren 管理的 Claude/Codex Hook 上报。Hook 只读取事件类型和 `WARREN_SESSION_ID`，不读取或上传对话内容；配置合并必须保留用户条目并可幂等更新。
+- Warren 启动 Codex 时只使用 `--dangerously-bypass-hook-trust` 信任由 Warren 生成和校验的 Hook；不得因此绕过 Codex command approval 或 sandbox。
 
 ## 11. Web/PWA 交互设计
 
@@ -372,9 +372,9 @@ Web Client 使用与桌面一致的 Project → Workspace → Session 信息架�
 测试使用独立临时目录和独立 tmux server：
 
 ```text
-Burrow Test Process
+Warren Test Process
 ├── data-dir = mktemp
-├── tmux socket = burrow-test-<uuid>
+├── tmux socket = warren-test-<uuid>
 ├── deterministic clock / request IDs
 ├── offscreen, never-key NSWindow
 └── test observation socket

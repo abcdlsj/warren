@@ -20,9 +20,9 @@ let package = Package(
         .target(
             name: "WebRelay",
             dependencies: [
-                .product(name: "BurrowApplication", package: "Application"),
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowHost", package: "Host"),
+                .product(name: "WarrenApplication", package: "Application"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenHost", package: "Host"),
             ],
             resources: [
                 .copy("Resources/web.html"),
@@ -35,8 +35,8 @@ let package = Package(
             name: "WebRelayTests",
             dependencies: [
                 "WebRelay",
-                .product(name: "BurrowHost", package: "Host"),
-                .product(name: "BurrowStateStore", package: "StateStore"),
+                .product(name: "WarrenHost", package: "Host"),
+                .product(name: "WarrenStateStore", package: "StateStore"),
             ]
         ),
     ]

@@ -1,13 +1,13 @@
 import Foundation
 import GhosttyTerminal
-import BurrowDomain
+import WarrenDomain
 
 @_exported import GhosttyTerminal
 
-/// One Ghostty terminal surface backed by Burrow's Host output stream.
+/// One Ghostty terminal surface backed by Warren's Host output stream.
 ///
 /// The terminal process itself remains owned by tmux/Host; Ghostty only
-/// renders the PTY byte stream and forwards input/resize back to Burrow. This is
+/// renders the PTY byte stream and forwards input/resize back to Warren. This is
 /// the same in-memory shape Termio uses for its companion/status architecture.
 @MainActor
 public final class GhosttySurface: Identifiable, ObservableObject {
@@ -82,7 +82,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 
     /// Re-submit Ghostty's current grid even when the renderer's pixel size
     /// has not changed. libghostty intentionally suppresses duplicate metric
-    /// callbacks, while Burrow must calibrate a newly adopted or re-selected
+    /// callbacks, while Warren must calibrate a newly adopted or re-selected
     /// tmux runtime that may not match the persisted last-requested size.
     public func synchronizeViewport() {
         guard let size = state.surfaceSize else { return }

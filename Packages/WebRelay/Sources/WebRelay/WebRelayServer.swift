@@ -1,6 +1,6 @@
-import BurrowApplication
-import BurrowDomain
-import BurrowHost
+import WarrenApplication
+import WarrenDomain
+import WarrenHost
 import CryptoKit
 import Darwin
 import Foundation
@@ -23,7 +23,7 @@ public final class WebRelayServer {
     public static let startFunnel = Notification.Name("WebRelay.startFunnel")
     public static let stopFunnel = Notification.Name("WebRelay.stopFunnel")
 
-    fileprivate let service: BurrowApplicationService
+    fileprivate let service: WarrenApplicationService
     private var listenFD: Int32 = -1
     private var serverSource: DispatchSourceRead?
     private var connections: [Int32: SocketConnection] = [:]
@@ -33,7 +33,7 @@ public final class WebRelayServer {
     public private(set) var funnelURL: URL?
     public private(set) var listeningPort: UInt16?
 
-    public init(service: BurrowApplicationService) {
+    public init(service: WarrenApplicationService) {
         self.service = service
     }
 
@@ -46,7 +46,7 @@ public final class WebRelayServer {
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         // Reachability adapters proxy this loopback listener explicitly.
-        // Starting Burrow alone must never expose terminal control to the LAN.
+        // Starting Warren alone must never expose terminal control to the LAN.
         address.sin_addr.s_addr = inet_addr("127.0.0.1")
         address.sin_port = port.bigEndian
         let bindResult = withUnsafePointer(to: &address) { pointer in
@@ -166,15 +166,15 @@ public final class WebRelayServer {
     }
 
     /// Installs the current managed hook definitions and returns the small
-    /// environment inherited only by Burrow-created terminal Sessions.
+    /// environment inherited only by Warren-created terminal Sessions.
     public static func installAgentHooks() -> [String: String] {
         AgentHookInstaller.install(port: defaultPort, token: accessToken)
     }
 
     public static var agentHookEnvironment: [String: String] {
         [
-            "BURROW_HOOK_URL": "http://127.0.0.1:\(defaultPort)/hook",
-            "BURROW_HOOK_TOKEN": accessToken,
+            "WARREN_HOOK_URL": "http://127.0.0.1:\(defaultPort)/hook",
+            "WARREN_HOOK_TOKEN": accessToken,
         ]
     }
 
@@ -211,7 +211,7 @@ public final class WebRelayServer {
         ]
         guard let params = components.percentEncodedQuery else { return nil }
         let replaced = html.replacingOccurrences(
-            of: "__BURROW_INJECTED_PARAMS__",
+            of: "__WARREN_INJECTED_PARAMS__",
             with: params
         )
         guard let data = replaced.data(using: .utf8) else { return nil }
@@ -281,7 +281,7 @@ public final class WebRelayServer {
               let url = Self.parseTunnelURL(from: text) else { return }
         tunnelURL = url
         try? url.absoluteString.write(
-            to: URL(fileURLWithPath: "/tmp/burrow-tunnel-url.txt"),
+            to: URL(fileURLWithPath: "/tmp/warren-tunnel-url.txt"),
             atomically: true,
             encoding: .utf8
         )
@@ -311,7 +311,7 @@ public final class WebRelayServer {
             ), let url = Self.parseTailscaleURL(from: output) {
                 tailscaleURL = url
                 try? url.absoluteString.write(
-                    to: URL(fileURLWithPath: "/tmp/burrow-tailscale-url.txt"),
+                    to: URL(fileURLWithPath: "/tmp/warren-tailscale-url.txt"),
                     atomically: true,
                     encoding: .utf8
                 )
@@ -344,7 +344,7 @@ public final class WebRelayServer {
             ), let url = Self.parseTailscaleURL(from: output) {
                 funnelURL = url
                 try? url.absoluteString.write(
-                    to: URL(fileURLWithPath: "/tmp/burrow-funnel-url.txt"),
+                    to: URL(fileURLWithPath: "/tmp/warren-funnel-url.txt"),
                     atomically: true,
                     encoding: .utf8
                 )
@@ -424,9 +424,9 @@ public final class WebRelayServer {
 
     private nonisolated static var sanitizedProcessEnvironment: [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_URL")
-        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_HOST_ID")
-        environment.removeValue(forKey: "BURROW_CONTROL_PLANE_HOST_TOKEN")
+        environment.removeValue(forKey: "WARREN_CONTROL_PLANE_URL")
+        environment.removeValue(forKey: "WARREN_CONTROL_PLANE_HOST_ID")
+        environment.removeValue(forKey: "WARREN_CONTROL_PLANE_HOST_TOKEN")
         return environment
     }
 
@@ -857,10 +857,10 @@ private final class SocketConnection {
     }
 
     private func sendHTTPPage() {
-        let data = Data((WebRelayServer.webPageHTML ?? "Burrow Web unavailable").utf8)
+        let data = Data((WebRelayServer.webPageHTML ?? "Warren Web unavailable").utf8)
         let header =
             "HTTP/1.1 200 OK\r\n" +
-            "X-Burrow: ok\r\n" +
+            "X-Warren: ok\r\n" +
             "Content-Type: text/html; charset=utf-8\r\n" +
             "Cache-Control: no-store\r\n" +
             "Content-Length: \(data.count)\r\n" +

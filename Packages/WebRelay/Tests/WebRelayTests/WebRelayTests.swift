@@ -1,9 +1,9 @@
 import XCTest
 import Foundation
-import BurrowApplication
-import BurrowDomain
-import BurrowHost
-import BurrowStateStore
+import WarrenApplication
+import WarrenDomain
+import WarrenHost
+import WarrenStateStore
 @testable import WebRelay
 
 final class WebRelayTests: XCTestCase {
@@ -36,13 +36,13 @@ final class WebRelayTests: XCTestCase {
 
     @MainActor
     func testLoopbackHTTPHookAndWebSocketAuthentication() async throws {
-        let service = BurrowApplicationService(
+        let service = WarrenApplicationService(
             repository: InMemoryHostStateRepository(),
             runtime: InMemoryTerminalRuntime()
         )
         try await service.start()
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("burrow-web-relay-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("warren-web-relay-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let project = try await service.addProject(folder: directory)
@@ -99,9 +99,9 @@ final class WebRelayTests: XCTestCase {
         XCTAssertTrue(html.contains("waitingForInput"))
         XCTAssertTrue(html.contains("ready:\"Ready\""))
         XCTAssertTrue(html.contains("location.search || location.hash"))
-        XCTAssertTrue(html.contains("__BURROW_INJECTED_PARAMS__"))
-        XCTAssertTrue(html.contains("__BURROW_RELAY_HOST_ID__"))
-        XCTAssertTrue(html.contains("burrow.accessToken.${relayHostID}"))
+        XCTAssertTrue(html.contains("__WARREN_INJECTED_PARAMS__"))
+        XCTAssertTrue(html.contains("__WARREN_RELAY_HOST_ID__"))
+        XCTAssertTrue(html.contains("warren.accessToken.${relayHostID}"))
         XCTAssertTrue(html.contains("/v1/client/connect?host_id="))
         XCTAssertFalse(html.contains("access_token=${encodeURIComponent(token)}"))
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))
@@ -120,7 +120,7 @@ final class WebRelayTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(injectedHTML?.contains("host=abc.trycloudflare.com&t=\(WebRelayServer.accessToken)") == true)
-        XCTAssertFalse(injectedHTML?.contains("__BURROW_INJECTED_PARAMS__") == true)
+        XCTAssertFalse(injectedHTML?.contains("__WARREN_INJECTED_PARAMS__") == true)
 
         let hostileURL = try! XCTUnwrap(WebRelayServer.webPageDataURL(host: #"host";alert(1)//"#))
         let hostileEncodedHTML = try! XCTUnwrap(

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	relayassets "github.com/abcdlsj/den"
+	relayassets "github.com/abcdlsj/warren"
 	"github.com/gorilla/websocket"
 )
 
@@ -363,7 +363,7 @@ func (server *Server) webPage(response http.ResponseWriter, request *http.Reques
 	}
 	host := request.PathValue("hostID")
 	hostID, _ := json.Marshal(host)
-	page := strings.Replace(string(data), "\"__BURROW_RELAY_HOST_ID__\"", string(hostID), 1)
+	page := strings.Replace(string(data), "\"__WARREN_RELAY_HOST_ID__\"", string(hostID), 1)
 	page = strings.ReplaceAll(page, "href=\"/manifest.webmanifest\"", fmt.Sprintf("href=\"/h/%s/manifest.webmanifest\"", url.PathEscape(host)))
 	page = strings.ReplaceAll(page, "href=\"/icon.svg\"", fmt.Sprintf("href=\"/h/%s/icon.svg\"", url.PathEscape(host)))
 	response.Header().Set("Cache-Control", "no-store")
@@ -391,10 +391,10 @@ func (server *Server) hostManifest(response http.ResponseWriter, request *http.R
 
 func (server *Server) hostServiceWorker(response http.ResponseWriter, request *http.Request) {
 	host := url.PathEscape(request.PathValue("hostID"))
-	script := fmt.Sprintf(`const CACHE="burrow-relay-%s-v1";
+	script := fmt.Sprintf(`const CACHE="warren-relay-%s-v1";
 const SHELL=["/h/%s/","/h/%s/manifest.webmanifest","/h/%s/icon.svg"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)));self.skipWaiting()});
-self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x.startsWith("burrow-relay-")&&x!==CACHE).map(x=>caches.delete(x)))));self.clients.claim()});
+self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x.startsWith("warren-relay-")&&x!==CACHE).map(x=>caches.delete(x)))));self.clients.claim()});
 self.addEventListener("fetch",e=>{if(e.request.method!=="GET"||new URL(e.request.url).pathname==="/v1/client/connect")return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))})`, host, host, host, host)
 	response.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	response.Header().Set("Service-Worker-Allowed", "/h/"+host+"/")

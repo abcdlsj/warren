@@ -3,22 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowObservation",
+    name: "WarrenObservation",
     platforms: [
         .macOS(.v14),
     ],
     products: [
-        .library(name: "BurrowObservation", targets: ["BurrowObservation"]),
+        .library(name: "WarrenObservation", targets: ["WarrenObservation"]),
     ],
     targets: [
         .target(
-            name: "BurrowObservation",
-            path: "Sources/BurrowObservation"
+            name: "WarrenObservation",
+            path: "Sources/WarrenObservation"
         ),
         .testTarget(
-            name: "BurrowObservationTests",
-            dependencies: ["BurrowObservation"],
-            path: "Tests/BurrowObservationTests"
+            name: "WarrenObservationTests",
+            dependencies: ["WarrenObservation"],
+            path: "Tests/WarrenObservationTests"
         ),
     ]
 )

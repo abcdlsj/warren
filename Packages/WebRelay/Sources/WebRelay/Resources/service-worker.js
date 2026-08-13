@@ -1,4 +1,4 @@
-const CACHE = "burrow-shell-v1";
+const CACHE = "warren-shell-v1";
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));

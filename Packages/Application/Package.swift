@@ -3,10 +3,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "BurrowApplication",
+    name: "WarrenApplication",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "BurrowApplication", targets: ["BurrowApplication"]),
+        .library(name: "WarrenApplication", targets: ["WarrenApplication"]),
     ],
     dependencies: [
         .package(path: "../Domain"),
@@ -16,33 +16,33 @@ let package = Package(
         .package(path: "../StateStore"),
         .package(path: "../LocalTransport"),
         // Kept as a composition dependency for the renderer-backed desktop
-        // entry point. BurrowApplication itself never imports SwiftTerm/AppKit.
+        // entry point. WarrenApplication itself never imports SwiftTerm/AppKit.
         .package(path: "../TerminalRenderer"),
     ],
     targets: [
         .target(
-            name: "BurrowApplication",
+            name: "WarrenApplication",
             dependencies: [
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
-                .product(name: "BurrowHost", package: "Host"),
-                .product(name: "BurrowClientCore", package: "ClientCore"),
-                .product(name: "BurrowStateStore", package: "StateStore"),
-                .product(name: "BurrowLocalTransport", package: "LocalTransport"),
-                .product(name: "BurrowTerminalRenderer", package: "TerminalRenderer"),
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
+                .product(name: "WarrenHost", package: "Host"),
+                .product(name: "WarrenClientCore", package: "ClientCore"),
+                .product(name: "WarrenStateStore", package: "StateStore"),
+                .product(name: "WarrenLocalTransport", package: "LocalTransport"),
+                .product(name: "WarrenTerminalRenderer", package: "TerminalRenderer"),
             ],
-            path: "Sources/BurrowApplication"
+            path: "Sources/WarrenApplication"
         ),
         .testTarget(
-            name: "BurrowApplicationTests",
+            name: "WarrenApplicationTests",
             dependencies: [
-                "BurrowApplication",
-                .product(name: "BurrowDomain", package: "Domain"),
-                .product(name: "BurrowProtocol", package: "Protocol"),
-                .product(name: "BurrowHost", package: "Host"),
-                .product(name: "BurrowStateStore", package: "StateStore"),
+                "WarrenApplication",
+                .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenProtocol", package: "Protocol"),
+                .product(name: "WarrenHost", package: "Host"),
+                .product(name: "WarrenStateStore", package: "StateStore"),
             ],
-            path: "Tests/BurrowApplicationTests"
+            path: "Tests/WarrenApplicationTests"
         ),
     ]
 )

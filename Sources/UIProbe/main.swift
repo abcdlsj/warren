@@ -1,14 +1,14 @@
 import AppKit
-import BurrowDesktop
-import BurrowObservation
+import WarrenDesktop
+import WarrenObservation
 import Foundation
 import SwiftUI
 
 private struct UIProbeReport: Codable {
     let width: Int
     let height: Int
-    let interactionBefore: BurrowInteractionSnapshot
-    let interactionAfter: BurrowInteractionSnapshot
+    let interactionBefore: WarrenInteractionSnapshot
+    let interactionAfter: WarrenInteractionSnapshot
     let semanticNodeCount: Int
     let observedActions: [String]
     let invariantViolations: [String]
@@ -26,7 +26,7 @@ private enum UIProbeError: Error, CustomStringConvertible {
 }
 
 private struct ProbeTerminalSurface: View {
-    let context: BurrowDesktopTerminalContext
+    let context: WarrenDesktopTerminalContext
 
     var body: some View {
         Text("probe:\(context.tab.id)")
@@ -34,7 +34,7 @@ private struct ProbeTerminalSurface: View {
             .background(Color.black)
             .foregroundStyle(Color.green)
             .font(.system(size: 12, design: .monospaced))
-            .burrowSemanticElement(
+            .warrenSemanticElement(
                 id: "terminal.\(context.tab.id)",
                 role: .terminal,
                 label: "Terminal \(context.tab.title)"
@@ -54,23 +54,23 @@ private enum UIProbe {
         let width: CGFloat = 1_280
         let height: CGFloat = 800
         let outputDirectory = URL(
-            fileURLWithPath: ProcessInfo.processInfo.environment["BURROW_ARTIFACT_DIR"]
-                ?? "/tmp/burrow-observation/ui-probe",
+            fileURLWithPath: ProcessInfo.processInfo.environment["WARREN_ARTIFACT_DIR"]
+                ?? "/tmp/warren-observation/ui-probe",
             isDirectory: true
         )
-        let recorder = BurrowSemanticRecorder()
-        let before = BurrowInteractionGuard.capture()
-        var actions: [BurrowDesktopAction] = []
+        let recorder = WarrenSemanticRecorder()
+        let before = WarrenInteractionGuard.capture()
+        var actions: [WarrenDesktopAction] = []
 
-        let root = BurrowDesktopRoot(
-            projection: BurrowDesktopFixture.preview.projection,
-            actions: BurrowDesktopActions { actions.append($0) }
+        let root = WarrenDesktopRoot(
+            projection: WarrenDesktopFixture.preview.projection,
+            actions: WarrenDesktopActions { actions.append($0) }
         ) { context in
             ProbeTerminalSurface(context: context)
         }
         .environment(\.colorScheme, .dark)
-        .environment(\.burrowForceHover, true)
-        .environment(\.burrowSemanticRecorder, recorder)
+        .environment(\.warrenForceHover, true)
+        .environment(\.warrenSemanticRecorder, recorder)
         .frame(width: width, height: height)
 
         let hostingView = NSHostingView(rootView: root)
@@ -79,15 +79,15 @@ private enum UIProbe {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         hostingView.layoutSubtreeIfNeeded()
 
-        let initialWorkspace = BurrowDesktopFixture.preview.projection.groups[0].workspaces[0]
-        let initialProject = BurrowDesktopFixture.preview.projection.groups[0].project
+        let initialWorkspace = WarrenDesktopFixture.preview.projection.groups[0].workspaces[0]
+        let initialProject = WarrenDesktopFixture.preview.projection.groups[0].project
         let collapsedSnapshot = recorder.snapshot()
         guard !collapsedSnapshot.nodes.isEmpty else { throw UIProbeError.noSemanticNodes }
         guard collapsedSnapshot.nodes.first(where: {
             $0.id == "project.\(initialProject.id.description)"
         })?.value == "Collapsed" else {
             throw NSError(
-                domain: "Burrow.UIProbe",
+                domain: "Warren.UIProbe",
                 code: 2,
                 userInfo: [NSLocalizedDescriptionKey: "Project rows must be collapsed initially."]
             )
@@ -109,10 +109,10 @@ private enum UIProbe {
         )
         let snapshot = recorder.snapshot()
 
-        let after = BurrowInteractionGuard.capture()
+        let after = WarrenInteractionGuard.capture()
         var violations: [String] = []
         do {
-            try BurrowInteractionGuard.verifyUnchanged(from: before, to: after)
+            try WarrenInteractionGuard.verifyUnchanged(from: before, to: after)
         } catch {
             violations.append(String(describing: error))
         }
@@ -145,7 +145,7 @@ private enum UIProbe {
             )
         }
 
-        try BurrowArtifactWriter.writeJSON(
+        try WarrenArtifactWriter.writeJSON(
             snapshot,
             to: outputDirectory.appendingPathComponent("semantic-ui.json")
         )
@@ -158,14 +158,14 @@ private enum UIProbe {
             observedActions: actions.map(String.init(describing:)),
             invariantViolations: violations
         )
-        try BurrowArtifactWriter.writeJSON(
+        try WarrenArtifactWriter.writeJSON(
             report,
             to: outputDirectory.appendingPathComponent("result.json")
         )
 
         guard violations.isEmpty else {
             throw NSError(
-                domain: "Burrow.UIProbe",
+                domain: "Warren.UIProbe",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: violations.joined(separator: "\n")]
             )

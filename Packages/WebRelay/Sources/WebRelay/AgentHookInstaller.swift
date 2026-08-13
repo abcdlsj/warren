@@ -1,14 +1,14 @@
 import Foundation
 
-/// Installs Burrow-owned lifecycle hooks without replacing user configuration.
+/// Installs Warren-owned lifecycle hooks without replacing user configuration.
 /// Every managed command contains a stable marker, so repeated installation
-/// removes only Burrow entries and appends exactly one current entry.
+/// removes only Warren entries and appends exactly one current entry.
 enum AgentHookInstaller {
-    static let marker = "burrow-agent-hook-v1"
+    static let marker = "warren-agent-hook-v1"
 
     static func install(port: UInt16, token: String) -> [String: String] {
         guard let scriptURL = installScript() else { return [:] }
-        let command = "[ -n \"$BURROW_SESSION_ID\" ] && [ -x \(shellQuote(scriptURL.path)) ] && \(shellQuote(scriptURL.path)) || true # \(marker)"
+        let command = "[ -n \"$WARREN_SESSION_ID\" ] && [ -x \(shellQuote(scriptURL.path)) ] && \(shellQuote(scriptURL.path)) || true # \(marker)"
         mergeHooks(
             at: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/settings.json"),
@@ -28,14 +28,14 @@ enum AgentHookInstaller {
             command: command
         )
         return [
-            "BURROW_HOOK_URL": "http://127.0.0.1:\(port)/hook",
-            "BURROW_HOOK_TOKEN": token,
+            "WARREN_HOOK_URL": "http://127.0.0.1:\(port)/hook",
+            "WARREN_HOOK_TOKEN": token,
         ]
     }
 
     private static func installScript() -> URL? {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first?.appendingPathComponent("Burrow/Hooks", isDirectory: true)
+            .first?.appendingPathComponent("Warren/Hooks", isDirectory: true)
         guard let base else { return nil }
         let url = base.appendingPathComponent("notify.sh")
         let script = managedScript
@@ -56,9 +56,9 @@ enum AgentHookInstaller {
 
     private static let managedScript = #"""
         #!/bin/sh
-        # burrow-agent-hook-v1
-        [ -n "$BURROW_SESSION_ID" ] || exit 0
-        [ -n "$BURROW_HOOK_URL" ] || exit 0
+        # warren-agent-hook-v1
+        [ -n "$WARREN_SESSION_ID" ] || exit 0
+        [ -n "$WARREN_HOOK_URL" ] || exit 0
         if [ -n "$1" ]; then INPUT=$1; else INPUT=$(cat); fi
         EVENT=$(printf '%s' "$INPUT" | sed -nE 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
         [ -n "$EVENT" ] || EVENT=$(printf '%s' "$INPUT" | sed -nE 's/.*"type"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
@@ -71,10 +71,10 @@ enum AgentHookInstaller {
           *) exit 0 ;;
         esac
         curl -fsS --connect-timeout 1 --max-time 2 \
-          -G "$BURROW_HOOK_URL" \
-          --data-urlencode "session=$BURROW_SESSION_ID" \
+          -G "$WARREN_HOOK_URL" \
+          --data-urlencode "session=$WARREN_SESSION_ID" \
           --data-urlencode "state=$STATE" \
-          --data-urlencode "token=$BURROW_HOOK_TOKEN" \
+          --data-urlencode "token=$WARREN_HOOK_TOKEN" \
           >/dev/null 2>&1 || true
         exit 0
         """#

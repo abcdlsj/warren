@@ -4,27 +4,27 @@ set -euo pipefail
 
 command_name="${1:-up}"
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
-relay_port="${BURROW_RELAY_DEV_PORT:-8080}"
-if [[ -n "${BURROW_RELAY_URL:-}" ]]; then
+relay_port="${WARREN_RELAY_DEV_PORT:-8080}"
+if [[ -n "${WARREN_RELAY_URL:-}" ]]; then
     manages_local_relay=0
-    relay_url="${BURROW_RELAY_URL%/}"
+    relay_url="${WARREN_RELAY_URL%/}"
     if [[ "$relay_url" != https://* ]]; then
-        echo "BURROW_RELAY_URL must use https:// so credentials are never sent in plaintext." >&2
+        echo "WARREN_RELAY_URL must use https:// so credentials are never sent in plaintext." >&2
         exit 64
     fi
     relay_identity="$(printf '%s' "$relay_url" | shasum -a 256 | cut -c 1-16)"
-    default_state_directory="$HOME/Library/Application Support/Burrow/relay-cli/$relay_identity"
+    default_state_directory="$HOME/Library/Application Support/Warren/relay-cli/$relay_identity"
 else
     manages_local_relay=1
     relay_url="http://127.0.0.1:$relay_port"
     if [[ ! "$relay_port" =~ ^[0-9]+$ ]] || ((relay_port < 1 || relay_port > 65535)); then
-        echo "BURROW_RELAY_DEV_PORT must be an integer from 1 to 65535." >&2
+        echo "WARREN_RELAY_DEV_PORT must be an integer from 1 to 65535." >&2
         exit 64
     fi
     default_state_directory="$repository_root/.build/relay-dev/$relay_port"
 fi
-state_directory="${BURROW_RELAY_STATE_DIR:-${BURROW_RELAY_DEV_STATE_DIR:-$default_state_directory}}"
-app_executable="$repository_root/Burrow.app/Contents/MacOS/Burrow"
+state_directory="${WARREN_RELAY_STATE_DIR:-${WARREN_RELAY_DEV_STATE_DIR:-$default_state_directory}}"
+app_executable="$repository_root/Warren.app/Contents/MacOS/Warren"
 
 admin_token_file="$state_directory/admin-token"
 signing_key_file="$state_directory/signing-key"
@@ -33,22 +33,22 @@ host_token_file="$state_directory/host-token"
 pid_file="$state_directory/relay.pid"
 log_file="$state_directory/relay.log"
 registry_file="$state_directory/registry.json"
-relay_binary="$state_directory/burrow-relay"
+relay_binary="$state_directory/warren-relay"
 
 usage() {
     cat <<'EOF'
 Usage: scripts/relay-dev.sh [up|start|pair|status|stop|logs]
 
-  up      Start a local Relay, register this Mac, launch Burrow, and pair.
-  start   Start the Relay without launching or restarting Burrow.
+  up      Start a local Relay, register this Mac, launch Warren, and pair.
+  start   Start the Relay without launching or restarting Warren.
   pair    Generate and open another one-time Web/PWA URL.
   status  Show Relay health and Host presence.
-  stop    Stop the local Relay. Burrow and its tmux sessions keep running.
+  stop    Stop the local Relay. Warren and its tmux sessions keep running.
   logs    Follow the local Relay log.
 
-Set BURROW_RELAY_NO_OPEN=1 to print the Web URL without opening a browser.
-Set BURROW_RELAY_URL=https://relay.example.com to connect to a deployed Relay.
-The first remote connection also needs BURROW_RELAY_ADMIN_TOKEN for provisioning.
+Set WARREN_RELAY_NO_OPEN=1 to print the Web URL without opening a browser.
+Set WARREN_RELAY_URL=https://relay.example.com to connect to a deployed Relay.
+The first remote connection also needs WARREN_RELAY_ADMIN_TOKEN for provisioning.
 EOF
 }
 
@@ -139,16 +139,16 @@ start_relay() {
     fi
     if /usr/sbin/lsof -nP -iTCP:"$relay_port" -sTCP:LISTEN >/dev/null 2>&1; then
         echo "Port $relay_port is already used by another process." >&2
-        echo "Set BURROW_RELAY_DEV_PORT to choose another local port." >&2
+        echo "Set WARREN_RELAY_DEV_PORT to choose another local port." >&2
         exit 1
     fi
-    go build -o "$relay_binary" ./RelayService/cmd/burrow-relay
-    BURROW_RELAY_LISTEN="127.0.0.1:$relay_port" \
-        BURROW_RELAY_PUBLIC_URL="$relay_url" \
-        BURROW_RELAY_ALLOWED_ORIGIN="$relay_url" \
-        BURROW_RELAY_ADMIN_TOKEN="$admin_token" \
-        BURROW_RELAY_SIGNING_KEY="$signing_key" \
-        BURROW_RELAY_DATA="$registry_file" \
+    go build -o "$relay_binary" ./RelayService/cmd/warren-relay
+    WARREN_RELAY_LISTEN="127.0.0.1:$relay_port" \
+        WARREN_RELAY_PUBLIC_URL="$relay_url" \
+        WARREN_RELAY_ALLOWED_ORIGIN="$relay_url" \
+        WARREN_RELAY_ADMIN_TOKEN="$admin_token" \
+        WARREN_RELAY_SIGNING_KEY="$signing_key" \
+        WARREN_RELAY_DATA="$registry_file" \
         "$relay_binary" >>"$log_file" 2>&1 &
     local pid=$!
     write_secret "$pid_file" "$pid"
@@ -175,10 +175,10 @@ ensure_host() {
     if [[ "$manages_local_relay" == "1" ]]; then
         admin_token="$(read_secret "$admin_token_file")"
     else
-        admin_token="${BURROW_RELAY_ADMIN_TOKEN:-}"
+        admin_token="${WARREN_RELAY_ADMIN_TOKEN:-}"
         if [[ -z "$admin_token" ]]; then
             echo "This Host is not registered with $relay_url." >&2
-            echo "Set BURROW_RELAY_ADMIN_TOKEN once, then rerun relay:connect." >&2
+            echo "Set WARREN_RELAY_ADMIN_TOKEN once, then rerun relay:connect." >&2
             exit 64
         fi
     fi
@@ -192,27 +192,27 @@ ensure_host() {
     write_host_token "$host_id" "$host_token"
 }
 
-launch_burrow() {
+launch_warren() {
     local host_id host_token
     host_id="$(read_secret "$host_id_file")"
     host_token="$(read_host_token "$host_id")"
     bash "$repository_root/scripts/build-app.sh" debug
 
     if pgrep -f "$app_executable$" >/dev/null 2>&1; then
-        osascript -e 'tell application id "com.abcdlsj.burrow" to quit' >/dev/null 2>&1 || true
+        osascript -e 'tell application id "com.abcdlsj.warren" to quit' >/dev/null 2>&1 || true
         for _ in {1..50}; do
             pgrep -f "$app_executable$" >/dev/null 2>&1 || break
             sleep 0.1
         done
     fi
     if pgrep -f "$app_executable$" >/dev/null 2>&1; then
-        echo "Burrow is already running and could not be restarted for credential import." >&2
+        echo "Warren is already running and could not be restarted for credential import." >&2
         exit 1
     fi
-    open --env "BURROW_CONTROL_PLANE_URL=$relay_url" \
-        --env "BURROW_CONTROL_PLANE_HOST_ID=$host_id" \
-        --env "BURROW_CONTROL_PLANE_HOST_TOKEN=$host_token" \
-        "$repository_root/Burrow.app"
+    open --env "WARREN_CONTROL_PLANE_URL=$relay_url" \
+        --env "WARREN_CONTROL_PLANE_HOST_ID=$host_id" \
+        --env "WARREN_CONTROL_PLANE_HOST_TOKEN=$host_token" \
+        "$repository_root/Warren.app"
 }
 
 host_is_online() {
@@ -236,7 +236,7 @@ wait_for_host() {
         fi
         sleep 0.1
     done
-    echo "Burrow did not connect to Relay. See $log_file" >&2
+    echo "Warren did not connect to Relay. See $log_file" >&2
     return 1
 }
 
@@ -253,9 +253,9 @@ pair_host() {
         -H 'Content-Type: application/json' \
         -d "{\"host_id\":\"$host_id\",\"pairing_code\":\"$pairing_code\"}")"
     web_url="$(printf '%s' "$paired_response" | json_field web_url)"
-    echo "Burrow Remote is ready:"
+    echo "Warren Remote is ready:"
     echo "$web_url"
-    if [[ "${BURROW_RELAY_NO_OPEN:-0}" != "1" ]]; then
+    if [[ "${WARREN_RELAY_NO_OPEN:-0}" != "1" ]]; then
         open "$web_url"
     fi
 }
@@ -294,7 +294,7 @@ stop_relay() {
         echo "Relay did not stop cleanly (pid $pid)." >&2
         exit 1
     fi
-    echo "Relay stopped. Burrow and tmux sessions were left running."
+    echo "Relay stopped. Warren and tmux sessions were left running."
 }
 
 require_command curl
@@ -312,7 +312,7 @@ case "$command_name" in
         start_relay
         ensure_host
         if ! wait_for_host 20 >/dev/null 2>&1; then
-            launch_burrow
+            launch_warren
             wait_for_host
         fi
         pair_host

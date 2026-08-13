@@ -17,7 +17,7 @@ sources: []
 
 ## 澄清后的目标
 
-在不改变 Burrow 本地优先行为的前提下，交付一个可独立部署的 Relay Service，
+在不改变 Warren 本地优先行为的前提下，交付一个可独立部署的 Relay Service，
 让远端 Web/PWA 能安全连接指定 macOS Host，并经 Relay 使用现有 Host Protocol
 控制该 Host。未配置 Relay 时，桌面端与 WebRelay 仍保持仅本地可用。
 

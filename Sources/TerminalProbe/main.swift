@@ -1,5 +1,5 @@
 import Foundation
-import BurrowDomain
+import WarrenDomain
 import GhosttyAdapter
 
 @MainActor
@@ -16,14 +16,14 @@ func run() throws {
     guard snapshot.containsStyledText,
           snapshot.plainText == "plain 橙色 green" else {
         throw NSError(
-            domain: "Burrow.TerminalProbe",
+            domain: "Warren.TerminalProbe",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "Terminal ANSI semantics were not preserved."]
         )
     }
     let directory = URL(
-        fileURLWithPath: ProcessInfo.processInfo.environment["BURROW_ARTIFACT_DIR"]
-            ?? "/tmp/burrow-observation/terminal-probe",
+        fileURLWithPath: ProcessInfo.processInfo.environment["WARREN_ARTIFACT_DIR"]
+            ?? "/tmp/warren-observation/terminal-probe",
         isDirectory: true
     )
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

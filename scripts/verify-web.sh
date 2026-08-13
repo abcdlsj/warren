@@ -4,13 +4,13 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 bash "$repository_root/scripts/build-app.sh" debug
-pkill -f '/Burrow.app/Contents/MacOS/Burrow' || true
+pkill -f '/Warren.app/Contents/MacOS/Warren' || true
 sleep 1
-open "$repository_root/Burrow.app"
+open "$repository_root/Warren.app"
 sleep 6
 
 cleanup() {
-    pkill -f '/Burrow.app/Contents/MacOS/Burrow' || true
+    pkill -f '/Warren.app/Contents/MacOS/Warren' || true
 }
 trap cleanup EXIT
 

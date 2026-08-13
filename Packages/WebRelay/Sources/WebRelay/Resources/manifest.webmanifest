@@ -1,7 +1,7 @@
 {
-  "name": "Burrow",
-  "short_name": "Burrow",
-  "description": "Persistent workspace terminals on your Burrow Host",
+  "name": "Warren",
+  "short_name": "Warren",
+  "description": "Persistent workspace terminals on your Warren Host",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

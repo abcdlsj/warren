@@ -29,6 +29,8 @@ public actor RelayHostConnector {
 
     private static let headerSize = 22
     private static let maximumFrameBytes = 8 * 1024 * 1024
+    // Stable wire marker. It predates the Warren product name and must remain
+    // unchanged so deployed relay clients can reconnect across the rename.
     private static let magic = Data("BRLY".utf8)
 
     private let configuration: Configuration

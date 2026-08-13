@@ -12,12 +12,12 @@ case "$configuration" in
 esac
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
-app_path="$repository_root/Burrow.app"
+app_path="$repository_root/Warren.app"
 
 swift build \
     --package-path "$repository_root" \
     --configuration "$configuration" \
-    --product BurrowNext
+    --product WarrenNext
 
 binary_directory="$(
     swift build \
@@ -25,7 +25,7 @@ binary_directory="$(
         --configuration "$configuration" \
         --show-bin-path
 )"
-staging_path="$(mktemp -d "$repository_root/.build/Burrow.app.staging.XXXXXX")"
+staging_path="$(mktemp -d "$repository_root/.build/Warren.app.staging.XXXXXX")"
 
 cleanup() {
     rm -rf "$staging_path"
@@ -33,7 +33,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$staging_path/Contents/MacOS" "$staging_path/Contents/Resources"
-install -m 755 "$binary_directory/BurrowNext" "$staging_path/Contents/MacOS/Burrow"
+install -m 755 "$binary_directory/WarrenNext" "$staging_path/Contents/MacOS/Warren"
 install -m 644 "$repository_root/Support/Info.plist" "$staging_path/Contents/Info.plist"
 install -m 644 \
     "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/web.html" \

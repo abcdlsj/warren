@@ -5,7 +5,7 @@ xcbeautify = "latest"
 tmux = "latest"
 
 [env]
-PROJECT_NAME = "Burrow"
+PROJECT_NAME = "Warren"
 
 [tasks.dev]
 description = "Build and run the macOS app"
@@ -54,14 +54,14 @@ run = "bash scripts/verify-web.sh"
 
 [tasks."relay:run"]
 description = "Run the remote Relay control plane"
-run = "go run ./RelayService/cmd/burrow-relay"
+run = "go run ./RelayService/cmd/warren-relay"
 
 [tasks."relay:dev"]
-description = "One command: start local Relay, connect Burrow, and open Remote Web"
+description = "One command: start local Relay, connect Warren, and open Remote Web"
 run = "bash scripts/relay-dev.sh up"
 
 [tasks."relay:connect"]
-description = "Connect this Mac to BURROW_RELAY_URL and open Remote Web"
+description = "Connect this Mac to WARREN_RELAY_URL and open Remote Web"
 run = "bash scripts/relay-dev.sh up"
 
 [tasks."relay:start"]
@@ -98,4 +98,4 @@ run = "bash scripts/package.sh"
 
 [tasks.clean]
 description = "Clean build artifacts"
-run = "swift package clean && rm -rf .build Burrow.app"
+run = "swift package clean && rm -rf .build Warren.app"
