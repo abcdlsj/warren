@@ -1,5 +1,6 @@
 import WarrenDomain
 import WarrenHost
+import WarrenLocalTransport
 import WarrenStateStore
 import Foundation
 
@@ -66,6 +67,30 @@ extension WarrenApplicationService {
 
     internal func transportDidEnd(_ error: Error) async {
         guard lifecycle == .ready || lifecycle == .starting else { return }
+        eventLoopTask = nil
+        if case InProcessHostTransportError.eventBufferOverflow = error {
+            let oldTransport = transport
+            await oldTransport.close()
+            transport = InProcessHostTransport(coordinator: coordinator)
+            startEventLoop()
+            let reconnects = connections.map { (sessionID: $0.key, attachmentID: $0.value.attachmentID, store: $0.value.store) }
+            for reconnect in reconnects {
+                let snapshot = await reconnect.store.snapshot()
+                guard let attachmentID = reconnect.attachmentID else { continue }
+                do {
+                    _ = try await attachInternal(
+                        sessionID: reconnect.sessionID,
+                        recoveryAnchor: snapshot.recoveryAnchor,
+                        attachmentID: attachmentID,
+                        requireReady: false
+                    )
+                } catch {
+                    report(error.asApplicationError, id: "session.\(reconnect.sessionID).reconnect")
+                }
+            }
+            await publish()
+            return
+        }
         lifecycle = .failed
         let appError = WarrenApplicationError.transport(String(describing: error))
         report(appError, id: "transport.ended")

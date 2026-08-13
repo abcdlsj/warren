@@ -26,6 +26,7 @@ public actor TerminalSessionCoordinator {
 
     package let runtime: any TerminalRuntime
     package let outputCapacity: Int
+    package let eventBufferCapacity: Int
     package let leaseDuration: TimeInterval
     package let clock: @Sendable () -> Date
     package var sessions: [TerminalSessionID: SessionState] = [:]
@@ -48,13 +49,16 @@ public actor TerminalSessionCoordinator {
     public init(
         runtime: any TerminalRuntime,
         outputCapacity: Int = 256,
+        eventBufferCapacity: Int = HostAttachmentChannel.eventBufferCapacity,
         leaseDuration: TimeInterval = 30,
         clock: @escaping @Sendable () -> Date = { Date() }
     ) {
         precondition(outputCapacity > 0, "Output ring capacity must be positive.")
+        precondition(eventBufferCapacity > 0, "Attachment event buffer capacity must be positive.")
         precondition(leaseDuration > 0, "Control lease duration must be positive.")
         self.runtime = runtime
         self.outputCapacity = outputCapacity
+        self.eventBufferCapacity = eventBufferCapacity
         self.leaseDuration = leaseDuration
         self.clock = clock
     }

@@ -209,8 +209,12 @@ extension TerminalSessionCoordinator {
 
     private func yieldRuntimeEvent(_ event: HostSessionEvent, to attachmentID: TerminalAttachmentID) {
         guard let current = eventContinuations[attachmentID] else { return }
-        if case .terminated = current.continuation.yield(event) {
+        switch current.continuation.yield(event) {
+        case .terminated, .dropped:
+            current.continuation.finish()
             eventContinuations.removeValue(forKey: attachmentID)
+        default:
+            break
         }
     }
 }

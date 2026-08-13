@@ -264,11 +264,8 @@ extension WarrenApplicationService {
                 guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
                     throw WarrenApplicationError.sessionNotFound(sessionID)
                 }
-                var candidate = state
-                candidate.terminalSessions[index].terminalSize = size
-                try await save(candidate)
-                mergePendingSequences(into: &candidate)
-                state = candidate
+                try await repository.updateSessionSize(sessionID: sessionID, size: size)
+                state.terminalSessions[index].terminalSize = size
                 connection.terminalSize = size
                 connections[sessionID] = connection
             }

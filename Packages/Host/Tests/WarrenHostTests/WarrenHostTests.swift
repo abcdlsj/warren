@@ -56,6 +56,31 @@ final class WarrenHostTests: XCTestCase {
         XCTAssertEqual(second.recovery.result, .reanchor(second.recovery.snapshot))
     }
 
+    func testSlowAttachmentOverflowTerminatesStreamWithoutDroppingRing() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let coordinator = TerminalSessionCoordinator(
+            runtime: runtime,
+            outputCapacity: 64,
+            eventBufferCapacity: 4
+        )
+        let session = try await coordinator.createSession(workspace: workspace())
+        let channel = try await coordinator.attachAndSubscribe(
+            AttachRequest(sessionID: session.id, clientID: clientA)
+        )
+        let iterator = channel.events.makeAsyncIterator()
+        _ = iterator
+        for index in 0..<8 {
+            _ = try await coordinator.consumeRuntimeOutput(
+                sessionID: session.id,
+                data: Data([UInt8(index)])
+            )
+        }
+        let snapshot = try await coordinator.snapshot(of: session.id)
+        XCTAssertEqual(snapshot.output.upperSequence, 8)
+        let recovered = try await coordinator.recover(sessionID: session.id, anchor: nil)
+        XCTAssertEqual(Data(recovered.frames.flatMap(\.payload)), Data((0..<8).map(UInt8.init)))
+    }
+
     func testRuntimeMetadataIsCachedAndReplayedOnAttach() async throws {
         let runtime = InMemoryTerminalRuntime()
         let coordinator = TerminalSessionCoordinator(runtime: runtime)

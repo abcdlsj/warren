@@ -35,26 +35,17 @@ public actor InProcessHostTransport: HostTransport {
     /// a stream item to be dropped.
     public init(
         coordinator: TerminalSessionCoordinator,
-        eventBufferCapacity: Int? = nil
+        eventBufferCapacity: Int = 256
     ) {
-        if let eventBufferCapacity {
-            precondition(eventBufferCapacity > 0, "The local transport event buffer must be positive.")
-        }
+        precondition(eventBufferCapacity > 0, "The local transport event buffer must be positive.")
         self.coordinator = coordinator
         let pair: (
             stream: AsyncThrowingStream<HostTransportEvent, Error>,
             continuation: AsyncThrowingStream<HostTransportEvent, Error>.Continuation
         )
-        if let eventBufferCapacity {
-            // This opt-in bounded mode is primarily useful for stress tests.
-            // Production uses the default unbounded mode so control messages
-            // can never be silently dropped behind a burst of PTY output.
-            pair = AsyncThrowingStream<HostTransportEvent, Error>.makeStream(
-                bufferingPolicy: .bufferingNewest(eventBufferCapacity)
-            )
-        } else {
-            pair = AsyncThrowingStream<HostTransportEvent, Error>.makeStream()
-        }
+        pair = AsyncThrowingStream<HostTransportEvent, Error>.makeStream(
+            bufferingPolicy: .bufferingNewest(eventBufferCapacity)
+        )
         self.eventStream = pair.stream
         self.eventContinuation = pair.continuation
 

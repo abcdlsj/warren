@@ -233,6 +233,49 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         }
     }
 
+    public func updateSessionCursors(_ cursors: [TerminalSessionID: RecoveryAnchor]) async throws {
+        guard !cursors.isEmpty else { return }
+        do {
+            try await database.write { database in
+                for (sessionID, anchor) in cursors {
+                    try database.execute(
+                        sql: """
+                        UPDATE terminal_sessions
+                        SET epoch = ?, sequence = ?
+                        WHERE id = ?
+                          AND (CAST(epoch AS INTEGER) < ? OR
+                               (CAST(epoch AS INTEGER) = ? AND CAST(sequence AS INTEGER) < ?))
+                        """,
+                        arguments: [
+                            String(anchor.epoch), String(anchor.sequence), sessionID.description,
+                            String(anchor.epoch), String(anchor.epoch), String(anchor.sequence)
+                        ]
+                    )
+                }
+            }
+        } catch {
+            throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error))
+        }
+    }
+
+    public func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws {
+        try await database.write { db in
+            try db.execute(sql: "UPDATE terminal_sessions SET columns = ?, rows = ? WHERE id = ?", arguments: [size.columns, size.rows, sessionID.description])
+        }
+    }
+
+    public func updateSessionAgent(sessionID: TerminalSessionID, agentSessionID: String?) async throws {
+        try await database.write { db in
+            try db.execute(sql: "UPDATE terminal_sessions SET agent_session_id = ? WHERE id = ?", arguments: [agentSessionID, sessionID.description])
+        }
+    }
+
+    public func markSessionEnded(sessionID: TerminalSessionID, endedAt: Date) async throws {
+        try await database.write { db in
+            try db.execute(sql: "UPDATE terminal_sessions SET lifecycle = ?, ended_at = ? WHERE id = ? AND lifecycle != ?", arguments: [TerminalSessionLifecycle.ended.rawValue, endedAt, sessionID.description, TerminalSessionLifecycle.ended.rawValue])
+        }
+    }
+
     public func save(_ state: PersistedHostState) async throws {
         try HostStateRepositoryError.validateSupportedSchema(state)
         do {

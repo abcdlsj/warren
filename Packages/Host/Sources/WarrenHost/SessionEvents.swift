@@ -12,10 +12,15 @@ public enum HostSessionEvent: Hashable, Sendable {
     case binary(TerminalOutputFrame)
 }
 
+public enum HostAttachmentStreamError: Error, Equatable, Sendable {
+    case eventBufferOverflow
+}
+
 /// The result of attaching together with the atomically registered event
 /// channel.  The channel remains valid until detach, replacement by another
 /// attach with the same attachment identity, or stream cancellation.
 public struct HostAttachmentChannel: Sendable {
+    public static let eventBufferCapacity = 256
     public let result: AttachResult
     public let events: AsyncStream<HostSessionEvent>
 
@@ -108,11 +113,10 @@ extension TerminalSessionCoordinator {
         case .enqueued:
             break
         case .dropped:
-            // Host attachment streams are currently unbounded so this is
-            // defensive only.  If a future bounded implementation is used,
-            // the next frame's sequence exposes the gap to ClientSessionStore
-            // and the client can reattach with its retained recovery anchor.
-            break
+            // Never discard PTY or control events. Close this attachment so
+            // the client reconnects with its last confirmed RecoveryAnchor.
+            current.continuation.finish()
+            eventContinuations.removeValue(forKey: attachmentID)
         case .terminated:
             eventContinuations.removeValue(forKey: attachmentID)
         @unknown default:

@@ -213,13 +213,12 @@ extension TerminalSessionCoordinator {
         now: Date? = nil
     ) throws -> HostAttachmentChannel {
         let result = try attachResult(for: request, now: now)
-        // A single ordered stream carries both control and output events.
-        // Using an unbounded queue here is intentional: dropping `attached`
-        // or `control_changed` while retaining a later binary frame would
-        // corrupt the client's projection.  The OutputRing remains bounded
-        // and is the recovery limit; a slow/terminated consumer is removed by
-        // the stream's termination callback.
-        let streamPair = AsyncStream<HostSessionEvent>.makeStream()
+        // A single ordered, bounded stream carries both control and output.
+        // Any overflow terminates this Attachment rather than dropping an
+        // event; the client can reconnect from its last confirmed anchor.
+        let streamPair = AsyncStream<HostSessionEvent>.makeStream(
+            bufferingPolicy: .bufferingNewest(eventBufferCapacity)
+        )
         let attachmentID = result.attachmentID
 
         // A repeated attach with the same attachment identity replaces the
@@ -244,12 +243,28 @@ extension TerminalSessionCoordinator {
         }
 
         let recovery = result.recovery
+        func enqueue(_ event: HostSessionEvent) throws {
+            switch continuation.yield(event) {
+            case .enqueued:
+                return
+            case .dropped:
+                continuation.finish()
+                eventContinuations.removeValue(forKey: attachmentID)
+                throw HostAttachmentStreamError.eventBufferOverflow
+            case .terminated:
+                eventContinuations.removeValue(forKey: attachmentID)
+                throw HostAttachmentStreamError.eventBufferOverflow
+            @unknown default:
+                eventContinuations.removeValue(forKey: attachmentID)
+                throw HostAttachmentStreamError.eventBufferOverflow
+            }
+        }
         // A recovery tail starts before the current upper sequence.  The
         // attached cursor therefore points at the first retained byte; the
         // final synced marker advances it to the current upper sequence.
-        continuation.yield(.control(.attached(result.attachedMessage)))
+        try enqueue(.control(.attached(result.attachedMessage)))
         if let metadata = sessions[result.sessionID]?.runtimeMetadata {
-            continuation.yield(.control(.runtimeMetadata(
+            try enqueue(.control(.runtimeMetadata(
                 RuntimeMetadataMessage(
                     sessionID: result.sessionID,
                     process: metadata.process,
@@ -258,11 +273,11 @@ extension TerminalSessionCoordinator {
             )))
         }
         for frame in recovery.frames {
-            continuation.yield(.binary(frame))
+            try enqueue(.binary(frame))
         }
         // Emitting a synced marker for every attach gives the client a stable
         // recovery boundary, including an exact attach with no frames.
-        continuation.yield(.control(.synced(
+        try enqueue(.control(.synced(
             SyncedMessage(sessionID: result.sessionID, anchor: recovery.anchor)
         )))
 

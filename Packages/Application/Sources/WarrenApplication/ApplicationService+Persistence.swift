@@ -95,7 +95,7 @@ extension WarrenApplicationService {
             // delayed cursor save from overwriting a concurrent project or
             // resize mutation that was already serialized by the gate.
             try await withPersistenceMutation {
-                try await save(state)
+                try await repository.updateSessionCursors(flushed)
             }
             for (sessionID, anchor) in flushed {
                 guard let pending = pendingSequenceAnchors[sessionID] else { continue }

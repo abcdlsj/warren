@@ -1,8 +1,52 @@
+import WarrenDomain
+import Foundation
+
 /// A durable boundary for Host-owned state.  Implementations are injected;
 /// this protocol does not prescribe a file location or create a singleton.
 public protocol HostStateRepository: Sendable {
     func load() async throws -> PersistedHostState
     func save(_ state: PersistedHostState) async throws
+    func updateSessionCursors(_ cursors: [TerminalSessionID: RecoveryAnchor]) async throws
+    func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws
+    func updateSessionAgent(sessionID: TerminalSessionID, agentSessionID: String?) async throws
+    func markSessionEnded(sessionID: TerminalSessionID, endedAt: Date) async throws
+}
+
+public extension HostStateRepository {
+    func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws {
+        var state = try await load()
+        guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        state.terminalSessions[index].terminalSize = size
+        try await save(state)
+    }
+    func updateSessionAgent(sessionID: TerminalSessionID, agentSessionID: String?) async throws {
+        var state = try await load()
+        guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        state.terminalSessions[index].agentSessionID = agentSessionID
+        try await save(state)
+    }
+    func markSessionEnded(sessionID: TerminalSessionID, endedAt: Date) async throws {
+        var state = try await load()
+        guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        state.terminalSessions[index].lifecycle = .ended
+        state.terminalSessions[index].endedAt = endedAt
+        try await save(state)
+    }
+    /// Compatibility fallback for non-SQLite repositories. Production SQLite
+    /// uses a single bounded UPDATE transaction instead.
+    func updateSessionCursors(_ cursors: [TerminalSessionID: RecoveryAnchor]) async throws {
+        guard !cursors.isEmpty else { return }
+        var state = try await load()
+        for index in state.terminalSessions.indices {
+            guard let anchor = cursors[state.terminalSessions[index].id] else { continue }
+            let current = RecoveryAnchor(epoch: state.terminalSessions[index].epoch, sequence: state.terminalSessions[index].sequence)
+            if anchor.epoch > current.epoch || (anchor.epoch == current.epoch && anchor.sequence > current.sequence) {
+                state.terminalSessions[index].epoch = anchor.epoch
+                state.terminalSessions[index].sequence = anchor.sequence
+            }
+        }
+        try await save(state)
+    }
 }
 
 public enum HostStateRepositoryError: Error, Equatable, Sendable, CustomStringConvertible {

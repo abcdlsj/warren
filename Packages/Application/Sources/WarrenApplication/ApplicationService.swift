@@ -44,7 +44,7 @@ public actor WarrenApplicationService {
     internal let gitWorktreeManager: any GitWorktreeManaging
     internal let worktreeRootDirectory: URL
     internal let coordinator: TerminalSessionCoordinator
-    internal let transport: InProcessHostTransport
+    internal var transport: InProcessHostTransport
     internal let persistenceGate = WarrenApplicationPersistenceGate()
     internal let layoutStore: ClientLayoutStore
     internal let windowID: ClientWindowID
@@ -108,7 +108,8 @@ public actor WarrenApplicationService {
             defaultWindowID: WarrenApplicationDefaults.mainWindowID,
             repository: repository as? any ClientLayoutRepository
         )
-        let coordinator = TerminalSessionCoordinator(runtime: runtime, clock: clock)
+        let eventBufferCapacity = Int(ProcessInfo.processInfo.environment["WARREN_EVENT_BUFFER_CAPACITY"] ?? "256") ?? 256
+        let coordinator = TerminalSessionCoordinator(runtime: runtime, eventBufferCapacity: max(1, eventBufferCapacity), clock: clock)
         self.coordinator = coordinator
         self.transport = InProcessHostTransport(coordinator: coordinator)
     }
@@ -131,7 +132,9 @@ public actor WarrenApplicationService {
 
     /// A value-only stream for an eventual `@Observable` composition model.
     public func snapshots() async -> AsyncStream<WarrenApplicationSnapshot> {
-        let pair = AsyncStream<WarrenApplicationSnapshot>.makeStream()
+        let pair = AsyncStream<WarrenApplicationSnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         let token = UUID()
         snapshotContinuations[token] = pair.continuation
         pair.continuation.onTermination = { [weak self] _ in
@@ -160,11 +163,8 @@ public actor WarrenApplicationService {
            !value.isEmpty,
            state.terminalSessions[index].agentSessionID != value {
             try await withPersistenceMutation {
-                var candidate = state
-                candidate.terminalSessions[index].agentSessionID = value
-                try await save(candidate)
-                mergePendingSequences(into: &candidate)
-                state = candidate
+                try await repository.updateSessionAgent(sessionID: sessionID, agentSessionID: value)
+                state.terminalSessions[index].agentSessionID = value
             }
         }
         agentActivityBySessionID[sessionID] = activity

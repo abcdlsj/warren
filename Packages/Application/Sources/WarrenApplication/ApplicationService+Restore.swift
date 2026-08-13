@@ -131,11 +131,10 @@ extension WarrenApplicationService {
                     return
                 }
                 guard state.terminalSessions[index].lifecycle != .ended else { return }
-                var candidate = state
-                candidate.terminalSessions[index].lifecycle = .ended
-                candidate.terminalSessions[index].endedAt = clock()
-                try await save(candidate)
-                state = candidate
+                let endedAt = clock()
+                try await repository.markSessionEnded(sessionID: sessionID, endedAt: endedAt)
+                state.terminalSessions[index].lifecycle = .ended
+                state.terminalSessions[index].endedAt = endedAt
             }
         } catch {
             report(error.asApplicationError, id: "session.\(sessionID).ended")
