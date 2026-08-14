@@ -111,3 +111,18 @@ test("retry delay is bounded and jittered", () => {
   assert.equal(reconnectDelay(0, () => 1), 600);
   assert.equal(reconnectDelay(20, () => 0.5), 30_000);
 });
+
+test("send treats a throwing socket as a closed transport", () => {
+  const connection = new RelayConnection({
+    url: "ws://relay/ws",
+    token: "secret",
+    WebSocketClass: FakeSocket,
+  });
+  connection.socket = {
+    readyState: 1,
+    send() {
+      throw new Error("socket closing");
+    },
+  };
+  assert.equal(connection.send("payload"), false);
+});

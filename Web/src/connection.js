@@ -82,8 +82,15 @@ export class RelayConnection {
 
   send(data) {
     if (this.socket?.readyState !== open) return false;
-    this.socket.send(data);
-    return true;
+    try {
+      this.socket.send(data);
+      return true;
+    } catch {
+      // A socket that is closing can reject send() after readyState passed
+      // the OPEN check. Treat it like a closed transport so the caller queues
+      // the bytes and reconnects instead of losing the input.
+      return false;
+    }
   }
 
   connect() {

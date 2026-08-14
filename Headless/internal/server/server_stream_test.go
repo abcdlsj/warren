@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -194,6 +195,57 @@ func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 		t.Fatal("duplicate output arrived after recovery")
 	}
 	_ = connection.SetReadDeadline(time.Time{})
+}
+
+func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
+	state := newStateWithSession(t, "session-input-early", "runtime-input-early")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-input-early", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	defer connection.Close()
+
+	attachBrowserWithSize(t, connection, "session-input-early", nil, 80, 24)
+	// The browser marks the session ready on the attach response and sends
+	// input immediately, without waiting for the `attached` control message.
+	deadline := time.Now().Add(2 * time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	foundResponse := false
+	for !foundResponse {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind != websocket.TextMessage {
+			continue
+		}
+		var message map[string]any
+		if err := json.Unmarshal(data, &message); err != nil {
+			t.Fatal(err)
+		}
+		foundResponse = message["t"] == "response"
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+
+	input := []byte("echo early input\r")
+	writeRawInput(t, connection, input)
+
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		data, err := os.ReadFile(runtime.SpoolPath("runtime-input-early"))
+		if err == nil && bytes.Contains(data, input) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("runtime did not receive early input: %q", data)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func waitForRingUpper(t *testing.T, service *Service, sessionID string, want uint64) {

@@ -176,6 +176,68 @@ final class WebRelayTests: XCTestCase {
     }
 
     @MainActor
+    func testCanonicalWebSocketDeliversBinaryInputToAttachedSession() async throws {
+        let runtime = InMemoryTerminalRuntime()
+        let service = WarrenApplicationService(
+            repository: InMemoryHostStateRepository(),
+            runtime: runtime
+        )
+        try await service.start()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("warren-web-input-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let project = try await service.addProject(folder: directory)
+        let workspace = try await service.rootWorkspace(for: project.id)
+        let session = try await service.createSession(workspaceID: workspace.id)
+        let relay = WebRelayServer(service: service)
+        relay.start(port: 0)
+        let port = try XCTUnwrap(relay.listeningPort)
+        defer {
+            relay.stop()
+            Task { await service.shutdown() }
+        }
+
+        let socket = URLSession.shared.webSocketTask(
+            with: URL(string: "ws://127.0.0.1:\(port)/v1/ws")!
+        )
+        socket.resume()
+        try await socket.send(.string(#"{"t":"auth","token":"\#(WebRelayServer.accessToken)","version":"1.0"}"#))
+        _ = try await socket.receive()
+        _ = try await socket.receive()
+
+        let requestID = "input-attach"
+        try await socket.send(.string(Self.requestJSON(
+            id: requestID,
+            method: "session.attach",
+            params: ["id": session.id.description, "cols": 80, "rows": 24]
+        )))
+        var attached = false
+        var responseOK = false
+        while !attached || !responseOK {
+            guard case .string(let text) = try await socket.receive() else { continue }
+            let object = try Self.decodeJSON(text)
+            if object["t"] as? String == "attached" {
+                attached = true
+            }
+            if object["t"] as? String == "response",
+               object["id"] as? String == requestID {
+                responseOK = object["ok"] as? Bool == true
+            }
+        }
+
+        let input = Data("echo web input\n".utf8)
+        try await socket.send(.data(input))
+        for _ in 0..<20 {
+            if await runtime.record(for: session.id)?.writes.contains(input) == true { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let delivered = await runtime.record(for: session.id)?.writes.contains(input) == true
+        XCTAssertTrue(delivered)
+        socket.cancel(with: .normalClosure, reason: nil)
+    }
+
+    @MainActor
     func testWebPageResourceIsBundledAndURLInjectionIsSafe() {
         XCTAssertNotNil(WebRelayServer.webPageURL)
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))
@@ -254,6 +316,16 @@ final class WebRelayTests: XCTestCase {
         try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any]
         )
+    }
+
+    private static func requestJSON(id: String, method: String, params: [String: Any]) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: [
+            "t": "request",
+            "id": id,
+            "method": method,
+            "params": params,
+        ])
+        return String(decoding: data, as: UTF8.self)
     }
 
     private static func ids(in object: [String: Any], key: String) -> [String] {
