@@ -27,4 +27,18 @@ final class GhosttyAdapterTests: XCTestCase {
             .indexed(42)
         )
     }
+
+    @MainActor
+    func testCellHeightAdjustmentMatchesWebTerminalLineHeight() {
+        let surface = GhosttySurface(
+            id: TerminalSessionID(),
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: "/tmp",
+            onInput: { _ in },
+            onResize: { _, _ in }
+        )
+
+        XCTAssertNil(surface.state.controller.lastConfigurationIssue)
+        XCTAssertTrue(surface.state.renderedConfig.contains("adjust-cell-height = 12%"))
+    }
 }
