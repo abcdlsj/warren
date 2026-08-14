@@ -14,8 +14,10 @@ public enum WarrenTypography {
     /// monospaced design for keyboard hints.
     public static let shortcut = Font.system(size: 12, weight: .medium, design: .monospaced)
     public static let chromeLabel = Font.system(size: 12, weight: .regular)
-    /// Compatibility aliases for clients that have not migrated yet.
-    public static let sidebarRow = navigationGroup
+    /// Compatibility aliases for clients that have not migrated yet. Ordinary
+    /// project, workspace, and session rows use regular weight; group labels
+    /// continue to use `navigationGroup` when they need hierarchy.
+    public static let sidebarRow = navigationItem
     public static let workspaceRow = navigationItem
     /// Section labels are intentionally compact and uppercase in their source.
     public static let sectionLabel = Font.system(size: 10, weight: .medium)

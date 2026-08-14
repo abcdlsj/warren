@@ -265,7 +265,7 @@ struct WarrenDesktopCommandPalette: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(result.group.project.name)
-                        .font(WarrenTypography.bodyEmphasis)
+                        .font(WarrenTypography.navigationItem)
                         .foregroundStyle(tokens.foreground)
                         .lineLimit(1)
                     Text(result.group.project.rootPath)

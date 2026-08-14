@@ -314,7 +314,7 @@ private struct WarrenNextSupersetImportView: View {
             List(preview.projects) { project in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(project.name).font(.body.weight(.medium))
+                        Text(project.name).font(WarrenTypography.body)
                         Spacer()
                         Text(project.status.rawValue.capitalized)
                             .font(.caption)

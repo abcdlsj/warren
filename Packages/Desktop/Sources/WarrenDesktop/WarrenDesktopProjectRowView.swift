@@ -72,7 +72,7 @@ struct WarrenDesktopProjectRow: View {
                         .opacity(isHovered || isToggleFocused ? 0 : 1)
 
                     Text(project.name)
-                        .font(WarrenTypography.navigationGroup)
+                        .font(WarrenTypography.navigationItem)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
