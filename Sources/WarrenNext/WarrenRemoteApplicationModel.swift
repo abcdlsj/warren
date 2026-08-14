@@ -7,6 +7,7 @@ import WarrenClientCore
 import WarrenDesktop
 import WarrenDomain
 import WarrenStateStore
+import WarrenTransport
 
 extension WarrenRemoteEndpointConfiguration {
     static func localDaemon() -> Self {
@@ -234,6 +235,22 @@ private actor WarrenRemoteWire {
     }
 
     private func emitOutput(_ data: Data) async -> Bool {
+        switch WarrenOutputDecoder.decode(data) {
+        case .payload(let payload):
+            return await emitChunks(payload)
+        case .legacyRaw:
+            return await emitChunks(data)
+        case .undecodableEnvelope:
+            // The daemon speaks the DENB envelope but this frame cannot be
+            // decoded. Rendering it would print binary garbage into Ghostty;
+            // drop the connection so the remote model reconnects cleanly.
+            return await eventBuffer.send(.disconnected(
+                "The daemon sent an undecodable terminal frame; reconnecting."
+            ))
+        }
+    }
+
+    private func emitChunks(_ data: Data) async -> Bool {
         var offset = 0
         while offset < data.count {
             let end = min(offset + Self.outputChunkBytes, data.count)
@@ -272,7 +289,8 @@ private actor WarrenRemoteWire {
             let version = object["version"] as? String ?? "unknown"
             guard Self.compatibleProtocolVersion(version, with: "1.0") else {
                 return await eventBuffer.send(.disconnected(
-                    "Warren Desktop 与 daemon 协议不兼容（desktop=1.0, daemon=\(version)），请一起更新。"
+                    "Warren Desktop is incompatible with the daemon protocol "
+                        + "(desktop=1.0, daemon=\(version)); update both together."
                 ))
             }
         } else if type == "roster", let state = object["state"],
@@ -373,7 +391,7 @@ final class WarrenRemoteApplicationModel {
                 let created = try JSONDecoder().decode(RemoteRoster.Session.self, from: data)
                 guard let sessionID = TerminalSessionID(uuidString: created.id) else {
                     throw NSError(domain: "WarrenRemote", code: 10, userInfo: [
-                        NSLocalizedDescriptionKey: "daemon 返回了无效的 Session ID。",
+                        NSLocalizedDescriptionKey: "The daemon returned an invalid Session ID.",
                     ])
                 }
 
@@ -424,7 +442,8 @@ final class WarrenRemoteApplicationModel {
 
     private func relayFeatureUnavailable() {
         present(NSError(domain: "WarrenRemote", code: 8, userInfo: [
-            NSLocalizedDescriptionKey: "当前 daemon Web Relay 仅提供本地访问，Cloudflare/Tailscale 入口尚未迁移。",
+            NSLocalizedDescriptionKey: "The daemon Web Relay only serves local access; "
+                + "Cloudflare/Tailscale entry points are not migrated yet.",
         ]))
     }
 
@@ -531,11 +550,13 @@ final class WarrenRemoteApplicationModel {
             createSession(workspaceID: workspaceID, request: launch)
         case .addProject:
             present(NSError(domain: "WarrenRemote", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "远端 Project 必须用远端路径。请运行 warren --endpoint <server> project add /path。",
+                NSLocalizedDescriptionKey: "Remote projects must use remote paths. "
+                    + "Run `warren --endpoint <server> project add /path`.",
             ]))
         case .renameWorkspace:
             present(NSError(domain: "WarrenRemote", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "远端 Workspace 重命名尚未开放；可继续使用 CLI 管理。",
+                NSLocalizedDescriptionKey: "Remote workspace renaming is not available yet; "
+                    + "continue managing it from the CLI.",
             ]))
         case .importSuperset, .requestNewWorkspace, .requestNewSession, .moveTab,
              .toggleInspector, .toggleSidebar:

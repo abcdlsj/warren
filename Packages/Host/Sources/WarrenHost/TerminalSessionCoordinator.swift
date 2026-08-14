@@ -6,8 +6,8 @@ public enum HostRuntimeLifecycleEvent: Hashable, Sendable {
     case exited(sessionID: TerminalSessionID, exitCode: Int?)
 }
 
-/// Host 对 Terminal Session、Attachment 和 Control Lease 的唯一内存权威。
-/// Attachment 的销毁不会触碰 runtime 中的 Session。
+/// The Host's single in-memory authority for Terminal Sessions, Attachments,
+/// and Control Leases. Destroying an Attachment never touches the Runtime.
 public actor TerminalSessionCoordinator {
     public static let defaultTerminalSize = TerminalSize(columns: 80, rows: 24)!
 

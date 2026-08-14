@@ -502,7 +502,7 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
             _ = try await executor.execute(arguments: ["-V"])
         } catch let error as TmuxCommandExecutorError {
             if case .binaryNotFound = error {
-                throw XCTSkip("本机未安装 tmux")
+                throw XCTSkip("tmux is not installed on this machine")
             }
             throw error
         }
@@ -569,7 +569,7 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
             _ = try await executor.execute(arguments: ["-V"])
         } catch let error as TmuxCommandExecutorError {
             if case .binaryNotFound = error {
-                throw XCTSkip("本机未安装 tmux")
+                throw XCTSkip("tmux is not installed on this machine")
             }
             throw error
         }

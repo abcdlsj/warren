@@ -61,10 +61,10 @@ struct WarrenNextCompositionRoot: View {
                     VStack(spacing: WarrenSpacing.compact) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("正在读取 Superset…")
+                        Text("Reading Superset…")
                             .font(WarrenTypography.navigationItem)
                             .foregroundStyle(.primary)
-                        Text("正在逐项目读取 workspace，请稍候")
+                        Text("Reading workspaces project by project, please wait")
                             .font(WarrenTypography.supporting)
                             .foregroundStyle(.secondary)
                     }
@@ -147,7 +147,7 @@ struct WarrenNextCompositionRoot: View {
                 isProjectImporterPresented = true
             } else {
                 remoteModel.report(NSError(domain: "WarrenRemote", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "远端 Project 必须使用远端路径，请通过远端 CLI 添加。",
+                    NSLocalizedDescriptionKey: "Remote projects must use remote paths; add them from the remote CLI.",
                 ]))
             }
         } else if action == .importSuperset {
@@ -155,7 +155,7 @@ struct WarrenNextCompositionRoot: View {
                 beginSupersetImport()
             } else {
                 remoteModel.report(NSError(domain: "WarrenRemote", code: 6, userInfo: [
-                    NSLocalizedDescriptionKey: "Superset 导入需要在 daemon 所在机器上执行。",
+                    NSLocalizedDescriptionKey: "Superset import must run on the machine hosting the daemon.",
                 ]))
             }
         } else if case .requestNewWorkspace(let projectID) = action {
@@ -214,7 +214,7 @@ struct WarrenNextCompositionRoot: View {
                 try? await Task.sleep(for: .milliseconds(200))
             }
             remoteModel.report(NSError(domain: "WarrenRemote", code: 7, userInfo: [
-                NSLocalizedDescriptionKey: "本地 daemon 尚未启动，请查看顶部 Warren 状态。",
+                NSLocalizedDescriptionKey: "The local daemon is not running; check the Warren status in the menu bar.",
             ]))
         }
     }
