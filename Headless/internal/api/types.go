@@ -53,6 +53,7 @@ type Envelope struct {
 	Type      string         `json:"t"`
 	ID        string         `json:"id,omitempty"`
 	Token     string         `json:"token,omitempty"`
+	Version   string         `json:"version,omitempty"`
 	Method    string         `json:"method,omitempty"`
 	Params    map[string]any `json:"params,omitempty"`
 	Session   string         `json:"session,omitempty"`

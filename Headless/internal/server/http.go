@@ -160,6 +160,12 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 		_ = peer.writeJSON(api.Response{Type: "error", OK: false, Error: "unauthorized"})
 		return
 	}
+	if envelope.Version != "" && !compatibleProtocolVersion(envelope.Version, api.Version) {
+		_ = peer.writeJSON(api.Response{Type: "error", OK: false, Error: fmt.Sprintf(
+			"incompatible protocol version: client=%s server=%s", envelope.Version, api.Version,
+		)})
+		return
+	}
 	_ = connection.SetReadDeadline(time.Time{})
 	state, revision := s.Service.RosterVersion(request.Context())
 	if err := peer.writeJSON(map[string]any{"t": "welcome", "version": api.Version, "host": state.Host}); err != nil {
@@ -187,6 +193,12 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 			_ = peer.writeError(command.ID, err)
 		}
 	}
+}
+
+func compatibleProtocolVersion(client, server string) bool {
+	clientMajor := strings.SplitN(client, ".", 2)[0]
+	serverMajor := strings.SplitN(server, ".", 2)[0]
+	return clientMajor != "" && clientMajor == serverMajor
 }
 
 func (s *HTTPServer) authorized(value string) bool {

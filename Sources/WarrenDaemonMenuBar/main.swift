@@ -24,7 +24,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         case failed(String)
     }
 
-    private let listenURL = URL(string: "http://127.0.0.1:8789/healthz")!
+    private let stateURL = URL(string: "http://127.0.0.1:8789/v1/state")!
     private var statusItem: NSStatusItem!
     private var daemonProcess: Process?
     private var pollTask: Task<Void, Never>?
@@ -141,8 +141,21 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     }
 
     private func isDaemonHealthy() async -> Bool {
-        var request = URLRequest(url: listenURL)
+        let environment = ProcessInfo.processInfo.environment
+        let tokenURL: URL
+        if let configured = environment["WARREN_TOKEN_FILE"], !configured.isEmpty {
+            tokenURL = URL(fileURLWithPath: configured)
+        } else {
+            tokenURL = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".warren/token")
+        }
+        guard let token = try? String(contentsOf: tokenURL, encoding: .utf8),
+              !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        var request = URLRequest(url: stateURL)
         request.timeoutInterval = 1
+        request.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode == 200

@@ -130,6 +130,7 @@ private actor WarrenRemoteWire {
         try await socket.send(.string(Self.json([
             "t": "auth",
             "token": configuration.token,
+            "version": "1.0",
         ])))
         receiveTask = Task { [weak self] in await self?.receiveLoop(socket) }
     }
@@ -222,17 +223,30 @@ private actor WarrenRemoteWire {
     private func handleText(_ data: Data) async -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = object["t"] as? String else { return true }
-        if type == "response", let id = object["id"] as? String,
-           let continuation = continuations.removeValue(forKey: id) {
-            if object["ok"] as? Bool == true {
-                let result = object["result"] ?? NSNull()
-                let encoded = (try? JSONSerialization.data(withJSONObject: result)) ?? Data("null".utf8)
-                continuation.resume(returning: encoded)
-            } else {
-                continuation.resume(throwing: NSError(
-                    domain: "WarrenRemote",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: object["error"] as? String ?? "Remote request failed"]
+        if type == "response" {
+            if let id = object["id"] as? String,
+               let continuation = continuations.removeValue(forKey: id) {
+                if object["ok"] as? Bool == true {
+                    let result = object["result"] ?? NSNull()
+                    let encoded = (try? JSONSerialization.data(withJSONObject: result)) ?? Data("null".utf8)
+                    continuation.resume(returning: encoded)
+                } else {
+                    continuation.resume(throwing: NSError(
+                        domain: "WarrenRemote",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: object["error"] as? String ?? "Remote request failed"]
+                    ))
+                }
+            } else if object["ok"] as? Bool == false {
+                return await eventBuffer.send(.disconnected(
+                    object["error"] as? String ?? "Remote connection rejected"
+                ))
+            }
+        } else if type == "welcome" {
+            let version = object["version"] as? String ?? "unknown"
+            guard Self.compatibleProtocolVersion(version, with: "1.0") else {
+                return await eventBuffer.send(.disconnected(
+                    "Warren Desktop 与 daemon 协议不兼容（desktop=1.0, daemon=\(version)），请一起更新。"
                 ))
             }
         } else if type == "roster", let state = object["state"],
@@ -245,6 +259,10 @@ private actor WarrenRemoteWire {
             ))
         }
         return true
+    }
+
+    private nonisolated static func compatibleProtocolVersion(_ lhs: String, with rhs: String) -> Bool {
+        lhs.split(separator: ".", maxSplits: 1).first == rhs.split(separator: ".", maxSplits: 1).first
     }
 
     private nonisolated static func json(_ value: [String: Any]) -> String {
@@ -514,6 +532,7 @@ final class WarrenRemoteApplicationModel {
         case .output(let data):
             await feedOutput(data)
         case .disconnected(let detail):
+            if let wire { Task { await wire.close() } }
             projection = projection.withConnectionState(.failed)
             present(NSError(domain: "WarrenRemote", code: 4, userInfo: [NSLocalizedDescriptionKey: detail]))
         }

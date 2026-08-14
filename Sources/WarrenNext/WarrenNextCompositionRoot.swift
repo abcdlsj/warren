@@ -207,7 +207,7 @@ struct WarrenNextCompositionRoot: View {
         Task { @MainActor in
             for _ in 0..<30 {
                 let endpoint = WarrenRemoteEndpointConfiguration.localDaemon()
-                if !endpoint.token.isEmpty {
+                if !endpoint.token.isEmpty, await isLocalDaemonReady(endpoint) {
                     remoteModel.connect(endpoint)
                     return
                 }
@@ -216,6 +216,19 @@ struct WarrenNextCompositionRoot: View {
             remoteModel.report(NSError(domain: "WarrenRemote", code: 7, userInfo: [
                 NSLocalizedDescriptionKey: "本地 daemon 尚未启动，请查看顶部 Warren 状态。",
             ]))
+        }
+    }
+
+    private func isLocalDaemonReady(_ endpoint: WarrenRemoteEndpointConfiguration) async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:8789/v1/state") else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 0.4
+        request.setValue("Bearer \(endpoint.token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
         }
     }
 

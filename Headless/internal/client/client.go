@@ -39,7 +39,7 @@ func Dial(ctx context.Context, endpoint, token string) (*Client, error) {
 		return nil, fmt.Errorf("connect %s: %w", endpoint, err)
 	}
 	client := &Client{connection: connection}
-	if err := connection.WriteJSON(api.Envelope{Type: "auth", Token: token}); err != nil {
+	if err := connection.WriteJSON(api.Envelope{Type: "auth", Token: token, Version: api.Version}); err != nil {
 		connection.Close()
 		return nil, err
 	}
