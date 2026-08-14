@@ -11,6 +11,7 @@ struct WarrenDesktopSidebar: View {
     let onCommandPalette: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -22,7 +23,11 @@ struct WarrenDesktopSidebar: View {
                 onCommandPalette: onCommandPalette
             )
             ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
+                WarrenOverflowFadeScrollView(
+                    .vertical,
+                    fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                    surface: tokens.sidebarSurface
+                ) {
                     WarrenDesktopSidebarRows(
                         groups: projection.groups,
                         workspaceActivities: projection.workspaceActivities,
@@ -35,16 +40,10 @@ struct WarrenDesktopSidebar: View {
                 }
                 .onChange(of: selection) { _, newSelection in
                     guard case let .workspace(workspaceID)? = newSelection else { return }
-                    withAnimation(.easeOut(duration: 0.15)) {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                         proxy.scrollTo(workspaceID, anchor: .center)
                     }
                 }
-            }
-            .overlay(alignment: .top) {
-                WarrenDesktopSidebarFade(edge: .top)
-            }
-            .overlay(alignment: .bottom) {
-                WarrenDesktopSidebarFade(edge: .bottom)
             }
         }
         .frame(maxHeight: .infinity)

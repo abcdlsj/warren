@@ -11,6 +11,8 @@ public struct WarrenColorTokens: Sendable {
     public let mutedForeground: Color
     public let border: Color
     public let ring: Color
+    /// Focus ring used by keyboard navigation and other non-pointer focus.
+    public let focusRing: Color
     public let primary: Color
     public let highlight: Color
     public let destructive: Color
@@ -21,6 +23,10 @@ public struct WarrenColorTokens: Sendable {
     /// `bg-muted/45 dark:bg-muted/35`; Warren is dark-only, so keep the dark
     /// `muted/35` value here instead of introducing a separate panel color.
     public let sidebarSurface: Color
+    /// Elevated surface for command palettes, menus, and relay popovers.
+    public let popoverSurface: Color
+    /// Surface for text inputs and other editable controls.
+    public let inputSurface: Color
 
     /// Foreground-derived washes preserve Superset's contrast relationships.
     public let fillHover: Color
@@ -37,11 +43,14 @@ public struct WarrenColorTokens: Sendable {
         mutedForeground: Color,
         border: Color,
         ring: Color,
+        focusRing: Color,
         primary: Color,
         highlight: Color,
         destructive: Color,
         chromeSurface: Color,
         sidebarSurface: Color,
+        popoverSurface: Color,
+        inputSurface: Color,
         fillHover: Color,
         fillSelected: Color,
         tertiaryWash: Color,
@@ -53,11 +62,14 @@ public struct WarrenColorTokens: Sendable {
         self.mutedForeground = mutedForeground
         self.border = border
         self.ring = ring
+        self.focusRing = focusRing
         self.primary = primary
         self.highlight = highlight
         self.destructive = destructive
         self.chromeSurface = chromeSurface
         self.sidebarSurface = sidebarSurface
+        self.popoverSurface = popoverSurface
+        self.inputSurface = inputSurface
         self.fillHover = fillHover
         self.fillSelected = fillSelected
         self.tertiaryWash = tertiaryWash
@@ -112,6 +124,7 @@ public struct WarrenColorTokens: Sendable {
             mutedForeground: mutedForeground,
             border: border,
             ring: ring,
+            focusRing: ring,
             primary: primary,
             highlight: highlight,
             destructive: destructive,
@@ -129,6 +142,8 @@ public struct WarrenColorTokens: Sendable {
                 green: 25 / 255,
                 blue: 24 / 255
             ),
+            popoverSurface: Color(red: 32 / 255, green: 30 / 255, blue: 28 / 255), // #201e1c
+            inputSurface: Color(red: 24 / 255, green: 22 / 255, blue: 21 / 255),
             fillHover: foreground.opacity(hoverOpacity),
             fillSelected: foreground.opacity(selectedOpacity),
             tertiaryWash: foreground.opacity(tertiaryOpacity),
@@ -152,6 +167,17 @@ public extension WarrenColorTokens {
             fillSelected
         case .tertiary:
             tertiaryWash
+        }
+    }
+
+    func interactionBackground(for state: WarrenInteractionState) -> Color {
+        switch state {
+        case .pressed, .selected:
+            fillSelected
+        case .focused, .hovered:
+            fillHover
+        case .default, .disabled:
+            .clear
         }
     }
 }

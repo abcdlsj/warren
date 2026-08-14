@@ -17,6 +17,10 @@ struct WarrenDesktopProjectRow: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
+    @FocusState private var isAddFocused: Bool
+
+    private var showsActions: Bool { isHovered || isFocused || isAddFocused }
 
     var body: some View {
         if isCollapsed {
@@ -33,10 +37,10 @@ struct WarrenDesktopProjectRow: View {
                 .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
+        .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
         .frame(width: 32, height: 32)
         .contentShape(.rect)
         .foregroundStyle(tokens.mutedForeground)
-        .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .accessibilityLabel("Project \(project.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
@@ -49,7 +53,7 @@ struct WarrenDesktopProjectRow: View {
             isSelected: isSelected,
             action: onSelect
         )
-        .onHover { isHovered = $0 }
+        .focused($isFocused)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
     }
@@ -71,7 +75,7 @@ struct WarrenDesktopProjectRow: View {
                            height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
 
                     Text(project.name)
-                        .font(WarrenTypography.sidebarRow)
+                        .font(WarrenTypography.navigationGroup)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
@@ -83,7 +87,8 @@ struct WarrenDesktopProjectRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+            .focused($isFocused)
             .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
             .accessibilityLabel("Project \(project.name)")
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
@@ -102,11 +107,12 @@ struct WarrenDesktopProjectRow: View {
                     .font(.system(size: 11, weight: .medium))
                     .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenChromeButtonStyle(isFocused: isAddFocused))
             .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
                    height: WarrenLayoutMetrics.sidebarActionButtonSize)
             .contentShape(.rect)
-            .opacity(isHovered ? 1 : 0.65)
+            .opacity(showsActions ? 1 : 0)
+            .focused($isAddFocused)
             .accessibilityLabel("New workspace in \(project.name)")
             .warrenSemanticElement(
                 id: "project.\(project.id.description).new-workspace",
@@ -117,7 +123,13 @@ struct WarrenDesktopProjectRow: View {
             .padding(.trailing, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
-        .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
+        .background(tokens.interactionBackground(for: .resolve(
+            disabled: false,
+            pressed: false,
+            selected: isSelected,
+            focused: isFocused,
+            hovered: isHovered || isAddFocused
+        )))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
         .onHover { isHovered = $0 }

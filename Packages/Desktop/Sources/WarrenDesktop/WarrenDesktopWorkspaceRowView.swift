@@ -17,7 +17,6 @@ struct WarrenDesktopWorkspaceRow: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isFocused: Bool
-    @State private var isHovered = false
 
     var body: some View {
         if isCollapsed {
@@ -38,13 +37,10 @@ struct WarrenDesktopWorkspaceRow: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
         .frame(width: 32, height: 32)
         .contentShape(.rect)
         .foregroundStyle(tokens.mutedForeground)
-        .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
-        .animation(.easeOut(duration: 0.1), value: isHovered)
-        .animation(.easeOut(duration: 0.1), value: isSelected)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
@@ -57,7 +53,7 @@ struct WarrenDesktopWorkspaceRow: View {
             isSelected: isSelected,
             action: onSelect
         )
-        .onHover { isHovered = $0 }
+        .focused($isFocused)
         .contextMenu { Button("Rename Workspace", action: onRename) }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
@@ -72,7 +68,7 @@ struct WarrenDesktopWorkspaceRow: View {
                            height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
 
                 Text(workspace.name.isEmpty ? "Workspace" : workspace.name)
-                    .font(WarrenTypography.workspaceRow)
+                    .font(WarrenTypography.navigationItem)
                     .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -87,7 +83,7 @@ struct WarrenDesktopWorkspaceRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
         .focused($isFocused)
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
@@ -103,10 +99,8 @@ struct WarrenDesktopWorkspaceRow: View {
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
         .padding(.leading, WarrenSpacing.compact)
         .padding(.trailing, WarrenSpacing.compact)
-        .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
-        .onHover { isHovered = $0 }
         .contextMenu { Button("Rename Workspace", action: onRename) }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
@@ -135,6 +129,7 @@ struct WarrenDesktopWorkspaceRow: View {
 struct WarrenDesktopActivityIndicator: View {
     let activity: AgentActivityState
     @State private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -161,7 +156,8 @@ struct WarrenDesktopActivityIndicator: View {
     }
 
     private var pulses: Bool {
-        switch activity {
+        guard !reduceMotion else { return false }
+        return switch activity {
         case .working, .waitingForInput, .failed: true
         case .ready: false
         }

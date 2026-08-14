@@ -31,7 +31,7 @@ struct WarrenDesktopTopBar: View {
             )
 
             Text(hostName)
-                .font(WarrenTypography.sidebarRow)
+                .font(WarrenTypography.chromeLabel)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
 

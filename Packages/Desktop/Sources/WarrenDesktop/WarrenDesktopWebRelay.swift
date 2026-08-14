@@ -49,7 +49,7 @@ public struct WarrenDesktopWebRelayPanel: View {
                     .font(.system(size: 11))
                     .foregroundStyle(tokens.mutedForeground)
             }
-            Divider()
+            WarrenDesktopChromeDivider()
             if let url = status.localURL {
                 Text(url.absoluteString)
                     .font(.system(size: 11, design: .monospaced))
@@ -59,7 +59,7 @@ public struct WarrenDesktopWebRelayPanel: View {
                     Button(status.isRunning ? "Stop" : "Start") {
                         status.isRunning ? onStop() : onStart()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(WarrenPrimaryButtonStyle())
                     .controlSize(.small)
                     Button("Open") { onOpenURL(url) }
                         .buttonStyle(.bordered)
@@ -73,7 +73,7 @@ public struct WarrenDesktopWebRelayPanel: View {
                     .font(.system(size: 11))
                     .foregroundStyle(tokens.mutedForeground)
                 Button("Start Web Relay", action: onStart)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(WarrenPrimaryButtonStyle())
                     .controlSize(.small)
             }
         }

@@ -43,7 +43,11 @@ struct WarrenDesktopTabBar: View {
                     WarrenDesktopCollapsedWorkspaceLeading(onToggleSidebar: onToggleSidebar)
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
+                WarrenOverflowFadeScrollView(
+                    .horizontal,
+                    fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                    surface: tokens.chromeSurface
+                ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
                             WarrenDesktopTabItem(
@@ -78,7 +82,6 @@ struct WarrenDesktopTabBar: View {
                 // Its intrinsic track ends after the add button; the remaining
                 // chrome is a real AppKit window-drag surface.
                 .frame(maxWidth: tabTrackWidth, alignment: .leading)
-                .scrollIndicators(.hidden)
 
                 // The drag filler lives outside the scroll view, exactly like
                 // Superset's TabBar: tabs scroll independently and the remaining
@@ -89,7 +92,7 @@ struct WarrenDesktopTabBar: View {
 
                 if tabs.isEmpty {
                     Text("No tabs open")
-                        .font(WarrenTypography.emptyState)
+                        .font(WarrenTypography.body)
                         .foregroundStyle(tokens.mutedForeground)
                         .padding(.horizontal, WarrenSpacing.medium)
                 }
@@ -185,7 +188,7 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                         .fill(isConnected ? Color.green : Color.orange)
                         .frame(width: 6, height: 6)
                     Text(endpointOptions.first(where: { $0.id == selectedEndpointID })?.label ?? "Server")
-                        .font(WarrenTypography.badge)
+                        .font(WarrenTypography.navigationMeta)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8, weight: .semibold))

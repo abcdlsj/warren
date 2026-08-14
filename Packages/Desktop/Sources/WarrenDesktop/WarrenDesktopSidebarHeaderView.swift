@@ -8,6 +8,7 @@ struct WarrenDesktopSidebarHeader: View {
     let onCommandPalette: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         Group {
@@ -86,13 +87,13 @@ struct WarrenDesktopSidebarHeader: View {
                     .accessibilityHidden(true)
 
                 Text("Search")
-                    .font(WarrenTypography.sidebarRow)
+                    .font(WarrenTypography.chromeLabel)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
 
                 Text("⌘K")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(WarrenTypography.shortcut)
                     .foregroundStyle(WarrenColorTokens.resolved(for: colorScheme).mutedForeground)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
@@ -102,11 +103,10 @@ struct WarrenDesktopSidebarHeader: View {
             .padding(.horizontal, WarrenSpacing.compact)
             .frame(height: WarrenLayoutMetrics.sidebarProjectRowHeight)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WarrenInteractiveRowStyle(isFocused: searchFocused))
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(WarrenColorTokens.resolved(for: colorScheme).mutedForeground)
-        .background(WarrenColorTokens.resolved(for: colorScheme).fillHover.opacity(0.001))
-        .clipShape(.rect(cornerRadius: WarrenRadius.small))
+        .focused($searchFocused)
         .padding(.horizontal, WarrenSpacing.xs)
         .accessibilityLabel("Search")
     }
@@ -118,10 +118,11 @@ struct WarrenDesktopSidebarHeader: View {
                 .frame(width: 28, height: 28)
                 .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WarrenInteractiveRowStyle(isFocused: searchFocused))
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .foregroundStyle(WarrenColorTokens.resolved(for: colorScheme).mutedForeground)
+        .focused($searchFocused)
         .accessibilityLabel("Search")
     }
 

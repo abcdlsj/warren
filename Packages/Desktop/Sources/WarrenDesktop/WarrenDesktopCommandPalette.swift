@@ -45,10 +45,17 @@ struct WarrenDesktopCommandPalette: View {
             }
             .padding(.horizontal, WarrenSpacing.standard)
             .frame(height: 42)
+            .background(tokens.inputSurface)
 
-            Divider()
+            Rectangle()
+                .fill(tokens.border)
+                .frame(height: WarrenSpacing.hairline)
 
-            ScrollView {
+            WarrenOverflowFadeScrollView(
+                .vertical,
+                fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                surface: tokens.popoverSurface
+            ) {
                 LazyVStack(spacing: WarrenSpacing.compact) {
                     ForEach(results) { result in
                         projectResult(result, tokens: tokens)
@@ -67,7 +74,7 @@ struct WarrenDesktopCommandPalette: View {
             }
         }
         .frame(width: 480)
-        .background(tokens.chromeSurface)
+        .background(tokens.popoverSurface)
         .clipShape(.rect(cornerRadius: WarrenRadius.medium))
         .overlay {
             RoundedRectangle(cornerRadius: WarrenRadius.medium)
@@ -107,7 +114,7 @@ struct WarrenDesktopCommandPalette: View {
                 .frame(height: 42)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenInteractiveRowStyle())
 
             ForEach(result.workspaces) { workspace in
                 Button {
@@ -119,11 +126,11 @@ struct WarrenDesktopCommandPalette: View {
                             .frame(width: 5, height: 5)
                             .frame(width: 18)
                         Text(workspace.branch?.isEmpty == false ? workspace.branch! : workspace.name)
-                            .font(WarrenTypography.workspaceRow)
+                            .font(WarrenTypography.navigationItem)
                             .lineLimit(1)
                         Spacer(minLength: 0)
                         Text("Workspace")
-                            .font(WarrenTypography.badge)
+                            .font(WarrenTypography.navigationMeta)
                             .foregroundStyle(tokens.mutedForeground)
                     }
                     .padding(.leading, WarrenSpacing.large)
@@ -131,12 +138,11 @@ struct WarrenDesktopCommandPalette: View {
                     .frame(height: 30)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(WarrenInteractiveRowStyle())
 
             }
         }
         .padding(.vertical, WarrenSpacing.xxs)
-        .background(tokens.fillHover.opacity(0.45))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
     }
 

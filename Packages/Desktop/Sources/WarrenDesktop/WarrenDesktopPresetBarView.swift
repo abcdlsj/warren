@@ -17,7 +17,11 @@ struct WarrenDesktopPresetBar: View {
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        ScrollView(.horizontal, showsIndicators: false) {
+        WarrenOverflowFadeScrollView(
+            .horizontal,
+            fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+            surface: tokens.background
+        ) {
             HStack(spacing: WarrenSpacing.xxs) {
                 Button(action: onChooseCommand) {
                     Image(systemName: "plus")
@@ -25,7 +29,7 @@ struct WarrenDesktopPresetBar: View {
                         .frame(width: 24, height: 24)
                         .contentShape(.rect)
                 }
-                .buttonStyle(WarrenPresetHoverButtonStyle(tokens: tokens))
+                .buttonStyle(WarrenPresetButtonStyle())
                 .foregroundStyle(tokens.mutedForeground)
                 .disabled(workspace == nil)
                 .accessibilityLabel("Choose session command")
@@ -52,7 +56,7 @@ struct WarrenDesktopPresetBar: View {
                         .frame(height: 24)
                         .contentShape(.rect)
                     }
-                    .buttonStyle(WarrenPresetHoverButtonStyle(tokens: tokens))
+                    .buttonStyle(WarrenPresetButtonStyle())
                     .foregroundStyle(tokens.mutedForeground)
                     .disabled(workspace == nil)
                     .accessibilityLabel("Start \(preset.title)")
@@ -64,7 +68,6 @@ struct WarrenDesktopPresetBar: View {
             .padding(.horizontal, WarrenSpacing.compact)
             .frame(minWidth: 0, minHeight: WarrenLayoutMetrics.presetBarHeight)
         }
-        .scrollIndicators(.hidden)
         .frame(height: WarrenLayoutMetrics.presetBarHeight)
         .background(tokens.background)
         .overlay(alignment: .bottom) {
@@ -133,27 +136,5 @@ final class WarrenPresetIconCache {
         }
         images[name] = image
         return image
-    }
-}
-
-private struct WarrenPresetHoverButtonStyle: ButtonStyle {
-    let tokens: WarrenColorTokens
-
-    func makeBody(configuration: Configuration) -> StyledBody {
-        StyledBody(configuration: configuration, tokens: tokens)
-    }
-
-    struct StyledBody: View {
-        let configuration: Configuration
-        let tokens: WarrenColorTokens
-        @State private var isHovered = false
-
-        var body: some View {
-            configuration.label
-                .background(isHovered || configuration.isPressed ? tokens.fillHover : .clear)
-                .opacity(configuration.isPressed ? 0.75 : 1)
-                .clipShape(.rect(cornerRadius: WarrenRadius.small))
-                .onHover { isHovered = $0 }
-        }
     }
 }

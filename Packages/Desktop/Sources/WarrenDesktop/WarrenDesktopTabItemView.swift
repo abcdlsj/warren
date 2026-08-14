@@ -14,6 +14,8 @@ struct WarrenDesktopTabItem: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var isTabFocused: Bool
     @FocusState private var isCloseFocused: Bool
     @State private var isHovered = false
     @State private var isCloseHovered = false
@@ -48,7 +50,8 @@ struct WarrenDesktopTabItem: View {
                 .background(Color.clear)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isTabFocused, cornerRadius: 0))
+            .focused($isTabFocused)
             .disabled(tab.sessionID == nil)
             .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
             .accessibilityLabel("Tab \(tab.title)")
@@ -68,7 +71,7 @@ struct WarrenDesktopTabItem: View {
                     .font(.system(size: 10, weight: .medium))
                     .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenChromeButtonStyle(isFocused: isCloseFocused))
             .frame(
                 width: WarrenLayoutMetrics.tabCloseButtonSize,
                 height: WarrenLayoutMetrics.tabCloseButtonSize
@@ -101,8 +104,8 @@ struct WarrenDesktopTabItem: View {
                 ? tokens.background
                 : (isHovered ? tokens.tabInactiveHover : .clear)
         )
-        .animation(.easeOut(duration: 0.1), value: isHovered)
-        .animation(.easeOut(duration: 0.1), value: isSelected)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isHovered)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isSelected)
         .overlay {
             Rectangle()
                 .stroke(isSelected ? tokens.border : .clear, lineWidth: isSelected ? 1 : 0)

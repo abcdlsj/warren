@@ -19,6 +19,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
 
     @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var primaryButtonFocused: Bool
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -65,7 +66,8 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 Text("Add Project…")
                     .font(WarrenTypography.bodyEmphasis)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
+            .focused($primaryButtonFocused)
             .controlSize(.regular)
             .warrenSemanticElement(
                 id: "onboarding.add-project",
@@ -101,7 +103,8 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 Text("New Session…")
                     .font(WarrenTypography.bodyEmphasis)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
+            .focused($primaryButtonFocused)
             .controlSize(.regular)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

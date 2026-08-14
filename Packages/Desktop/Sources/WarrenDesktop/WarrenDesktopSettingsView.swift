@@ -34,7 +34,7 @@ struct WarrenDesktopSettingsView: View {
             .frame(height: WarrenLayoutMetrics.tabBarHeight + 16)
             .background(tokens.chromeSurface)
 
-            Divider()
+            WarrenDesktopChromeDivider()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
@@ -83,7 +83,7 @@ struct WarrenDesktopSettingsView: View {
                                         Text(placeholder.token).font(WarrenTypography.compactCode)
                                         Spacer()
                                         Text(placeholder.description)
-                                            .font(WarrenTypography.badge)
+                                            .font(WarrenTypography.navigationMeta)
                                             .foregroundStyle(tokens.mutedForeground)
                                     }
                                     .padding(6)
@@ -120,7 +120,7 @@ struct WarrenDesktopSettingsView: View {
         VStack(alignment: .leading, spacing: WarrenSpacing.standard) {
             VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
                 Text(title).font(WarrenTypography.bodyEmphasis)
-                Text(detail).font(WarrenTypography.supporting).foregroundStyle(.secondary)
+            Text(detail).font(WarrenTypography.supporting).foregroundStyle(WarrenColorTokens.dark.mutedForeground)
             }
             content()
         }

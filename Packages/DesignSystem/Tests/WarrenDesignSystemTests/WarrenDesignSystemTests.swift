@@ -9,4 +9,27 @@ final class WarrenDesignSystemTests: XCTestCase {
         XCTAssertEqual(WarrenLayoutMetrics.sidebarWidth(for: 401), 400)
     }
 
+    func testInteractionStatePriority() {
+        XCTAssertEqual(
+            WarrenInteractionState.resolve(disabled: true, pressed: true, selected: true, focused: true, hovered: true),
+            .disabled
+        )
+        XCTAssertEqual(
+            WarrenInteractionState.resolve(disabled: false, pressed: true, selected: true, focused: true, hovered: true),
+            .pressed
+        )
+        XCTAssertEqual(
+            WarrenInteractionState.resolve(disabled: false, pressed: false, selected: true, focused: true, hovered: true),
+            .selected
+        )
+        XCTAssertEqual(
+            WarrenInteractionState.resolve(disabled: false, pressed: false, selected: false, focused: true, hovered: true),
+            .focused
+        )
+        XCTAssertEqual(
+            WarrenInteractionState.resolve(disabled: false, pressed: false, selected: false, focused: false, hovered: true),
+            .hovered
+        )
+    }
+
 }

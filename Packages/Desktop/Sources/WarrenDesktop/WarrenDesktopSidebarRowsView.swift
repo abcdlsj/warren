@@ -17,6 +17,7 @@ struct WarrenDesktopSidebarRows: View {
     @State private var projectsCollapsed = false
     @State private var pendingRename: Workspace?
     @State private var workspaceName = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
@@ -35,8 +36,8 @@ struct WarrenDesktopSidebarRows: View {
                     Text("No workspaces yet")
                         .font(WarrenTypography.emptyState)
                     Text("Add a project or drop a Git repository folder")
-                        .font(WarrenTypography.badge)
-                        .foregroundStyle(.secondary)
+                        .font(WarrenTypography.supporting)
+                        .foregroundStyle(WarrenColorTokens.dark.mutedForeground)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -106,7 +107,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProject(_ projectID: ProjectID) {
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             if expandedProjectIDs.contains(projectID) {
                 expandedProjectIDs.remove(projectID)
             } else {
@@ -116,7 +117,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProjects() {
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             projectsCollapsed.toggle()
         }
     }
@@ -135,6 +136,7 @@ private struct WarrenDesktopSessionRow: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
+    @FocusState private var isActionFocused: Bool
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -146,12 +148,12 @@ private struct WarrenDesktopSessionRow: View {
                     }
                     VStack(alignment: .leading, spacing: 1) {
                         Text(session.title)
-                            .font(WarrenTypography.workspaceRow)
+                            .font(WarrenTypography.navigationItem)
                             .foregroundStyle(tokens.foreground.opacity(0.86))
                             .lineLimit(1)
                         if let workspace {
                             Text(workspace.branch?.isEmpty == false ? workspace.branch! : workspace.name)
-                                .font(WarrenTypography.badge)
+                                .font(WarrenTypography.navigationMeta)
                                 .foregroundStyle(tokens.mutedForeground)
                                 .lineLimit(1)
                         }
@@ -160,7 +162,8 @@ private struct WarrenDesktopSessionRow: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenInteractiveRowStyle(isFocused: isActionFocused))
+            .focused($isActionFocused)
             .warrenSemanticElement(
                 id: "session.\(session.id.description)",
                 role: .button,
@@ -193,7 +196,13 @@ private struct WarrenDesktopSessionRow: View {
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
         .padding(.leading, WarrenSpacing.standard)
         .padding(.trailing, WarrenSpacing.compact)
-        .background(isSelected ? tokens.fillSelected : (isHovered ? tokens.fillHover : .clear))
+        .background(tokens.interactionBackground(for: .resolve(
+            disabled: false,
+            pressed: false,
+            selected: isSelected,
+            focused: isActionFocused,
+            hovered: isHovered
+        )))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .padding(.horizontal, WarrenSpacing.compact)
         .onHover { isHovered = $0 }
@@ -210,7 +219,9 @@ private struct WarrenDesktopSidebarSectionHeader: View {
     let onAction: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
+    @FocusState private var isActionFocused: Bool
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -225,12 +236,12 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                             .font(.system(size: 9, weight: .semibold))
                             .rotationEffect(.degrees(disclosureExpanded ? 90 : 0))
                             .opacity(disclosureExpanded && !isHovered ? 0 : 1)
-                            .animation(.easeOut(duration: 0.15), value: disclosureExpanded)
+                            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: disclosureExpanded)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenChromeButtonStyle())
             .disabled(onToggle == nil)
 
             Button(action: onAction) {
@@ -238,13 +249,12 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                     .font(.system(size: 12, weight: .medium))
                     .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(WarrenChromeButtonStyle(isFocused: isActionFocused))
             .disabled(!actionEnabled)
             .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
                    height: WarrenLayoutMetrics.sidebarActionButtonSize)
             .contentShape(.rect)
-            .background(tokens.fillHover.opacity(isHovered ? 1 : 0))
-            .clipShape(.rect(cornerRadius: WarrenRadius.small))
+            .focused($isActionFocused)
             .accessibilityLabel(actionLabel)
         }
         .foregroundStyle(tokens.mutedForeground)
