@@ -34,7 +34,15 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "Warren daemon")
+        if let image = warrenBrandImage() {
+            image.size = NSSize(width: 18, height: 18)
+            statusItem.button?.image = image
+            statusItem.button?.imageScaling = .scaleProportionallyDown
+            statusItem.button?.imagePosition = .imageOnly
+        } else {
+            statusItem.button?.title = "W"
+        }
+        statusItem.button?.toolTip = "Warren daemon"
         statusItem.menu = makeMenu()
         updateStatusItem()
         ensureDaemon()
@@ -63,6 +71,10 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         status.tag = 1
         status.isEnabled = false
         menu.addItem(status)
+        let endpoint = NSMenuItem(title: "Endpoint: 127.0.0.1:8789", action: nil, keyEquivalent: "")
+        endpoint.tag = 2
+        endpoint.isEnabled = false
+        menu.addItem(endpoint)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Stop Daemon", action: #selector(stopDaemonAction), keyEquivalent: "s"))
@@ -150,6 +162,25 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         return bundleBinary
     }
 
+    private func warrenBrandImage() -> NSImage? {
+        let environment = ProcessInfo.processInfo.environment
+        var candidates: [URL] = []
+        if let configured = environment["WARREN_BRAND_ICON_PATH"], !configured.isEmpty {
+            candidates.append(URL(fileURLWithPath: configured))
+        }
+        if let bundled = Bundle.main.url(forResource: "Warren", withExtension: "icns") {
+            candidates.append(bundled)
+        }
+        let executableDirectory = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        candidates.append(executableDirectory.appendingPathComponent("../Resources/Warren.icns").standardizedFileURL)
+        candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Assets/Brand/Warren.icns"))
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
+            if let image = NSImage(contentsOf: candidate) { return image }
+        }
+        return nil
+    }
+
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
         switch state {
@@ -162,12 +193,27 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         case .failed:
             button.title = " Warren !"
         }
+        if button.image != nil { button.title = "" }
+        button.toolTip = switch state {
+        case .checking: "Warren daemon: Checking"
+        case .running: "Warren daemon: Running"
+        case .stopped: "Warren daemon: Stopped"
+        case .failed: "Warren daemon: Failed"
+        }
         if let status = statusItem.menu?.item(withTag: 1) {
             switch state {
             case .checking: status.title = "Daemon: Checking…"
             case .running: status.title = "Daemon: Running"
             case .stopped: status.title = "Daemon: Stopped"
             case .failed(let reason): status.title = "Daemon: \(reason)"
+            }
+        }
+        if let endpoint = statusItem.menu?.item(withTag: 2) {
+            endpoint.title = switch state {
+            case .running: "Endpoint: 127.0.0.1:8789 · Web Relay: 8788"
+            case .checking: "Endpoint: 127.0.0.1:8789 · Checking…"
+            case .stopped: "Endpoint: 127.0.0.1:8789 · Offline"
+            case .failed: "Endpoint: 127.0.0.1:8789 · Unavailable"
             }
         }
     }
