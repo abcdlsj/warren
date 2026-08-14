@@ -1,6 +1,6 @@
 :root { color-scheme: dark; --bg:#151110; --panel:#1c1918; --muted:#2a2827; --ring:#3a3837; --fg:#eae8e6; --sub:#a8a5a3; --amber:#f59e0b; --yellow:#eab308; --red:#ef4444; --green:#22c55e; }
     * { box-sizing:border-box; }
-    html, body, #app { width:100%; height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--fg); }
+    html, body, #root { width:100%; height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--fg); }
     body { font:12px -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
     button { color:inherit; font:inherit; }
     button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }

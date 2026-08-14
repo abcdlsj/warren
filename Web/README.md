@@ -1,6 +1,6 @@
 # Warren Web
 
-响应式 Web/PWA 客户端使用 Vite 组织。源文件位于 `Web/`，生产构建产物写入 `Packages/WebRelay/Sources/WebRelay/Resources/`，供 macOS WebRelay 和 Go Relay Service 共同嵌入。
+响应式 Web/PWA 客户端使用 React + Vite。React 组件源码位于 `Web/src/`，生产构建产物写入 `Packages/WebRelay/Sources/WebRelay/Resources/`，供 macOS WebRelay 和 Go Relay Service 共同嵌入。
 
 ## 开发
 
@@ -9,7 +9,7 @@ npm --prefix Web install
 mise run web:dev
 ```
 
-Vite 开发服务器只负责前端资源。若需连接本地 Warren WebSocket，可继续使用生产 WebRelay，或为 Vite 配置临时反向代理。
+Vite 开发服务器只负责前端资源，React 负责 UI 组件树和客户端状态；xterm 通过组件 ref 挂载到终端节点。若需连接本地 Warren WebSocket，可继续使用生产 WebRelay，或为 Vite 配置临时反向代理。
 
 ## 构建和验证
 

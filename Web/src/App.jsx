@@ -1,0 +1,569 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
+import "./style.css";
+
+import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
+import { RelayConnection } from "./connection.js";
+import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
+import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
+import {
+  EmptyTerminal,
+  MobileKeys,
+  PresetBar,
+  SearchPanel,
+  SettingsPage,
+  Sidebar,
+  TopBar,
+} from "./components.jsx";
+
+const storageKeys = {
+  activeWorkspace: "warren.activeWorkspace",
+  expandedProjects: "warren.expandedProjects",
+  fontFamily: "warren.terminalFontFamily",
+  fontSize: "warren.terminalFontSize",
+  titleTemplate: "warren.terminalTitleTemplate",
+};
+
+const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
+const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
+const previewSession = {
+  title: "Claude",
+  process: "claude",
+  directory: "/Users/me/Workspace/warren",
+  kind: "claude",
+};
+const previewWorkspace = {
+  name: "warren",
+  branch: "main",
+  path: "/Users/me/Workspace/warren",
+};
+const sessionPresets = [
+  { kind: "shell", label: "Shell", title: "Shell" },
+  { kind: "claude", label: "Claude", title: "Claude Code", command: "claude" },
+  { kind: "codex", label: "Codex", title: "Codex", command: "codex --dangerously-bypass-hook-trust" },
+];
+
+export default function App() {
+  const [catalog, setCatalog] = useState(() => buildCatalog());
+  const [activeWorkspace, setActiveWorkspace] = useState(() => localStorage.getItem(storageKeys.activeWorkspace));
+  const [activeSession, setActiveSession] = useState(null);
+  const [attachedSession, setAttachedSession] = useState(null);
+  const [expandedProjects, setExpandedProjects] = useState(() => loadSet(storageKeys.expandedProjects));
+  const [fontFamily, setFontFamily] = useState(() => localStorage.getItem(storageKeys.fontFamily) || defaultFontFamily);
+  const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem(storageKeys.fontSize)) || defaultFontSize);
+  const [titleTemplate, setTitleTemplate] = useState(() => localStorage.getItem(storageKeys.titleTemplate) || defaultTitleTemplate);
+  const [connectionStatus, setConnectionStatus] = useState({ message: "Connecting…", online: false });
+  const [emptyOverride, setEmptyOverride] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const connectionRef = useRef(null);
+  const terminalHostRef = useRef(null);
+  const terminalRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const fitFrameRef = useRef(null);
+  const resizeTimerRef = useRef(null);
+  const pendingTerminalSizeRef = useRef(null);
+  const sentTerminalSizeRef = useRef(null);
+  const messageHandlerRef = useRef(() => {});
+  const connectionStateHandlerRef = useRef(() => {});
+  const appStateRef = useRef({});
+
+  const selectedWorkspaceID = useMemo(() => {
+    if (activeWorkspace && catalog.workspaces.some(workspace => workspace.id === activeWorkspace)) {
+      return activeWorkspace;
+    }
+    return catalog.workspaces[0]?.id || null;
+  }, [activeWorkspace, catalog.workspaces]);
+  const selectedWorkspace = useMemo(
+    () => catalog.workspaces.find(workspace => workspace.id === selectedWorkspaceID) || null,
+    [catalog.workspaces, selectedWorkspaceID],
+  );
+  const tabs = useMemo(
+    () => selectedWorkspaceID ? workspaceTabs(catalog, selectedWorkspaceID) : [],
+    [catalog, selectedWorkspaceID],
+  );
+  const selectedSession = activeSession ? catalog.sessions.get(activeSession) || null : null;
+  const paneTitle = selectedSession
+    ? renderTerminalTitle(titleTemplate, selectedSession, selectedWorkspace, catalog.host)
+    : "";
+  const titlePreview = renderTerminalTitle(
+    titleTemplate,
+    selectedSession || previewSession,
+    selectedWorkspace || previewWorkspace,
+    catalog.host,
+  );
+
+  appStateRef.current = {
+    catalog,
+    activeWorkspace: selectedWorkspaceID,
+    activeSession,
+    attachedSession,
+  };
+
+  const send = useCallback(message => connectionRef.current?.sendJSON(message) || false, []);
+
+  const sendInput = useCallback(data => {
+    const state = appStateRef.current;
+    if (data && state.activeSession && state.attachedSession === state.activeSession) {
+      connectionRef.current?.sendBinary(data);
+    }
+  }, []);
+
+  const fitTerminal = useCallback(() => {
+    fitFrameRef.current = null;
+    const node = terminalHostRef.current;
+    if (node?.clientWidth && node.clientHeight) fitAddonRef.current?.fit();
+  }, []);
+
+  const scheduleTerminalFit = useCallback(() => {
+    if (fitFrameRef.current !== null) return;
+    fitFrameRef.current = requestAnimationFrame(fitTerminal);
+  }, [fitTerminal]);
+
+  const scheduleRemoteResize = useCallback(size => {
+    pendingTerminalSizeRef.current = size;
+    if (resizeTimerRef.current !== null) return;
+    resizeTimerRef.current = setTimeout(() => {
+      resizeTimerRef.current = null;
+      const next = pendingTerminalSizeRef.current;
+      pendingTerminalSizeRef.current = null;
+      if (!next || (next.cols === sentTerminalSizeRef.current?.cols && next.rows === sentTerminalSizeRef.current?.rows)) return;
+      const state = appStateRef.current;
+      if (state.activeSession && state.attachedSession === state.activeSession) {
+        if (send({ t: "resize", cols: next.cols, rows: next.rows })) {
+          sentTerminalSizeRef.current = next;
+        }
+      }
+    }, 40);
+  }, [send]);
+
+  const attachSession = useCallback((sessionID, force = false) => {
+    if (!sessionID) return;
+    const state = appStateRef.current;
+    if (!force && sessionID === state.attachedSession) return;
+    const changed = sessionID !== state.activeSession;
+    state.activeSession = sessionID;
+    state.attachedSession = null;
+    setActiveSession(sessionID);
+    setAttachedSession(null);
+    setEmptyOverride(null);
+    sentTerminalSizeRef.current = null;
+    if (changed) terminalRef.current?.clear();
+    send({ t: "attach", session: sessionID });
+  }, [send]);
+
+  const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
+    const state = appStateRef.current;
+    const wasAttached = Boolean(state.activeSession || state.attachedSession);
+    const nextTabs = workspaceTabs(state.catalog, workspaceID);
+    state.activeWorkspace = workspaceID;
+    state.activeSession = null;
+    state.attachedSession = null;
+    setActiveWorkspace(workspaceID);
+    setActiveSession(null);
+    setAttachedSession(null);
+    setEmptyOverride(null);
+    terminalRef.current?.clear();
+    setDrawerOpen(false);
+
+    if (preferredSessionID) attachSession(preferredSessionID, true);
+    else if (nextTabs.length) attachSession(nextTabs[0].id, true);
+    else if (wasAttached) send({ t: "detach" });
+  }, [attachSession, send]);
+
+  const createSession = useCallback(kind => {
+    const workspaceID = appStateRef.current.activeWorkspace;
+    if (!workspaceID) return;
+    const preset = sessionPresets.find(value => value.kind === kind) || sessionPresets[0];
+    const sent = send({
+      t: "create",
+      workspace: workspaceID,
+      kind: preset.kind,
+      command: preset.command || null,
+      title: preset.title,
+    });
+    setEmptyOverride({
+      loading: true,
+      message: sent ? `Starting ${preset.title}…` : "Waiting for connection…",
+    });
+    if (!sent) connectionRef.current?.reconnectNow();
+  }, [send]);
+
+  const acceptRoster = useCallback(message => {
+    connectionRef.current?.markStable();
+    const nextCatalog = buildCatalog(rosterFromMessage(message));
+    const state = appStateRef.current;
+    const nextWorkspaceID = state.activeWorkspace && nextCatalog.workspaces.some(workspace => workspace.id === state.activeWorkspace)
+      ? state.activeWorkspace
+      : nextCatalog.workspaces[0]?.id || null;
+    const nextTabs = nextWorkspaceID ? workspaceTabs(nextCatalog, nextWorkspaceID) : [];
+    const activeTabWasRemoved = state.activeSession && !nextTabs.some(tab => tab.id === state.activeSession);
+
+    state.catalog = nextCatalog;
+    state.activeWorkspace = nextWorkspaceID;
+    setCatalog(nextCatalog);
+    setActiveWorkspace(nextWorkspaceID);
+    setEmptyOverride(null);
+    if (nextWorkspaceID) {
+      const workspace = nextCatalog.workspaces.find(value => value.id === nextWorkspaceID);
+      if (workspace) {
+        setExpandedProjects(previous => previous.has(workspace.project)
+          ? previous
+          : new Set([...previous, workspace.project]));
+      }
+    }
+
+    if (activeTabWasRemoved) {
+      state.activeSession = null;
+      state.attachedSession = null;
+      setActiveSession(null);
+      setAttachedSession(null);
+      terminalRef.current?.clear();
+    }
+
+    setConnectionStatus({ message: "Connected", online: true });
+    if (state.activeSession) attachSession(state.activeSession);
+    else if (nextTabs.length) attachSession(nextTabs[0].id);
+    else if (activeTabWasRemoved) send({ t: "detach" });
+  }, [attachSession, send]);
+
+  const acceptMessage = useCallback(event => {
+    if (event.data instanceof ArrayBuffer) {
+      terminalRef.current?.write(new Uint8Array(event.data));
+      return;
+    }
+
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      setConnectionStatus({ message: "Protocol error", online: false });
+      connectionRef.current?.reset();
+      return;
+    }
+
+    switch (message.t) {
+    case "roster":
+      acceptRoster(message);
+      break;
+    case "attached": {
+      appStateRef.current.activeSession = message.session;
+      appStateRef.current.attachedSession = message.session;
+      setActiveSession(message.session);
+      setAttachedSession(message.session);
+      setEmptyOverride(null);
+      requestAnimationFrame(() => {
+        fitTerminal();
+        const terminal = terminalRef.current;
+        if (terminal) scheduleRemoteResize({ cols: terminal.cols, rows: terminal.rows });
+        terminal?.focus();
+      });
+      break;
+    }
+    case "created":
+      appStateRef.current.activeSession = null;
+      appStateRef.current.attachedSession = null;
+      setActiveSession(null);
+      setAttachedSession(null);
+      setEmptyOverride(null);
+      attachSession(message.session);
+      break;
+    case "runtimeMetadata":
+      setCatalog(previous => {
+        const session = previous.sessions.get(message.session);
+        if (!session) return previous;
+        const sessions = new Map(previous.sessions);
+        sessions.set(message.session, {
+          ...session,
+          process: message.process || "",
+          directory: message.directory || "",
+        });
+        return { ...previous, sessions };
+      });
+      break;
+    case "sessionDeleted":
+      if (appStateRef.current.activeSession === message.session) {
+        appStateRef.current.activeSession = null;
+        appStateRef.current.attachedSession = null;
+        setActiveSession(null);
+        setAttachedSession(null);
+        terminalRef.current?.clear();
+      }
+      break;
+    case "error":
+      setConnectionStatus({ message: message.message || "Error", online: false });
+      setEmptyOverride({ loading: false, message: message.message || "Session error" });
+      if (message.message === "unauthorized") connectionRef.current?.stop();
+      break;
+    default:
+      break;
+    }
+  }, [acceptRoster, attachSession, fitTerminal, scheduleRemoteResize]);
+
+  const acceptConnectionState = useCallback(state => {
+    if (state === "connecting") {
+      setConnectionStatus({ message: "Connecting…", online: false });
+      return;
+    }
+    if (state === "open") {
+      setConnectionStatus({ message: "Authenticating…", online: false });
+      return;
+    }
+    appStateRef.current.attachedSession = null;
+    setAttachedSession(null);
+    sentTerminalSizeRef.current = null;
+    setConnectionStatus({ message: "Reconnecting…", online: false });
+  }, []);
+
+  messageHandlerRef.current = acceptMessage;
+  connectionStateHandlerRef.current = acceptConnectionState;
+
+  useEffect(() => {
+    const terminalHost = terminalHostRef.current;
+    if (!terminalHost) return undefined;
+
+    const terminal = new Terminal({
+      theme: {
+        background: "#151110",
+        foreground: "#eae8e6",
+        cursor: "#eae8e6",
+        selectionBackground: "#3a3837",
+      },
+      fontFamily,
+      fontSize,
+      lineHeight: 1.12,
+      cursorBlink: true,
+      scrollback: 5000,
+      allowTransparency: false,
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(terminalHost);
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+
+    const dataSubscription = terminal.onData(sendInput);
+    const resizeSubscription = terminal.onResize(scheduleRemoteResize);
+    const resizeObserver = new ResizeObserver(() => {
+      if (appStateRef.current.activeSession) scheduleTerminalFit();
+    });
+    resizeObserver.observe(terminalHost);
+
+    return () => {
+      dataSubscription.dispose();
+      resizeSubscription.dispose();
+      resizeObserver.disconnect();
+      terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+    };
+  }, [scheduleRemoteResize, scheduleTerminalFit, sendInput]);
+
+  useEffect(() => {
+    if (!terminalRef.current) return;
+    terminalRef.current.options.fontFamily = fontFamily;
+    terminalRef.current.options.fontSize = fontSize;
+    scheduleTerminalFit();
+  }, [fontFamily, fontSize, scheduleTerminalFit]);
+
+  useEffect(() => {
+    if (activeWorkspace !== selectedWorkspaceID) setActiveWorkspace(selectedWorkspaceID);
+  }, [activeWorkspace, selectedWorkspaceID]);
+
+  useEffect(() => {
+    if (!selectedWorkspace) return;
+    setExpandedProjects(previous => previous.has(selectedWorkspace.project)
+      ? previous
+      : new Set([...previous, selectedWorkspace.project]));
+  }, [selectedWorkspace]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKeys.activeWorkspace, selectedWorkspaceID || "");
+  }, [selectedWorkspaceID]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKeys.expandedProjects, JSON.stringify([...expandedProjects]));
+  }, [expandedProjects]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKeys.fontFamily, fontFamily);
+    localStorage.setItem(storageKeys.fontSize, String(fontSize));
+  }, [fontFamily, fontSize]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKeys.titleTemplate, titleTemplate);
+  }, [titleTemplate]);
+
+  useEffect(() => {
+    const connection = new RelayConnection({
+      url: webSocketURL(),
+      token: runtime.token,
+      onMessage: event => messageHandlerRef.current(event),
+      onState: state => connectionStateHandlerRef.current(state),
+    });
+    connectionRef.current = connection;
+    connection.start();
+    return () => {
+      connection.stop();
+      connectionRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const reconnect = () => connectionRef.current?.reconnectNow();
+    window.addEventListener("online", reconnect);
+    return () => window.removeEventListener("online", reconnect);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = event => {
+      if (event.key === "Escape" && searchOpen) setSearchOpen(false);
+      if (!settingsOpen && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [searchOpen, settingsOpen]);
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator && location.protocol !== "file:") {
+      navigator.serviceWorker.register(serviceWorkerURL()).catch(() => {});
+    }
+  }, []);
+
+  const toggleProject = useCallback(projectID => {
+    setExpandedProjects(previous => {
+      const next = new Set(previous);
+      if (next.has(projectID)) next.delete(projectID);
+      else next.add(projectID);
+      return next;
+    });
+  }, []);
+
+  const openSettings = useCallback(() => {
+    setSearchOpen(false);
+    setSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    scheduleTerminalFit();
+  }, [scheduleTerminalFit]);
+
+  const chooseSearchWorkspace = useCallback(workspaceID => {
+    setSearchOpen(false);
+    chooseWorkspace(workspaceID);
+  }, [chooseWorkspace]);
+
+  const chooseSearchProject = useCallback(projectID => {
+    const workspace = catalog.workspacesByProject.get(projectID)?.[0];
+    if (workspace) chooseSearchWorkspace(workspace.id);
+  }, [catalog.workspacesByProject, chooseSearchWorkspace]);
+
+  const updateFontFamily = useCallback(value => {
+    setFontFamily(value.trim() || defaultFontFamily);
+  }, []);
+
+  const updateFontSize = useCallback(value => {
+    setFontSize(clamp(Number(value) || defaultFontSize, 8, 32));
+  }, []);
+
+  const updateTitleTemplate = useCallback(value => {
+    setTitleTemplate(value.trim() || defaultTitleTemplate);
+  }, []);
+
+  const appendPlaceholder = useCallback(placeholder => {
+    setTitleTemplate(previous => `${previous}${previous && !previous.endsWith(" ") ? " " : ""}${placeholder}`);
+  }, []);
+
+  const restoreDefaults = useCallback(() => {
+    setTitleTemplate(defaultTitleTemplate);
+    setFontFamily(defaultFontFamily);
+    setFontSize(defaultFontSize);
+  }, []);
+
+  return (
+    <>
+      <div className={`app${drawerOpen ? " drawer-open" : ""}`} hidden={settingsOpen}>
+        <Sidebar
+          catalog={catalog}
+          activeWorkspace={selectedWorkspaceID}
+          expandedProjects={expandedProjects}
+          tabsForWorkspace={workspaceID => workspaceTabs(catalog, workspaceID)}
+          connection={connectionStatus}
+          onToggleProject={toggleProject}
+          onChooseWorkspace={chooseWorkspace}
+        />
+        <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
+        <main className="main">
+          <TopBar
+            tabs={tabs}
+            activeSession={activeSession}
+            onAttachSession={attachSession}
+            onNewSession={() => createSession("shell")}
+            onOpenMenu={() => setDrawerOpen(true)}
+            onOpenSettings={openSettings}
+            onOpenSearch={() => setSearchOpen(true)}
+          />
+          <PresetBar presets={sessionPresets} onCreateSession={createSession} />
+          <div className="pane-title"><span>{paneTitle}</span></div>
+          <section className="terminal-shell" aria-label="Terminal">
+            <div id="terminal" ref={terminalHostRef} />
+            <EmptyTerminal
+              activeWorkspace={selectedWorkspaceID}
+              activeSession={activeSession}
+              attachedSession={attachedSession}
+              tabCount={tabs.length}
+              projectCount={catalog.projects.length}
+              override={emptyOverride}
+              onNewSession={() => createSession("shell")}
+            />
+          </section>
+          <MobileKeys onInput={sendInput} />
+        </main>
+      </div>
+      <SettingsPage
+        open={settingsOpen}
+        fontFamily={fontFamily}
+        fontSize={fontSize}
+        titleTemplate={titleTemplate}
+        titlePreview={titlePreview}
+        placeholders={Object.entries(titlePlaceholders)}
+        onClose={closeSettings}
+        onFontFamilyChange={updateFontFamily}
+        onFontSizeChange={updateFontSize}
+        onTitleTemplateChange={updateTitleTemplate}
+        onAppendPlaceholder={appendPlaceholder}
+        onRestore={restoreDefaults}
+      />
+      <SearchPanel
+        open={searchOpen}
+        query={searchQuery}
+        catalog={catalog}
+        onQueryChange={setSearchQuery}
+        onClose={() => setSearchOpen(false)}
+        onChooseWorkspace={chooseSearchWorkspace}
+        onChooseProject={chooseSearchProject}
+      />
+    </>
+  );
+}
+
+function loadSet(key) {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(key) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
