@@ -58,6 +58,19 @@ public enum WarrenLayoutMetrics {
     public static let sidebarHeaderTopPadding: CGFloat = 8
     public static let sidebarHeaderBottomGap: CGFloat = 12
 
+    // Superset settings and command-palette measurements.
+    /// Superset's settings sidebar is `w-56`.
+    public static let settingsNavigationWidth: CGFloat = 224
+    /// Superset's settings content column is `max-w-5xl`.
+    public static let settingsContentMaxWidth: CGFloat = 1024
+    /// Superset's command dialog is `max-w-[720px]`; the desktop palette keeps
+    /// the same density at a slightly narrower fixed width.
+    public static let commandPaletteWidth: CGFloat = 560
+    /// Superset's command input row is `h-12`.
+    public static let commandInputHeight: CGFloat = 48
+    /// Superset's settings search field is `h-8`.
+    public static let settingsSearchHeight: CGFloat = 32
+
     /// Returns the width Superset's resize policy would display for a drag.
     /// Values below the snap threshold collapse the rail; other values are
     /// clamped to the expanded range.

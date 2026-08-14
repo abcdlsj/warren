@@ -22,6 +22,8 @@ public enum WarrenTypography {
     public static let activityChip = Font.system(size: 9, weight: .medium)
     public static let emptyState = Font.system(size: 18, weight: .semibold)
     public static let screenTitle = Font.system(size: 18, weight: .semibold)
+    /// Superset settings page headings are `text-xl`.
+    public static let pageTitle = Font.system(size: 20, weight: .semibold)
     public static let dialogTitle = Font.system(size: 17, weight: .semibold)
     public static let body = Font.system(size: 13, weight: .regular)
     public static let bodyEmphasis = Font.system(size: 13, weight: .medium)

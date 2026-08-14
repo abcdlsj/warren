@@ -227,16 +227,23 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.toggleInspector)) { _ in
             toggleInspector()
         }
-        .overlay(alignment: .topLeading) {
+        .overlay {
             if commandPalettePresented && !settingsPresented {
-                WarrenDesktopCommandPalette(
-                    projection: projection,
-                    onAction: dispatch,
-                    onDismiss: { commandPalettePresented = false }
-                )
-                .padding(.leading, sidebarState.renderedWidth + WarrenSpacing.large)
-                .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.medium)
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .topLeading)))
+                ZStack {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .onTapGesture { commandPalettePresented = false }
+
+                    WarrenDesktopCommandPalette(
+                        projection: projection,
+                        onAction: dispatch,
+                        onDismiss: { commandPalettePresented = false }
+                    )
+                    .offset(y: -48)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+                .transition(.opacity)
+                .zIndex(20)
             }
         }
         .overlay(alignment: .topTrailing) {

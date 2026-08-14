@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 
 const activityLabels = {
@@ -48,7 +48,9 @@ export function Sidebar({
   connection,
   onToggleProject,
   onChooseWorkspace,
-  onDoubleClickWorkspace,
+  onOpenWorkspace,
+  onNewSession,
+  onOpenSettings,
 }) {
   return (
     <aside className="sidebar" aria-label="Projects and workspaces">
@@ -67,15 +69,39 @@ export function Sidebar({
           const open = expandedProjects.has(project.id);
           return (
             <section className={`project${open ? " open" : ""}`} key={project.id}>
-              <button
-                type="button"
-                className="project-toggle"
-                aria-expanded={open}
-                onClick={() => onToggleProject(project.id)}
-              >
-                <span className="chevron">›</span>
-                <span className="branch">{project.name}</span>
-              </button>
+              <div className="project-toggle">
+                <button
+                  type="button"
+                  className="project-toggle-main"
+                  aria-expanded={open}
+                  onClick={() => onToggleProject(project.id)}
+                >
+                  <span className="branch">{project.name}</span>
+                  <span className="project-count">({workspaces.length})</span>
+                </button>
+                {workspaces[0] && (
+                  <button
+                    type="button"
+                    className="project-add"
+                    aria-label={`New session in ${project.name}`}
+                    title="New session"
+                    onClick={event => {
+                      event.stopPropagation();
+                      onOpenWorkspace(workspaces[0].id);
+                    }}
+                  >
+                    <PlusIcon />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="project-chevron"
+                  aria-label={open ? `Collapse ${project.name}` : `Expand ${project.name}`}
+                  onClick={() => onToggleProject(project.id)}
+                >
+                  <span className="chevron">›</span>
+                </button>
+              </div>
               <div className="workspace-list">
                 {workspaces.map(workspace => (
                   <button
@@ -83,7 +109,7 @@ export function Sidebar({
                     className={`workspace-row${workspace.id === activeWorkspace ? " active" : ""}`}
                     key={workspace.id}
                     onClick={() => onChooseWorkspace(workspace.id)}
-                    onDoubleClick={() => onDoubleClickWorkspace(workspace.id)}
+                    onDoubleClick={() => onOpenWorkspace(workspace.id)}
                   >
                     <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />
                     <span className="branch">{workspace.branch || workspace.name || "Workspace"}</span>
@@ -94,6 +120,20 @@ export function Sidebar({
           );
         }) : <div className="workspace-row">No projects</div>}
       </div>
+      <footer className="sidebar-footer">
+        <button
+          type="button"
+          className="footer-new-session"
+          disabled={!activeWorkspace}
+          onClick={onNewSession}
+        >
+          <PlusIcon />
+          <span>New Session</span>
+        </button>
+        <button type="button" className="chrome-button" aria-label="Settings" onClick={onOpenSettings}>
+          <SettingsIcon />
+        </button>
+      </footer>
     </aside>
   );
 }
@@ -104,7 +144,6 @@ export function TopBar({
   onAttachSession,
   onNewSession,
   onOpenMenu,
-  onOpenSettings,
   onOpenSearch,
 }) {
   return (
@@ -130,9 +169,6 @@ export function TopBar({
       </div>
       <button type="button" className="new-session" aria-label="New shell" onClick={onNewSession}>+</button>
       <div className="chrome-spacer" />
-      <button type="button" className="chrome-button" aria-label="Settings" onClick={onOpenSettings}>
-        <SettingsIcon />
-      </button>
       <button type="button" className="chrome-button" aria-label="Search projects" onClick={onOpenSearch}>
         <SearchIcon />
       </button>
@@ -234,39 +270,98 @@ export function SettingsPage({
   onRestore,
 }) {
   const [activeSection, setActiveSection] = useState("font");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const sections = useMemo(() => [
+    {
+      id: "font",
+      label: "Terminal font",
+      description: "Applied to every web terminal.",
+      keywords: ["font", "family", "size", "typography"],
+    },
+    {
+      id: "title",
+      label: "Terminal title",
+      description: "Build a title from live Session metadata.",
+      keywords: ["title", "template", "placeholder", "preview"],
+    },
+  ], []);
+
+  const needle = searchQuery.trim().toLowerCase();
+  const visibleSections = useMemo(() => {
+    if (!needle) return sections;
+    return sections.filter(section =>
+      [section.label, section.description, ...section.keywords]
+        .some(value => String(value).toLowerCase().includes(needle)),
+    );
+  }, [needle, sections]);
+
+  useEffect(() => {
+    if (!open) setSearchQuery("");
+  }, [open]);
+
+  useEffect(() => {
+    if (needle && visibleSections.length && !visibleSections.some(section => section.id === activeSection)) {
+      setActiveSection(visibleSections[0].id);
+    }
+  }, [needle, activeSection, visibleSections]);
 
   return (
     <section className={`settings-page settings${open ? " open" : ""}`} aria-label="Settings">
-      <header className="settings-header">
-        <button type="button" className="settings-back" aria-label="Back to Warren" onClick={onClose}>←</button>
-        <h1>Settings</h1>
-      </header>
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings sections">
+      <nav className="settings-nav" aria-label="Settings sections">
+        <div className="settings-nav-top">
+          <button type="button" className="settings-back" aria-label="Back to Warren" onClick={onClose}>
+            <BackIcon />
+            <span>Back</span>
+          </button>
+          <h1 className="settings-title">Settings</h1>
+        </div>
+        <div className="settings-search">
+          <SearchIcon />
+          <input
+            value={searchQuery}
+            onChange={event => setSearchQuery(event.target.value)}
+            placeholder="Search settings…"
+            autoComplete="off"
+            spellCheck="false"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className="settings-search-clear"
+              aria-label="Clear settings search"
+              onClick={() => setSearchQuery("")}
+            >
+              ×
+            </button>
+          )}
+        </div>
+        <div className="settings-nav-scroll">
           <div className="settings-nav-label">TERMINAL</div>
-          <button
-            type="button"
-            className={`settings-nav-item${activeSection === "font" ? " active" : ""}`}
-            aria-current={activeSection === "font" ? "true" : undefined}
-            onClick={() => setActiveSection("font")}
-          >
-            Terminal font
-          </button>
-          <button
-            type="button"
-            className={`settings-nav-item${activeSection === "title" ? " active" : ""}`}
-            aria-current={activeSection === "title" ? "true" : undefined}
-            onClick={() => setActiveSection("title")}
-          >
-            Terminal title
-          </button>
-        </nav>
-        <div className="settings-detail">
-          <div className="settings-content">
-            {activeSection === "font" ? (
+          {visibleSections.map(section => (
+            <button
+              type="button"
+              className={`settings-nav-item${activeSection === section.id ? " active" : ""}`}
+              aria-current={activeSection === section.id ? "true" : undefined}
+              key={section.id}
+              onClick={() => setActiveSection(section.id)}
+            >
+              {section.id === "font" ? terminalIcon : <TitleIcon />}
+              <span>{section.label}</span>
+            </button>
+          ))}
+          {!visibleSections.length && <div className="settings-nav-empty">No settings found</div>}
+        </div>
+      </nav>
+      <div className="settings-detail">
+        <div className="settings-content">
+          {visibleSections.length ? (
+            activeSection === "font" ? (
               <section className="settings-section">
-                <h2>Terminal font</h2>
-                <p className="settings-detail">Applied to every web terminal.</p>
+                <header className="settings-page-heading">
+                  <h2>Terminal font</h2>
+                  <p>Applied to every web terminal.</p>
+                </header>
                 <div className="settings-fields">
                   <label>
                     Font family
@@ -281,8 +376,10 @@ export function SettingsPage({
               </section>
             ) : (
               <section className="settings-section">
-                <h2>Terminal title</h2>
-                <p className="settings-detail">Build a title from live Session metadata.</p>
+                <header className="settings-page-heading">
+                  <h2>Terminal title</h2>
+                  <p>Build a title from live Session metadata.</p>
+                </header>
                 <label>
                   Title template
                   <input value={titleTemplate} onChange={event => onTitleTemplateChange(event.target.value)} autoComplete="off" spellCheck="false" />
@@ -294,10 +391,12 @@ export function SettingsPage({
                   ))}
                 </div>
               </section>
-            )}
-            <div className="settings-footer">
-              <button type="button" className="settings-reset" onClick={onRestore}>Restore Terminal Defaults</button>
-            </div>
+            )
+          ) : (
+            <div className="settings-empty">No settings match “{searchQuery}”.</div>
+          )}
+          <div className="settings-footer">
+            <button type="button" className="settings-reset" onClick={onRestore}>Restore Terminal Defaults</button>
           </div>
         </div>
       </div>
@@ -315,58 +414,141 @@ export function SearchPanel({
   onChooseProject,
 }) {
   const inputRef = useRef(null);
+  const itemRefs = useRef(new Map());
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
-    if (open) inputRef.current?.focus();
+    if (open) {
+      inputRef.current?.focus();
+      setActiveIndex(0);
+    }
   }, [open]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
 
   const needle = query.trim().toLowerCase();
   const matches = value => !needle || String(value || "").toLowerCase().includes(needle);
-  const cards = catalog.projects.flatMap(project => {
+
+  const groups = [];
+  let nextIndex = 0;
+  for (const project of catalog.projects) {
     const workspaces = catalog.workspacesByProject.get(project.id) || [];
     const projectMatches = matches(project.name) || matches(project.path);
     const visibleWorkspaces = workspaces.filter(workspace =>
       projectMatches || matches(workspace.name) || matches(workspace.branch),
     );
-    if (!projectMatches && !visibleWorkspaces.length) return [];
-    return [{ project, workspaces: visibleWorkspaces }];
-  });
+    if (!projectMatches && !visibleWorkspaces.length) continue;
+    const rows = [{ kind: "project", project, workspace: null, index: nextIndex++ }];
+    for (const workspace of visibleWorkspaces) {
+      rows.push({ kind: "workspace", project, workspace, index: nextIndex++ });
+    }
+    groups.push({ project, rows });
+  }
+  const flatRows = groups.flatMap(group => group.rows);
+  const rowCount = flatRows.length;
+  const activeRow = flatRows[activeIndex] || null;
+
+  useEffect(() => {
+    const node = itemRefs.current.get(activeIndex);
+    node?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, query]);
+
+  const chooseRow = row => {
+    if (!row) return;
+    if (row.kind === "project") onChooseProject(row.project.id);
+    else onChooseWorkspace(row.workspace.id);
+  };
+
+  const handleKeyDown = event => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (rowCount) setActiveIndex(index => Math.min(index + 1, rowCount - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex(index => Math.max(index - 1, 0));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setActiveIndex(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(rowCount - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      chooseRow(activeRow);
+    }
+  };
 
   return (
-    <section className={`search-panel${open ? " open" : ""}`} aria-label="Project search">
-      <div className="search-input-wrap">
-        <span>⌕</span>
-        <input
-          ref={inputRef}
-          className="search-input"
-          value={query}
-          onChange={event => onQueryChange(event.target.value)}
-          placeholder="Search projects, branches, or sessions…"
-          autoComplete="off"
-        />
-        <button type="button" className="settings-reset" aria-label="Close search" onClick={onClose}>esc</button>
-      </div>
-      <div className="search-results">
-        {cards.length ? cards.map(({ project, workspaces }) => (
-          <section className="search-project" key={project.id}>
-            <button type="button" className="search-project-button" onClick={() => onChooseProject(project.id)}>
-              <span>□</span>
-              <span className="search-copy">
-                <span className="search-name">{project.name}</span>
-                <span className="search-path">{project.path || ""}</span>
-              </span>
-            </button>
-            {workspaces.map(workspace => (
-              <button type="button" className="search-workspace" key={workspace.id} onClick={() => onChooseWorkspace(workspace.id)}>
-                <span>•</span>
-                <span className="search-name">{workspace.branch || workspace.name || "Workspace"}</span>
-                <span className="search-kind">Workspace</span>
-              </button>
-            ))}
-          </section>
-        )) : <div className="search-empty">No projects found</div>}
-      </div>
-    </section>
+    <div
+      className={`search-overlay${open ? " open" : ""}`}
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="search-panel" role="dialog" aria-modal="true" aria-label="Project search">
+        <div className="search-input-wrap">
+          <SearchIcon />
+          <input
+            ref={inputRef}
+            className="search-input"
+            value={query}
+            onChange={event => onQueryChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a command or search…"
+            autoComplete="off"
+            spellCheck="false"
+          />
+          <kbd className="search-kbd">esc</kbd>
+        </div>
+        <div className="search-results">
+          {groups.map(group => (
+            <div className="search-group" key={group.project.id}>
+              <div className="search-group-heading">{group.project.name}</div>
+              {group.rows.map(row => {
+                const active = row.index === activeIndex;
+                const shared = {
+                  ref: node => {
+                    if (node) itemRefs.current.set(row.index, node);
+                    else itemRefs.current.delete(row.index);
+                  },
+                  onMouseEnter: () => setActiveIndex(row.index),
+                };
+                return row.kind === "project" ? (
+                  <button
+                    type="button"
+                    key={row.project.id}
+                    className={`search-item search-project-item${active ? " active" : ""}`}
+                    {...shared}
+                    onClick={() => onChooseProject(row.project.id)}
+                  >
+                    {folderIcon}
+                    <span className="search-copy">
+                      <span className="search-name">{row.project.name}</span>
+                      <span className="search-path">{row.project.path || ""}</span>
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    key={row.workspace.id}
+                    className={`search-item search-workspace-item${active ? " active" : ""}`}
+                    {...shared}
+                    onClick={() => onChooseWorkspace(row.workspace.id)}
+                  >
+                    <BranchIcon />
+                    <span className="search-name">{row.workspace.branch || row.workspace.name || "Workspace"}</span>
+                    <span className="search-kind">Workspace</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {!rowCount && <div className="search-empty">No results found.</div>}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -379,6 +561,41 @@ function highestActivity(sessions) {
     const activity = session.activity;
     return (activityPriority[activity] || 0) > (activityPriority[highest] || 0) ? activity : highest;
   }, null);
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <path d="M19 12H5m6-7-7 7 7 7" />
+    </svg>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="6" cy="18" r="2.5" />
+      <circle cx="18" cy="6" r="2.5" />
+      <path d="M6 8.5v7M8.5 6h7" />
+    </svg>
+  );
+}
+
+function TitleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+      <path d="M4 7V4h16v3M9 20h6M12 4v16" />
+    </svg>
+  );
 }
 
 function SettingsIcon() {

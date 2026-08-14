@@ -3,11 +3,12 @@ import WarrenDesignSystem
 import WarrenDomain
 import WarrenObservation
 
-    /// A project row mirrors Superset's `DashboardSidebarProjectRow`: the icon and
-/// disclosure affordance share a 20pt slot, while the new-workspace action is
-/// disclosed only on hover or keyboard focus.
+/// A project row mirrors Superset's `DashboardSidebarProjectRow`: the avatar
+/// leads, the workspace count sits beside the name, and the new-workspace plus
+/// and the right-side disclosure chevron are always visible.
 struct WarrenDesktopProjectRow: View {
     let project: Project
+    let workspaceCount: Int
     let isCollapsed: Bool
     let isSelected: Bool
     let isExpanded: Bool
@@ -19,8 +20,6 @@ struct WarrenDesktopProjectRow: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
     @FocusState private var isAddFocused: Bool
-
-    private var showsActions: Bool { isHovered || isFocused || isAddFocused }
 
     var body: some View {
         if isCollapsed {
@@ -63,26 +62,25 @@ struct WarrenDesktopProjectRow: View {
         return ZStack(alignment: .trailing) {
             Button(action: onToggleExpansion) {
                 HStack(spacing: WarrenSpacing.compact) {
-                    ZStack {
-                        projectAvatar(tokens: tokens)
-                            .opacity(isHovered ? 0 : 1)
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(tokens.mutedForeground)
-                            .opacity(isHovered ? 1 : 0)
-                    }
-                    .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
-                           height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
+                    projectAvatar(tokens: tokens)
+                        .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
+                               height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
 
                     Text(project.name)
                         .font(WarrenTypography.navigationGroup)
                         .lineLimit(1)
                         .truncationMode(.tail)
 
+                    Text("(\(workspaceCount))")
+                        .font(WarrenTypography.navigationMeta)
+                        .foregroundStyle(tokens.mutedForeground)
+                        .lineLimit(1)
+                        .accessibilityHidden(true)
+
                     Spacer(minLength: 0)
                 }
                 .padding(.leading, WarrenSpacing.compact)
-                .padding(.trailing, WarrenLayoutMetrics.sidebarActionButtonSize + WarrenSpacing.xs)
+                .padding(.trailing, WarrenLayoutMetrics.sidebarActionButtonSize * 2 + WarrenSpacing.compact)
                 .frame(minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
@@ -102,24 +100,44 @@ struct WarrenDesktopProjectRow: View {
                 action: onToggleExpansion
             )
 
-            Button(action: onAddWorkspace) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .medium))
-                    .accessibilityHidden(true)
+            HStack(spacing: WarrenSpacing.xxs) {
+                Button(action: onAddWorkspace) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .medium))
+                        .accessibilityHidden(true)
+                }
+                .buttonStyle(WarrenChromeButtonStyle(isFocused: isAddFocused))
+                .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
+                       height: WarrenLayoutMetrics.sidebarActionButtonSize)
+                .contentShape(.rect)
+                .focused($isAddFocused)
+                .accessibilityLabel("New workspace in \(project.name)")
+                .help("New workspace")
+                .warrenSemanticElement(
+                    id: "project.\(project.id.description).new-workspace",
+                    role: .button,
+                    label: "New workspace in \(project.name)",
+                    action: onAddWorkspace
+                )
+
+                Button(action: onToggleExpansion) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                }
+                .buttonStyle(WarrenChromeButtonStyle())
+                .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
+                       height: WarrenLayoutMetrics.sidebarActionButtonSize)
+                .contentShape(.rect)
+                .accessibilityLabel(isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)")
+                .warrenSemanticElement(
+                    id: "project.\(project.id.description).toggle",
+                    role: .button,
+                    label: isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)",
+                    action: onToggleExpansion
+                )
             }
-            .buttonStyle(WarrenChromeButtonStyle(isFocused: isAddFocused))
-            .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
-                   height: WarrenLayoutMetrics.sidebarActionButtonSize)
-            .contentShape(.rect)
-            .opacity(showsActions ? 1 : 0)
-            .focused($isAddFocused)
-            .accessibilityLabel("New workspace in \(project.name)")
-            .warrenSemanticElement(
-                id: "project.\(project.id.description).new-workspace",
-                role: .button,
-                label: "New workspace in \(project.name)",
-                action: onAddWorkspace
-            )
             .padding(.trailing, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
@@ -138,8 +156,7 @@ struct WarrenDesktopProjectRow: View {
     }
 
     /// Superset's project rows render a first-letter avatar (or the project's
-    /// icon); the folder glyph is reserved for the collapsed rail in their web
-    /// shell and does not appear in the desktop sidebar.
+    /// icon); Warren uses the same slot for its first-letter avatar.
     private func projectAvatar(tokens: WarrenColorTokens) -> some View {
         Text(String(project.name.prefix(1)).uppercased())
             .font(.system(size: 11, weight: .semibold))

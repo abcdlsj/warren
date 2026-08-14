@@ -50,6 +50,7 @@ struct WarrenDesktopSidebarRows: View {
                 ForEach(groups) { group in
                     WarrenDesktopProjectRow(
                         project: group.project,
+                        workspaceCount: group.workspaces.count,
                         isCollapsed: isCollapsed,
                         isSelected: selection == .project(group.project.id),
                         isExpanded: expandedProjectIDs.contains(group.project.id),

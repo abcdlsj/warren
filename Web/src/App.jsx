@@ -10,6 +10,8 @@ import { captureNavigationPosition, restoreNavigationPosition } from "./navigati
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
 import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
+import { OutputBatcher } from "./output.js";
+import { decodeOutputFrame } from "./wire.js";
 import {
   EmptyTerminal,
   MobileKeys,
@@ -71,6 +73,10 @@ export default function App() {
   const resizeTimerRef = useRef(null);
   const pendingTerminalSizeRef = useRef(null);
   const sentTerminalSizeRef = useRef(null);
+  const batcherRef = useRef(null);
+  const recoveryAnchorRef = useRef(null);
+  const reanchorRequiredRef = useRef(false);
+  const snapshotPendingRef = useRef(false);
   const messageHandlerRef = useRef(() => {});
   const connectionStateHandlerRef = useRef(() => {});
   const appStateRef = useRef({});
@@ -156,8 +162,15 @@ export default function App() {
     setAttachedSession(null);
     setEmptyOverride(null);
     sentTerminalSizeRef.current = null;
-    if (changed) terminalRef.current?.clear();
-    send(attachTerminalMessage(sessionID, terminalRef.current));
+    if (changed) {
+      terminalRef.current?.clear();
+      recoveryAnchorRef.current = null;
+      reanchorRequiredRef.current = false;
+    }
+    const anchor = (!changed || reanchorRequiredRef.current)
+      ? null
+      : recoveryAnchorRef.current;
+    send(attachTerminalMessage(sessionID, terminalRef.current, anchor));
   }, [send]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
@@ -172,6 +185,8 @@ export default function App() {
     setAttachedSession(null);
     setEmptyOverride(null);
     terminalRef.current?.clear();
+    recoveryAnchorRef.current = null;
+    reanchorRequiredRef.current = false;
     setDrawerOpen(false);
 
     if (preferredSessionID) attachSession(preferredSessionID, true);
@@ -232,6 +247,8 @@ export default function App() {
       setActiveSession(null);
       setAttachedSession(null);
       terminalRef.current?.clear();
+      recoveryAnchorRef.current = null;
+      reanchorRequiredRef.current = false;
     }
 
     setConnectionStatus({ message: "Connected", online: true });
@@ -242,9 +259,33 @@ export default function App() {
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
-      terminalRef.current?.write(new Uint8Array(event.data));
+      const bytes = new Uint8Array(event.data);
+      const decoded = decodeOutputFrame(bytes);
+      const attached = appStateRef.current.attachedSession;
+      if (!decoded || !attached || decoded.header.sessionID === attached) {
+        const current = recoveryAnchorRef.current;
+        if (decoded && current && !snapshotPendingRef.current) {
+          if (decoded.header.epoch !== current.epoch || decoded.header.sequence !== current.sequence) {
+            // A gap means Host rotated the spool or the ring evicted our
+            // anchor; reconnect without an anchor and reanchor from a tmux
+            // snapshot instead of silently skipping or duplicating bytes.
+            reanchorRequiredRef.current = true;
+            connectionRef.current?.reset();
+            return;
+          }
+          recoveryAnchorRef.current = {
+            epoch: decoded.header.epoch,
+            sequence: current.sequence + decoded.header.payloadLength,
+          };
+        }
+        batcherRef.current?.enqueue(decoded ? decoded.payload : bytes);
+      }
       return;
     }
+
+    // Control messages, exit messages, and recovery markers must never jump
+    // ahead of buffered terminal bytes; flush the batch first.
+    batcherRef.current?.flush();
 
     let message;
     try {
@@ -265,6 +306,17 @@ export default function App() {
       setActiveSession(message.session);
       setAttachedSession(message.session);
       setEmptyOverride(null);
+      if (message.reanchor) {
+        terminalRef.current?.clear();
+        snapshotPendingRef.current = true;
+      } else {
+        snapshotPendingRef.current = false;
+      }
+      recoveryAnchorRef.current = {
+        epoch: message.epoch,
+        sequence: message.sequence,
+      };
+      reanchorRequiredRef.current = false;
       requestAnimationFrame(() => {
         fitTerminal();
         const terminal = terminalRef.current;
@@ -280,6 +332,15 @@ export default function App() {
       setAttachedSession(null);
       setEmptyOverride(null);
       attachSession(message.session);
+      break;
+    case "synced":
+      if (appStateRef.current.attachedSession === message.session) {
+        recoveryAnchorRef.current = {
+          epoch: message.epoch,
+          sequence: message.sequence,
+        };
+        snapshotPendingRef.current = false;
+      }
       break;
     case "runtimeMetadata":
       setCatalog(previous => {
@@ -301,6 +362,19 @@ export default function App() {
         setActiveSession(null);
         setAttachedSession(null);
         terminalRef.current?.clear();
+        recoveryAnchorRef.current = null;
+        reanchorRequiredRef.current = false;
+        snapshotPendingRef.current = false;
+      }
+      break;
+    case "exited":
+      if (appStateRef.current.attachedSession === message.session) {
+        appStateRef.current.activeSession = null;
+        appStateRef.current.attachedSession = null;
+        setActiveSession(null);
+        setAttachedSession(null);
+        snapshotPendingRef.current = false;
+        setEmptyOverride({ loading: false, message: "Session ended" });
       }
       break;
     case "error":
@@ -325,6 +399,9 @@ export default function App() {
     appStateRef.current.attachedSession = null;
     setAttachedSession(null);
     sentTerminalSizeRef.current = null;
+    batcherRef.current?.reset();
+    // The Recovery Anchor survives a transport reconnect; only an explicit
+    // reanchor decision (overflow, host adoption, evicted ring) clears it.
     setConnectionStatus({ message: "Reconnecting…", online: false });
   }, []);
 
@@ -354,6 +431,14 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const batcher = new OutputBatcher({
+      write: bytes => terminal.write(bytes),
+      onOverflow: () => {
+        reanchorRequiredRef.current = true;
+        connectionRef.current?.reset();
+      },
+    });
+    batcherRef.current = batcher;
     // xterm opens at its fallback 80x24 grid. Fit once synchronously and once
     // on the next frame so the very first attach carries the real viewport,
     // even when fonts/layout settle after the DOM mount.
@@ -374,6 +459,8 @@ export default function App() {
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      batcher.dispose();
+      batcherRef.current = null;
     };
   }, [scheduleRemoteResize, scheduleTerminalFit, sendInput]);
 
@@ -434,18 +521,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = event => {
-      if (event.key === "Escape" && searchOpen) setSearchOpen(false);
-      if (!settingsOpen && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setSearchOpen(true);
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen, settingsOpen]);
-
-  useEffect(() => {
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       navigator.serviceWorker.register(serviceWorkerURL()).catch(() => {});
     }
@@ -483,6 +558,30 @@ export default function App() {
     setSettingsOpen(false);
     scheduleTerminalFit();
   }, [chooseWorkspace, scheduleTerminalFit]);
+
+  useEffect(() => {
+    const handleKeyDown = event => {
+      const modifier = event.metaKey || event.ctrlKey;
+      if (event.key === "Escape" && searchOpen) {
+        setSearchOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && settingsOpen) {
+        closeSettings();
+        return;
+      }
+      if (settingsOpen || !modifier) return;
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      } else if (event.key === ",") {
+        event.preventDefault();
+        openSettings();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [searchOpen, settingsOpen, openSettings, closeSettings]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
     setSearchOpen(false);
@@ -527,7 +626,9 @@ export default function App() {
           connection={connectionStatus}
           onToggleProject={toggleProject}
           onChooseWorkspace={chooseWorkspace}
-          onDoubleClickWorkspace={openWorkspace}
+          onOpenWorkspace={openWorkspace}
+          onNewSession={() => createSession("shell")}
+          onOpenSettings={openSettings}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
         <main className="main">
@@ -537,7 +638,6 @@ export default function App() {
             onAttachSession={attachSession}
             onNewSession={() => createSession("shell")}
             onOpenMenu={() => setDrawerOpen(true)}
-            onOpenSettings={openSettings}
             onOpenSearch={() => setSearchOpen(true)}
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
