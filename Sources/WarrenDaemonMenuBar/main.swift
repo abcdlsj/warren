@@ -117,7 +117,9 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         let process = Process()
         process.executableURL = daemonExecutableURL()
         process.arguments = []
-        process.environment = ProcessInfo.processInfo.environment
+        var childEnvironment = ProcessInfo.processInfo.environment
+        childEnvironment["PATH"] = executableSearchPath(from: childEnvironment["PATH"])
+        process.environment = childEnvironment
         process.terminationHandler = { [weak self] _ in
             Task { @MainActor in
                 self?.daemonProcess = nil
@@ -160,6 +162,14 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         let bundleBinary = Bundle.main.bundleURL
             .appendingPathComponent("Contents/MacOS/warren-headless")
         return bundleBinary
+    }
+
+    private func executableSearchPath(from value: String?) -> String {
+        var entries = (value ?? "").split(separator: ":").map(String.init)
+        for path in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"] where !entries.contains(path) {
+            entries.append(path)
+        }
+        return entries.joined(separator: ":")
     }
 
     private func warrenBrandImage() -> NSImage? {
