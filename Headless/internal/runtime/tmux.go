@@ -70,7 +70,26 @@ func (t Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]byte("\x1b[H\x1b[2J"), output...), nil
+	// capture-pane emits LF-only lines. A terminal interprets LF as a line
+	// feed without returning to column zero, which makes every subsequent
+	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
+	// to the CRLF convention used by a PTY before sending it to clients.
+	return append([]byte("\x1b[H\x1b[2J"), normalizeCaptureOutput(output)...), nil
+}
+
+func normalizeCaptureOutput(output []byte) []byte {
+	if len(output) == 0 {
+		return nil
+	}
+
+	normalized := make([]byte, 0, len(output)+bytes.Count(output, []byte{'\n'}))
+	for index, value := range output {
+		if value == '\n' && (index == 0 || output[index-1] != '\r') {
+			normalized = append(normalized, '\r')
+		}
+		normalized = append(normalized, value)
+	}
+	return normalized
 }
 
 func (t Tmux) Input(ctx context.Context, runtimeName string, data []byte) error {

@@ -4,14 +4,14 @@
     body { font:12px -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
     button { color:inherit; font:inherit; }
     button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
-    .app { display:grid; grid-template-columns:280px minmax(0,1fr); height:100%; }
-    .sidebar { display:flex; flex-direction:column; min-width:0; background:var(--panel); border-right:1px solid var(--muted); }
-    .brand { display:flex; align-items:center; gap:9px; height:40px; padding:0 12px; font-weight:600; }
+    .app { display:grid; grid-template-columns:280px minmax(0,1fr); height:100%; min-height:0; }
+    .sidebar { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--panel); border-right:1px solid var(--muted); }
+    .brand { display:flex; flex:0 0 40px; align-items:center; gap:9px; height:40px; padding:0 12px; font-weight:600; }
     .brand-mark { display:grid; place-items:center; width:20px; height:20px; border:1px solid var(--ring); border-radius:5px; font:600 11px ui-monospace,monospace; }
     .connection { display:flex; align-items:center; gap:6px; margin-left:auto; color:var(--sub); font-size:11px; }
     .connection-dot { width:6px; height:6px; border-radius:50%; background:var(--sub); }
     .connection.online .connection-dot { background:var(--green); }
-    .sidebar-scroll { min-height:0; overflow:auto; padding:7px 8px 16px; }
+    .sidebar-scroll { flex:1 1 auto; min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:7px 8px 16px; }
     .section-label { padding:8px 8px 5px; color:var(--sub); font-size:10px; font-weight:600; letter-spacing:.08em; }
     .project-toggle,.workspace-row { width:100%; border:0; background:transparent; text-align:left; cursor:pointer; }
     .project-toggle { display:flex; align-items:center; gap:7px; height:28px; padding:0 7px; border-radius:5px; color:rgba(234,232,230,.78); font-weight:500; }
@@ -28,7 +28,7 @@
     .activity.pulse::before { animation:ping 1.25s cubic-bezier(0,0,.2,1) infinite; }
     .activity.working { background:var(--amber); }.activity.waitingForInput { background:var(--yellow); }.activity.failed { background:var(--red); }.activity.ready { background:var(--green); }.activity.exited { background:var(--sub); }.activity.connecting { background:var(--sub); }
     @keyframes ping { 75%,100% { transform:scale(2); opacity:0; } }
-    .main { min-width:0; display:grid; grid-template-rows:40px 32px 28px minmax(0,1fr); }
+    .main { min-width:0; min-height:0; display:grid; grid-template-rows:40px 32px 28px minmax(0,1fr); overflow:hidden; overscroll-behavior:contain; }
     .topbar { display:flex; align-items:center; min-width:0; background:var(--panel); border-bottom:1px solid var(--muted); }
     .menu-button { display:none; width:40px; height:40px; border:0; background:transparent; font-size:18px; }
     .tabs { display:flex; align-items:stretch; min-width:0; height:40px; overflow-x:auto; scrollbar-width:none; }
