@@ -24,10 +24,12 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         case failed(String)
     }
 
+    private let healthURL = URL(string: "http://127.0.0.1:8789/healthz")!
     private let stateURL = URL(string: "http://127.0.0.1:8789/v1/state")!
     private var statusItem: NSStatusItem!
     private var daemonProcess: Process?
     private var pollTask: Task<Void, Never>?
+    private var autoStartDisabled = false
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
@@ -53,11 +55,13 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     }
 
     @objc private func restartDaemon() {
+        autoStartDisabled = false
         stopDaemon()
         ensureDaemon()
     }
 
     @objc private func stopDaemonAction() {
+        autoStartDisabled = true
         stopDaemon()
     }
 
@@ -87,18 +91,41 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         pollTask?.cancel()
         pollTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            if await isDaemonHealthy() {
-                state = .running
-            } else {
-                startDaemonProcess()
-                await waitUntilHealthy()
-            }
             while !Task.isCancelled {
+                await reconcileDaemon()
                 try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { return }
-                state = await isDaemonHealthy() ? .running : .stopped
             }
         }
+    }
+
+    private func reconcileDaemon() async {
+        if autoStartDisabled {
+            state = .stopped
+            return
+        }
+        if await isDaemonHealthy() {
+            state = .running
+            return
+        }
+
+        // A daemon can remain alive while its token file is temporarily
+        // unavailable (for example, when ~/.warren was removed). Check the
+        // unauthenticated health endpoint before starting another process so
+        // the existing daemon has time to restore its token.
+        if await isDaemonReachable() {
+            state = .checking
+            await waitUntilHealthy()
+            return
+        }
+
+        if let process = daemonProcess, process.isRunning {
+            state = .checking
+            await waitUntilHealthy()
+            return
+        }
+        daemonProcess = nil
+        startDaemonProcess()
+        await waitUntilHealthy()
     }
 
     private func waitUntilHealthy() async {
@@ -156,6 +183,17 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         var request = URLRequest(url: stateURL)
         request.timeoutInterval = 1
         request.setValue("Bearer \(token.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
+    }
+
+    private func isDaemonReachable() async -> Bool {
+        var request = URLRequest(url: healthURL)
+        request.timeoutInterval = 0.4
         do {
             let (_, response) = try await URLSession.shared.data(for: request)
             return (response as? HTTPURLResponse)?.statusCode == 200

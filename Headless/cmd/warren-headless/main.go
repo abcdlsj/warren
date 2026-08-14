@@ -23,6 +23,8 @@ import (
 
 var version = "dev"
 
+const tokenRepairInterval = time.Second
+
 func main() {
 	configDir := defaultConfigDirectory()
 	listen := flag.String("listen", env("WARREN_LISTEN", "127.0.0.1:8789"), "listen address (loopback is recommended)")
@@ -39,10 +41,15 @@ func main() {
 		return
 	}
 
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	token, err := loadOrCreateToken(*tokenPath)
 	if err != nil {
 		fatal(err)
 	}
+	tokenContext, stopTokenRepair := context.WithCancel(context.Background())
+	defer stopTokenRepair()
+	go maintainTokenFile(tokenContext, *tokenPath, token, logger)
+
 	state, err := store.Open(*statePath, *hostName)
 	if err != nil {
 		fatal(err)
@@ -58,7 +65,6 @@ func main() {
 		stopService()
 		service.Shutdown()
 	}()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	handler := server.NewHTTPServer(service, token, logger).Handler()
 	httpServer := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	listener, err := net.Listen("tcp", *listen)
@@ -95,19 +101,76 @@ func loadOrCreateToken(path string) (string, error) {
 			return value, nil
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", err
-	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	value := base64.RawURLEncoding.EncodeToString(raw)
-	if err := os.WriteFile(path, []byte(value+"\n"), 0o600); err != nil {
+	if err := writeTokenFile(path, value); err != nil {
 		return "", err
 	}
 	return value, nil
 }
+
+// maintainTokenFile keeps the token that an already-running daemon owns
+// available to new desktop and CLI clients. The daemon keeps the token in
+// memory, so restoring a deleted or replaced file is safe and prevents a
+// second daemon from publishing a different token for the same port.
+func maintainTokenFile(ctx context.Context, path, token string, logger *slog.Logger) {
+	repair := func() {
+		if err := ensureTokenFile(path, token); err != nil {
+			logger.Warn("unable to repair token file", "path", path, "error", err)
+		}
+	}
+	repair()
+	ticker := time.NewTicker(tokenRepairInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			repair()
+		}
+	}
+}
+
+func ensureTokenFile(path, token string) error {
+	data, err := os.ReadFile(path)
+	if err == nil && strings.TrimSpace(string(data)) == token {
+		return nil
+	}
+	return writeTokenFile(path, token)
+}
+
+func writeTokenFile(path, token string) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create token directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(directory, ".warren-token-*")
+	if err != nil {
+		return fmt.Errorf("create temporary token file: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set token permissions: %w", err)
+	}
+	if _, err := temporary.WriteString(token + "\n"); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write token: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close temporary token file: %w", err)
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("commit token: %w", err)
+	}
+	return nil
+}
+
 func defaultConfigDirectory() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".warren")
