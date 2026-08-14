@@ -93,32 +93,32 @@ struct WarrenDesktopCommandPalette: View {
                     .fill(tokens.border)
                     .frame(height: WarrenSpacing.hairline)
 
-                ScrollViewReader { proxy in
-                    WarrenOverflowFadeScrollView(
-                        .vertical,
-                        fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
-                        surface: tokens.popoverSurface
-                    ) {
-                        LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
-                            ForEach(searchResults) { result in
-                                projectGroup(result, tokens: tokens)
-                            }
-                        }
-                        .padding(WarrenLayoutMetrics.commandPaletteResultsPadding)
-                    }
-                    .frame(maxHeight: resultsMaxHeight)
-                    .onChange(of: selectedIndex) { _, newIndex in
-                        guard rows.indices.contains(newIndex) else { return }
-                        proxy.scrollTo(rows[newIndex].id, anchor: .center)
-                    }
-                }
-
                 if rows.isEmpty {
                     Text("No results found.")
                         .font(WarrenTypography.body)
                         .foregroundStyle(tokens.mutedForeground)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, WarrenSpacing.large)
+                } else {
+                    ScrollViewReader { proxy in
+                        WarrenOverflowFadeScrollView(
+                            .vertical,
+                            fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                            surface: tokens.popoverSurface
+                        ) {
+                            LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+                                ForEach(searchResults) { result in
+                                    projectGroup(result, tokens: tokens)
+                                }
+                            }
+                            .padding(WarrenLayoutMetrics.commandPaletteResultsPadding)
+                        }
+                        .frame(maxHeight: resultsMaxHeight)
+                        .onChange(of: selectedIndex) { _, newIndex in
+                            guard rows.indices.contains(newIndex) else { return }
+                            proxy.scrollTo(rows[newIndex].id, anchor: .center)
+                        }
+                    }
                 }
             } else {
                 idlePrompt(tokens: tokens)
