@@ -8,13 +8,24 @@
 - 下方分叉像相连的地穴，呼应 Warren 的名称和 Workspace 组织方式。
 - 琥珀色方块既是地穴中的灯，也是终端光标。
 
-## 文件
+## 响应式源文件
 
-- `warren-app-icon.svg`：1024 × 1024 主源文件。修改徽标时只编辑此文件。
+- `warren-app-icon.svg`：64 px 及以上使用的 1024 × 1024 主源文件。
+- `warren-app-icon-32.svg`：原生 32 × 32 紧凑版本。保留一层深度，移除内侧明暗面。
+- `warren-app-icon-16.svg`：原生 16 × 16 微型版本。只保留底板、`W` 和光标。
 - `warren-app-icon.png`：1024 × 1024 预览和通用位图。
 - `Warren.icns`：macOS app icon。
 
-Web 和 PWA 使用 `Packages/WebRelay/Sources/WebRelay/Resources/` 中的派生文件。
+不得把主 SVG 直接缩放到 16 px。主图采用 32 px 构造网格，缩放到 16 px
+会产生半像素边缘。修改任一源文件后运行：
+
+```sh
+mise run brand:assets
+mise run web:build
+```
+
+第一条命令生成 macOS iconset、ICNS、Web favicon 和 PWA PNG；第二条命令把
+`Web/public/` 构建到 `Packages/WebRelay/Sources/WebRelay/Resources/`。派生文件不得手工修改。
 
 ## 颜色
 

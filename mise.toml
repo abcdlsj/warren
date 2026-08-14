@@ -72,6 +72,10 @@ run = "npm --prefix Web run dev"
 description = "Build the Vite web client into WebRelay resources"
 run = "bash scripts/prepare-web.sh && npm --prefix Web run build"
 
+[tasks."brand:assets"]
+description = "Generate responsive macOS and Web brand assets"
+run = "bash scripts/generate-brand-assets.sh"
+
 [tasks."relay:run"]
 description = "Run the remote Relay control plane"
 run = "go run ./RelayService/cmd/warren-relay"
