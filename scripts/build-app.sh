@@ -24,6 +24,11 @@ swift build \
     --configuration "$configuration" \
     --product WarrenNext
 
+swift build \
+    --package-path "$repository_root" \
+    --configuration "$configuration" \
+    --product WarrenDaemonMenuBar
+
 go build -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
 go build -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
 
@@ -42,6 +47,7 @@ trap cleanup EXIT
 
 mkdir -p "$staging_path/Contents/MacOS" "$staging_path/Contents/Resources"
 install -m 755 "$binary_directory/WarrenNext" "$staging_path/Contents/MacOS/Warren"
+install -m 755 "$binary_directory/WarrenDaemonMenuBar" "$staging_path/Contents/MacOS/WarrenDaemonMenuBar"
 install -m 755 "$repository_root/.build/warren-cli" "$staging_path/Contents/MacOS/warren-cli"
 install -m 755 "$repository_root/.build/warren-headless" "$staging_path/Contents/MacOS/warren-headless"
 install -m 644 "$repository_root/Support/Info.plist" "$staging_path/Contents/Info.plist"

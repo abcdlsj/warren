@@ -8,7 +8,9 @@ struct WarrenDesktopTrafficLights: View {
     var body: some View {
         HStack(spacing: 8) {
             trafficLight(color: .red) {
-                targetWindow?.performClose(nil)
+                // This is an application close, not a daemon shutdown. The
+                // daemon owns sessions and remains alive in the menu bar.
+                NSApp.terminate(nil)
             }
             trafficLight(color: .yellow) {
                 targetWindow?.miniaturize(nil)

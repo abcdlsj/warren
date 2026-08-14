@@ -1,10 +1,30 @@
 import Foundation
+import AppKit
 import GhosttyAdapter
 import Observation
 import WarrenApplication
 import WarrenClientCore
 import WarrenDesktop
 import WarrenDomain
+import WarrenStateStore
+
+extension WarrenRemoteEndpointConfiguration {
+    static func localDaemon() -> Self {
+        let environment = ProcessInfo.processInfo.environment
+        let tokenURL: URL
+        if let configured = environment["WARREN_TOKEN_FILE"], !configured.isEmpty {
+            tokenURL = URL(fileURLWithPath: configured)
+        } else if let stateHome = environment["XDG_STATE_HOME"], !stateHome.isEmpty {
+            tokenURL = URL(fileURLWithPath: stateHome).appendingPathComponent("warren/token")
+        } else {
+            tokenURL = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/state/warren/token")
+        }
+        let token = (try? String(contentsOf: tokenURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return Self(name: "Local", url: "http://127.0.0.1:8789", token: token, ssh: nil)
+    }
+}
 
 struct WarrenRemoteEndpointConfiguration: Codable, Hashable, Identifiable, Sendable {
     let name: String
@@ -229,6 +249,7 @@ final class WarrenRemoteApplicationModel {
     private(set) var navigation = WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
     private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
+    private(set) var webRelayStatus = WarrenDesktopWebRelayStatus()
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
@@ -284,6 +305,28 @@ final class WarrenRemoteApplicationModel {
             "title": launch.title ?? "",
         ])
     }
+
+    func addProject(_ folder: URL) async {
+        request("project.add", params: ["path": folder.path, "name": folder.lastPathComponent])
+    }
+
+    func updateTerminalFont(_ preference: TerminalFontPreference) {}
+    func startWebRelayFromUI() { present(NSError(domain: "WarrenRemote", code: 5, userInfo: [NSLocalizedDescriptionKey: "Web Relay 由 daemon 管理，当前桌面端暂不可用。"])) }
+    func stopWebRelay() {}
+    func openWebRelayURL(_ url: URL) { NSWorkspace.shared.open(url) }
+    func copyWebRelayURL(_ url: URL) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
+    func copyLocalWebURL() { present(NSError(domain: "WarrenRemote", code: 5, userInfo: [NSLocalizedDescriptionKey: "Web Relay 由 daemon 管理，当前桌面端暂不可用。"])) }
+    func startCloudflareWebAccess() {}
+    func stopCloudflareWebAccess() {}
+    func startTailscaleWebAccess() {}
+    func stopTailscaleWebAccess() {}
+    func copySecureWebURL() {}
+
+    func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
+        throw NSError(domain: "WarrenRemote", code: 6, userInfo: [NSLocalizedDescriptionKey: "Superset 导入需要在 daemon 端执行，当前版本暂不可用。"])
+    }
+
+    func commitSupersetImport(_ preview: SupersetImportPreview) async {}
 
     func perform(_ action: WarrenDesktopAction) {
         navigation = WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)

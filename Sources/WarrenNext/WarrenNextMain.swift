@@ -90,13 +90,11 @@ private struct WarrenHeadlessAcceptanceReport: Codable {
 @MainActor
 private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
-    private let model = WarrenNextApplicationModel.live()
-    private var isTerminating = false
-    private var shutdownTask: Task<Void, Never>?
-    private var terminationTimeoutTask: Task<Void, Never>?
+    private var daemonMenuBarProcess: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let root = WarrenNextCompositionRoot(model: model)
+        launchDaemonMenuBar()
+        let root = WarrenNextCompositionRoot()
             .preferredColorScheme(.dark)
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -125,7 +123,38 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = Self.buildMainMenu(target: self)
         NSApp.activate(ignoringOtherApps: true)
-        Task { await model.start() }
+    }
+
+    private func launchDaemonMenuBar() {
+        guard daemonMenuBarProcess == nil else { return }
+        let environment = ProcessInfo.processInfo.environment
+        let executable: URL?
+        if let configured = environment["WARREN_DAEMON_MENUBAR_PATH"], !configured.isEmpty {
+            executable = URL(fileURLWithPath: configured)
+        } else {
+            let sibling = URL(fileURLWithPath: CommandLine.arguments[0])
+                .deletingLastPathComponent().appendingPathComponent("WarrenDaemonMenuBar")
+            let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/WarrenDaemonMenuBar")
+            executable = FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling
+                : (FileManager.default.isExecutableFile(atPath: bundled.path) ? bundled : nil)
+        }
+        guard let executable else { return }
+        let process = Process()
+        process.executableURL = executable
+        var childEnvironment = environment
+        if childEnvironment["WARREN_HEADLESS_PATH"] == nil {
+            let sibling = executable.deletingLastPathComponent().appendingPathComponent("warren-headless")
+            if FileManager.default.isExecutableFile(atPath: sibling.path) {
+                childEnvironment["WARREN_HEADLESS_PATH"] = sibling.path
+            }
+        }
+        process.environment = childEnvironment
+        do {
+            try process.run()
+            daemonMenuBarProcess = process
+        } catch {
+            NSLog("Unable to launch WarrenDaemonMenuBar: %@", error.localizedDescription)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -133,31 +162,8 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !isTerminating else { return .terminateNow }
-        isTerminating = true
         window?.orderOut(nil)
-        model.beginShutdown()
-
-        shutdownTask = Task { @MainActor [weak self, weak sender] in
-            guard let self else { return }
-            await model.shutdown()
-            guard !Task.isCancelled, let sender else { return }
-            finishTermination(sender)
-        }
-        terminationTimeoutTask = Task { @MainActor [weak self, weak sender] in
-            try? await Task.sleep(for: .seconds(2.5))
-            guard !Task.isCancelled, let self, let sender else { return }
-            finishTermination(sender)
-        }
-        return .terminateLater
-    }
-
-    private func finishTermination(_ sender: NSApplication) {
-        shutdownTask?.cancel()
-        terminationTimeoutTask?.cancel()
-        shutdownTask = nil
-        terminationTimeoutTask = nil
-        sender.reply(toApplicationShouldTerminate: true)
+        return .terminateNow
     }
 
     @objc private func postCommand(_ sender: NSMenuItem) {
@@ -166,27 +172,27 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func copyLocalWebURL(_ sender: NSMenuItem) {
-        model.copyLocalWebURL()
+        NotificationCenter.default.post(name: WebRelayCommand.copyLocalURL, object: nil)
     }
 
     @objc private func startCloudflareWebAccess(_ sender: NSMenuItem) {
-        model.startCloudflareWebAccess()
+        NotificationCenter.default.post(name: WebRelayCommand.startCloudflare, object: nil)
     }
 
     @objc private func stopCloudflareWebAccess(_ sender: NSMenuItem) {
-        model.stopCloudflareWebAccess()
+        NotificationCenter.default.post(name: WebRelayCommand.stopCloudflare, object: nil)
     }
 
     @objc private func startTailscaleWebAccess(_ sender: NSMenuItem) {
-        model.startTailscaleWebAccess()
+        NotificationCenter.default.post(name: WebRelayCommand.startTailscale, object: nil)
     }
 
     @objc private func stopTailscaleWebAccess(_ sender: NSMenuItem) {
-        model.stopTailscaleWebAccess()
+        NotificationCenter.default.post(name: WebRelayCommand.stopTailscale, object: nil)
     }
 
     @objc private func copySecureWebURL(_ sender: NSMenuItem) {
-        model.copySecureWebURL()
+        NotificationCenter.default.post(name: WebRelayCommand.copySecureURL, object: nil)
     }
 
     private static func buildMainMenu(target: AnyObject) -> NSMenu {

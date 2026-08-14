@@ -7,7 +7,6 @@ import WarrenApplication
 import WarrenStateStore
 
 struct WarrenNextCompositionRoot: View {
-    @State private var model: WarrenNextApplicationModel
     @State private var remoteModel = WarrenRemoteApplicationModel()
     @State private var isProjectImporterPresented = false
     @State private var isSupersetDatabaseImporterPresented = false
@@ -23,8 +22,7 @@ struct WarrenNextCompositionRoot: View {
     @State private var endpointCatalog: [WarrenRemoteEndpointConfiguration]
 
     @MainActor
-    init(model: WarrenNextApplicationModel = .live()) {
-        _model = State(initialValue: model)
+    init() {
         // Endpoint configuration is user input, not frame state. Read it once
         // when the composition root is created instead of touching disk on
         // every SwiftUI body evaluation (terminal output can invalidate the
@@ -38,18 +36,18 @@ struct WarrenNextCompositionRoot: View {
             navigation: activeNavigation,
             chromeMode: .workspace,
             actions: WarrenDesktopActions(send: handle),
-            webRelayStatus: model.webRelayStatus,
+            webRelayStatus: remoteModel.webRelayStatus,
             endpointOptions: endpointOptions,
             selectedEndpointID: selectedEndpointID,
             onSelectEndpoint: selectEndpoint,
-            onWebRelayStart: { model.startWebRelayFromUI() },
-            onWebRelayStop: { model.stopWebRelay() },
-            onWebRelayOpenURL: { model.openWebRelayURL($0) },
-            onWebRelayCopyURL: { model.copyWebRelayURL($0) }
+            onWebRelayStart: { remoteModel.startWebRelayFromUI() },
+            onWebRelayStop: { remoteModel.stopWebRelay() },
+            onWebRelayOpenURL: { remoteModel.openWebRelayURL($0) },
+            onWebRelayCopyURL: { remoteModel.copyWebRelayURL($0) }
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,
-                surfaces: isLocalEndpoint ? model.mountedSurfaces : remoteModel.mountedSurfaces
+                surfaces: remoteModel.mountedSurfaces
             )
         }
         .preferredColorScheme(.dark)
@@ -72,7 +70,7 @@ struct WarrenNextCompositionRoot: View {
         .sheet(item: $supersetImportPreview) { preview in
             WarrenNextSupersetImportView(preview: preview) {
                 supersetImportPreview = nil
-                Task { await model.commitSupersetImport(preview) }
+                Task { await remoteModel.commitSupersetImport(preview) }
             }
         }
         .sheet(isPresented: sessionCreatorBinding) {
@@ -80,11 +78,7 @@ struct WarrenNextCompositionRoot: View {
                 WarrenNextSessionCreatorView(
                     workspaceName: activeProjection.workspace(id: workspaceID)?.name ?? "Workspace"
                 ) { request in
-                    if isLocalEndpoint {
-                        model.createSession(workspaceID: workspaceID, request: request)
-                    } else {
-                        remoteModel.createSession(workspaceID: workspaceID, request: request)
-                    }
+                    remoteModel.createSession(workspaceID: workspaceID, request: request)
                 }
             }
         }
@@ -92,56 +86,42 @@ struct WarrenNextCompositionRoot: View {
             if let projectID = workspaceCreatorProjectID,
                let project = activeProjection.projectGroup(id: projectID)?.project {
                 WarrenNextWorkspaceCreatorView(project: project) { request in
-                    if isLocalEndpoint {
-                        model.createWorkspace(projectID: projectID, request: request)
-                    } else {
-                        remoteModel.createWorkspace(projectID: projectID, request: request)
-                    }
+                    remoteModel.createWorkspace(projectID: projectID, request: request)
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copyLocalURL)) { _ in
-            model.copyLocalWebURL()
+            remoteModel.copyLocalWebURL()
         }
         .onChange(of: terminalFontFamily) { _, _ in updateTerminalFont() }
         .onChange(of: terminalFontSize) { _, _ in updateTerminalFont() }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startCloudflare)) { _ in
-            model.startCloudflareWebAccess()
+            remoteModel.startCloudflareWebAccess()
         }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopCloudflare)) { _ in
-            model.stopCloudflareWebAccess()
+            remoteModel.stopCloudflareWebAccess()
         }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startTailscale)) { _ in
-            model.startTailscaleWebAccess()
+            remoteModel.startTailscaleWebAccess()
         }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopTailscale)) { _ in
-            model.stopTailscaleWebAccess()
+            remoteModel.stopTailscaleWebAccess()
         }
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
-            model.copySecureWebURL()
+            remoteModel.copySecureWebURL()
         }
         .task { restoreEndpointSelection() }
         .onChange(of: selectedEndpointID) { _, _ in connectSelectedEndpoint() }
     }
 
     private func updateTerminalFont() {
-        model.updateTerminalFont(TerminalFontPreference(
+        remoteModel.updateTerminalFont(TerminalFontPreference(
             family: terminalFontFamily,
             size: terminalFontSize
         ))
     }
 
     private func handle(_ action: WarrenDesktopAction) {
-        if !isLocalEndpoint {
-            if case .requestNewWorkspace(let projectID) = action {
-                workspaceCreatorProjectID = projectID
-            } else if case .requestNewSession(let workspaceID) = action {
-                sessionCreatorWorkspaceID = workspaceID
-            } else {
-                remoteModel.perform(action)
-            }
-            return
-        }
         if action == .addProject {
             isProjectImporterPresented = true
         } else if action == .importSuperset {
@@ -151,7 +131,7 @@ struct WarrenNextCompositionRoot: View {
         } else if case .requestNewSession(let workspaceID) = action {
             sessionCreatorWorkspaceID = workspaceID
         } else {
-            model.perform(action)
+            remoteModel.perform(action)
         }
     }
 
@@ -163,10 +143,10 @@ struct WarrenNextCompositionRoot: View {
 
     private var isLocalEndpoint: Bool { selectedEndpointID == "local" }
     private var activeProjection: WarrenDesktopProjection {
-        isLocalEndpoint ? model.desktopProjection : remoteModel.projection
+        remoteModel.projection
     }
     private var activeNavigation: WarrenDesktopNavigationState {
-        isLocalEndpoint ? model.navigation : remoteModel.navigation
+        remoteModel.navigation
     }
 
     private func selectEndpoint(_ id: String) {
@@ -183,12 +163,28 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private func connectSelectedEndpoint() {
-        guard !isLocalEndpoint,
-              let endpoint = endpointCatalog.first(where: { $0.id == selectedEndpointID }) else {
-            remoteModel.disconnect()
+        guard isLocalEndpoint else {
+            guard let endpoint = endpointCatalog.first(where: { $0.id == selectedEndpointID }) else {
+                remoteModel.disconnect()
+                return
+            }
+            remoteModel.connect(endpoint)
             return
         }
-        remoteModel.connect(endpoint)
+        remoteModel.disconnect()
+        Task { @MainActor in
+            for _ in 0..<30 {
+                let endpoint = WarrenRemoteEndpointConfiguration.localDaemon()
+                if !endpoint.token.isEmpty {
+                    remoteModel.connect(endpoint)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            remoteModel.report(NSError(domain: "WarrenRemote", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "本地 daemon 尚未启动，请查看顶部 Warren 状态。",
+            ]))
+        }
     }
 
     private func beginSupersetImport() {
@@ -206,7 +202,7 @@ struct WarrenNextCompositionRoot: View {
             guard let databaseURL = urls.first else { return }
             previewSupersetImport(databaseURL)
         case .failure(let error):
-            model.report(error)
+            remoteModel.report(error)
         }
     }
 
@@ -217,9 +213,9 @@ struct WarrenNextCompositionRoot: View {
                 if hasScopedAccess { databaseURL.stopAccessingSecurityScopedResource() }
             }
             do {
-                supersetImportPreview = try await model.previewSupersetImport(from: databaseURL)
+                supersetImportPreview = try await remoteModel.previewSupersetImport(from: databaseURL)
             } catch {
-                model.report(error)
+                remoteModel.report(error)
             }
         }
     }
@@ -251,10 +247,10 @@ struct WarrenNextCompositionRoot: View {
                 defer {
                     if hasScopedAccess { folder.stopAccessingSecurityScopedResource() }
                 }
-                await model.addProject(folder)
+                await remoteModel.addProject(folder)
             }
         case .failure(let error):
-            model.report(error)
+            remoteModel.report(error)
         }
     }
 }

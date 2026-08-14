@@ -37,6 +37,10 @@ let package = Package(
             path: "Sources/WarrenNext"
         ),
         .executableTarget(
+            name: "WarrenDaemonMenuBar",
+            path: "Sources/WarrenDaemonMenuBar"
+        ),
+        .executableTarget(
             name: "UIProbe",
             dependencies: [
                 .product(name: "WarrenDesktop", package: "Desktop"),
