@@ -9,7 +9,6 @@ import WarrenStateStore
 struct WarrenNextCompositionRoot: View {
     @State private var remoteModel = WarrenRemoteApplicationModel()
     @State private var isProjectImporterPresented = false
-    @State private var isSupersetDatabaseImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var sessionCreatorWorkspaceID: WorkspaceID?
     @State private var workspaceCreatorProjectID: ProjectID?
@@ -59,14 +58,6 @@ struct WarrenNextCompositionRoot: View {
         )
         .fileDialogMessage("Choose a local folder as the project.")
         .fileDialogConfirmationLabel("Add Project")
-        .fileImporter(
-            isPresented: $isSupersetDatabaseImporterPresented,
-            allowedContentTypes: [.database, .data],
-            allowsMultipleSelection: false,
-            onCompletion: selectSupersetDatabase
-        )
-        .fileDialogMessage("Choose Superset local.db.")
-        .fileDialogConfirmationLabel("Preview Import")
         .sheet(item: $supersetImportPreview) { preview in
             WarrenNextSupersetImportView(preview: preview) {
                 supersetImportPreview = nil
@@ -135,7 +126,7 @@ struct WarrenNextCompositionRoot: View {
                 beginSupersetImport()
             } else {
                 remoteModel.report(NSError(domain: "WarrenRemote", code: 6, userInfo: [
-                    NSLocalizedDescriptionKey: "Superset 导入需要选择 daemon 所在机器上的数据库。",
+                    NSLocalizedDescriptionKey: "Superset 导入需要在 daemon 所在机器上执行。",
                 ]))
             }
         } else if case .requestNewWorkspace(let projectID) = action {
@@ -200,32 +191,9 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private func beginSupersetImport() {
-        let defaultURL = WarrenApplicationDefaults.supersetDatabaseURL()
-        if FileManager.default.fileExists(atPath: defaultURL.path) {
-            previewSupersetImport(defaultURL)
-        } else {
-            isSupersetDatabaseImporterPresented = true
-        }
-    }
-
-    private func selectSupersetDatabase(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let databaseURL = urls.first else { return }
-            previewSupersetImport(databaseURL)
-        case .failure(let error):
-            remoteModel.report(error)
-        }
-    }
-
-    private func previewSupersetImport(_ databaseURL: URL) {
         Task {
-            let hasScopedAccess = databaseURL.startAccessingSecurityScopedResource()
-            defer {
-                if hasScopedAccess { databaseURL.stopAccessingSecurityScopedResource() }
-            }
             do {
-                supersetImportPreview = try await remoteModel.previewSupersetImport(from: databaseURL)
+                supersetImportPreview = try await remoteModel.previewSupersetImport()
             } catch {
                 remoteModel.report(error)
             }

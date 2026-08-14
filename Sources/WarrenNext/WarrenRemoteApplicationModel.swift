@@ -332,9 +332,8 @@ final class WarrenRemoteApplicationModel {
         ]))
     }
 
-    func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
-        let source = try SupersetImportSource(databaseURL: databaseURL)
-        return try await source.preview()
+    func previewSupersetImport() async throws -> SupersetImportPreview {
+        try await SupersetCLIImportSource().preview()
     }
 
     func commitSupersetImport(_ preview: SupersetImportPreview) async {
