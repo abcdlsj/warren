@@ -324,11 +324,17 @@ final class WarrenRemoteApplicationModel {
     func copyLocalWebURL() {
         if let url = webRelayStatus.localURL { copyWebRelayURL(url) }
     }
-    func startCloudflareWebAccess() {}
-    func stopCloudflareWebAccess() {}
-    func startTailscaleWebAccess() {}
-    func stopTailscaleWebAccess() {}
-    func copySecureWebURL() {}
+    func startCloudflareWebAccess() { relayFeatureUnavailable() }
+    func stopCloudflareWebAccess() { relayFeatureUnavailable() }
+    func startTailscaleWebAccess() { relayFeatureUnavailable() }
+    func stopTailscaleWebAccess() { relayFeatureUnavailable() }
+    func copySecureWebURL() { relayFeatureUnavailable() }
+
+    private func relayFeatureUnavailable() {
+        present(NSError(domain: "WarrenRemote", code: 8, userInfo: [
+            NSLocalizedDescriptionKey: "当前 daemon Web Relay 仅提供本地访问，Cloudflare/Tailscale 入口尚未迁移。",
+        ]))
+    }
 
     func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
         let source = try SupersetImportSource(databaseURL: databaseURL)
