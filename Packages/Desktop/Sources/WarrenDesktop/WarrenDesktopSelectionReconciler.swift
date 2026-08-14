@@ -5,7 +5,7 @@ import WarrenDomain
 ///
 /// Host snapshots own durable projects, workspaces, sessions and tabs. This
 /// value owns only which of those values the foreground window is presenting.
-public struct WarrenDesktopNavigationState: Equatable, Sendable {
+public struct WarrenDesktopNavigationState: Equatable, Hashable, Sendable {
     public var selection: WarrenDesktopSidebarSelection?
     public var selectedTabID: String?
 
@@ -99,6 +99,8 @@ public enum WarrenDesktopNavigationReducer {
                 selection: state.selection,
                 selectedTabID: nil
             )
+        case .restoreNavigation(let restoredState):
+            return reconcile(restoredState, with: projection)
         case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
              .requestNewSession, .launchSession,
              .toggleInspector, .toggleSidebar:

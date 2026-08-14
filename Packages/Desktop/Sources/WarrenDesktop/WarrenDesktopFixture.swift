@@ -543,6 +543,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case closeTab(String)
     case closeOtherTabs(String)
     case closeAllTabs
+    case restoreNavigation(WarrenDesktopNavigationState)
     case toggleInspector
     case toggleSidebar
 }

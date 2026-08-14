@@ -138,6 +138,10 @@ final class WarrenDesktopTests: XCTestCase {
         actions(.requestNewSession(workspaceID))
         actions(.launchSession(workspaceID, .claude))
         actions(.selectTab("tab-main"))
+        actions(.restoreNavigation(WarrenDesktopNavigationState(
+            selection: .workspace(workspaceID),
+            selectedTabID: "tab-main"
+        )))
         actions(.closeTab("tab-main"))
         actions(.toggleInspector)
         actions(.toggleSidebar)
@@ -154,6 +158,10 @@ final class WarrenDesktopTests: XCTestCase {
                 .requestNewSession(workspaceID),
                 .launchSession(workspaceID, .claude),
                 .selectTab("tab-main"),
+                .restoreNavigation(WarrenDesktopNavigationState(
+                    selection: .workspace(workspaceID),
+                    selectedTabID: "tab-main"
+                )),
                 .closeTab("tab-main"),
                 .toggleInspector,
                 .toggleSidebar,
@@ -280,6 +288,44 @@ final class WarrenDesktopTests: XCTestCase {
             WarrenDesktopNavigationReducer.reconcile(selected, with: fixture.projection),
             selected
         )
+    }
+
+    func testRestoringSettingsPositionReturnsToThePreviousWorkspaceAndTab() {
+        let fixture = WarrenDesktopFixture.preview
+        let previous = WarrenDesktopNavigationState(
+            selection: .workspace(fixture.groups[1].workspaces[0].id),
+            selectedTabID: "tab-review"
+        )
+        let current = WarrenDesktopNavigationState(
+            selection: .workspace(fixture.groups[0].workspaces[0].id),
+            selectedTabID: "tab-main"
+        )
+
+        let restored = WarrenDesktopNavigationReducer.reduce(
+            current,
+            action: .restoreNavigation(previous),
+            in: fixture.projection
+        )
+
+        XCTAssertEqual(restored, previous)
+    }
+
+    func testRestoringSettingsPositionReconcilesADeletedTabWithoutLeavingItsWorkspace() {
+        let fixture = WarrenDesktopFixture.preview
+        let workspaceID = fixture.groups[0].workspaces[0].id
+        let previous = WarrenDesktopNavigationState(
+            selection: .workspace(workspaceID),
+            selectedTabID: "deleted-tab"
+        )
+
+        let restored = WarrenDesktopNavigationReducer.reduce(
+            WarrenDesktopNavigationState(selection: nil, selectedTabID: nil),
+            action: .restoreNavigation(previous),
+            in: fixture.projection
+        )
+
+        XCTAssertEqual(restored.selection, .workspace(workspaceID))
+        XCTAssertEqual(restored.selectedTabID, "tab-main")
     }
 
     func testPendingShellTabBelongsToWorkspaceBeforeSessionExists() {

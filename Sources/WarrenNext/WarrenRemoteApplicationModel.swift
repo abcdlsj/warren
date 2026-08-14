@@ -507,9 +507,7 @@ final class WarrenRemoteApplicationModel {
     func perform(_ action: WarrenDesktopAction) {
         navigation = WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
         switch action {
-        case .selectProject, .selectWorkspace:
-            Task { await attachSelectedSession() }
-        case .selectTab:
+        case .selectProject, .selectWorkspace, .selectTab, .restoreNavigation:
             Task { await attachSelectedSession() }
         case .openSession(let id):
             selectSession(id)

@@ -6,6 +6,7 @@ import "./style.css";
 
 import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
 import { RelayConnection } from "./connection.js";
+import { captureNavigationPosition, restoreNavigationPosition } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
 import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
@@ -73,6 +74,7 @@ export default function App() {
   const messageHandlerRef = useRef(() => {});
   const connectionStateHandlerRef = useRef(() => {});
   const appStateRef = useRef({});
+  const navigationBeforeSettingsRef = useRef(null);
 
   const selectedWorkspaceID = useMemo(() => {
     if (activeWorkspace && catalog.workspaces.some(workspace => workspace.id === activeWorkspace)) {
@@ -459,14 +461,28 @@ export default function App() {
   }, []);
 
   const openSettings = useCallback(() => {
+    navigationBeforeSettingsRef.current = captureNavigationPosition(appStateRef.current);
     setSearchOpen(false);
     setSettingsOpen(true);
   }, []);
 
   const closeSettings = useCallback(() => {
+    const previousPosition = navigationBeforeSettingsRef.current;
+    navigationBeforeSettingsRef.current = null;
+    const restoredPosition = restoreNavigationPosition(previousPosition, appStateRef.current.catalog);
+    const state = appStateRef.current;
+    const sessionWasInvalidated = Boolean(previousPosition?.sessionID && !restoredPosition?.sessionID);
+    if (restoredPosition && (
+      restoredPosition.workspaceID !== state.activeWorkspace
+      || restoredPosition.sessionID !== state.activeSession
+      || state.attachedSession !== restoredPosition.sessionID
+      || sessionWasInvalidated
+    )) {
+      chooseWorkspace(restoredPosition.workspaceID, restoredPosition.sessionID);
+    }
     setSettingsOpen(false);
     scheduleTerminalFit();
-  }, [scheduleTerminalFit]);
+  }, [chooseWorkspace, scheduleTerminalFit]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
     setSearchOpen(false);

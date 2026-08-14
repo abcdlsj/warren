@@ -33,6 +33,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
     @State private var settingsPresented = false
+    @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
     @State private var webRelayPresented = false
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
@@ -89,7 +90,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         let presentation = makePresentation()
         ZStack(alignment: .topLeading) {
             if settingsPresented {
-                WarrenDesktopSettingsView(onBack: { settingsPresented = false })
+                WarrenDesktopSettingsView(onBack: closeSettings)
                     .transition(.opacity)
             } else {
                 HStack(spacing: 0) {
@@ -131,6 +132,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onCommandPalette: { commandPalettePresented = true },
                         onSettings: {
                             commandPalettePresented = false
+                            navigationBeforeSettings = navigation
                             settingsPresented = true
                         },
                         onWebRelay: { webRelayPresented.toggle() },
@@ -291,6 +293,15 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private func dispatch(_ action: WarrenDesktopAction) {
         actions(action)
+    }
+
+    private func closeSettings() {
+        let previousNavigation = navigationBeforeSettings
+        navigationBeforeSettings = nil
+        settingsPresented = false
+        if let previousNavigation {
+            dispatch(.restoreNavigation(previousNavigation))
+        }
     }
 
     private func toggleSidebar() {

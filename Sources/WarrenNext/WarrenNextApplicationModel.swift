@@ -407,7 +407,8 @@ final class WarrenNextApplicationModel {
         )
 
         switch action {
-        case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession:
+        case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession,
+             .restoreNavigation:
             reconcileSurfaces(with: snapshot)
         case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
              .requestNewSession, .launchSession,
@@ -475,7 +476,7 @@ final class WarrenNextApplicationModel {
         case .renameWorkspace(let workspaceID, _):
             return workspaceID
         case .addProject, .importSuperset, .requestNewWorkspace,
-             .selectProject, .selectTab,
+             .selectProject, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             return nil
         }
@@ -544,7 +545,7 @@ extension WarrenNextApplicationModel {
                 present(error)
             }
         case .addProject, .importSuperset, .requestNewWorkspace, .moveTab,
-             .selectProject, .selectWorkspace, .selectTab,
+             .selectProject, .selectWorkspace, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             break
         }
@@ -776,7 +777,7 @@ private extension WarrenDesktopAction {
             true
         case .addProject, .importSuperset, .requestNewWorkspace,
              .requestNewSession, .selectProject,
-             .selectWorkspace, .selectTab, .moveTab,
+             .selectWorkspace, .selectTab, .moveTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             false
         }

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
+import { captureNavigationPosition, restoreNavigationPosition } from "./navigation.js";
 import { renderTerminalTitle } from "./title.js";
 import { escapeHTML } from "./view.js";
 
@@ -34,4 +35,42 @@ test("terminal title removes empty separators", () => {
 
 test("HTML escaping is safe for text and attributes", () => {
   assert.equal(escapeHTML(`<a title="x">&</a>`), "&lt;a title=&quot;x&quot;&gt;&amp;&lt;/a&gt;");
+});
+
+test("settings return restores the last workspace and session", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    workspaces: [
+      { id: "workspace-main", project: "project" },
+      { id: "workspace-review", project: "project" },
+    ],
+    tabs: [
+      { id: "tab-main", session: "session-main", workspace: "workspace-main", title: "Main" },
+      { id: "tab-review", session: "session-review", workspace: "workspace-review", title: "Review" },
+    ],
+  }));
+
+  const position = captureNavigationPosition({
+    activeWorkspace: "workspace-review",
+    activeSession: "session-review",
+  });
+  assert.deepEqual(restoreNavigationPosition(position, catalog), {
+    workspaceID: "workspace-review",
+    sessionID: "session-review",
+  });
+});
+
+test("settings return keeps the workspace when its previous session disappeared", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    workspaces: [{ id: "workspace-main", project: "project" }],
+    tabs: [],
+  }));
+
+  assert.deepEqual(
+    restoreNavigationPosition({ workspaceID: "workspace-main", sessionID: "deleted" }, catalog),
+    { workspaceID: "workspace-main", sessionID: null },
+  );
+  assert.equal(
+    restoreNavigationPosition({ workspaceID: "deleted", sessionID: "deleted" }, catalog),
+    null,
+  );
 });
