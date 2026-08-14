@@ -100,7 +100,7 @@ struct WarrenDesktopWorkspaceRow: View {
             action: onSelect
         )
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
-        .padding(.leading, WarrenSpacing.compact)
+        .padding(.leading, WarrenSpacing.compact + WarrenSpacing.xs)
         .padding(.trailing, WarrenSpacing.compact)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
@@ -120,7 +120,7 @@ struct WarrenDesktopWorkspaceRow: View {
                 .accessibilityHidden(true)
         } else {
             Circle()
-                .fill(tokens.mutedForeground.opacity(0.9))
+                .strokeBorder(tokens.mutedForeground.opacity(0.9), lineWidth: WarrenSpacing.hairline)
                 .frame(width: 5, height: 5)
                 .accessibilityHidden(true)
         }

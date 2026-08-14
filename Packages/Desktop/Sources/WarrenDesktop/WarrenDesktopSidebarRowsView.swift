@@ -224,6 +224,7 @@ private struct WarrenDesktopSidebarSectionHeader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
     @FocusState private var isActionFocused: Bool
+    @FocusState private var isToggleFocused: Bool
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -237,14 +238,15 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .semibold))
                             .rotationEffect(.degrees(disclosureExpanded ? 90 : 0))
-                            .opacity(disclosureExpanded && !isHovered ? 0 : 1)
+                            .opacity(isHovered || isToggleFocused ? 1 : 0)
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: disclosureExpanded)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(WarrenChromeButtonStyle())
+            .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
             .disabled(onToggle == nil)
+            .focused($isToggleFocused)
 
             Button(action: onAction) {
                 Image(systemName: actionImage)

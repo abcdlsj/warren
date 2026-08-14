@@ -5,7 +5,8 @@ import WarrenObservation
 
 /// A project row mirrors Superset's `DashboardSidebarProjectRow`: the avatar
 /// leads, the workspace count sits beside the name, and the new-workspace plus
-/// and the right-side disclosure chevron are always visible.
+/// remains available while the disclosure chevron appears when the row is
+/// hovered or keyboard-focused.
 struct WarrenDesktopProjectRow: View {
     let project: Project
     let workspaceCount: Int
@@ -20,6 +21,7 @@ struct WarrenDesktopProjectRow: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
     @FocusState private var isAddFocused: Bool
+    @FocusState private var isToggleFocused: Bool
 
     var body: some View {
         if isCollapsed {
@@ -126,10 +128,12 @@ struct WarrenDesktopProjectRow: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .accessibilityHidden(true)
                 }
-                .buttonStyle(WarrenChromeButtonStyle())
+                .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
                 .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
                        height: WarrenLayoutMetrics.sidebarActionButtonSize)
                 .contentShape(.rect)
+                .opacity(isHovered || isToggleFocused ? 1 : 0)
+                .focused($isToggleFocused)
                 .accessibilityLabel(isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)")
                 .warrenSemanticElement(
                     id: "project.\(project.id.description).toggle",
