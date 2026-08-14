@@ -11,6 +11,10 @@ import WarrenDomain
 /// the same in-memory shape Termio uses for its companion/status architecture.
 @MainActor
 public final class GhosttySurface: Identifiable, ObservableObject {
+    /// Matches the 1.12 line-height used by the Web terminal while keeping
+    /// Ghostty's cell grid authoritative for tmux resize calculations.
+    private static let defaultCellHeightAdjustment = "12%"
+
     public let id: TerminalSessionID
     public let attachmentID: TerminalAttachmentID
     public let state: TerminalViewState
@@ -56,6 +60,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withBackgroundOpacity(1)
             builder.withFontFamily(font.family)
             builder.withFontSize(Float(font.size))
+            builder.withCustom("adjust-cell-height", Self.defaultCellHeightAdjustment)
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
         }
@@ -82,6 +87,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withBackgroundOpacity(1)
             builder.withFontFamily(font.family)
             builder.withFontSize(Float(font.size))
+            builder.withCustom("adjust-cell-height", Self.defaultCellHeightAdjustment)
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
         })
