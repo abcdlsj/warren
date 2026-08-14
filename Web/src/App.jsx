@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
@@ -69,6 +70,7 @@ export default function App() {
   const terminalHostRef = useRef(null);
   const terminalRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const webglAddonRef = useRef(null);
   const fitFrameRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const pendingTerminalSizeRef = useRef(null);
@@ -463,7 +465,7 @@ export default function App() {
       fontSize,
       lineHeight: 1.12,
       cursorBlink: true,
-      scrollback: 5000,
+      scrollback: 20000,
       allowTransparency: false,
     });
     const fitAddon = new FitAddon();
@@ -471,6 +473,20 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    try {
+      const webglAddon = new WebglAddon();
+      terminal.loadAddon(webglAddon);
+      webglAddon.onContextLoss(() => {
+        // Mobile GPUs can drop the context under memory pressure. Dispose and
+        // let xterm fall back to its DOM renderer instead of freezing.
+        webglAddonRef.current?.dispose();
+        webglAddonRef.current = null;
+      });
+      webglAddonRef.current = webglAddon;
+    } catch {
+      // WebGL is optional; older browsers and some embedded webviews keep the
+      // DOM renderer.
+    }
     const batcher = new OutputBatcher({
       write: bytes => terminal.write(bytes),
       onOverflow: () => {
@@ -491,11 +507,18 @@ export default function App() {
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const resizeObserver = new ResizeObserver(() => scheduleTerminalFit());
     resizeObserver.observe(terminalHost);
+    const onVisibilityChange = () => {
+      if (!document.hidden) batcherRef.current?.wake();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
       resizeObserver.disconnect();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      webglAddonRef.current?.dispose();
+      webglAddonRef.current = null;
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;

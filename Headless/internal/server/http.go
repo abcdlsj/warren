@@ -23,8 +23,12 @@ import (
 )
 
 const (
-	outboundQueueCapacity = 1024
-	outboundWriteTimeout  = 10 * time.Second
+	// High-throughput TUI output (codex, long-running builds) can fill a
+	// small per-peer queue before a mobile or hidden browser drains it. The
+	// queue is deliberately generous: memory is cheap and the only fallback
+	// is closing the peer, which today means a visible reanchor.
+	outboundQueueCapacity = 8192
+	outboundWriteTimeout  = 30 * time.Second
 )
 
 type HTTPServer struct {
@@ -45,7 +49,7 @@ func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPSer
 		Token:   token,
 		Logger:  logger,
 		upgrader: websocket.Upgrader{
-			ReadBufferSize: 64 * 1024, WriteBufferSize: 64 * 1024,
+			ReadBufferSize: 256 * 1024, WriteBufferSize: 256 * 1024,
 			CheckOrigin: func(request *http.Request) bool {
 				origin := request.Header.Get("Origin")
 				return origin == "" || strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost")

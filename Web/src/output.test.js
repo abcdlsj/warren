@@ -85,3 +85,24 @@ test("hidden pages stop scheduling and overflow triggers reanchor", () => {
   assert.equal(writes.length, 1);
   assert.equal(writes[0].length, 3);
 });
+
+test("wake flushes output accumulated while the page was hidden", () => {
+  const frames = manualFrameLoop();
+  const writes = [];
+  let hidden = true;
+  const batcher = new OutputBatcher({
+    write: bytes => writes.push(bytes),
+    requestFrame: frames.requestFrame,
+    cancelFrame: frames.cancelFrame,
+    isHidden: () => hidden,
+  });
+  batcher.enqueue(new Uint8Array(5));
+  assert.equal(frames.scheduledCount(), 0, "hidden page must not schedule rAF");
+
+  hidden = false;
+  batcher.wake();
+  assert.equal(frames.scheduledCount(), 1, "wake must schedule a frame");
+  frames.tick();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].length, 5);
+});

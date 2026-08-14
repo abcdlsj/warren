@@ -176,6 +176,9 @@ func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 	if attached["reanchor"] == true {
 		t.Fatalf("tail recovery must not reanchor, got %#v", attached)
 	}
+	if attachedAnchor := anchorFromMessage(t, attached); attachedAnchor.Sequence != anchor.Sequence {
+		t.Fatalf("tail attached sequence = %d, want %d", attachedAnchor.Sequence, anchor.Sequence)
+	}
 	delta := readBinaryFrame(t, connection)
 	if delta.Sequence != anchor.Sequence || string(delta.Payload) != "echo two\r" {
 		t.Fatalf("recovery delta = %#v", delta)

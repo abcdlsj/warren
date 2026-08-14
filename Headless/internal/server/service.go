@@ -729,7 +729,16 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	outputSession.mu.Unlock()
 
 	if !recovery.Reanchor && !reanchorRequired {
-		if err := peer.enqueueAttached(session.ID, recovery.Epoch, recovery.Lower, false); err != nil {
+		// The attached cursor must point at the first frame the client is
+		// about to receive. For a tail recovery the frames are trimmed to
+		// start at the requested anchor, which can be after the ring's oldest
+		// retained frame; reporting the lower bound would make a valid tail
+		// look like a gap and trigger a reconnect loop.
+		sequence := recovery.Upper
+		if len(recovery.Frames) > 0 {
+			sequence = recovery.Frames[0].Sequence
+		}
+		if err := peer.enqueueAttached(session.ID, recovery.Epoch, sequence, false); err != nil {
 			return err
 		}
 		for _, frame := range recovery.Frames {

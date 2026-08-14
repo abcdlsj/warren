@@ -10,7 +10,7 @@ export class OutputBatcher {
     write,
     requestFrame = requestAnimationFrame,
     cancelFrame = cancelAnimationFrame,
-    maxPending = 4 * 1024 * 1024,
+    maxPending = 16 * 1024 * 1024,
     isHidden = () => document.hidden,
     onOverflow = () => {},
   }) {
@@ -47,6 +47,13 @@ export class OutputBatcher {
       this.frame = null;
       this.flushNow();
     });
+  }
+
+  // Called when the page becomes visible again. Pending bytes may have been
+  // accumulated while rAF was paused; schedule a frame so the terminal
+  // resumes without waiting for the next WebSocket message.
+  wake() {
+    this.schedule();
   }
 
   flush() {

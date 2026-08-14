@@ -58,7 +58,7 @@ func NewSpoolWatcher(path string, offset int64, onBytes func([]byte), onRotate f
 		file:       file,
 		offset:     offset,
 		maxBytes:   64 * 1024 * 1024,
-		interval:   25 * time.Millisecond,
+		interval:   10 * time.Millisecond,
 		onBytes:    onBytes,
 		onRotate:   onRotate,
 		onOverflow: onOverflow,
