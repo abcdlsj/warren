@@ -262,7 +262,7 @@ final class WarrenRemoteApplicationModel {
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
            let url = URL(string: "http://127.0.0.1:8788/#t=\(configuration.token)") {
-            webRelayStatus = WarrenDesktopWebRelayStatus(isRunning: true, localURL: url)
+            webRelayStatus = WarrenDesktopWebRelayStatus(isRunning: true, localURL: url, canControl: false)
         }
         projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
         let wire = WarrenRemoteWire(configuration: configuration)

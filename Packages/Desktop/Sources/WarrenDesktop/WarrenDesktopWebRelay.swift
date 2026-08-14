@@ -6,11 +6,13 @@ public struct WarrenDesktopWebRelayStatus: Hashable, Sendable {
     public var isRunning: Bool
     public var localURL: URL?
     public var secureURL: URL?
+    public var canControl: Bool
 
-    public init(isRunning: Bool = false, localURL: URL? = nil, secureURL: URL? = nil) {
+    public init(isRunning: Bool = false, localURL: URL? = nil, secureURL: URL? = nil, canControl: Bool = true) {
         self.isRunning = isRunning
         self.localURL = localURL
         self.secureURL = secureURL
+        self.canControl = canControl
     }
 }
 
@@ -56,11 +58,13 @@ public struct WarrenDesktopWebRelayPanel: View {
                     .foregroundStyle(tokens.mutedForeground)
                     .lineLimit(1)
                 HStack(spacing: WarrenSpacing.xs) {
-                    Button(status.isRunning ? "Stop" : "Start") {
-                        status.isRunning ? onStop() : onStart()
+                    if status.canControl {
+                        Button(status.isRunning ? "Stop" : "Start") {
+                            status.isRunning ? onStop() : onStart()
+                        }
+                        .buttonStyle(WarrenPrimaryButtonStyle())
+                        .controlSize(.small)
                     }
-                    .buttonStyle(WarrenPrimaryButtonStyle())
-                    .controlSize(.small)
                     Button("Open") { onOpenURL(url) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
