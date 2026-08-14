@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -66,15 +67,74 @@ func (t Tmux) List(ctx context.Context) (map[string]bool, error) {
 }
 
 func (t Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
-	output, err := t.command(ctx, "capture-pane", "-p", "-e", "-J", "-S", "-", "-t", runtimeName+":0.0").Output()
+	target := runtimeName + ":0.0"
+	// Query the cursor and capture the pane in one tmux command sequence. A
+	// shell can move between two separate tmux invocations, which would make a
+	// cursor coordinate belong to a different screen than the captured cells.
+	output, err := t.command(ctx,
+		"display-message", "-p", "-t", target, "#{cursor_x},#{cursor_y}", ";",
+		"capture-pane", "-p", "-e", "-J", "-S", "-", "-t", target,
+	).Output()
 	if err != nil {
 		return nil, err
 	}
+	capture, cursorX, cursorY, err := parseCaptureWithCursor(output)
+	if err != nil {
+		return nil, fmt.Errorf("parse tmux capture: %w", err)
+	}
+	return renderCaptureSnapshot(capture, cursorX, cursorY), nil
+}
+
+func parseCaptureWithCursor(output []byte) ([]byte, int, int, error) {
+	metadata, capture, found := bytes.Cut(output, []byte{'\n'})
+	if !found {
+		return nil, 0, 0, fmt.Errorf("missing cursor metadata")
+	}
+	values := strings.SplitN(strings.TrimSpace(string(metadata)), ",", 2)
+	if len(values) != 2 {
+		return nil, 0, 0, fmt.Errorf("invalid cursor metadata %q", metadata)
+	}
+	cursorX, err := strconv.Atoi(values[0])
+	if err != nil || cursorX < 0 {
+		return nil, 0, 0, fmt.Errorf("invalid cursor column %q", values[0])
+	}
+	cursorY, err := strconv.Atoi(values[1])
+	if err != nil || cursorY < 0 {
+		return nil, 0, 0, fmt.Errorf("invalid cursor row %q", values[1])
+	}
+	return capture, cursorX, cursorY, nil
+}
+
+func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
+	if cursorX < 0 || cursorY < 0 {
+		return nil
+	}
+	output = trimCaptureFinalLineEnding(output)
 	// capture-pane emits LF-only lines. A terminal interprets LF as a line
 	// feed without returning to column zero, which makes every subsequent
 	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
 	// to the CRLF convention used by a PTY before sending it to clients.
-	return append([]byte("\x1b[H\x1b[2J"), normalizeCaptureOutput(output)...), nil
+	normalized := normalizeCaptureOutput(output)
+	// Clear both the visible screen and the client's old scrollback before
+	// replaying the complete tmux history. Restore the real tmux cursor after
+	// replay: the final capture line may contain the prompt at any column, and
+	// a trailing LF would otherwise move the cursor to the next row/column 0.
+	result := make([]byte, 0, len(normalized)+32)
+	result = append(result, []byte("\x1b[3J\x1b[2J\x1b[H")...)
+	result = append(result, normalized...)
+	result = append(result, []byte(fmt.Sprintf("\x1b[%d;%dH", cursorY+1, cursorX+1))...)
+	return result
+}
+
+func trimCaptureFinalLineEnding(output []byte) []byte {
+	if len(output) == 0 || output[len(output)-1] != '\n' {
+		return output
+	}
+	output = output[:len(output)-1]
+	if len(output) > 0 && output[len(output)-1] == '\r' {
+		output = output[:len(output)-1]
+	}
+	return output
 }
 
 func normalizeCaptureOutput(output []byte) []byte {

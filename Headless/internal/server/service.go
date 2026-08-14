@@ -43,7 +43,15 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	state, revision := s.Store.SnapshotVersion()
 	changed := false
 	now := time.Now().UTC()
-	running := s.runningSessions(ctx)
+	// A roster request can be cancelled when a WebSocket disconnects. That
+	// cancellation says nothing about the tmux process: using the cancelled
+	// request context for the probe makes List fail and Exists return false,
+	// which incorrectly ends a session that was just created or is still alive.
+	// Keep the probe independent of the observer lifecycle, but bounded so a
+	// broken runtime cannot hold roster reconciliation forever.
+	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	running := s.runningSessions(probeContext)
 	for i := range state.Sessions {
 		if state.Sessions[i].Lifecycle == "running" && !running(state.Sessions[i].Runtime) {
 			state.Sessions[i].Lifecycle = "ended"

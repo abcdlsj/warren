@@ -7,6 +7,52 @@ import WarrenHost
 @testable import WarrenNext
 
 final class WarrenRendererCoordinatorTests: XCTestCase {
+    func testRemoteAttachParametersIncludeMeasuredGrid() throws {
+        let sessionID = TerminalSessionID()
+        let size = try XCTUnwrap(TerminalSize(columns: 117, rows: 38))
+
+        XCTAssertEqual(
+            WarrenRemoteTerminalProtocol.attachParameters(sessionID: sessionID, size: size),
+            [
+                "id": sessionID.description,
+                "cols": "117",
+                "rows": "38",
+            ]
+        )
+    }
+
+    func testRemoteAttachParametersRemainBackwardCompatibleWithoutGrid() {
+        let sessionID = TerminalSessionID()
+
+        XCTAssertEqual(
+            WarrenRemoteTerminalProtocol.attachParameters(sessionID: sessionID, size: nil),
+            ["id": sessionID.description]
+        )
+    }
+
+    func testRemoteRosterAttachesInitialTabAndDoesNotDuplicateMountedSurface() {
+        XCTAssertTrue(WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: nil,
+            nextTabID: "tab-1",
+            mountedSurfaceCount: 0
+        ))
+        XCTAssertFalse(WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: "tab-1",
+            nextTabID: "tab-1",
+            mountedSurfaceCount: 1
+        ))
+        XCTAssertTrue(WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: "tab-1",
+            nextTabID: "tab-2",
+            mountedSurfaceCount: 1
+        ))
+        XCTAssertFalse(WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: nil,
+            nextTabID: nil,
+            mountedSurfaceCount: 0
+        ))
+    }
+
     @MainActor
     func testPendingShellTabIDIsStablePerWorkspace() {
         let workspaceID = WorkspaceID(

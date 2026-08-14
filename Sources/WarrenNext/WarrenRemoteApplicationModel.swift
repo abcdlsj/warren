@@ -102,6 +102,32 @@ private enum RemoteWireEvent: Sendable {
     case disconnected(String)
 }
 
+/// Parameters shared by the desktop attach path and its protocol tests. The
+/// viewport is optional for compatibility with older clients, but a valid
+/// viewport is always sent when Ghostty has produced one.
+enum WarrenRemoteTerminalProtocol {
+    static func attachParameters(
+        sessionID: TerminalSessionID,
+        size: TerminalSize?
+    ) -> [String: String] {
+        var parameters = ["id": sessionID.description]
+        if let size {
+            parameters["cols"] = String(size.columns)
+            parameters["rows"] = String(size.rows)
+        }
+        return parameters
+    }
+
+    static func shouldAttach(
+        previousTabID: String?,
+        nextTabID: String?,
+        mountedSurfaceCount: Int
+    ) -> Bool {
+        guard nextTabID != nil else { return false }
+        return previousTabID != nextTabID || mountedSurfaceCount == 0
+    }
+}
+
 private actor WarrenRemoteWire {
     private static let outputChunkBytes = 128 * 1024
     private let configuration: WarrenRemoteEndpointConfiguration
@@ -285,6 +311,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var selectedSessionID: TerminalSessionID?
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var attachGeneration: UInt64 = 0
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
@@ -317,6 +344,7 @@ final class WarrenRemoteApplicationModel {
         wire = nil
         currentRoster = nil
         selectedSessionID = nil
+        attachGeneration &+= 1
         resizeTask?.cancel()
         resizeTask = nil
         mountedSurfaces.removeAll()
@@ -638,10 +666,26 @@ final class WarrenRemoteApplicationModel {
             connectionState: .attached
         )
         issue = nil
+        let previousTabID = navigation.selectedTabID
         navigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
         if let selectedSessionID, !sessions.contains(where: { $0.id == selectedSessionID }) {
             self.selectedSessionID = nil
             mountedSurfaces.removeAll()
+        }
+        if navigation.selectedTabID == nil {
+            selectedSessionID = nil
+            mountedSurfaces.removeAll()
+        } else if WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: previousTabID,
+            nextTabID: navigation.selectedTabID,
+            mountedSurfaceCount: mountedSurfaces.count
+        ) {
+            // The first roster is also the desktop's restore point. Without
+            // this explicit attach, the tab bar appears populated while the
+            // pane remains empty until the user clicks the tab.
+            Task { @MainActor [weak self] in
+                await self?.attachSelectedSession()
+            }
         }
     }
 
@@ -656,6 +700,8 @@ final class WarrenRemoteApplicationModel {
         // attach request; feeding that snapshot into an already-created surface
         // prevents the initial prompt from disappearing in the network race.
         guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
+        attachGeneration &+= 1
+        let generation = attachGeneration
         let surface = GhosttySurface(
             id: sessionID,
             attachmentID: TerminalAttachmentID(),
@@ -665,15 +711,54 @@ final class WarrenRemoteApplicationModel {
         )
         selectedSessionID = sessionID
         mountedSurfaces = [surface]
+
+        // SwiftUI/AppKit reports the actual Ghostty grid only after the
+        // surface has entered a measured pane. Waiting here makes the very
+        // first tmux snapshot use the same rows/columns as the pixels on
+        // screen, instead of briefly capturing the tmux default 120x36 grid.
+        // Keep a bounded fallback so a renderer that cannot obtain metrics
+        // still attaches and can converge through its later resize callback.
+        let size = await waitForSurfaceSize(surface, generation: generation)
+        guard generation == attachGeneration,
+              selectedSessionID == sessionID,
+              mountedSurfaces.first === surface else { return }
         do {
-            _ = try await wire.request("session.attach", params: ["id": sessionID.description])
+            _ = try await wire.request(
+                "session.attach",
+                params: WarrenRemoteTerminalProtocol.attachParameters(
+                    sessionID: sessionID,
+                    size: size
+                )
+            )
         } catch {
-            if selectedSessionID == sessionID {
+            if generation == attachGeneration, selectedSessionID == sessionID {
                 selectedSessionID = nil
                 mountedSurfaces.removeAll()
             }
             present(error)
         }
+    }
+
+    private func waitForSurfaceSize(
+        _ surface: GhosttySurface,
+        generation: UInt64
+    ) async -> TerminalSize? {
+        for _ in 0..<60 {
+            guard generation == attachGeneration else { return nil }
+            if let metrics = surface.state.surfaceSize,
+               let size = TerminalSize(
+                   columns: Int(metrics.columns),
+                   rows: Int(metrics.rows)
+               ) {
+                return size
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(16))
+            } catch {
+                return nil
+            }
+        }
+        return nil
     }
 
     private func selectSession(_ id: TerminalSessionID) {

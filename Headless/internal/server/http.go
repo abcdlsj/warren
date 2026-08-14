@@ -364,6 +364,15 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if session.Lifecycle != "running" {
 			return fmt.Errorf("session is not running: %s", id)
 		}
+		columns, rows, specified, err := attachSizeFromParams(params)
+		if err != nil {
+			return err
+		}
+		if specified {
+			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+				return err
+			}
+		}
 		p.attach(session)
 		if err := p.writeResult(command.ID, session); err != nil {
 			return err
@@ -410,6 +419,14 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 		}
 		if session.Lifecycle != "running" {
 			return fmt.Errorf("session is not running: %s", command.Session)
+		}
+		if command.Cols != 0 || command.Rows != 0 {
+			if command.Cols <= 0 || command.Rows <= 0 {
+				return fmt.Errorf("invalid terminal size")
+			}
+			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, command.Cols, command.Rows); err != nil {
+				return err
+			}
 		}
 		p.attach(session)
 		if err := p.writeJSON(map[string]any{"t": "attached", "session": session.ID}); err != nil {
@@ -534,4 +551,18 @@ func intParam(values map[string]any, key string) int {
 		return result
 	}
 	return 0
+}
+
+func attachSizeFromParams(values map[string]any) (columns, rows int, specified bool, err error) {
+	_, hasColumns := values["cols"]
+	_, hasRows := values["rows"]
+	if !hasColumns && !hasRows {
+		return 0, 0, false, nil
+	}
+	columns = intParam(values, "cols")
+	rows = intParam(values, "rows")
+	if columns <= 0 || rows <= 0 {
+		return 0, 0, false, fmt.Errorf("invalid terminal size")
+	}
+	return columns, rows, true, nil
 }

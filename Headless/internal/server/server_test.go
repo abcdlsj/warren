@@ -30,6 +30,45 @@ type listingRuntime struct {
 	exists int
 }
 
+type cancellationSensitiveRuntime struct {
+	memoryRuntime
+}
+
+type recordedResize struct {
+	columns int
+	rows    int
+}
+
+type recordingRuntime struct {
+	memoryRuntime
+	events      []string
+	resizes     []recordedResize
+	captureSeen chan struct{}
+	captureOnce sync.Once
+}
+
+func (runtime *recordingRuntime) Resize(_ context.Context, _ string, columns, rows int) error {
+	runtime.mu.Lock()
+	runtime.events = append(runtime.events, "resize")
+	runtime.resizes = append(runtime.resizes, recordedResize{columns: columns, rows: rows})
+	runtime.mu.Unlock()
+	return nil
+}
+
+func (runtime *recordingRuntime) Capture(ctx context.Context, name string) ([]byte, error) {
+	runtime.mu.Lock()
+	runtime.events = append(runtime.events, "capture")
+	runtime.mu.Unlock()
+	runtime.captureOnce.Do(func() { close(runtime.captureSeen) })
+	return runtime.memoryRuntime.Capture(ctx, name)
+}
+
+func (runtime *recordingRuntime) snapshotOrder() ([]string, []recordedResize) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return append([]string(nil), runtime.events...), append([]recordedResize(nil), runtime.resizes...)
+}
+
 func (runtime *listingRuntime) List(context.Context) (map[string]bool, error) {
 	runtime.lists++
 	result := make(map[string]bool, len(runtime.sessions))
@@ -41,6 +80,24 @@ func (runtime *listingRuntime) List(context.Context) (map[string]bool, error) {
 
 func (runtime *listingRuntime) Exists(ctx context.Context, name string) bool {
 	runtime.exists++
+	return runtime.memoryRuntime.Exists(ctx, name)
+}
+
+func (runtime *cancellationSensitiveRuntime) List(ctx context.Context) (map[string]bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	result := make(map[string]bool, len(runtime.sessions))
+	for name := range runtime.sessions {
+		result[name] = true
+	}
+	return result, nil
+}
+
+func (runtime *cancellationSensitiveRuntime) Exists(ctx context.Context, name string) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	return runtime.memoryRuntime.Exists(ctx, name)
 }
 
@@ -168,6 +225,167 @@ func TestRejectsInvalidToken(t *testing.T) {
 	}
 }
 
+func TestAttachSizeFromParamsRequiresCompletePositiveViewport(t *testing.T) {
+	tests := []struct {
+		name      string
+		params    map[string]any
+		columns   int
+		rows      int
+		specified bool
+		wantError bool
+	}{
+		{name: "omitted for compatibility", params: nil},
+		{name: "numbers", params: map[string]any{"cols": float64(101), "rows": float64(33)}, columns: 101, rows: 33, specified: true},
+		{name: "desktop strings", params: map[string]any{"cols": "88", "rows": "27"}, columns: 88, rows: 27, specified: true},
+		{name: "missing rows", params: map[string]any{"cols": 88}, wantError: true},
+		{name: "zero columns", params: map[string]any{"cols": 0, "rows": 27}, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			columns, rows, specified, err := attachSizeFromParams(test.params)
+			if test.wantError {
+				if err == nil {
+					t.Fatal("expected invalid terminal size")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if columns != test.columns || rows != test.rows || specified != test.specified {
+				t.Fatalf("size = (%d, %d, %t), want (%d, %d, %t)", columns, rows, specified, test.columns, test.rows, test.specified)
+			}
+		})
+	}
+}
+
+func TestBrowserAttachResizesBeforeFirstSnapshot(t *testing.T) {
+	state, session := testSession(t)
+	runtime := &recordingRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{session.Runtime: []byte("prompt")}},
+		captureSeen:   make(chan struct{}),
+	}
+	httpServer := httptest.NewServer(NewHTTPServer(&Service{Store: state, Runtime: runtime}, "secret", slog.Default()).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	defer connection.Close()
+
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "attach", Session: session.ID, Cols: 101, Rows: 33,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	readBrowserMessage(t, connection, "attached")
+	waitForCapture(t, runtime.captureSeen)
+	assertResizePrecedesCapture(t, runtime, 101, 33)
+}
+
+func TestDesktopAttachResizesBeforeFirstSnapshot(t *testing.T) {
+	state, session := testSession(t)
+	runtime := &recordingRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{session.Runtime: []byte("prompt")}},
+		captureSeen:   make(chan struct{}),
+	}
+	httpServer := httptest.NewServer(NewHTTPServer(&Service{Store: state, Runtime: runtime}, "secret", slog.Default()).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	_ = requestResultBeforeBinary[api.Session](t, connection, "session.attach", map[string]any{
+		"id": session.ID, "cols": "88", "rows": "27",
+	})
+	waitForCapture(t, runtime.captureSeen)
+	assertResizePrecedesCapture(t, runtime, 88, 27)
+}
+
+func testSession(t *testing.T) (*store.Store, api.Session) {
+	t.Helper()
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	session := api.Session{
+		ID: sessionIDForTest(), WorkspaceID: workspaceID, Title: "Shell", Kind: "shell",
+		Runtime: "runtime-test", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: t.TempDir(), CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: "/tmp", Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{session}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return state, session
+}
+
+func sessionIDForTest() string { return store.NewID() }
+
+func openAuthenticatedConnection(t *testing.T, serverURL, path string) *websocket.Conn {
+	t.Helper()
+	endpoint := "ws" + strings.TrimPrefix(serverURL, "http") + path
+	connection, _, err := websocket.DefaultDialer.Dial(endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.WriteJSON(api.Envelope{Type: "auth", Token: "secret"}); err != nil {
+		connection.Close()
+		t.Fatal(err)
+	}
+	var welcome map[string]any
+	if err := connection.ReadJSON(&welcome); err != nil {
+		connection.Close()
+		t.Fatal(err)
+	}
+	if welcome["t"] != "welcome" {
+		connection.Close()
+		t.Fatalf("unexpected welcome: %#v", welcome)
+	}
+	return connection
+}
+
+func readBrowserMessage(t *testing.T, connection *websocket.Conn, messageType string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	defer connection.SetReadDeadline(time.Time{})
+	for {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind != websocket.TextMessage {
+			continue
+		}
+		var value map[string]any
+		if json.Unmarshal(data, &value) == nil && value["t"] == messageType {
+			return value
+		}
+	}
+}
+
+func waitForCapture(t *testing.T, captureSeen <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-captureSeen:
+	case <-time.After(time.Second):
+		t.Fatal("first terminal snapshot was not captured")
+	}
+}
+
+func assertResizePrecedesCapture(t *testing.T, runtime *recordingRuntime, columns, rows int) {
+	t.Helper()
+	events, resizes := runtime.snapshotOrder()
+	if len(events) < 2 || events[0] != "resize" || events[1] != "capture" {
+		t.Fatalf("runtime events = %v, want [resize capture]", events)
+	}
+	if len(resizes) != 1 || resizes[0] != (recordedResize{columns: columns, rows: rows}) {
+		t.Fatalf("resize calls = %#v", resizes)
+	}
+}
+
 func requestResult[T any](t *testing.T, connection *websocket.Conn, method string, params map[string]any) T {
 	t.Helper()
 	id := store.NewID()
@@ -257,5 +475,30 @@ func TestRosterUsesOneRuntimeListing(t *testing.T) {
 	}
 	if roster.Sessions[0].Lifecycle != "running" || roster.Sessions[1].Lifecycle != "ended" {
 		t.Fatalf("unexpected lifecycle reconciliation: %#v", roster.Sessions)
+	}
+}
+
+func TestRosterDoesNotEndSessionWhenObserverContextIsCanceled(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &cancellationSensitiveRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{"runtime-live": {}}},
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Sessions = []api.Session{{
+			ID: "session", Runtime: "runtime-live", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+		}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	roster := (&Service{Store: state, Runtime: runtime}).Roster(ctx)
+	if roster.Sessions[0].Lifecycle != "running" {
+		t.Fatalf("canceled observer context ended a live session: %#v", roster.Sessions[0])
 	}
 }

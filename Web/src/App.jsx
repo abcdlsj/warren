@@ -8,6 +8,7 @@ import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
 import { RelayConnection } from "./connection.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
+import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
 import {
   EmptyTerminal,
   MobileKeys,
@@ -117,7 +118,7 @@ export default function App() {
   const fitTerminal = useCallback(() => {
     fitFrameRef.current = null;
     const node = terminalHostRef.current;
-    if (node?.clientWidth && node.clientHeight) fitAddonRef.current?.fit();
+    fitTerminalToHost(fitAddonRef.current, node);
   }, []);
 
   const scheduleTerminalFit = useCallback(() => {
@@ -154,7 +155,7 @@ export default function App() {
     setEmptyOverride(null);
     sentTerminalSizeRef.current = null;
     if (changed) terminalRef.current?.clear();
-    send({ t: "attach", session: sessionID });
+    send(attachTerminalMessage(sessionID, terminalRef.current));
   }, [send]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
@@ -351,12 +352,17 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    // xterm opens at its fallback 80x24 grid. Fit once synchronously and once
+    // on the next frame so the very first attach carries the real viewport,
+    // even when fonts/layout settle after the DOM mount.
+    fitTerminalToHost(fitAddon, terminalHost);
+    requestAnimationFrame(() => {
+      if (terminalRef.current === terminal) fitTerminalToHost(fitAddon, terminalHost);
+    });
 
     const dataSubscription = terminal.onData(sendInput);
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
-    const resizeObserver = new ResizeObserver(() => {
-      if (appStateRef.current.activeSession) scheduleTerminalFit();
-    });
+    const resizeObserver = new ResizeObserver(() => scheduleTerminalFit());
     resizeObserver.observe(terminalHost);
 
     return () => {
