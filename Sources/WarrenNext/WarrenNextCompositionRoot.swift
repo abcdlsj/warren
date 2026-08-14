@@ -123,9 +123,21 @@ struct WarrenNextCompositionRoot: View {
 
     private func handle(_ action: WarrenDesktopAction) {
         if action == .addProject {
-            isProjectImporterPresented = true
+            if isLocalEndpoint {
+                isProjectImporterPresented = true
+            } else {
+                remoteModel.report(NSError(domain: "WarrenRemote", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "远端 Project 必须使用远端路径，请通过远端 CLI 添加。",
+                ]))
+            }
         } else if action == .importSuperset {
-            beginSupersetImport()
+            if isLocalEndpoint {
+                beginSupersetImport()
+            } else {
+                remoteModel.report(NSError(domain: "WarrenRemote", code: 6, userInfo: [
+                    NSLocalizedDescriptionKey: "Superset 导入需要选择 daemon 所在机器上的数据库。",
+                ]))
+            }
         } else if case .requestNewWorkspace(let projectID) = action {
             workspaceCreatorProjectID = projectID
         } else if case .requestNewSession(let workspaceID) = action {
