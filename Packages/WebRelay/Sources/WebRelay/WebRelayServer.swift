@@ -995,7 +995,10 @@ private final class SocketConnection {
             } else if method == "GET", path.hasPrefix("/preset-") && path.hasSuffix(".svg") {
                 sendStaticFile(path: String(path.dropFirst()), cacheControl: "no-cache")
             } else if method == "GET", path.hasPrefix("/assets/") {
-                sendStaticFile(path: String(path.dropFirst()), cacheControl: "public, max-age=300")
+                // The bundle uses fixed filenames (assets/app.js), so a
+                // rebuilt client must never be served from cache. Revalidate
+                // on every load; payloads are small.
+                sendStaticFile(path: String(path.dropFirst()), cacheControl: "no-cache")
             } else if method == "GET", path.hasPrefix("/hook?") {
                 Task { await server.reportHook(path: path) }
                 sendHTTP(status: 204, body: "")

@@ -104,6 +104,11 @@ func (s *HTTPServer) handleWebAsset(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	writer.Header().Set("Content-Type", webContentType(clean))
+	// Assets use fixed filenames (assets/app.js, assets/app.css), so a rebuilt
+	// bundle must never be masked by a browser or service-worker cache. Force
+	// revalidation; the payloads are small enough that the extra request is
+	// cheaper than serving a stale client that renders DENB frames as text.
+	writer.Header().Set("Cache-Control", "no-cache")
 	_, _ = writer.Write(data)
 }
 
