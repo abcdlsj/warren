@@ -309,7 +309,16 @@ final class WarrenRemoteApplicationModel {
     }
 
     func addProject(_ folder: URL) async {
-        request("project.add", params: ["path": folder.path, "name": folder.lastPathComponent])
+        guard let wire else { return }
+        do {
+            _ = try await wire.request("project.add", params: [
+                "path": folder.path,
+                "name": folder.lastPathComponent,
+            ])
+            try await refreshRoster(using: wire)
+        } catch {
+            present(error)
+        }
     }
 
     func updateTerminalFont(_ preference: TerminalFontPreference) {}
@@ -350,14 +359,24 @@ final class WarrenRemoteApplicationModel {
                           let createdID = object["id"] as? String else { continue }
                     id = createdID
                 } catch {
-                    guard let existing = projection.groups.first(where: { $0.project.rootPath == project.repositoryPath }) else {
+                    // The user may have added this project just before importing.
+                    // The local projection can still be one roster tick behind,
+                    // so ask the daemon for an authoritative snapshot instead of
+                    // treating its duplicate-path response as a fatal import error.
+                    try await refreshRoster(using: wire)
+                    guard let existing = findProject(path: project.repositoryPath) else {
                         throw error
                     }
-                    id = existing.id.description
+                    id = existing.id
                 }
                 for workspace in project.workspaces where workspace.status == .ready {
-                    if workspace.path == project.repositoryPath { continue }
-                    _ = try? await wire.request("workspace.create", params: [
+                    if normalizedPath(workspace.path) == normalizedPath(project.repositoryPath) {
+                        continue
+                    }
+                    if hasWorkspace(path: workspace.path, projectID: id) {
+                        continue
+                    }
+                    _ = try await wire.request("workspace.create", params: [
                         "project": id,
                         "branch": workspace.branch ?? "main",
                         "name": workspace.name,
@@ -365,9 +384,37 @@ final class WarrenRemoteApplicationModel {
                     ])
                 }
             }
+            try await refreshRoster(using: wire)
         } catch {
             present(error)
         }
+    }
+
+    private func refreshRoster(using wire: WarrenRemoteWire) async throws {
+        let data = try await wire.request("roster")
+        let roster = try JSONDecoder().decode(RemoteRoster.self, from: data)
+        currentRoster = roster
+        apply(roster)
+    }
+
+    private func findProject(path: String) -> (id: String, path: String)? {
+        guard let project = currentRoster?.projects.first(where: {
+            normalizedPath($0.path) == normalizedPath(path)
+        }) else { return nil }
+        return (project.id, project.path)
+    }
+
+    private func hasWorkspace(path: String, projectID: String) -> Bool {
+        currentRoster?.workspaces.contains(where: {
+            $0.project == projectID && normalizedPath($0.path) == normalizedPath(path)
+        }) == true
+    }
+
+    private func normalizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
     }
 
     func perform(_ action: WarrenDesktopAction) {

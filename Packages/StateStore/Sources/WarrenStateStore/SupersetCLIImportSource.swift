@@ -19,6 +19,7 @@ public actor SupersetCLIImportSource {
         let executable = try resolveExecutable()
         let projectsData = try await run(executable, arguments: ["projects", "list", "--local", "--json"])
         let projects = try decode([CLIProject].self, from: projectsData)
+        let workspacesByProject = try await loadWorkspaces(for: projects, executable: executable)
         var candidates: [SupersetImportProjectCandidate] = []
 
         for project in projects {
@@ -33,10 +34,7 @@ public actor SupersetCLIImportSource {
             case .invalid: "Repository path is not a Git worktree."
             }
 
-            let workspaceData = try await run(executable, arguments: [
-                "workspaces", "list", "--local", "--project", project.id, "--json",
-            ])
-            let workspaces = try decode([CLIWorkspace].self, from: workspaceData)
+            let workspaces = workspacesByProject[project.id] ?? []
             let workspaceCandidates = workspaces.isEmpty
                 ? [mainWorkspace(for: project, projectPath: projectPath)]
                 : workspaces.map {
@@ -54,6 +52,28 @@ public actor SupersetCLIImportSource {
         }
 
         return SupersetImportPreview(sourcePath: "superset-cli", schemaVersion: nil, projects: candidates)
+    }
+
+    private func loadWorkspaces(
+        for projects: [CLIProject],
+        executable: URL
+    ) async throws -> [String: [CLIWorkspace]] {
+        try await withThrowingTaskGroup(of: (String, [CLIWorkspace]).self, returning: [String: [CLIWorkspace]].self) { group in
+            for project in projects {
+                group.addTask {
+                    let data = try await self.run(executable, arguments: [
+                        "workspaces", "list", "--local", "--project", project.id, "--json",
+                    ])
+                    return (project.id, try self.decode([CLIWorkspace].self, from: data))
+                }
+            }
+
+            var result: [String: [CLIWorkspace]] = [:]
+            for try await (projectID, workspaces) in group {
+                result[projectID] = workspaces
+            }
+            return result
+        }
     }
 
     private func workspaceCandidate(
@@ -191,7 +211,7 @@ public actor SupersetCLIImportSource {
         }
     }
 
-    private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private nonisolated func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {

@@ -5,11 +5,13 @@ import WarrenDomain
 import GhosttyAdapter
 import WarrenApplication
 import WarrenStateStore
+import WarrenDesignSystem
 
 struct WarrenNextCompositionRoot: View {
     @State private var remoteModel = WarrenRemoteApplicationModel()
     @State private var isProjectImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
+    @State private var isSupersetImporting = false
     @State private var sessionCreatorWorkspaceID: WorkspaceID?
     @State private var workspaceCreatorProjectID: ProjectID?
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -50,6 +52,29 @@ struct WarrenNextCompositionRoot: View {
             )
         }
         .preferredColorScheme(.dark)
+        .disabled(isSupersetImporting)
+        .overlay {
+            if isSupersetImporting {
+                ZStack {
+                    Color.black.opacity(0.28)
+                        .ignoresSafeArea()
+                    VStack(spacing: WarrenSpacing.compact) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在读取 Superset…")
+                            .font(WarrenTypography.navigationItem)
+                            .foregroundStyle(.primary)
+                        Text("正在逐项目读取 workspace，请稍候")
+                            .font(WarrenTypography.supporting)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, WarrenSpacing.large)
+                    .padding(.vertical, WarrenSpacing.medium)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                }
+                .transition(.opacity)
+            }
+        }
         .fileImporter(
             isPresented: $isProjectImporterPresented,
             allowedContentTypes: [.folder],
@@ -61,7 +86,11 @@ struct WarrenNextCompositionRoot: View {
         .sheet(item: $supersetImportPreview) { preview in
             WarrenNextSupersetImportView(preview: preview) {
                 supersetImportPreview = nil
-                Task { await remoteModel.commitSupersetImport(preview) }
+                isSupersetImporting = true
+                Task {
+                    await remoteModel.commitSupersetImport(preview)
+                    isSupersetImporting = false
+                }
             }
         }
         .sheet(isPresented: sessionCreatorBinding) {
@@ -191,12 +220,15 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private func beginSupersetImport() {
+        guard !isSupersetImporting else { return }
+        isSupersetImporting = true
         Task {
             do {
                 supersetImportPreview = try await remoteModel.previewSupersetImport()
             } catch {
                 remoteModel.report(error)
             }
+            isSupersetImporting = false
         }
     }
 
