@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 
 const activityLabels = {
@@ -233,44 +233,72 @@ export function SettingsPage({
   onAppendPlaceholder,
   onRestore,
 }) {
+  const [activeSection, setActiveSection] = useState("font");
+
   return (
     <section className={`settings-page settings${open ? " open" : ""}`} aria-label="Settings">
       <header className="settings-header">
         <button type="button" className="settings-back" aria-label="Back to Warren" onClick={onClose}>←</button>
         <h1>Settings</h1>
       </header>
-      <div className="settings-content">
-        <section className="settings-section">
-          <h2>Terminal font</h2>
-          <p className="settings-detail">Applied to every web terminal.</p>
-          <div className="settings-fields">
-            <label>
-              Font family
-              <input value={fontFamily} onChange={event => onFontFamilyChange(event.target.value)} autoComplete="off" spellCheck="false" />
-            </label>
-            <label>
-              Size
-              <input type="number" min="8" max="32" step="1" value={fontSize} onChange={event => onFontSizeChange(event.target.value)} />
-            </label>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          <div className="settings-nav-label">TERMINAL</div>
+          <button
+            type="button"
+            className={`settings-nav-item${activeSection === "font" ? " active" : ""}`}
+            aria-current={activeSection === "font" ? "true" : undefined}
+            onClick={() => setActiveSection("font")}
+          >
+            Terminal font
+          </button>
+          <button
+            type="button"
+            className={`settings-nav-item${activeSection === "title" ? " active" : ""}`}
+            aria-current={activeSection === "title" ? "true" : undefined}
+            onClick={() => setActiveSection("title")}
+          >
+            Terminal title
+          </button>
+        </nav>
+        <div className="settings-detail">
+          <div className="settings-content">
+            {activeSection === "font" ? (
+              <section className="settings-section">
+                <h2>Terminal font</h2>
+                <p className="settings-detail">Applied to every web terminal.</p>
+                <div className="settings-fields">
+                  <label>
+                    Font family
+                    <input value={fontFamily} onChange={event => onFontFamilyChange(event.target.value)} autoComplete="off" spellCheck="false" />
+                  </label>
+                  <label>
+                    Size
+                    <input type="number" min="8" max="32" step="1" value={fontSize} onChange={event => onFontSizeChange(event.target.value)} />
+                  </label>
+                </div>
+                <div className="font-preview" style={{ fontFamily, fontSize: `${fontSize}px` }}>Aa&nbsp;&nbsp;The quick brown fox&nbsp;&nbsp;0123456789</div>
+              </section>
+            ) : (
+              <section className="settings-section">
+                <h2>Terminal title</h2>
+                <p className="settings-detail">Build a title from live Session metadata.</p>
+                <label>
+                  Title template
+                  <input value={titleTemplate} onChange={event => onTitleTemplateChange(event.target.value)} autoComplete="off" spellCheck="false" />
+                </label>
+                <div className="settings-preview">Preview: {titlePreview}</div>
+                <div className="placeholder-list">
+                  {placeholders.map(([key, description]) => (
+                    <button type="button" className="placeholder" key={key} title={description} onClick={() => onAppendPlaceholder(`{${key}}`)}>{`{${key}}`}</button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <div className="settings-footer">
+              <button type="button" className="settings-reset" onClick={onRestore}>Restore Terminal Defaults</button>
+            </div>
           </div>
-          <div className="font-preview" style={{ fontFamily, fontSize: `${fontSize}px` }}>Aa&nbsp;&nbsp;The quick brown fox&nbsp;&nbsp;0123456789</div>
-        </section>
-        <section className="settings-section">
-          <h2>Terminal title</h2>
-          <p className="settings-detail">Build a title from live Session metadata.</p>
-          <label>
-            Title template
-            <input value={titleTemplate} onChange={event => onTitleTemplateChange(event.target.value)} autoComplete="off" spellCheck="false" />
-          </label>
-          <div className="settings-preview">Preview: {titlePreview}</div>
-          <div className="placeholder-list">
-            {placeholders.map(([key, description]) => (
-              <button type="button" className="placeholder" key={key} title={description} onClick={() => onAppendPlaceholder(`{${key}}`)}>{`{${key}}`}</button>
-            ))}
-          </div>
-        </section>
-        <div className="settings-footer">
-          <button type="button" className="settings-reset" onClick={onRestore}>Restore Terminal Defaults</button>
         </div>
       </div>
     </section>

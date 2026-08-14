@@ -60,7 +60,14 @@
     .settings-header h1 { margin:0; font-size:17px; font-weight:600; }
     .settings-back { display:grid; place-items:center; width:30px; height:30px; margin-right:12px; border:0; border-radius:5px; background:transparent; color:var(--sub); font-size:19px; cursor:pointer; }
     .settings-back:hover { color:var(--fg); background:rgba(234,232,230,.07); }
-    .settings-content { width:min(760px,100%); padding:42px 56px; overflow:auto; }
+    .settings-layout { display:grid; grid-template-columns:220px minmax(0,1fr); flex:1 1 auto; min-height:0; }
+    .settings-nav { display:flex; flex-direction:column; gap:2px; min-width:0; padding:16px 8px; overflow-y:auto; background:var(--panel); border-right:1px solid var(--muted); }
+    .settings-nav-label { padding:0 8px 5px; color:var(--sub); font-size:10px; font-weight:600; letter-spacing:.08em; }
+    .settings-nav-item { flex:0 0 auto; height:28px; padding:0 8px; border:0; border-radius:6px; background:transparent; color:var(--sub); text-align:left; cursor:pointer; }
+    .settings-nav-item:hover { background:rgba(234,232,230,.07); color:var(--fg); }
+    .settings-nav-item.active { background:rgba(234,232,230,.1); color:var(--fg); font-weight:500; }
+    .settings-detail { min-width:0; min-height:0; overflow:auto; }
+    .settings-content { width:min(640px,100%); padding:42px 56px; }
     .settings-section { display:flex; flex-direction:column; gap:12px; margin-bottom:34px; }
     .settings-section h2 { margin:0; font-size:13px; font-weight:600; }
     .settings-detail { margin:0; color:var(--sub); }
@@ -112,6 +119,10 @@
       .mobile-keys { display:flex; align-items:flex-start; gap:5px; padding:5px 7px calc(5px + env(safe-area-inset-bottom)); overflow-x:auto; border-top:1px solid var(--muted); background:var(--panel); }
       .mobile-key { min-width:42px; height:31px; border:1px solid var(--ring); border-radius:5px; background:var(--muted); color:var(--fg); }
       .settings-header { padding-left:12px; padding-top:env(safe-area-inset-top); height:calc(52px + env(safe-area-inset-top)); }
+      .settings-layout { display:flex; flex-direction:column; }
+      .settings-nav { flex-direction:row; gap:4px; padding:10px 12px; overflow-x:auto; overflow-y:hidden; border-right:0; border-bottom:1px solid var(--muted); }
+      .settings-nav-label { display:none; }
+      .settings-nav-item { white-space:nowrap; }
       .settings-content { padding:28px 20px; }
       .settings-fields { grid-template-columns:1fr; }
       .search-panel { top:calc(50px + env(safe-area-inset-top)); }
