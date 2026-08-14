@@ -61,6 +61,8 @@ struct WarrenDesktopProjectRow: View {
 
     private var expandedRow: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        let actionSlot = WarrenLayoutMetrics.sidebarActionButtonSize + WarrenSpacing.compact
+        let compactActionSize = WarrenLayoutMetrics.sidebarActionButtonSize - WarrenSpacing.xs
         return ZStack(alignment: .trailing) {
             Button(action: onToggleExpansion) {
                 HStack(spacing: WarrenSpacing.compact) {
@@ -81,8 +83,8 @@ struct WarrenDesktopProjectRow: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, WarrenSpacing.compact)
-                .padding(.trailing, WarrenLayoutMetrics.sidebarActionButtonSize * 2 + WarrenSpacing.compact)
+                .padding(.leading, actionSlot)
+                .padding(.trailing, actionSlot)
                 .frame(minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
@@ -105,13 +107,14 @@ struct WarrenDesktopProjectRow: View {
             HStack(spacing: WarrenSpacing.xxs) {
                 Button(action: onAddWorkspace) {
                     Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(tokens.mutedForeground.opacity(0.86))
                         .accessibilityHidden(true)
                 }
                 .buttonStyle(WarrenChromeButtonStyle(isFocused: isAddFocused))
-                .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
-                       height: WarrenLayoutMetrics.sidebarActionButtonSize)
+                .frame(width: compactActionSize, height: compactActionSize)
                 .contentShape(.rect)
+                .opacity(isHovered || isAddFocused ? 1 : 0)
                 .focused($isAddFocused)
                 .accessibilityLabel("New workspace in \(project.name)")
                 .help("New workspace")
@@ -121,28 +124,31 @@ struct WarrenDesktopProjectRow: View {
                     label: "New workspace in \(project.name)",
                     action: onAddWorkspace
                 )
-
-                Button(action: onToggleExpansion) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
-                .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
-                       height: WarrenLayoutMetrics.sidebarActionButtonSize)
-                .contentShape(.rect)
-                .opacity(isHovered || isToggleFocused ? 1 : 0)
-                .focused($isToggleFocused)
-                .accessibilityLabel(isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)")
-                .warrenSemanticElement(
-                    id: "project.\(project.id.description).toggle",
-                    role: .button,
-                    label: isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)",
-                    action: onToggleExpansion
-                )
             }
             .padding(.trailing, WarrenSpacing.xs)
+        }
+        .overlay(alignment: .leading) {
+            Button(action: onToggleExpansion) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tokens.mutedForeground.opacity(0.86))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .accessibilityHidden(true)
+            }
+            .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
+            .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
+                   height: WarrenLayoutMetrics.sidebarActionButtonSize)
+            .contentShape(.rect)
+            .opacity(isHovered || isToggleFocused ? 1 : 0)
+            .focused($isToggleFocused)
+            .padding(.leading, WarrenSpacing.xs)
+            .accessibilityLabel(isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)")
+            .warrenSemanticElement(
+                id: "project.\(project.id.description).toggle",
+                role: .button,
+                label: isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)",
+                action: onToggleExpansion
+            )
         }
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
         .background(tokens.interactionBackground(for: .resolve(
@@ -150,7 +156,7 @@ struct WarrenDesktopProjectRow: View {
             pressed: false,
             selected: isSelected,
             focused: isFocused,
-            hovered: isHovered || isAddFocused
+            hovered: isHovered || isAddFocused || isToggleFocused
         )))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
