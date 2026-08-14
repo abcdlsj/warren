@@ -7,6 +7,13 @@ import WarrenDomain
 /// Results preserve the Project → Workspace → Session relationship instead of
 /// flattening unrelated resources into a generic command list.
 struct WarrenDesktopCommandPalette: View {
+    private struct SearchResult: Identifiable {
+        let group: WarrenDesktopProjectGroup
+        let workspaces: [Workspace]
+
+        var id: ProjectID { group.project.id }
+    }
+
     let projection: WarrenDesktopProjection
     let onAction: (WarrenDesktopAction) -> Void
     let onDismiss: () -> Void
@@ -17,6 +24,7 @@ struct WarrenDesktopCommandPalette: View {
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        let results = searchResults
         VStack(spacing: 0) {
             HStack(spacing: WarrenSpacing.compact) {
                 Image(systemName: "magnifyingglass")
@@ -42,15 +50,15 @@ struct WarrenDesktopCommandPalette: View {
 
             ScrollView {
                 LazyVStack(spacing: WarrenSpacing.compact) {
-                    ForEach(filteredGroups) { group in
-                        projectResult(group, tokens: tokens)
+                    ForEach(results) { result in
+                        projectResult(result, tokens: tokens)
                     }
                 }
                 .padding(WarrenSpacing.compact)
             }
             .frame(maxHeight: 390)
 
-            if filteredGroups.isEmpty {
+            if results.isEmpty {
                 Text("No projects found")
                     .font(WarrenTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
@@ -72,9 +80,10 @@ struct WarrenDesktopCommandPalette: View {
 
     @ViewBuilder
     private func projectResult(
-        _ group: WarrenDesktopProjectGroup,
+        _ result: SearchResult,
         tokens: WarrenColorTokens
     ) -> some View {
+        let group = result.group
         VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
             Button {
                 choose(.selectProject(group.project.id))
@@ -100,7 +109,7 @@ struct WarrenDesktopCommandPalette: View {
             }
             .buttonStyle(.plain)
 
-            ForEach(matchingWorkspaces(in: group)) { workspace in
+            ForEach(result.workspaces) { workspace in
                 Button {
                     choose(.selectWorkspace(workspace.id))
                 } label: {
@@ -131,29 +140,22 @@ struct WarrenDesktopCommandPalette: View {
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
     }
 
-    private var filteredGroups: [WarrenDesktopProjectGroup] {
+    private var searchResults: [SearchResult] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return projection.groups }
-        return projection.groups.filter { group in
-            group.project.name.lowercased().contains(normalized)
+        guard !normalized.isEmpty else {
+            return projection.groups.map { SearchResult(group: $0, workspaces: $0.workspaces) }
+        }
+        return projection.groups.compactMap { group in
+            let projectMatches = group.project.name.lowercased().contains(normalized)
                 || group.project.rootPath.lowercased().contains(normalized)
-                || group.workspaces.contains { workspace in
+            let workspaces = projectMatches
+                ? group.workspaces
+                : group.workspaces.filter { workspace in
                     workspace.name.lowercased().contains(normalized)
                         || (workspace.branch?.lowercased().contains(normalized) ?? false)
                 }
-        }
-    }
-
-    private func matchingWorkspaces(in group: WarrenDesktopProjectGroup) -> [Workspace] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty,
-              !group.project.name.lowercased().contains(normalized),
-              !group.project.rootPath.lowercased().contains(normalized) else {
-            return group.workspaces
-        }
-        return group.workspaces.filter { workspace in
-            workspace.name.lowercased().contains(normalized)
-                || (workspace.branch?.lowercased().contains(normalized) ?? false)
+            guard projectMatches || !workspaces.isEmpty else { return nil }
+            return SearchResult(group: group, workspaces: workspaces)
         }
     }
 

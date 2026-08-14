@@ -25,7 +25,7 @@ struct WarrenDesktopSidebar: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     WarrenDesktopSidebarRows(
                         groups: projection.groups,
-                        workspaceActivities: workspaceActivities,
+                        workspaceActivities: projection.workspaceActivities,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,
                         onAddProject: { onAction(.addProject) },
@@ -61,23 +61,4 @@ struct WarrenDesktopSidebar: View {
         onAction(.toggleSidebar)
     }
 
-    private var selectedWorkspace: Workspace? {
-        guard let selection else {
-            return projection.groups.lazy.compactMap(\.workspaces.first).first
-        }
-        switch selection {
-        case .project(let projectID):
-            return projection.firstWorkspace(in: projectID)
-        case .workspace(let workspaceID):
-            return projection.workspace(id: workspaceID)
-        }
-    }
-
-    private var workspaceActivities: [WorkspaceID: AgentActivityState] {
-        Dictionary(uniqueKeysWithValues: projection.groups
-            .flatMap(\.workspaces)
-            .compactMap { workspace in
-                projection.activity(in: workspace.id).map { (workspace.id, $0) }
-            })
-    }
 }

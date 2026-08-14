@@ -99,6 +99,25 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertNil(projection.workspace(id: fixture.groups[0].workspaces[0].id))
     }
 
+    func testProjectionFindsFirstWorkspaceAfterAnEmptyProject() {
+        let host = WarrenDomain.Host(name: "Indexed Host")
+        let emptyProject = Project(hostID: host.id, name: "Empty", rootPath: "/tmp/empty")
+        let populatedProject = Project(hostID: host.id, name: "Populated", rootPath: "/tmp/full")
+        let workspace = Workspace(
+            projectID: populatedProject.id,
+            name: "main",
+            path: "/tmp/full"
+        )
+        let projection = WarrenDesktopProjection(
+            host: host,
+            projects: [emptyProject, populatedProject],
+            workspaces: [workspace]
+        )
+
+        XCTAssertEqual(projection.firstWorkspace, workspace)
+        XCTAssertEqual(projection.firstWorkspace(in: populatedProject.id), workspace)
+    }
+
     func testActionsExposeProjectWorkspaceAndTabIntentWithoutSideEffects() {
         var received: [WarrenDesktopAction] = []
         let actions = WarrenDesktopActions(
@@ -302,6 +321,8 @@ final class WarrenDesktopTests: XCTestCase {
         )
 
         XCTAssertEqual(projection.activity(in: workspaceID), .failed)
+        XCTAssertEqual(projection.workspaceActivities[workspaceID], .failed)
+        XCTAssertEqual(projection.session(id: failed.id), failed)
     }
 
     func testSelectingTabSynchronizesSidebarWorkspace() {

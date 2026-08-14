@@ -41,6 +41,14 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private var terminalFontSize = TerminalFontPreference.defaultSize
     @Environment(\.warrenSemanticRecorder) private var semanticRecorder
 
+    private struct Presentation {
+        let workspace: Workspace?
+        let contentWorkspace: Workspace?
+        let tab: ClientTab?
+        let session: WarrenDesktopSession?
+        let tabs: [ClientTab]
+    }
+
     public init(
         projection: WarrenDesktopProjection,
         navigation: WarrenDesktopNavigationState? = nil,
@@ -77,6 +85,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     }
 
     public var body: some View {
+        let presentation = makePresentation()
         ZStack(alignment: .topLeading) {
             if settingsPresented {
                 WarrenDesktopSettingsView(onBack: { settingsPresented = false })
@@ -106,7 +115,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         )
                     }
                     WarrenDesktopTabBar(
-                        tabs: workspaceTabs,
+                        tabs: presentation.tabs,
                         selectedTabID: navigation.selectedTabID,
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,
@@ -129,9 +138,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))
                         },
-                        canAddTab: selectedWorkspace != nil,
+                        canAddTab: presentation.workspace != nil,
                         onAddTab: {
-                            guard let workspaceID = selectedWorkspace?.id else { return }
+                            guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.requestNewSession(workspaceID))
                         },
                         onCloseTab: { dispatch(.closeTab($0)) },
@@ -139,27 +148,25 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onCloseAllTabs: { dispatch(.closeAllTabs) }
                     )
                     WarrenDesktopPresetBar(
-                        workspace: selectedWorkspace,
+                        workspace: presentation.workspace,
                         onChooseCommand: {
-                            guard let workspaceID = selectedWorkspace?.id else { return }
+                            guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.requestNewSession(workspaceID))
                         },
                         onLaunch: { request in
-                            guard let workspaceID = selectedWorkspace?.id else { return }
+                            guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.launchSession(workspaceID, request))
                         }
                     )
                     HStack(spacing: 0) {
                         WarrenDesktopWorkspaceContent(
-                            workspace: contentWorkspace,
-                            tab: selectedTab,
+                            workspace: presentation.contentWorkspace,
+                            tab: presentation.tab,
                             hasProjects: !projection.groups.isEmpty,
                             // Superset keeps the 28pt pane toolbar in workspace
                             // mode too. It is pane chrome, not a duplicate top bar.
                             showsPaneHeader: true,
-                            session: selectedTab?.sessionID.flatMap { id in
-                                projection.sessions.first { $0.id == id }
-                            },
+                            session: presentation.session,
                             hostName: projection.host.name,
                             titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
                             terminalFont: TerminalFontPreference(
@@ -169,7 +176,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             onAddProject: { dispatch(.addProject) },
                             onImportSuperset: { dispatch(.importSuperset) },
                             onNewSession: {
-                                guard let workspace = selectedWorkspace else { return }
+                                guard let workspace = presentation.workspace else { return }
                                 dispatch(.requestNewSession(workspace.id))
                             },
                             terminalSurface: terminalSurface
@@ -208,7 +215,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             commandPalettePresented = true
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.newSession)) { _ in
-            guard let workspace = selectedWorkspace else { return }
+            guard let workspace = presentation.workspace else { return }
             dispatch(.requestNewSession(workspace.id))
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.toggleSidebar)) { _ in
@@ -245,55 +252,38 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         .warrenSemanticObservationRoot(recorder: semanticRecorder)
     }
 
-    private var selectedWorkspace: Workspace? {
-        if let sessionID = selectedTab?.sessionID,
-           let workspace = projection.workspace(for: sessionID) {
-            return workspace
-        }
-        guard let selection = navigation.selection else {
-            return firstWorkspace
-        }
-        switch selection {
+    /// Resolve all selection-dependent UI values once per body evaluation.
+    /// SwiftUI asks for these values in several branches and closures; keeping
+    /// one immutable presentation value avoids repeated graph lookups while
+    /// preserving the navigation ownership rules.
+    private func makePresentation() -> Presentation {
+        let navigationWorkspace: Workspace?
+        switch navigation.selection {
         case .project(let projectID):
-            return projection.firstWorkspace(in: projectID)
+            navigationWorkspace = projection.firstWorkspace(in: projectID)
         case .workspace(let workspaceID):
-            return projection.workspace(id: workspaceID)
+            navigationWorkspace = projection.workspace(id: workspaceID)
+        case nil:
+            navigationWorkspace = firstWorkspace
         }
-    }
-
-    private var selectedTab: ClientTab? {
-        guard let selectedTabID = navigation.selectedTabID else { return nil }
-        return workspaceTabs.first { $0.id == selectedTabID }
-    }
-
-    private var workspaceTabs: [ClientTab] {
-        guard let workspaceID = navigationWorkspace?.id else { return [] }
-        return projection.tabs(in: workspaceID)
-    }
-
-    /// Navigation owns the workspace. A selected tab may help resolve an old
-    /// projection during reconciliation, but it must never pull content back
-    /// to a different workspace after the user has switched project/branch.
-    private var navigationWorkspace: Workspace? {
-        guard let selection = navigation.selection else { return firstWorkspace }
-        switch selection {
-        case .project(let projectID):
-            return projection.firstWorkspace(in: projectID)
-        case .workspace(let workspaceID):
-            return projection.workspace(id: workspaceID)
+        let tabs = navigationWorkspace.map { projection.tabs(in: $0.id) } ?? []
+        let tab = navigation.selectedTabID.flatMap { selectedTabID in
+            tabs.first { $0.id == selectedTabID }
         }
-    }
-
-    private var contentWorkspace: Workspace? {
-        if let sessionID = selectedTab?.sessionID,
-           let workspace = projection.workspace(for: sessionID) {
-            return workspace
-        }
-        return selectedWorkspace
+        let tabWorkspace = tab?.sessionID.flatMap { projection.workspace(for: $0) }
+        let workspace = tabWorkspace ?? navigationWorkspace
+        let session = tab?.sessionID.flatMap { projection.session(id: $0) }
+        return Presentation(
+            workspace: workspace,
+            contentWorkspace: tabWorkspace ?? workspace,
+            tab: tab,
+            session: session,
+            tabs: tabs
+        )
     }
 
     private var firstWorkspace: Workspace? {
-        projection.groups.lazy.compactMap(\WarrenDesktopProjectGroup.workspaces).first?.first
+        projection.firstWorkspace
     }
 
     private func dispatch(_ action: WarrenDesktopAction) {

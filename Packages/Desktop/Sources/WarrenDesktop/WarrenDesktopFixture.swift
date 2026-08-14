@@ -117,12 +117,17 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         public let sessionIDs: [TerminalSessionID]
         public let inspectorID: String?
 
-        fileprivate init(projection: WarrenDesktopProjection) {
-            self.projectIDs = projection.groups.map(\.project.id)
-            self.workspaceIDs = projection.groups.flatMap { $0.workspaces.map(\.id) }
-            self.tabIDs = projection.tabs.map(\.id)
-            self.sessionIDs = projection.sessions.map(\.id)
-            self.inspectorID = projection.inspector?.id
+        fileprivate init(
+            groups: [WarrenDesktopProjectGroup],
+            sessions: [WarrenDesktopSession],
+            tabs: [ClientTab],
+            inspectorID: String?
+        ) {
+            self.projectIDs = groups.map(\.project.id)
+            self.workspaceIDs = groups.flatMap { $0.workspaces.map(\.id) }
+            self.tabIDs = tabs.map(\.id)
+            self.sessionIDs = sessions.map(\.id)
+            self.inspectorID = inspectorID
         }
     }
 
@@ -132,6 +137,16 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     public let tabs: [ClientTab]
     public let sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID]
     public let tabWorkspaceIDs: [String: WorkspaceID]
+    public let reconciliationKey: ReconciliationKey
+    /// Lookup tables are built once at the projection boundary. SwiftUI can
+    /// ask for the same relationship many times while reconciling a frame;
+    /// those reads must not rescan the whole sidebar/session tree.
+    private let workspacesByID: [WorkspaceID: Workspace]
+    private let sessionsByID: [TerminalSessionID: WarrenDesktopSession]
+    private let tabsByWorkspaceID: [WorkspaceID: [ClientTab]]
+    private let firstWorkspaceID: WorkspaceID?
+    private let firstWorkspaceIDByProjectID: [ProjectID: WorkspaceID]
+    private let activityByWorkspaceID: [WorkspaceID: AgentActivityState]
     public let inspector: WarrenDesktopInspectorContent?
     public let connectionState: WarrenDesktopConnectionState
 
@@ -139,8 +154,37 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         connectionState.isConnected
     }
 
-    public var reconciliationKey: ReconciliationKey {
-        ReconciliationKey(projection: self)
+    /// Activity is already reduced by workspace during projection creation.
+    /// Exposing the value map keeps the sidebar from rebuilding one on every
+    /// body evaluation.
+    public var workspaceActivities: [WorkspaceID: AgentActivityState] {
+        activityByWorkspaceID
+    }
+
+    public var firstWorkspace: Workspace? {
+        firstWorkspaceID.flatMap { workspacesByID[$0] }
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.host == rhs.host
+            && lhs.groups == rhs.groups
+            && lhs.sessions == rhs.sessions
+            && lhs.tabs == rhs.tabs
+            && lhs.sessionWorkspaceIDs == rhs.sessionWorkspaceIDs
+            && lhs.tabWorkspaceIDs == rhs.tabWorkspaceIDs
+            && lhs.inspector == rhs.inspector
+            && lhs.connectionState == rhs.connectionState
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(host)
+        hasher.combine(groups)
+        hasher.combine(sessions)
+        hasher.combine(tabs)
+        hasher.combine(sessionWorkspaceIDs)
+        hasher.combine(tabWorkspaceIDs)
+        hasher.combine(inspector)
+        hasher.combine(connectionState)
     }
 
     public init(
@@ -158,14 +202,59 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         self.sessions = sessions
         self.tabs = tabs
         self.sessionWorkspaceIDs = sessionWorkspaceIDs
-        self.tabWorkspaceIDs = tabWorkspaceIDs.merging(
+        let resolvedTabWorkspaceIDs = tabWorkspaceIDs.merging(
             Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
                 tab.sessionID.flatMap { sessionWorkspaceIDs[$0] }.map { (tab.id, $0) }
             }),
             uniquingKeysWith: { explicit, _ in explicit }
         )
+        self.tabWorkspaceIDs = resolvedTabWorkspaceIDs
+
+        var workspacesByID: [WorkspaceID: Workspace] = [:]
+        var firstWorkspaceID: WorkspaceID?
+        var firstWorkspaceIDByProjectID: [ProjectID: WorkspaceID] = [:]
+        for group in groups {
+            for workspace in group.workspaces {
+                workspacesByID[workspace.id] = workspace
+                if firstWorkspaceID == nil {
+                    firstWorkspaceID = workspace.id
+                }
+                if firstWorkspaceIDByProjectID[group.project.id] == nil {
+                    firstWorkspaceIDByProjectID[group.project.id] = workspace.id
+                }
+            }
+        }
+        self.workspacesByID = workspacesByID
+        self.firstWorkspaceID = firstWorkspaceID
+        self.firstWorkspaceIDByProjectID = firstWorkspaceIDByProjectID
+
+        self.sessionsByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+
+        var tabsByWorkspaceID: [WorkspaceID: [ClientTab]] = [:]
+        for tab in tabs {
+            guard let workspaceID = resolvedTabWorkspaceIDs[tab.id] else { continue }
+            tabsByWorkspaceID[workspaceID, default: []].append(tab)
+        }
+        self.tabsByWorkspaceID = tabsByWorkspaceID
+
+        var activityByWorkspaceID: [WorkspaceID: AgentActivityState] = [:]
+        for session in sessions {
+            guard let activity = session.activity else { continue }
+            guard let current = activityByWorkspaceID[session.workspaceID],
+                  current.workspacePriority >= activity.workspacePriority else {
+                activityByWorkspaceID[session.workspaceID] = activity
+                continue
+            }
+        }
+        self.activityByWorkspaceID = activityByWorkspaceID
         self.inspector = inspector
         self.connectionState = connectionState
+        self.reconciliationKey = ReconciliationKey(
+            groups: groups,
+            sessions: sessions,
+            tabs: tabs,
+            inspectorID: inspector?.id
+        )
     }
 
     /// Convenience initializer for callers that already have domain arrays.
@@ -181,10 +270,14 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         inspector: WarrenDesktopInspectorContent? = nil,
         connectionState: WarrenDesktopConnectionState = .attached
     ) {
+        var workspacesByProjectID: [ProjectID: [Workspace]] = [:]
+        for workspace in workspaces {
+            workspacesByProjectID[workspace.projectID, default: []].append(workspace)
+        }
         let groups = projects.map { project in
             WarrenDesktopProjectGroup(
                 project: project,
-                workspaces: workspaces.filter { $0.projectID == project.id }
+                workspaces: workspacesByProjectID[project.id] ?? []
             )
         }
         self.init(
@@ -208,21 +301,20 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     }
 
     public func workspace(id: WorkspaceID) -> Workspace? {
-        for group in groups {
-            if let workspace = group.workspaces.first(where: { $0.id == id }) {
-                return workspace
-            }
-        }
-        return nil
+        workspacesByID[id]
     }
 
     public func firstWorkspace(in projectID: ProjectID) -> Workspace? {
-        projectGroup(id: projectID)?.workspaces.first
+        firstWorkspaceIDByProjectID[projectID].flatMap { workspacesByID[$0] }
     }
 
     public func workspace(for sessionID: TerminalSessionID) -> Workspace? {
         guard let workspaceID = sessionWorkspaceIDs[sessionID] else { return nil }
-        return workspace(id: workspaceID)
+        return workspacesByID[workspaceID]
+    }
+
+    public func session(id: TerminalSessionID) -> WarrenDesktopSession? {
+        sessionsByID[id]
     }
 
     public func workspaceID(forTabID tabID: String) -> WorkspaceID? {
@@ -233,16 +325,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     /// workspaces open, but a workspace chrome must never render siblings
     /// owned by another project/branch.
     public func tabs(in workspaceID: WorkspaceID) -> [ClientTab] {
-        tabs.filter { tabWorkspaceIDs[$0.id] == workspaceID }
+        tabsByWorkspaceID[workspaceID] ?? []
     }
 
     /// Returns the most actionable state for a Workspace. A failure or input
     /// request must remain visible even when another Session is still working.
     public func activity(in workspaceID: WorkspaceID) -> AgentActivityState? {
-        sessions.lazy
-            .filter { $0.workspaceID == workspaceID }
-            .compactMap(\.activity)
-            .max { $0.workspacePriority < $1.workspacePriority }
+        activityByWorkspaceID[workspaceID]
     }
 }
 

@@ -19,6 +19,38 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testDesktopProjectionInputsIgnoreRendererOnlyOutputButObserveVisibleState() {
+        let fixture = Fixture()
+        let outputOnlySession = copySession(
+            fixture.firstSession,
+            output: WarrenApplicationOutputSnapshot(
+                sessionID: fixture.firstSession.id,
+                epoch: 1,
+                lowerSequence: 1,
+                upperSequence: 42
+            )
+        )
+        let outputOnly = copySnapshot(fixture.snapshot, sessions: [
+            outputOnlySession,
+            fixture.secondSession,
+        ])
+
+        XCTAssertTrue(WarrenNextApplicationModel.desktopProjectionInputsEqual(
+            fixture.snapshot,
+            outputOnly
+        ))
+
+        let renamed = copySnapshot(fixture.snapshot, sessions: [
+            copySession(fixture.firstSession, title: "Renamed"),
+            fixture.secondSession,
+        ])
+        XCTAssertFalse(WarrenNextApplicationModel.desktopProjectionInputsEqual(
+            fixture.snapshot,
+            renamed
+        ))
+    }
+
+    @MainActor
     func testOnlyActiveWorkspaceAndTabCanSendInputOrResize() async throws {
         let fixture = Fixture()
         let service = RendererServiceSpy()
@@ -125,6 +157,47 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         XCTAssertEqual(values.maximumConcurrentResizes, 1)
         XCTAssertLessThan(values.resizes.count, 100)
     }
+}
+
+private func copySession(
+    _ session: WarrenApplicationSession,
+    title: String? = nil,
+    output: WarrenApplicationOutputSnapshot? = nil
+) -> WarrenApplicationSession {
+    WarrenApplicationSession(
+        id: session.id,
+        workspaceID: session.workspaceID,
+        tabID: session.tabID,
+        title: title ?? session.title,
+        kind: session.kind,
+        lifecycle: session.lifecycle,
+        connectionState: session.connectionState,
+        agentActivity: session.agentActivity,
+        runtimeProcess: session.runtimeProcess,
+        workingDirectory: session.workingDirectory,
+        attachmentID: session.attachmentID,
+        controllerAttachmentID: session.controllerAttachmentID,
+        controlLeaseID: session.controlLeaseID,
+        recoveryAnchor: session.recoveryAnchor,
+        terminalSize: session.terminalSize,
+        runtimeAdoptionDescriptor: session.runtimeAdoptionDescriptor,
+        output: output
+    )
+}
+
+private func copySnapshot(
+    _ snapshot: WarrenApplicationSnapshot,
+    sessions: [WarrenApplicationSession]
+) -> WarrenApplicationSnapshot {
+    WarrenApplicationSnapshot(
+        host: snapshot.host,
+        projects: snapshot.projects,
+        workspaces: snapshot.workspaces,
+        sessions: sessions,
+        windowLayout: snapshot.windowLayout,
+        issues: snapshot.issues,
+        lifecycle: snapshot.lifecycle
+    )
 }
 
 private actor RendererServiceSpy: WarrenRendererService {

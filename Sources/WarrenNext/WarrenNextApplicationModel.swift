@@ -608,6 +608,9 @@ extension WarrenNextApplicationModel {
     }
 
     func apply(_ value: WarrenApplicationSnapshot) async {
+        let previousSnapshot = snapshot
+        let previousPendingWorkspaceIDs = pendingDefaultShellWorkspaceIDs
+        let previousIssue = presentedIssue
         snapshot = value
         pendingDefaultShellWorkspaceIDs = pendingDefaultShellWorkspaceIDs.filter {
             value.tabs(in: $0).isEmpty
@@ -617,7 +620,15 @@ extension WarrenNextApplicationModel {
                 Self.issueBelongsToDesktop(issue, snapshot: value)
             })
         }
-        refreshDesktopProjection()
+        // PTY output snapshots arrive as often as every display frame. Output,
+        // attachment cursors and terminal geometry belong to the renderer, not
+        // the SwiftUI read model. Skip rebuilding the entire project/sidebar/
+        // tab projection when none of its actual inputs changed.
+        if previousPendingWorkspaceIDs != pendingDefaultShellWorkspaceIDs
+            || previousIssue != presentedIssue
+            || !Self.desktopProjectionInputsEqual(previousSnapshot, value) {
+            refreshDesktopProjection()
+        }
         let nextNavigation = WarrenDesktopNavigationReducer.reconcile(
             navigation,
             with: desktopProjection
@@ -630,6 +641,31 @@ extension WarrenNextApplicationModel {
             navigation = nextNavigation
         }
         reconcileSurfaces(with: value)
+    }
+
+    static func desktopProjectionInputsEqual(
+        _ lhs: WarrenApplicationSnapshot,
+        _ rhs: WarrenApplicationSnapshot
+    ) -> Bool {
+        guard lhs.host == rhs.host,
+              lhs.projects == rhs.projects,
+              lhs.workspaces == rhs.workspaces,
+              lhs.windowLayout == rhs.windowLayout,
+              lhs.lifecycle == rhs.lifecycle,
+              lhs.sessions.count == rhs.sessions.count else { return false }
+
+        return zip(lhs.sessions, rhs.sessions).allSatisfy { left, right in
+            left.id == right.id
+                && left.workspaceID == right.workspaceID
+                && left.tabID == right.tabID
+                && left.title == right.title
+                && left.kind == right.kind
+                && left.lifecycle == right.lifecycle
+                && left.connectionState == right.connectionState
+                && left.agentActivity == right.agentActivity
+                && left.runtimeProcess == right.runtimeProcess
+                && left.workingDirectory == right.workingDirectory
+        }
     }
 
     func reconcileSurfaces(

@@ -20,10 +20,16 @@ struct WarrenNextCompositionRoot: View {
     private var terminalFontSize = TerminalFontPreference.defaultSize
     @AppStorage("executionEndpoint")
     private var selectedEndpointID = "local"
+    @State private var endpointCatalog: [WarrenRemoteEndpointConfiguration]
 
     @MainActor
     init(model: WarrenNextApplicationModel = .live()) {
         _model = State(initialValue: model)
+        // Endpoint configuration is user input, not frame state. Read it once
+        // when the composition root is created instead of touching disk on
+        // every SwiftUI body evaluation (terminal output can invalidate the
+        // root frequently).
+        _endpointCatalog = State(initialValue: WarrenEndpointCatalog.load().endpoints)
     }
 
     var body: some View {
@@ -147,10 +153,6 @@ struct WarrenNextCompositionRoot: View {
         } else {
             model.perform(action)
         }
-    }
-
-    private var endpointCatalog: [WarrenRemoteEndpointConfiguration] {
-        WarrenEndpointCatalog.load().endpoints
     }
 
     private var endpointOptions: [WarrenDesktopEndpointOption] {
