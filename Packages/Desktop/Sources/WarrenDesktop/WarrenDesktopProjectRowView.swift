@@ -5,8 +5,8 @@ import WarrenObservation
 
 /// A project row mirrors Superset's `DashboardSidebarProjectRow`: the avatar
 /// leads, the workspace count sits beside the name, and the new-workspace plus
-/// remains available while the disclosure chevron appears when the row is
-/// hovered or keyboard-focused.
+/// remains available while the disclosure chevron overlays the avatar slot on
+/// hover or keyboard focus.
 struct WarrenDesktopProjectRow: View {
     let project: Project
     let workspaceCount: Int
@@ -69,6 +69,7 @@ struct WarrenDesktopProjectRow: View {
                     projectAvatar(tokens: tokens)
                         .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
                                height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
+                        .opacity(isHovered || isToggleFocused ? 0 : 1)
 
                     Text(project.name)
                         .font(WarrenTypography.navigationGroup)
@@ -83,7 +84,7 @@ struct WarrenDesktopProjectRow: View {
 
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, actionSlot)
+                .padding(.leading, WarrenSpacing.compact)
                 .padding(.trailing, actionSlot)
                 .frame(minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,12 +137,12 @@ struct WarrenDesktopProjectRow: View {
                     .accessibilityHidden(true)
             }
             .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
-            .frame(width: WarrenLayoutMetrics.sidebarActionButtonSize,
-                   height: WarrenLayoutMetrics.sidebarActionButtonSize)
+            .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
+                   height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
             .contentShape(.rect)
             .opacity(isHovered || isToggleFocused ? 1 : 0)
             .focused($isToggleFocused)
-            .padding(.leading, WarrenSpacing.xs)
+            .padding(.leading, WarrenSpacing.compact)
             .accessibilityLabel(isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)")
             .warrenSemanticElement(
                 id: "project.\(project.id.description).toggle",
