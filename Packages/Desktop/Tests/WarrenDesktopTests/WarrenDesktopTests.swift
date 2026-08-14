@@ -181,6 +181,21 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testPresetIconCacheLoadsHitsAndMissesOnlyOnce() {
+        var loads: [String] = []
+        let expected = NSImage(size: NSSize(width: 12, height: 12))
+        let cache = WarrenPresetIconCache { name in
+            loads.append(name)
+            return name == "known" ? expected : nil
+        }
+
+        XCTAssertTrue(cache.image(named: "known") === expected)
+        XCTAssertTrue(cache.image(named: "known") === expected)
+        XCTAssertNil(cache.image(named: "missing"))
+        XCTAssertNil(cache.image(named: "missing"))
+        XCTAssertEqual(loads, ["known", "missing"])
+    }
+
     func testSelectionReconcilesEmptyToLoadedProjection() {
         let fixture = WarrenDesktopFixture.preview
         let empty = WarrenDesktopProjection.empty(host: fixture.host)

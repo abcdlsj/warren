@@ -98,24 +98,41 @@ private struct WarrenPresetIcon: View {
         if name == "preset-codex", colorScheme == .dark {
             name = "preset-codex-white"
         }
-        guard let url = packagedResourceURL(name: name)
-            ?? Bundle.module.url(forResource: name, withExtension: "svg") else {
-            return nil
-        }
-        return NSImage(contentsOf: url)
-    }
-
-    private func packagedResourceURL(name: String) -> URL? {
-        Bundle.main.resourceURL?
-            .appendingPathComponent("WarrenDesktop_WarrenDesktop.bundle", isDirectory: true)
-            .appendingPathComponent("\(name).svg")
-            .existingFileURL
+        return WarrenPresetIconCache.shared.image(named: name)
     }
 }
 
-private extension URL {
-    var existingFileURL: URL? {
-        FileManager.default.fileExists(atPath: path) ? self : nil
+@MainActor
+final class WarrenPresetIconCache {
+    typealias Loader = @MainActor (String) -> NSImage?
+
+    static let shared = WarrenPresetIconCache { name in
+        let packaged = Bundle.main.resourceURL?
+            .appendingPathComponent("WarrenDesktop_WarrenDesktop.bundle", isDirectory: true)
+            .appendingPathComponent("\(name).svg")
+        let url = packaged.flatMap {
+            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+        } ?? Bundle.module.url(forResource: name, withExtension: "svg")
+        return url.flatMap(NSImage.init(contentsOf:))
+    }
+
+    private let loader: Loader
+    private var images: [String: NSImage] = [:]
+    private var missing: Set<String> = []
+
+    init(loader: @escaping Loader) {
+        self.loader = loader
+    }
+
+    func image(named name: String) -> NSImage? {
+        if let image = images[name] { return image }
+        guard !missing.contains(name) else { return nil }
+        guard let image = loader(name) else {
+            missing.insert(name)
+            return nil
+        }
+        images[name] = image
+        return image
     }
 }
 

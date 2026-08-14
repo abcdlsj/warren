@@ -108,6 +108,8 @@ final class WarrenNextApplicationModel {
     }
 
     private func makeDesktopProjection() -> WarrenDesktopProjection {
+        let interval = WarrenPerformance.signposter.beginInterval("Desktop Projection")
+        defer { WarrenPerformance.signposter.endInterval("Desktop Projection", interval) }
         let issue = presentedIssue
         let inspector = issue.map {
             WarrenDesktopInspectorContent(

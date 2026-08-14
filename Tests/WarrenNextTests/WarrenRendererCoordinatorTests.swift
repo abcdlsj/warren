@@ -3,6 +3,7 @@ import XCTest
 import WarrenApplication
 import WarrenClientCore
 import WarrenDomain
+import WarrenHost
 @testable import WarrenNext
 
 final class WarrenRendererCoordinatorTests: XCTestCase {
@@ -48,6 +49,105 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
             fixture.snapshot,
             renamed
         ))
+    }
+
+    func testLosslessAsyncBufferBackpressuresAndPreservesOrder() async throws {
+        let buffer = WarrenLosslessAsyncBuffer<Int>(capacity: 2)
+        let progress = SendProgress()
+        let producer = Task {
+            for value in 0..<100 {
+                guard await buffer.send(value) else { return false }
+                await progress.recordSend()
+            }
+            return true
+        }
+
+        await progress.waitForSends(2)
+        try await Task.sleep(for: .milliseconds(2))
+        let sentBeforeConsumption = await progress.sentCount
+        XCTAssertEqual(sentBeforeConsumption, 2)
+
+        var iterator = buffer.stream.makeAsyncIterator()
+        var received: [Int] = []
+        for _ in 0..<100 {
+            let next = await iterator.next()
+            received.append(try XCTUnwrap(next))
+        }
+        let completed = await producer.value
+        XCTAssertTrue(completed)
+        buffer.finish()
+        XCTAssertEqual(received, Array(0..<100))
+    }
+
+    func testTerminalOutputBufferDeduplicatesOverlapAndKeepsSequenceGaps() {
+        var buffer = WarrenTerminalOutputBuffer()
+        buffer.reset(epoch: 7, sequence: 0)
+        buffer.append(epoch: 7, sequence: 0, payload: Data("abcdef".utf8))
+        buffer.append(epoch: 7, sequence: 0, payload: Data("abcdef".utf8))
+        buffer.append(epoch: 7, sequence: 3, payload: Data("defghi".utf8))
+
+        var slices: [WarrenTerminalOutputSlice] = []
+        while let slice = buffer.take(maxBytes: 4) { slices.append(slice) }
+        XCTAssertEqual(slices.map(\.sequence), [0, 4, 6])
+        XCTAssertEqual(
+            Data(slices.flatMap { $0.payload }),
+            Data("abcdefghi".utf8)
+        )
+        XCTAssertEqual(buffer.enqueuedSequence, 9)
+
+        buffer.append(epoch: 8, sequence: 100, payload: Data("xyz".utf8))
+        XCTAssertEqual(buffer.take(maxBytes: 8), WarrenTerminalOutputSlice(
+            epoch: 8,
+            sequence: 100,
+            payload: Data("xyz".utf8)
+        ))
+    }
+
+    @MainActor
+    func testLargeOutputIsFedAcrossMainActorTurnsWithoutDuplication() async throws {
+        let fixture = Fixture()
+        var ring = OutputRing(epoch: 9, capacity: 4, nextSequence: 100)
+        try ring.append(
+            sessionID: fixture.firstSession.id,
+            payload: Data("abcdefghijkl".utf8)
+        )
+        let session = copySession(
+            fixture.firstSession,
+            output: WarrenApplicationOutputSnapshot(
+                sessionID: fixture.firstSession.id,
+                ring: ring.recovery(for: nil).snapshot
+            )
+        )
+        let snapshot = copySnapshot(fixture.snapshot, sessions: [session, fixture.secondSession])
+        let coordinator = WarrenRendererCoordinator(
+            service: RendererServiceSpy(),
+            windowID: fixture.windowID,
+            outputRenderBudgetBytes: 4,
+            outputRenderYield: .milliseconds(20)
+        )
+
+        coordinator.reconcile(
+            snapshot: snapshot,
+            activeWorkspaceID: fixture.firstWorkspace.id,
+            activeSessionID: fixture.firstSession.id,
+            reportError: { _ in }
+        )
+        try await Task.sleep(for: .milliseconds(3))
+        let surface = try XCTUnwrap(coordinator.mountedSurfaces.first)
+        XCTAssertEqual(surface.renderedSequence, 104)
+
+        // Replaying the same immutable snapshot while bytes are pending must
+        // not enqueue another copy.
+        coordinator.reconcile(
+            snapshot: snapshot,
+            activeWorkspaceID: fixture.firstWorkspace.id,
+            activeSessionID: fixture.firstSession.id,
+            reportError: { _ in }
+        )
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(surface.renderedSequence, 112)
+        XCTAssertEqual(surface.semanticSnapshot().plainText, "abcdefghijkl")
+        coordinator.shutdown()
     }
 
     @MainActor
@@ -156,6 +256,25 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         XCTAssertEqual(values.resizes.last?.size, TerminalSize(columns: 180, rows: 40))
         XCTAssertEqual(values.maximumConcurrentResizes, 1)
         XCTAssertLessThan(values.resizes.count, 100)
+    }
+}
+
+private actor SendProgress {
+    private(set) var sentCount = 0
+    private var waiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func recordSend() {
+        sentCount += 1
+        let ready = waiters.filter { sentCount >= $0.count }
+        waiters.removeAll { sentCount >= $0.count }
+        for waiter in ready { waiter.continuation.resume() }
+    }
+
+    func waitForSends(_ count: Int) async {
+        guard sentCount < count else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((count, continuation))
+        }
     }
 }
 

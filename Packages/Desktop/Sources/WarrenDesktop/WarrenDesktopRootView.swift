@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import WarrenClientCore
 import WarrenDesignSystem
 import WarrenDomain
@@ -257,6 +258,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     /// one immutable presentation value avoids repeated graph lookups while
     /// preserving the navigation ownership rules.
     private func makePresentation() -> Presentation {
+        let interval = WarrenDesktopPerformance.signposter.beginInterval("SwiftUI Presentation")
+        defer { WarrenDesktopPerformance.signposter.endInterval("SwiftUI Presentation", interval) }
         let navigationWorkspace: Workspace?
         switch navigation.selection {
         case .project(let projectID):
@@ -323,6 +326,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private static func persist(_ state: WarrenDesktopSidebarState) {
         UserDefaults.standard.set(state.width, forKey: WarrenDesktopSidebarKeys.width)
     }
+}
+
+private enum WarrenDesktopPerformance {
+    static let signposter = OSSignposter(
+        subsystem: "com.abcdlsj.warren",
+        category: "UI Performance"
+    )
 }
 
 private enum WarrenDesktopSidebarKeys {

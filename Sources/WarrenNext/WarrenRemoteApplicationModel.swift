@@ -72,25 +72,18 @@ private enum RemoteWireEvent: Sendable {
 }
 
 private actor WarrenRemoteWire {
+    private static let outputChunkBytes = 128 * 1024
     private let configuration: WarrenRemoteEndpointConfiguration
     private var task: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var continuations: [String: CheckedContinuation<Data, Error>] = [:]
     private var pendingInput = Data()
     private var inputTask: Task<Void, Never>?
-    private let stream: AsyncStream<RemoteWireEvent>
-    private var streamContinuation: AsyncStream<RemoteWireEvent>.Continuation?
+    private let eventBuffer = WarrenLosslessAsyncBuffer<RemoteWireEvent>(capacity: 64)
 
-    init(configuration: WarrenRemoteEndpointConfiguration) {
-        self.configuration = configuration
-        // Terminal bytes are ordered state, not replaceable snapshots. Never
-        // silently discard an older output frame under load.
-        let pair = AsyncStream<RemoteWireEvent>.makeStream(bufferingPolicy: .unbounded)
-        self.stream = pair.stream
-        self.streamContinuation = pair.continuation
-    }
+    init(configuration: WarrenRemoteEndpointConfiguration) { self.configuration = configuration }
 
-    nonisolated func events() -> AsyncStream<RemoteWireEvent> { stream }
+    nonisolated func events() -> AsyncStream<RemoteWireEvent> { eventBuffer.stream }
 
     func connect() async throws {
         guard task == nil else { return }
@@ -118,6 +111,7 @@ private actor WarrenRemoteWire {
         inputTask?.cancel()
         inputTask = nil
         pendingInput.removeAll(keepingCapacity: true)
+        eventBuffer.finish()
         for continuation in continuations.values {
             continuation.resume(throwing: URLError(.cancelled))
         }
@@ -153,7 +147,7 @@ private actor WarrenRemoteWire {
             do {
                 try await task.send(.data(data))
             } catch {
-                streamContinuation?.yield(.disconnected(String(describing: error)))
+                _ = await eventBuffer.send(.disconnected(String(describing: error)))
                 return
             }
         }
@@ -168,22 +162,35 @@ private actor WarrenRemoteWire {
             while !Task.isCancelled {
                 switch try await socket.receive() {
                 case .data(let data):
-                    streamContinuation?.yield(.output(data))
+                    guard await emitOutput(data) else { return }
                 case .string(let text):
-                    handleText(Data(text.utf8))
+                    guard await handleText(Data(text.utf8)) else { return }
                 @unknown default:
                     break
                 }
             }
         } catch {
             guard !Task.isCancelled else { return }
-            streamContinuation?.yield(.disconnected(String(describing: error)))
+            _ = await eventBuffer.send(.disconnected(String(describing: error)))
         }
     }
 
-    private func handleText(_ data: Data) {
+    private func emitOutput(_ data: Data) async -> Bool {
+        var offset = 0
+        while offset < data.count {
+            let end = min(offset + Self.outputChunkBytes, data.count)
+            let chunk = offset == 0 && end == data.count
+                ? data
+                : Data(data[offset..<end])
+            guard await eventBuffer.send(.output(chunk)) else { return false }
+            offset = end
+        }
+        return true
+    }
+
+    private func handleText(_ data: Data) async -> Bool {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = object["t"] as? String else { return }
+              let type = object["t"] as? String else { return true }
         if type == "response", let id = object["id"] as? String,
            let continuation = continuations.removeValue(forKey: id) {
             if object["ok"] as? Bool == true {
@@ -200,10 +207,13 @@ private actor WarrenRemoteWire {
         } else if type == "roster", let state = object["state"],
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   let roster = try? JSONDecoder().decode(RemoteRoster.self, from: encoded) {
-            streamContinuation?.yield(.roster(roster))
+            return await eventBuffer.send(.roster(roster))
         } else if type == "error" {
-            streamContinuation?.yield(.disconnected(object["error"] as? String ?? "Remote authentication failed"))
+            return await eventBuffer.send(.disconnected(
+                object["error"] as? String ?? "Remote authentication failed"
+            ))
         }
+        return true
     }
 
     private nonisolated static func json(_ value: [String: Any]) -> String {
@@ -237,7 +247,7 @@ final class WarrenRemoteApplicationModel {
                 try await wire.connect()
                 for await event in events {
                     guard !Task.isCancelled else { return }
-                    self?.consume(event)
+                    await self?.consume(event)
                 }
             } catch {
                 self?.present(error)
@@ -349,16 +359,41 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func consume(_ event: RemoteWireEvent) {
+    private func consume(_ event: RemoteWireEvent) async {
         switch event {
         case .roster(let roster):
             currentRoster = roster
             apply(roster)
         case .output(let data):
-            mountedSurfaces.first?.receive(data)
+            await feedOutput(data)
         case .disconnected(let detail):
             projection = projection.withConnectionState(.failed)
             present(NSError(domain: "WarrenRemote", code: 4, userInfo: [NSLocalizedDescriptionKey: detail]))
+        }
+    }
+
+    private func feedOutput(_ data: Data) async {
+        guard !data.isEmpty,
+              let surface = mountedSurfaces.first,
+              surface.id == selectedSessionID else { return }
+        let interval = WarrenPerformance.signposter.beginInterval("Remote Ghostty Feed")
+        defer { WarrenPerformance.signposter.endInterval("Remote Ghostty Feed", interval) }
+        let budget = 128 * 1024
+        var offset = 0
+        while offset < data.count,
+              !Task.isCancelled,
+              mountedSurfaces.first === surface {
+            let end = min(offset + budget, data.count)
+            surface.receive(offset == 0 && end == data.count
+                ? data
+                : Data(data[offset..<end]))
+            offset = end
+            guard offset < data.count else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(8))
+            } catch {
+                return
+            }
         }
     }
 

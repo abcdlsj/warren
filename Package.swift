@@ -11,6 +11,7 @@ let package = Package(
         .package(path: "Packages/Desktop"),
         .package(path: "Packages/GhosttyAdapter"),
         .package(path: "Packages/Application"),
+        .package(path: "Packages/Host"),
         .package(path: "Packages/TmuxRuntime"),
         .package(path: "Packages/StateStore"),
         .package(path: "Packages/Domain"),
@@ -69,6 +70,7 @@ let package = Package(
                 .product(name: "WarrenApplication", package: "Application"),
                 .product(name: "WarrenClientCore", package: "ClientCore"),
                 .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenHost", package: "Host"),
             ],
             path: "Tests/WarrenNextTests"
         ),
