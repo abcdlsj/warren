@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"strconv"
 	"testing"
@@ -101,4 +102,61 @@ func TestNormalizeCaptureOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnsurePipeDoesNotCloseExistingPipe(t *testing.T) {
+	binary, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	name := "warren_pipe_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	tmux := Tmux{Binary: binary, Socket: name, OutputDir: t.TempDir()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+		t.Fatal(err)
+	}
+	defer tmux.Kill(context.Background(), name)
+
+	if err := tmux.EnsurePipe(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	pane, err := tmux.PaneTarget(ctx, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasPipe := func() bool {
+		value, err := tmux.paneHasPipe(ctx, pane)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	if !hasPipe() {
+		t.Fatal("output pipe was not installed")
+	}
+
+	// Regression: `pipe-pane -o` toggles and closes the pipe on tmux 3.5a.
+	// Re-ensuring after adoption must keep the pipe installed.
+	if err := tmux.EnsurePipe(ctx, name); err != nil {
+		t.Fatal(err)
+	}
+	if !hasPipe() {
+		t.Fatal("re-ensure closed an existing output pipe")
+	}
+
+	spool := tmux.SpoolPath(name)
+	if err := tmux.Input(ctx, name, []byte("echo pipe-ok\n")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		data, _ := os.ReadFile(spool)
+		if bytes.Contains(data, []byte("pipe-ok")) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("spool %s did not receive output after re-ensure", spool)
 }

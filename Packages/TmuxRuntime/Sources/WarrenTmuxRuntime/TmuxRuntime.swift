@@ -128,7 +128,6 @@ public actor TmuxRuntime: TerminalRuntime {
                 spoolURL: spoolURL,
                 inputBufferName: Self.inputBufferName(for: sessionID),
                 outputOffset: 0,
-                pipeOnlyIfMissing: false,
                 launchInteractiveShell: false,
                 shellPath: nil
             )
@@ -185,7 +184,6 @@ public actor TmuxRuntime: TerminalRuntime {
                 spoolURL: spoolURL,
                 inputBufferName: inputBuffer,
                 outputOffset: outputOffset,
-                pipeOnlyIfMissing: true,
                 launchInteractiveShell: false,
                 shellPath: nil
             )

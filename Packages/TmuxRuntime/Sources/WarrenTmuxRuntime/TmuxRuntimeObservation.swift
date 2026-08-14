@@ -14,7 +14,6 @@ extension TmuxRuntime {
         spoolURL: URL,
         inputBufferName: String,
         outputOffset: UInt64,
-        pipeOnlyIfMissing: Bool,
         launchInteractiveShell: Bool,
         shellPath: String?
     ) async throws {
@@ -39,16 +38,20 @@ extension TmuxRuntime {
         )
 
         do {
-            var arguments = ["pipe-pane"]
-            if pipeOnlyIfMissing { arguments.append("-o") }
-            arguments.append(contentsOf: [
-                "-O", "-t", paneTarget,
-                "cat >> \(Self.shellQuote(spoolURL.path))",
-            ])
-            try await requireSuccess(
-                arguments,
-                recovery: "Ensure the tmux pane can create an output pipe; if permissions or tmux configuration block it, retry the session."
-            )
+            // tmux keeps one pipe per pane. `pipe-pane -o` toggles on tmux
+            // 3.5a and would close an existing pipe during adoption, silently
+            // stopping output after a Host restart. Check `#{pane_pipe}`
+            // instead: install only when missing, never tear down a correct
+            // pipe, and never stack a duplicate.
+            if try await hasOutputPipe(paneTarget: paneTarget) == false {
+                try await requireSuccess(
+                    [
+                        "pipe-pane", "-O", "-t", paneTarget,
+                        "cat >> \(Self.shellQuote(spoolURL.path))",
+                    ],
+                    recovery: "Ensure the tmux pane can create an output pipe; if permissions or tmux configuration block it, retry the session."
+                )
+            }
             if launchInteractiveShell, let shellPath {
                 try await requireSuccess(
                     ["respawn-pane", "-k", "-t", paneTarget, shellPath, "-l"],

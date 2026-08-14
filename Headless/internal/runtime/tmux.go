@@ -61,9 +61,12 @@ func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command strin
 	return nil
 }
 
-// EnsurePipe installs the raw PTY byte pipe for a session. `-o` makes the
-// install idempotent: repeated attach/adopt never stack a second pipe, and
-// tmux keeps the pane output flowing into the same append-only spool.
+// EnsurePipe installs the raw PTY byte pipe for a session. tmux supports one
+// pipe per pane, so the install is guarded by `#{pane_pipe}` instead of the
+// `-o` toggle flag: `pipe-pane -o` closes an existing pipe on tmux 3.5a,
+// which would silently stop every adopted session's output after a daemon
+// restart. With the guard, repeated attach/adopt never stack a pipe and never
+// tear down an already-correct one.
 func (t *Tmux) EnsurePipe(ctx context.Context, runtimeName string) error {
 	if !t.Exists(ctx, runtimeName) {
 		return fmt.Errorf("tmux session not found: %s", runtimeName)
@@ -84,14 +87,31 @@ func (t *Tmux) EnsurePipe(ctx context.Context, runtimeName string) error {
 	if err != nil {
 		return err
 	}
-	output, err := t.command(ctx,
-		"pipe-pane", "-o", "-O", "-t", pane,
-		"cat >> "+shellQuote(spoolPath),
-	).CombinedOutput()
+	lock := t.sessionLock(runtimeName)
+	lock.Lock()
+	defer lock.Unlock()
+	hasPipe, err := t.paneHasPipe(ctx, pane)
 	if err != nil {
-		return fmt.Errorf("install tmux output pipe: %s: %w", strings.TrimSpace(string(output)), err)
+		return err
+	}
+	if !hasPipe {
+		output, installErr := t.command(ctx,
+			"pipe-pane", "-O", "-t", pane,
+			"cat >> "+shellQuote(spoolPath),
+		).CombinedOutput()
+		if installErr != nil {
+			return fmt.Errorf("install tmux output pipe: %s: %w", strings.TrimSpace(string(output)), installErr)
+		}
 	}
 	return t.setLatestWindowSize(ctx, runtimeName)
+}
+
+func (t *Tmux) paneHasPipe(ctx context.Context, pane string) (bool, error) {
+	output, err := t.command(ctx, "display-message", "-p", "-t", pane, "#{pane_pipe}").Output()
+	if err != nil {
+		return false, fmt.Errorf("query tmux output pipe: %w", err)
+	}
+	return strings.TrimSpace(string(output)) == "1", nil
 }
 
 func (t *Tmux) ClosePipe(ctx context.Context, runtimeName string) error {

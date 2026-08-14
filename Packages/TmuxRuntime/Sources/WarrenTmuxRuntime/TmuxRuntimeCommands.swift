@@ -75,6 +75,19 @@ extension TmuxRuntime {
         return try await paneTarget(for: descriptor.identifier)
     }
 
+    func hasOutputPipe(paneTarget: String) async throws -> Bool {
+        let arguments = ["display-message", "-p", "-t", paneTarget, "#{pane_pipe}"]
+        let result = try await execute(arguments: arguments)
+        guard result.exitCode == 0 else {
+            throw commandError(
+                arguments: arguments,
+                result: result,
+                recovery: "Ensure the tmux pane still exists, then retry adoption."
+            )
+        }
+        return result.stdoutText.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+    }
+
     func requireSuccess(
         _ arguments: [String],
         standardInput: Data? = nil,
