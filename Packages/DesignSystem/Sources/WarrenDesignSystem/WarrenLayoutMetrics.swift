@@ -63,9 +63,12 @@ public enum WarrenLayoutMetrics {
     public static let settingsNavigationWidth: CGFloat = 224
     /// Superset's settings content column is `max-w-5xl`.
     public static let settingsContentMaxWidth: CGFloat = 1024
-    /// Superset's command dialog is `max-w-[720px]`; the desktop palette keeps
-    /// the same density at a slightly narrower fixed width.
-    public static let commandPaletteWidth: CGFloat = 560
+    /// Superset's command dialog uses `max-w-[720px]`.
+    public static let commandPaletteWidth: CGFloat = 720
+    public static let commandPaletteResultsMaxHeight: CGFloat = 560
+    public static let commandPaletteInputHorizontalPadding: CGFloat = 14
+    public static let commandPaletteResultsPadding: CGFloat = 6
+    public static let commandPaletteItemHorizontalPadding: CGFloat = 10
     /// Superset's command input row is `h-12`.
     public static let commandInputHeight: CGFloat = 48
     /// Superset's settings search field is `h-8`.

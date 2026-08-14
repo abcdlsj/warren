@@ -229,18 +229,33 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         }
         .overlay {
             if commandPalettePresented && !settingsPresented {
-                ZStack {
-                    Color.black.opacity(0.5)
-                        .ignoresSafeArea()
-                        .onTapGesture { commandPalettePresented = false }
-
-                    WarrenDesktopCommandPalette(
-                        projection: projection,
-                        onAction: dispatch,
-                        onDismiss: { commandPalettePresented = false }
+                GeometryReader { proxy in
+                    let panelWidth = min(
+                        WarrenLayoutMetrics.commandPaletteWidth,
+                        max(0, proxy.size.width - WarrenSpacing.standard * 2)
                     )
-                    .offset(y: -48)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    let resultsMaxHeight = max(
+                        0,
+                        proxy.size.height * 0.8
+                            - WarrenLayoutMetrics.commandInputHeight
+                            - WarrenSpacing.hairline
+                    )
+                    ZStack(alignment: .top) {
+                        Color.black.opacity(0.5)
+                            .ignoresSafeArea()
+                            .onTapGesture { commandPalettePresented = false }
+
+                        WarrenDesktopCommandPalette(
+                            projection: projection,
+                            onAction: dispatch,
+                            onDismiss: { commandPalettePresented = false },
+                            width: panelWidth,
+                            resultsMaxHeight: resultsMaxHeight
+                        )
+                        .padding(.top, max(WarrenSpacing.standard, proxy.size.height * 0.5 - 278))
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .transition(.opacity)
                 .zIndex(20)

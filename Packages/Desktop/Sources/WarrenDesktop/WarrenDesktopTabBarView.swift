@@ -190,8 +190,6 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                     Text(endpointOptions.first(where: { $0.id == selectedEndpointID })?.label ?? "Server")
                         .font(WarrenTypography.navigationMeta)
                         .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
                 }
                 .padding(.horizontal, 8)
                 .frame(height: 26)

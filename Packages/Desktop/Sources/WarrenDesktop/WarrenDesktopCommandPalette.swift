@@ -6,7 +6,7 @@ import WarrenDomain
 ///
 /// Results preserve the Project → Workspace → Session relationship instead of
 /// flattening unrelated resources into a generic command list. The palette is
-/// a centered modal: a scrim, a 48pt input row, project group headings, and
+/// a near-top modal: a scrim, a 48pt input row, project group headings, and
 /// full keyboard navigation (arrows + Return, Esc to dismiss).
 struct WarrenDesktopCommandPalette: View {
     private struct SearchResult: Identifiable {
@@ -31,6 +31,8 @@ struct WarrenDesktopCommandPalette: View {
     let projection: WarrenDesktopProjection
     let onAction: (WarrenDesktopAction) -> Void
     let onDismiss: () -> Void
+    let width: CGFloat
+    let resultsMaxHeight: CGFloat
 
     @State private var query = ""
     @State private var selectedIndex = 0
@@ -96,9 +98,9 @@ struct WarrenDesktopCommandPalette: View {
                             projectGroup(result, tokens: tokens)
                         }
                     }
-                    .padding(WarrenSpacing.compact)
+                    .padding(WarrenLayoutMetrics.commandPaletteResultsPadding)
                 }
-                .frame(maxHeight: 420)
+                .frame(maxHeight: resultsMaxHeight)
                 .onChange(of: selectedIndex) { _, newIndex in
                     guard rows.indices.contains(newIndex) else { return }
                     proxy.scrollTo(rows[newIndex].id, anchor: .center)
@@ -106,21 +108,21 @@ struct WarrenDesktopCommandPalette: View {
             }
 
             if rows.isEmpty {
-                Text("No results found")
+                Text("No results found.")
                     .font(WarrenTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, WarrenSpacing.large)
             }
         }
-        .frame(width: WarrenLayoutMetrics.commandPaletteWidth)
+        .frame(width: width)
         .background(tokens.popoverSurface)
-        .clipShape(.rect(cornerRadius: WarrenRadius.medium))
+        .clipShape(.rect(cornerRadius: WarrenRadius.base))
         .overlay {
-            RoundedRectangle(cornerRadius: WarrenRadius.medium)
+            RoundedRectangle(cornerRadius: WarrenRadius.base)
                 .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
         }
-        .shadow(color: .black.opacity(0.45), radius: 30, y: 14)
+        .shadow(color: .black.opacity(0.5), radius: 35, y: 18)
         .onAppear { searchFocused = true }
         .onExitCommand(perform: onDismiss)
         .onChange(of: query) { _, _ in
@@ -138,7 +140,7 @@ struct WarrenDesktopCommandPalette: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(tokens.mutedForeground)
-                .frame(width: 20)
+                .frame(width: 18, height: 18)
                 .accessibilityHidden(true)
 
             TextField("Type a command or search…", text: $query)
@@ -176,18 +178,22 @@ struct WarrenDesktopCommandPalette: View {
             }
 
             Text("esc")
-                .font(WarrenTypography.shortcut)
-                .tracking(1.2)
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .tracking(0.5)
                 .foregroundStyle(tokens.mutedForeground)
-                .padding(.horizontal, 5)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(tokens.fillHover)
+                .background(tokens.muted)
                 .clipShape(.rect(cornerRadius: 4))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(tokens.ring, lineWidth: WarrenSpacing.hairline)
+                }
                 .accessibilityHidden(true)
         }
-        .padding(.horizontal, WarrenSpacing.standard)
+        .padding(.horizontal, WarrenLayoutMetrics.commandPaletteInputHorizontalPadding)
         .frame(height: WarrenLayoutMetrics.commandInputHeight)
-        .background(tokens.inputSurface)
+        .background(tokens.popoverSurface)
     }
 
     @ViewBuilder
@@ -199,9 +205,9 @@ struct WarrenDesktopCommandPalette: View {
             Text(result.group.project.name)
                 .font(WarrenTypography.groupHeading)
                 .foregroundStyle(tokens.mutedForeground)
-                .padding(.horizontal, WarrenSpacing.compact)
-                .padding(.top, WarrenSpacing.xs)
-                .padding(.bottom, WarrenSpacing.xxs)
+                .padding(.horizontal, WarrenLayoutMetrics.commandPaletteItemHorizontalPadding)
+                .padding(.top, WarrenSpacing.compact)
+                .padding(.bottom, WarrenSpacing.xs)
 
             projectRow(result, tokens: tokens)
 
@@ -223,9 +229,10 @@ struct WarrenDesktopCommandPalette: View {
         return Button {
             choose(.selectProject(result.group.project.id))
         } label: {
-            HStack(spacing: WarrenSpacing.compact) {
+            HStack(spacing: 10) {
                 Image(systemName: "folder")
-                    .frame(width: 18)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(result.group.project.name)
@@ -240,8 +247,8 @@ struct WarrenDesktopCommandPalette: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, WarrenSpacing.compact)
-            .frame(height: 44)
+            .padding(.horizontal, WarrenLayoutMetrics.commandPaletteItemHorizontalPadding)
+            .frame(minHeight: 40)
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected))
@@ -264,11 +271,11 @@ struct WarrenDesktopCommandPalette: View {
         return Button {
             choose(.selectWorkspace(workspace.id))
         } label: {
-            HStack(spacing: WarrenSpacing.compact) {
-                Circle()
-                    .fill(tokens.mutedForeground)
-                    .frame(width: 5, height: 5)
-                    .frame(width: 18)
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(tokens.mutedForeground)
+                    .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
                 Text(workspace.branch?.isEmpty == false ? workspace.branch! : workspace.name)
                     .font(WarrenTypography.navigationItem)
@@ -278,9 +285,8 @@ struct WarrenDesktopCommandPalette: View {
                     .font(WarrenTypography.navigationMeta)
                     .foregroundStyle(tokens.mutedForeground)
             }
-            .padding(.leading, WarrenSpacing.large)
-            .padding(.trailing, WarrenSpacing.compact)
-            .frame(height: 34)
+            .padding(.horizontal, WarrenLayoutMetrics.commandPaletteItemHorizontalPadding)
+            .frame(minHeight: 40)
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected))

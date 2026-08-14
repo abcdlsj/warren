@@ -168,9 +168,13 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private var endpointOptions: [WarrenDesktopEndpointOption] {
-        [.init(id: "local", label: "Local", isLocal: true)] + endpointCatalog.map {
-            .init(id: $0.id, label: $0.name)
-        }
+        let local = WarrenDesktopEndpointOption(id: "local", label: "Local", isLocal: true)
+        let configured = endpointCatalog
+            .filter { $0.id != local.id }
+            .map { endpoint in
+                WarrenDesktopEndpointOption(id: endpoint.id, label: endpoint.name)
+            }
+        return [local] + configured
     }
 
     private var isLocalEndpoint: Bool { selectedEndpointID == "local" }
