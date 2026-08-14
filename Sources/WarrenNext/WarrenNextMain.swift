@@ -148,6 +148,17 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
                 childEnvironment["WARREN_HEADLESS_PATH"] = sibling.path
             }
         }
+        if childEnvironment["WARREN_WEB_ROOT"] == nil {
+            let bundledResources = executable.deletingLastPathComponent()
+                .appendingPathComponent("../Resources").standardizedFileURL
+            let developmentResources = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("Packages/WebRelay/Sources/WebRelay/Resources")
+            let resources = FileManager.default.fileExists(atPath: bundledResources.path)
+                ? bundledResources : developmentResources
+            if FileManager.default.fileExists(atPath: resources.appendingPathComponent("index.html").path) {
+                childEnvironment["WARREN_WEB_ROOT"] = resources.path
+            }
+        }
         process.environment = childEnvironment
         do {
             try process.run()

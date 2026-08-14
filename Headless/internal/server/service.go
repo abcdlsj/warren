@@ -180,6 +180,36 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 	if name == "" {
 		name = branch
 	}
+	if path != "" {
+		if resolved, err := filepath.Abs(expandHome(path)); err == nil {
+			if info, statErr := os.Stat(resolved); statErr == nil && info.IsDir() {
+				if output, gitErr := exec.Command("git", "-C", resolved, "rev-parse", "--show-toplevel").Output(); gitErr == nil {
+					root := strings.TrimSpace(string(output))
+					if samePath(root, project.Path) {
+						if branch == "" {
+							branch = gitOutput(resolved, "branch", "--show-current")
+						}
+						if name == "" {
+							name = defaultValue(branch, "main")
+						}
+						workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "root", CreatedAt: time.Now().UTC()}
+						if err := s.Store.Update(func(value *api.State) error { value.Workspaces = append(value.Workspaces, workspace); return nil }); err != nil {
+							return api.Workspace{}, err
+						}
+						return workspace, nil
+					}
+					if name == "" {
+						name = filepath.Base(resolved)
+					}
+					workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
+					if err := s.Store.Update(func(value *api.State) error { value.Workspaces = append(value.Workspaces, workspace); return nil }); err != nil {
+						return api.Workspace{}, err
+					}
+					return workspace, nil
+				}
+			}
+		}
+	}
 	if path == "" {
 		path = filepath.Join(expandHome(s.WorktreeRoot), project.ID[:8], id[:8]+"-"+safeName(branch))
 	}

@@ -63,10 +63,19 @@ func main() {
 			fatal(err)
 		}
 	}()
+	// The loopback Web Relay is part of the same daemon lifecycle. It shares
+	// the authenticated WebSocket protocol and tmux authority with /v1/ws.
+	webRelayServer := &http.Server{Addr: "127.0.0.1:8788", Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	go func() {
+		if err := webRelayServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("web relay stopped", "error", err)
+		}
+	}()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	_ = httpServer.Close()
+	_ = webRelayServer.Close()
 }
 
 func loadOrCreateToken(path string) (string, error) {

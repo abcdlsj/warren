@@ -72,9 +72,6 @@ public struct WarrenDesktopWebRelayPanel: View {
                 Text("Local Web Relay is unavailable")
                     .font(.system(size: 11))
                     .foregroundStyle(tokens.mutedForeground)
-                Button("Start Web Relay", action: onStart)
-                    .buttonStyle(WarrenPrimaryButtonStyle())
-                    .controlSize(.small)
             }
         }
         .padding(WarrenSpacing.medium)

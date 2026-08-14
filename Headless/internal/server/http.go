@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +25,26 @@ type HTTPServer struct {
 	Token    string
 	Logger   *slog.Logger
 	upgrader websocket.Upgrader
+}
+
+type relayRoster struct {
+	Type       string          `json:"t"`
+	State      api.State       `json:"state"`
+	Host       api.Host        `json:"host"`
+	Projects   []api.Project   `json:"projects"`
+	Workspaces []api.Workspace `json:"workspaces"`
+	Tabs       []relayTab      `json:"tabs"`
+}
+
+type relayTab struct {
+	ID        string `json:"id"`
+	Workspace string `json:"workspace"`
+	Session   string `json:"session"`
+	Title     string `json:"title"`
+	Kind      string `json:"kind"`
+	Lifecycle string `json:"lifecycle"`
+	Process   string `json:"process,omitempty"`
+	Directory string `json:"directory,omitempty"`
 }
 
 func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPServer {
@@ -48,7 +70,66 @@ func (s *HTTPServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)
 	mux.HandleFunc("GET /v1/ws", s.handleWebSocket)
+	mux.HandleFunc("GET /ws", s.handleWebSocket)
+	mux.HandleFunc("GET /", s.handleWebAsset)
+	mux.HandleFunc("GET /service-worker.js", s.handleWebAsset)
+	mux.HandleFunc("GET /manifest.webmanifest", s.handleWebAsset)
+	mux.HandleFunc("GET /assets/", s.handleWebAsset)
+	mux.HandleFunc("GET /preset-", s.handleWebAsset)
+	mux.HandleFunc("GET /icon", s.handleWebAsset)
+	mux.HandleFunc("GET /apple-touch-icon.png", s.handleWebAsset)
 	return mux
+}
+
+func (s *HTTPServer) handleWebAsset(writer http.ResponseWriter, request *http.Request) {
+	root := os.Getenv("WARREN_WEB_ROOT")
+	if root == "" {
+		root = filepath.Join(filepath.Dir(os.Args[0]), "..", "Resources")
+	}
+	name := strings.TrimPrefix(request.URL.Path, "/")
+	if name == "" {
+		name = "index.html"
+	}
+	if name == "index.html" {
+		data, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			http.Error(writer, "Warren Web unavailable", http.StatusNotFound)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		_, _ = writer.Write(data)
+		return
+	}
+	clean := filepath.Clean(name)
+	if clean == "." || strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	data, err := os.ReadFile(filepath.Join(root, clean))
+	if err != nil {
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	writer.Header().Set("Content-Type", webContentType(clean))
+	_, _ = writer.Write(data)
+}
+
+func webContentType(path string) string {
+	switch filepath.Ext(path) {
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js":
+		return "text/javascript; charset=utf-8"
+	case ".json", ".webmanifest":
+		return "application/json"
+	case ".svg":
+		return "image/svg+xml"
+	case ".png":
+		return "image/png"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func (s *HTTPServer) handleState(writer http.ResponseWriter, request *http.Request) {
@@ -70,6 +151,7 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 		server:     s,
 		closed:     make(chan struct{}),
 		outputWake: make(chan struct{}, 1),
+		browser:    request.URL.Path == "/ws",
 	}
 	defer peer.close()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -83,6 +165,7 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 	if err := peer.writeJSON(map[string]any{"t": "welcome", "version": api.Version, "host": state.Host}); err != nil {
 		return
 	}
+	_ = peer.writeJSON(makeRelayRoster(state))
 	peer.startRoster(request.Context(), state, revision)
 	for {
 		messageType, data, err := connection.ReadMessage()
@@ -119,6 +202,7 @@ type wsPeer struct {
 	rosterCancel context.CancelFunc
 	closed       chan struct{}
 	outputWake   chan struct{}
+	browser      bool
 	closeOnce    sync.Once
 }
 
@@ -173,10 +257,7 @@ func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialR
 		revision := initialRevision
 		var last []byte
 		for {
-			data, _ := json.Marshal(struct {
-				Type  string    `json:"t"`
-				State api.State `json:"state"`
-			}{Type: "roster", State: state})
+			data, _ := json.Marshal(makeRelayRoster(state))
 			if !bytes.Equal(data, last) {
 				last = append(last[:0], data...)
 				if p.writeText(data) != nil {
@@ -196,7 +277,28 @@ func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialR
 	}()
 }
 
+func makeRelayRoster(state api.State) relayRoster {
+	tabs := make([]relayTab, 0, len(state.Sessions))
+	for _, session := range state.Sessions {
+		if session.Lifecycle != "running" {
+			continue
+		}
+		tabs = append(tabs, relayTab{
+			ID: session.ID, Workspace: session.WorkspaceID, Session: session.ID,
+			Title: session.Title, Kind: session.Kind, Lifecycle: session.Lifecycle,
+			Process: session.Command,
+		})
+	}
+	return relayRoster{
+		Type: "roster", State: state, Host: state.Host,
+		Projects: state.Projects, Workspaces: state.Workspaces, Tabs: tabs,
+	}
+}
+
 func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
+	if p.browser {
+		return p.handleBrowser(ctx, command)
+	}
 	if command.Type != "request" {
 		return fmt.Errorf("unsupported message type: %s", command.Type)
 	}
@@ -283,6 +385,44 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	}
 }
 
+func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error {
+	switch command.Type {
+	case "attach":
+		session, ok := p.server.Service.Session(command.Session)
+		if !ok {
+			return fmt.Errorf("session not found: %s", command.Session)
+		}
+		if session.Lifecycle != "running" {
+			return fmt.Errorf("session is not running: %s", command.Session)
+		}
+		p.attach(ctx, session)
+	case "create":
+		session, err := p.server.Service.CreateSession(ctx, command.Workspace, command.Command, command.Kind, command.Title)
+		if err != nil {
+			return err
+		}
+		return p.writeJSON(map[string]any{"t": "created", "session": session.ID})
+	case "resize":
+		if p.attached == nil {
+			return fmt.Errorf("no attached session")
+		}
+		if command.Cols <= 0 || command.Rows <= 0 {
+			return fmt.Errorf("invalid terminal size")
+		}
+		return p.server.Service.Runtime.Resize(ctx, p.attached.Runtime, command.Cols, command.Rows)
+	case "detach":
+		p.detach()
+	case "deleteSession":
+		if err := p.server.Service.DeleteSession(ctx, command.Session); err != nil {
+			return err
+		}
+		return p.writeJSON(map[string]any{"t": "sessionDeleted", "session": command.Session})
+	default:
+		return fmt.Errorf("unsupported browser message type: %s", command.Type)
+	}
+	return nil
+}
+
 func (p *wsPeer) input(ctx context.Context, data []byte) error {
 	if p.attached == nil {
 		return fmt.Errorf("no attached session")
@@ -300,6 +440,9 @@ func (p *wsPeer) input(ctx context.Context, data []byte) error {
 func (p *wsPeer) attach(parent context.Context, session api.Session) {
 	p.detach()
 	p.attached = &session
+	if p.browser {
+		_ = p.writeJSON(map[string]any{"t": "attached", "session": session.ID})
+	}
 	ctx, cancel := context.WithCancel(parent)
 	p.streamCancel = cancel
 	go func() {

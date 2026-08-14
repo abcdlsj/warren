@@ -259,6 +259,11 @@ final class WarrenRemoteApplicationModel {
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
+        if configuration.url.hasPrefix("http://127.0.0.1:8789"),
+           !configuration.token.isEmpty,
+           let url = URL(string: "http://127.0.0.1:8788/#t=\(configuration.token)") {
+            webRelayStatus = WarrenDesktopWebRelayStatus(isRunning: true, localURL: url)
+        }
         projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
         let wire = WarrenRemoteWire(configuration: configuration)
         self.wire = wire
@@ -286,6 +291,7 @@ final class WarrenRemoteApplicationModel {
         resizeTask?.cancel()
         resizeTask = nil
         mountedSurfaces.removeAll()
+        webRelayStatus = WarrenDesktopWebRelayStatus()
     }
 
     func createWorkspace(projectID: ProjectID, request creation: WorkspaceCreationRequest) {
@@ -311,11 +317,13 @@ final class WarrenRemoteApplicationModel {
     }
 
     func updateTerminalFont(_ preference: TerminalFontPreference) {}
-    func startWebRelayFromUI() { present(NSError(domain: "WarrenRemote", code: 5, userInfo: [NSLocalizedDescriptionKey: "Web Relay 由 daemon 管理，当前桌面端暂不可用。"])) }
+    func startWebRelayFromUI() {}
     func stopWebRelay() {}
     func openWebRelayURL(_ url: URL) { NSWorkspace.shared.open(url) }
     func copyWebRelayURL(_ url: URL) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
-    func copyLocalWebURL() { present(NSError(domain: "WarrenRemote", code: 5, userInfo: [NSLocalizedDescriptionKey: "Web Relay 由 daemon 管理，当前桌面端暂不可用。"])) }
+    func copyLocalWebURL() {
+        if let url = webRelayStatus.localURL { copyWebRelayURL(url) }
+    }
     func startCloudflareWebAccess() {}
     func stopCloudflareWebAccess() {}
     func startTailscaleWebAccess() {}
@@ -323,10 +331,34 @@ final class WarrenRemoteApplicationModel {
     func copySecureWebURL() {}
 
     func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {
-        throw NSError(domain: "WarrenRemote", code: 6, userInfo: [NSLocalizedDescriptionKey: "Superset 导入需要在 daemon 端执行，当前版本暂不可用。"])
+        let source = try SupersetImportSource(databaseURL: databaseURL)
+        return try await source.preview()
     }
 
-    func commitSupersetImport(_ preview: SupersetImportPreview) async {}
+    func commitSupersetImport(_ preview: SupersetImportPreview) async {
+        guard let wire else { return }
+        do {
+            for project in preview.projects where project.status == .ready {
+                let data = try await wire.request("project.add", params: [
+                    "path": project.repositoryPath,
+                    "name": project.name,
+                ])
+                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = object["id"] as? String else { continue }
+                for workspace in project.workspaces where workspace.status == .ready {
+                    if workspace.path == project.repositoryPath { continue }
+                    _ = try await wire.request("workspace.create", params: [
+                        "project": id,
+                        "branch": workspace.branch ?? "main",
+                        "name": workspace.name,
+                        "path": workspace.path,
+                    ])
+                }
+            }
+        } catch {
+            present(error)
+        }
+    }
 
     func perform(_ action: WarrenDesktopAction) {
         navigation = WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
