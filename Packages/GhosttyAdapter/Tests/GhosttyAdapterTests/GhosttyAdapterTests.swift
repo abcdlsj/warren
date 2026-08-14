@@ -39,6 +39,7 @@ final class GhosttyAdapterTests: XCTestCase {
         )
 
         XCTAssertNil(surface.state.controller.lastConfigurationIssue)
+        XCTAssertTrue(surface.state.renderedConfig.contains("font-thicken = false"))
         XCTAssertTrue(surface.state.renderedConfig.contains("adjust-cell-height = 12%"))
     }
 }
