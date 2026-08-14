@@ -32,6 +32,7 @@ const storageKeys = {
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
+const pendingInputLimit = 64 * 1024;
 const previewSession = {
   title: "Claude",
   process: "claude",
@@ -81,6 +82,7 @@ export default function App() {
   const connectionStateHandlerRef = useRef(() => {});
   const appStateRef = useRef({});
   const pendingRequestsRef = useRef(new Map());
+  const pendingInputRef = useRef([]);
   const navigationBeforeSettingsRef = useRef(null);
 
   const selectedWorkspaceID = useMemo(() => {
@@ -122,17 +124,67 @@ export default function App() {
     return true;
   }, []);
 
-  const sendInput = useCallback(data => {
-    const state = appStateRef.current;
-    if (data && state.activeSession && state.attachedSession === state.activeSession) {
-      connectionRef.current?.sendBinary(data);
+  const queueInput = useCallback((sessionID, data) => {
+    pendingInputRef.current.push({ sessionID, data });
+    let size = pendingInputRef.current.reduce((total, value) => total + value.data.length, 0);
+    while (size > pendingInputLimit && pendingInputRef.current.length) {
+      size -= pendingInputRef.current.shift().data.length;
     }
   }, []);
+
+  const flushInput = useCallback(sessionID => {
+    const state = appStateRef.current;
+    if (state.activeSession !== sessionID || state.attachedSession !== sessionID) return;
+    const connection = connectionRef.current;
+    if (!connection) return;
+    const pending = pendingInputRef.current;
+    const remaining = [];
+    for (let index = 0; index < pending.length; index += 1) {
+      const item = pending[index];
+      if (item.sessionID !== sessionID) continue;
+      if (!connection.sendBinary(item.data)) {
+        remaining.push(item, ...pending.slice(index + 1).filter(value => value.sessionID === sessionID));
+        break;
+      }
+    }
+    pendingInputRef.current = remaining;
+  }, []);
+
+  const markAttachReady = useCallback((sessionID, flush = true) => {
+    const state = appStateRef.current;
+    if (state.activeSession !== sessionID) return;
+    // The attach response is ordered before subsequent WebSocket frames, so
+    // it is safe to accept input even if a legacy relay omits `attached`.
+    state.attachedSession = sessionID;
+    setAttachedSession(sessionID);
+    if (flush) flushInput(sessionID);
+    terminalRef.current?.focus();
+  }, [flushInput]);
+
+  const sendInput = useCallback(data => {
+    const state = appStateRef.current;
+    if (!data || !state.activeSession) return;
+    if (state.attachedSession !== state.activeSession) {
+      queueInput(state.activeSession, data);
+      return;
+    }
+    if (!connectionRef.current?.sendBinary(data)) {
+      queueInput(state.activeSession, data);
+      connectionRef.current?.reconnectNow();
+    }
+  }, [queueInput]);
 
   const fitTerminal = useCallback(() => {
     fitFrameRef.current = null;
     const node = terminalHostRef.current;
     fitTerminalToHost(fitAddonRef.current, node);
+  }, []);
+
+  const focusTerminal = useCallback(() => {
+    const state = appStateRef.current;
+    if (state.activeSession && state.attachedSession === state.activeSession) {
+      terminalRef.current?.focus();
+    }
   }, []);
 
   const scheduleTerminalFit = useCallback(() => {
@@ -164,6 +216,7 @@ export default function App() {
     const changed = sessionID !== state.activeSession;
     state.activeSession = sessionID;
     state.attachedSession = null;
+    if (changed) pendingInputRef.current = [];
     setActiveSession(sessionID);
     setAttachedSession(null);
     setEmptyOverride(null);
@@ -177,8 +230,8 @@ export default function App() {
       ? null
       : recoveryAnchorRef.current;
     const message = attachTerminalMessage(sessionID, terminalRef.current, anchor);
-    request(message.method, message.params);
-  }, [request]);
+    request(message.method, message.params, () => markAttachReady(sessionID));
+  }, [markAttachReady, request]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
@@ -335,10 +388,9 @@ export default function App() {
       acceptRoster(message);
       break;
     case "attached": {
-      appStateRef.current.activeSession = message.session;
-      appStateRef.current.attachedSession = message.session;
+      if (appStateRef.current.activeSession !== message.session) break;
       setActiveSession(message.session);
-      setAttachedSession(message.session);
+      markAttachReady(message.session);
       setEmptyOverride(null);
       if (message.reanchor) {
         terminalRef.current?.clear();
@@ -425,7 +477,7 @@ export default function App() {
     default:
       break;
     }
-  }, [acceptRoster, attachSession, fitTerminal, scheduleRemoteResize]);
+  }, [acceptRoster, attachSession, fitTerminal, markAttachReady, scheduleRemoteResize]);
 
   const acceptConnectionState = useCallback(state => {
     if (state === "connecting") {
@@ -682,7 +734,7 @@ export default function App() {
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title"><span>{paneTitle}</span></div>
-          <section className="terminal-shell" aria-label="Terminal">
+          <section className="terminal-shell" aria-label="Terminal" onPointerDown={focusTerminal}>
             <div id="terminal" ref={terminalHostRef} />
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}
