@@ -13,6 +13,7 @@ struct WarrenDesktopWorkspaceRow: View {
     let isCollapsed: Bool
     let isSelected: Bool
     let onSelect: () -> Void
+    let onDoubleClick: () -> Void
     let onRename: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -54,6 +55,7 @@ struct WarrenDesktopWorkspaceRow: View {
             action: onSelect
         )
         .focused($isFocused)
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
         .contextMenu { Button("Rename Workspace", action: onRename) }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
@@ -85,6 +87,7 @@ struct WarrenDesktopWorkspaceRow: View {
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
         .focused($isFocused)
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

@@ -68,6 +68,7 @@ struct WarrenDesktopSidebarRows: View {
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),
                                 onSelect: { select(.workspace(workspace.id)) },
+                                onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
                                 onRename: {
                                     workspaceName = workspace.name
                                     pendingRename = workspace

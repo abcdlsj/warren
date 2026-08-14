@@ -333,12 +333,38 @@ final class WarrenRemoteApplicationModel {
     }
 
     func createSession(workspaceID: WorkspaceID, request launch: TerminalSessionLaunchRequest) {
-        request("session.create", params: [
-            "workspace": workspaceID.description,
-            "command": launch.command ?? "",
-            "kind": launch.kind.rawValue,
-            "title": launch.title ?? "",
-        ])
+        guard let wire else { return }
+        Task { @MainActor [weak self] in
+            do {
+                let data = try await wire.request("session.create", params: [
+                    "workspace": workspaceID.description,
+                    "command": launch.command ?? "",
+                    "kind": launch.kind.rawValue,
+                    "title": launch.title ?? "",
+                ])
+                let created = try JSONDecoder().decode(RemoteRoster.Session.self, from: data)
+                guard let sessionID = TerminalSessionID(uuidString: created.id) else {
+                    throw NSError(domain: "WarrenRemote", code: 10, userInfo: [
+                        NSLocalizedDescriptionKey: "daemon 返回了无效的 Session ID。",
+                    ])
+                }
+
+                // The create response is authoritative, but the projection is
+                // roster-backed. Refresh it before selecting the new tab so the
+                // terminal surface can be mounted against a real tab instead of
+                // waiting for an arbitrary roster tick.
+                try await self?.refreshRoster(using: wire)
+                guard let self,
+                      self.selectedWorkspaceID == workspaceID else { return }
+                self.navigation = WarrenDesktopNavigationState(
+                    selection: .workspace(workspaceID),
+                    selectedTabID: Self.tabID(sessionID)
+                )
+                await self.attachSelectedSession()
+            } catch {
+                self?.present(error)
+            }
+        }
     }
 
     func addProject(_ folder: URL) async {
@@ -622,21 +648,30 @@ final class WarrenRemoteApplicationModel {
     private func attachSelectedSession() async {
         guard let tabID = navigation.selectedTabID,
               let sessionID = projection.tabs.first(where: { $0.id == tabID })?.sessionID,
-              sessionID != selectedSessionID,
               let session = projection.sessions.first(where: { $0.id == sessionID }),
               let wire else { return }
+
+        // Mount before awaiting the attach response. The daemon may legally
+        // produce the first tmux snapshot immediately after it accepts the
+        // attach request; feeding that snapshot into an already-created surface
+        // prevents the initial prompt from disappearing in the network race.
+        guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
+        let surface = GhosttySurface(
+            id: sessionID,
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: session.workingDirectory,
+            onInput: { [weak self] data in Task { await self?.sendInput(data) } },
+            onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
+        )
+        selectedSessionID = sessionID
+        mountedSurfaces = [surface]
         do {
             _ = try await wire.request("session.attach", params: ["id": sessionID.description])
-            selectedSessionID = sessionID
-            let surface = GhosttySurface(
-                id: sessionID,
-                attachmentID: TerminalAttachmentID(),
-                workingDirectory: session.workingDirectory,
-                onInput: { [weak self] data in Task { await self?.sendInput(data) } },
-                onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
-            )
-            mountedSurfaces = [surface]
         } catch {
+            if selectedSessionID == sessionID {
+                selectedSessionID = nil
+                mountedSurfaces.removeAll()
+            }
             present(error)
         }
     }

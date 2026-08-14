@@ -194,6 +194,11 @@ export default function App() {
     if (!sent) connectionRef.current?.reconnectNow();
   }, [send]);
 
+  const openWorkspace = useCallback(workspaceID => {
+    chooseWorkspace(workspaceID);
+    createSession("shell");
+  }, [chooseWorkspace, createSession]);
+
   const acceptRoster = useCallback(message => {
     connectionRef.current?.markStable();
     const nextCatalog = buildCatalog(rosterFromMessage(message));
@@ -500,6 +505,7 @@ export default function App() {
           connection={connectionStatus}
           onToggleProject={toggleProject}
           onChooseWorkspace={chooseWorkspace}
+          onDoubleClickWorkspace={openWorkspace}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
         <main className="main">

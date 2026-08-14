@@ -123,7 +123,7 @@ func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	if !runtime.Exists(context.Background(), session.Runtime) {
 		t.Fatal("runtime was not created")
 	}
-	_ = requestResult[api.Session](t, connection, "session.attach", map[string]any{"id": session.ID})
+	_ = requestResultBeforeBinary[api.Session](t, connection, "session.attach", map[string]any{"id": session.ID})
 	if err := connection.WriteMessage(websocket.BinaryMessage, []byte("binary-input")); err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +178,36 @@ func requestResult[T any](t *testing.T, connection *websocket.Conn, method strin
 		_, data, err := connection.ReadMessage()
 		if err != nil {
 			t.Fatal(err)
+		}
+		var response api.Response
+		if json.Unmarshal(data, &response) != nil || response.Type != "response" || response.ID != id {
+			continue
+		}
+		if !response.OK {
+			t.Fatal(response.Error)
+		}
+		raw, _ := json.Marshal(response.Result)
+		var result T
+		if err := json.Unmarshal(raw, &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+}
+
+func requestResultBeforeBinary[T any](t *testing.T, connection *websocket.Conn, method string, params map[string]any) T {
+	t.Helper()
+	id := store.NewID()
+	if err := connection.WriteJSON(api.Envelope{Type: "request", ID: id, Method: method, Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		messageType, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if messageType == websocket.BinaryMessage {
+			t.Fatal("terminal output arrived before the attach response")
 		}
 		var response api.Response
 		if json.Unmarshal(data, &response) != nil || response.Type != "response" || response.ID != id {

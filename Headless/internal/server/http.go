@@ -364,8 +364,12 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if session.Lifecycle != "running" {
 			return fmt.Errorf("session is not running: %s", id)
 		}
-		p.attach(ctx, session)
-		return p.writeResult(command.ID, session)
+		p.attach(session)
+		if err := p.writeResult(command.ID, session); err != nil {
+			return err
+		}
+		p.startOutputStream(ctx, session)
+		return nil
 	case "session.detach":
 		p.detach()
 		return p.writeResult(command.ID, map[string]bool{"detached": true})
@@ -407,7 +411,11 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 		if session.Lifecycle != "running" {
 			return fmt.Errorf("session is not running: %s", command.Session)
 		}
-		p.attach(ctx, session)
+		p.attach(session)
+		if err := p.writeJSON(map[string]any{"t": "attached", "session": session.ID}); err != nil {
+			return err
+		}
+		p.startOutputStream(ctx, session)
 	case "create":
 		session, err := p.server.Service.CreateSession(ctx, command.Workspace, command.Command, command.Kind, command.Title)
 		if err != nil {
@@ -449,12 +457,12 @@ func (p *wsPeer) input(ctx context.Context, data []byte) error {
 	return nil
 }
 
-func (p *wsPeer) attach(parent context.Context, session api.Session) {
+func (p *wsPeer) attach(session api.Session) {
 	p.detach()
 	p.attached = &session
-	if p.browser {
-		_ = p.writeJSON(map[string]any{"t": "attached", "session": session.ID})
-	}
+}
+
+func (p *wsPeer) startOutputStream(parent context.Context, session api.Session) {
 	ctx, cancel := context.WithCancel(parent)
 	p.streamCancel = cancel
 	go func() {

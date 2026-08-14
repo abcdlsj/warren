@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { webAssetURL } from "./runtime.js";
 
 const activityLabels = {
   working: "Working",
@@ -47,6 +48,7 @@ export function Sidebar({
   connection,
   onToggleProject,
   onChooseWorkspace,
+  onDoubleClickWorkspace,
 }) {
   return (
     <aside className="sidebar" aria-label="Projects and workspaces">
@@ -81,6 +83,7 @@ export function Sidebar({
                     className={`workspace-row${workspace.id === activeWorkspace ? " active" : ""}`}
                     key={workspace.id}
                     onClick={() => onChooseWorkspace(workspace.id)}
+                    onDoubleClick={() => onDoubleClickWorkspace(workspace.id)}
                   >
                     <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />
                     <span className="branch">{workspace.branch || workspace.name || "Workspace"}</span>
@@ -144,10 +147,10 @@ export function PresetBar({ presets, onCreateSession }) {
         <button type="button" className="preset" key={preset.kind} onClick={() => onCreateSession(preset.kind)}>
           {preset.kind === "codex" ? (
             <picture>
-              <source media="(prefers-color-scheme:dark)" srcSet="/preset-codex-white.svg" />
-              <img src="/preset-codex.svg" alt="" />
+              <source media="(prefers-color-scheme:dark)" srcSet={webAssetURL("preset-codex-white.svg")} />
+              <img src={webAssetURL("preset-codex.svg")} alt="" />
             </picture>
-          ) : <img src={`/preset-${preset.kind}.svg`} alt="" />}
+          ) : <img src={webAssetURL(`preset-${preset.kind}.svg`)} alt="" />}
           {preset.label}
         </button>
       ))}

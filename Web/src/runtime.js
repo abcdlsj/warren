@@ -41,3 +41,10 @@ export function serviceWorkerURL() {
     ? `/h/${encodeURIComponent(relayHostID)}/service-worker.js`
     : "/service-worker.js";
 }
+
+export function webAssetURL(name) {
+  const resource = String(name).replace(/^\/+/, "");
+  return usesControlPlane
+    ? `/h/${encodeURIComponent(relayHostID)}/${resource}`
+    : `/${resource}`;
+}
