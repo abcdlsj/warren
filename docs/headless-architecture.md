@@ -71,9 +71,9 @@ Local 与 Server 是两套独立 Host 资源树。切换 endpoint 只切换投�
 
 - spool 达到上限时执行 in-place 压缩（archive + truncate）并 bump epoch；
   所有客户端以 tmux 屏幕快照 reanchor，不做静默字节裁剪。
-- macOS Swift Host 与 Headless Go 使用同一套帧/恢复语义，但浏览器控制消息
-  仍走轻量 JSON（`attach/attached/synced/reanchor`），未完全并入 Swift 的
-  `ServerControlMessage` 枚举。
+- Headless Go 的 `/v1/ws` 与 `/ws` 已统一为同一套 request/response 控制协议
+  （`session.attach` 携带 `cols/rows/epoch/sequence` 恢复锚），控制消息和
+  DENB 输出帧语义与 Swift Host 一致。
 - Desktop 从 CLI 配置文件发现 server；配置改变后需重新选择或重启 Desktop。
 - 远端 Project 的路径必须通过 CLI 添加，Desktop 文件选择器只适用于 Local。
 - SSH 自动启动要求远端已安装 `warren-headless` 和 `openssl`。
