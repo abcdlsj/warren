@@ -339,15 +339,24 @@ final class WarrenRemoteApplicationModel {
         guard let wire else { return }
         do {
             for project in preview.projects where project.status == .ready {
-                let data = try await wire.request("project.add", params: [
-                    "path": project.repositoryPath,
-                    "name": project.name,
-                ])
-                guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let id = object["id"] as? String else { continue }
+                let id: String
+                do {
+                    let data = try await wire.request("project.add", params: [
+                        "path": project.repositoryPath,
+                        "name": project.name,
+                    ])
+                    guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let createdID = object["id"] as? String else { continue }
+                    id = createdID
+                } catch {
+                    guard let existing = projection.groups.first(where: { $0.project.rootPath == project.repositoryPath }) else {
+                        throw error
+                    }
+                    id = existing.id.description
+                }
                 for workspace in project.workspaces where workspace.status == .ready {
                     if workspace.path == project.repositoryPath { continue }
-                    _ = try await wire.request("workspace.create", params: [
+                    _ = try? await wire.request("workspace.create", params: [
                         "project": id,
                         "branch": workspace.branch ?? "main",
                         "name": workspace.name,
