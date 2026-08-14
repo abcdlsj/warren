@@ -21,11 +21,8 @@ type Config struct {
 }
 
 func DefaultPath() string {
-	if value := os.Getenv("XDG_CONFIG_HOME"); value != "" {
-		return filepath.Join(value, "warren", "config.json")
-	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "warren", "config.json")
+	return filepath.Join(home, ".warren", "config.json")
 }
 func Load(path string) (Config, error) {
 	value := Config{Endpoints: map[string]Endpoint{}}

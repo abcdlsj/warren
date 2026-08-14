@@ -14,11 +14,9 @@ extension WarrenRemoteEndpointConfiguration {
         let tokenURL: URL
         if let configured = environment["WARREN_TOKEN_FILE"], !configured.isEmpty {
             tokenURL = URL(fileURLWithPath: configured)
-        } else if let stateHome = environment["XDG_STATE_HOME"], !stateHome.isEmpty {
-            tokenURL = URL(fileURLWithPath: stateHome).appendingPathComponent("warren/token")
         } else {
             tokenURL = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/state/warren/token")
+                .appendingPathComponent(".warren/token")
         }
         let token = (try? String(contentsOf: tokenURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -46,11 +44,9 @@ enum WarrenEndpointCatalog {
         let configURL: URL
         if let value = environment["WARREN_CONFIG"], !value.isEmpty {
             configURL = URL(fileURLWithPath: value)
-        } else if let value = environment["XDG_CONFIG_HOME"], !value.isEmpty {
-            configURL = URL(fileURLWithPath: value).appendingPathComponent("warren/config.json")
         } else {
             configURL = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/warren/config.json")
+                .appendingPathComponent(".warren/config.json")
         }
         guard let data = try? Data(contentsOf: configURL),
               let file = try? JSONDecoder().decode(WarrenEndpointConfigurationFile.self, from: data) else {
@@ -535,6 +531,7 @@ final class WarrenRemoteApplicationModel {
             sessionWorkspaceIDs: sessionWorkspaces,
             connectionState: .attached
         )
+        issue = nil
         navigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
         if let selectedSessionID, !sessions.contains(where: { $0.id == selectedSessionID }) {
             self.selectedSessionID = nil
@@ -581,7 +578,10 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func present(_ error: Error) { issue = error }
+    private func present(_ error: Error) {
+        issue = error
+        projection = projection.withIssue(error)
+    }
     private static func tabID(_ id: TerminalSessionID) -> String { "remote-\(id.description)" }
 }
 
@@ -596,6 +596,23 @@ private extension WarrenDesktopProjection {
             tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
             connectionState: state
+        )
+    }
+
+    func withIssue(_ error: Error) -> Self {
+        Self(
+            host: host,
+            groups: groups,
+            sessions: sessions,
+            tabs: tabs,
+            sessionWorkspaceIDs: sessionWorkspaceIDs,
+            tabWorkspaceIDs: tabWorkspaceIDs,
+            inspector: WarrenDesktopInspectorContent(
+                id: "remote-error",
+                title: "Daemon error",
+                detail: String(describing: error)
+            ),
+            connectionState: connectionState
         )
     }
 }

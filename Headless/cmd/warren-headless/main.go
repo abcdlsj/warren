@@ -99,11 +99,8 @@ func loadOrCreateToken(path string) (string, error) {
 	return value, nil
 }
 func defaultConfigDirectory() string {
-	if value := os.Getenv("XDG_STATE_HOME"); value != "" {
-		return filepath.Join(value, "warren")
-	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "warren")
+	return filepath.Join(home, ".warren")
 }
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

@@ -29,8 +29,8 @@ warren-headless
 
 默认文件：
 
-- 状态：`~/.local/state/warren/state.json`
-- token：`~/.local/state/warren/token`
+- 状态：`~/.warren/state.json`
+- token：`~/.warren/token`
 - tmux socket：`warren-headless`
 - worktree：`~/.warren/worktrees/`
 
@@ -40,7 +40,7 @@ warren-headless
 warren ssh user@vps
 ```
 
-保持该进程运行。Desktop 会从 `~/.config/warren/config.json` 读取 endpoint，并在右上角显示 `Local` 和服务器选项。
+保持该进程运行。Desktop 会从 `~/.warren/config.json` 读取 endpoint，并在右上角显示 `Local` 和服务器选项。
 
 ## CLI
 
@@ -59,4 +59,3 @@ warren --endpoint my-vps session attach SESSION_ID
 ## API 边界
 
 控制接口是 `/v1/ws`，先发送 token 鉴权，再使用带 request ID 的 request/response。Roster 是 Host 资源投影；终端输出使用 WebSocket binary frame。SSH、Tailscale 和未来的 Relay 只负责可达性，不进入资源领域模型。
-
