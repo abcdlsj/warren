@@ -5,9 +5,8 @@ import WarrenDomain
 /// Project-first search modeled after Superset's command palette.
 ///
 /// Results preserve the Project → Workspace → Session relationship instead of
-/// flattening unrelated resources into a generic command list. The palette is
-/// a near-top modal: a scrim, a 48pt input row, project group headings, and
-/// full keyboard navigation (arrows + Return, Esc to dismiss).
+/// flattening unrelated resources into a generic command list. The panel stays
+/// compact while idle and expands only after the user starts searching.
 struct WarrenDesktopCommandPalette: View {
     private struct SearchResult: Identifiable {
         let group: WarrenDesktopProjectGroup
@@ -39,11 +38,17 @@ struct WarrenDesktopCommandPalette: View {
     @FocusState private var searchFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
 
+    private var normalizedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private var hasQuery: Bool {
+        !normalizedQuery.isEmpty
+    }
+
     private var searchResults: [SearchResult] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else {
-            return projection.groups.map { SearchResult(group: $0, workspaces: $0.workspaces) }
-        }
+        let normalized = normalizedQuery
+        guard !normalized.isEmpty else { return [] }
         return projection.groups.compactMap { group in
             let projectMatches = group.project.name.lowercased().contains(normalized)
                 || group.project.rootPath.lowercased().contains(normalized)
@@ -83,36 +88,40 @@ struct WarrenDesktopCommandPalette: View {
         VStack(spacing: 0) {
             inputRow(tokens: tokens)
 
-            Rectangle()
-                .fill(tokens.border)
-                .frame(height: WarrenSpacing.hairline)
+            if hasQuery {
+                Rectangle()
+                    .fill(tokens.border)
+                    .frame(height: WarrenSpacing.hairline)
 
-            ScrollViewReader { proxy in
-                WarrenOverflowFadeScrollView(
-                    .vertical,
-                    fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
-                    surface: tokens.popoverSurface
-                ) {
-                    LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
-                        ForEach(searchResults) { result in
-                            projectGroup(result, tokens: tokens)
+                ScrollViewReader { proxy in
+                    WarrenOverflowFadeScrollView(
+                        .vertical,
+                        fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                        surface: tokens.popoverSurface
+                    ) {
+                        LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+                            ForEach(searchResults) { result in
+                                projectGroup(result, tokens: tokens)
+                            }
                         }
+                        .padding(WarrenLayoutMetrics.commandPaletteResultsPadding)
                     }
-                    .padding(WarrenLayoutMetrics.commandPaletteResultsPadding)
+                    .frame(maxHeight: resultsMaxHeight)
+                    .onChange(of: selectedIndex) { _, newIndex in
+                        guard rows.indices.contains(newIndex) else { return }
+                        proxy.scrollTo(rows[newIndex].id, anchor: .center)
+                    }
                 }
-                .frame(maxHeight: resultsMaxHeight)
-                .onChange(of: selectedIndex) { _, newIndex in
-                    guard rows.indices.contains(newIndex) else { return }
-                    proxy.scrollTo(rows[newIndex].id, anchor: .center)
-                }
-            }
 
-            if rows.isEmpty {
-                Text("No results found.")
-                    .font(WarrenTypography.body)
-                    .foregroundStyle(tokens.mutedForeground)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, WarrenSpacing.large)
+                if rows.isEmpty {
+                    Text("No results found.")
+                        .font(WarrenTypography.body)
+                        .foregroundStyle(tokens.mutedForeground)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, WarrenSpacing.large)
+                }
+            } else {
+                idlePrompt(tokens: tokens)
             }
         }
         .frame(width: width)
@@ -143,7 +152,7 @@ struct WarrenDesktopCommandPalette: View {
                 .frame(width: 18, height: 18)
                 .accessibilityHidden(true)
 
-            TextField("Type a command or search…", text: $query)
+            TextField("Search projects or workspaces…", text: $query)
                 .textFieldStyle(.plain)
                 .font(WarrenTypography.body)
                 .focused($searchFocused)
@@ -194,6 +203,26 @@ struct WarrenDesktopCommandPalette: View {
         .padding(.horizontal, WarrenLayoutMetrics.commandPaletteInputHorizontalPadding)
         .frame(height: WarrenLayoutMetrics.commandInputHeight)
         .background(tokens.popoverSurface)
+    }
+
+    private func idlePrompt(tokens: WarrenColorTokens) -> some View {
+        HStack(spacing: WarrenSpacing.small) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(tokens.mutedForeground)
+                .accessibilityHidden(true)
+
+            Text("Start typing to search projects and workspaces")
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, WarrenLayoutMetrics.commandPaletteInputHorizontalPadding)
+        .frame(height: WarrenLayoutMetrics.commandPaletteIdleHeight)
+        .background(tokens.popoverSurface)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder

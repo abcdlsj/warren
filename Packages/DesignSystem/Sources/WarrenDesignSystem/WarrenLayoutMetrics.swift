@@ -71,6 +71,8 @@ public enum WarrenLayoutMetrics {
     public static let commandPaletteItemHorizontalPadding: CGFloat = 10
     /// Superset's command input row is `h-12`.
     public static let commandInputHeight: CGFloat = 48
+    /// Idle search guidance stays a single compact row until a query is entered.
+    public static let commandPaletteIdleHeight: CGFloat = 32
     /// Superset's settings search field is `h-8`.
     public static let settingsSearchHeight: CGFloat = 32
 
