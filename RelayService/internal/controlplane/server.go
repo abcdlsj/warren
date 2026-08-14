@@ -449,7 +449,7 @@ func (server *Server) webResource(name, contentType string) http.HandlerFunc {
 			return
 		}
 		response.Header().Set("Content-Type", contentType)
-		response.Header().Set("Cache-Control", "public, max-age=300")
+		response.Header().Set("Cache-Control", "no-cache")
 		_, _ = response.Write(data)
 	}
 }
@@ -473,7 +473,7 @@ func (server *Server) serveAsset(response http.ResponseWriter, name string) {
 		contentType = "application/octet-stream"
 	}
 	response.Header().Set("Content-Type", contentType)
-	response.Header().Set("Cache-Control", "public, max-age=300")
+	response.Header().Set("Cache-Control", "no-cache")
 	_, _ = response.Write(data)
 }
 
