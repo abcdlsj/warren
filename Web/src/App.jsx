@@ -11,7 +11,7 @@ import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
 import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
 import { OutputBatcher } from "./output.js";
-import { decodeOutputFrame } from "./wire.js";
+import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
 import {
   EmptyTerminal,
   MobileKeys,
@@ -80,6 +80,7 @@ export default function App() {
   const messageHandlerRef = useRef(() => {});
   const connectionStateHandlerRef = useRef(() => {});
   const appStateRef = useRef({});
+  const pendingRequestsRef = useRef(new Map());
   const navigationBeforeSettingsRef = useRef(null);
 
   const selectedWorkspaceID = useMemo(() => {
@@ -114,7 +115,12 @@ export default function App() {
     attachedSession,
   };
 
-  const send = useCallback(message => connectionRef.current?.sendJSON(message) || false, []);
+  const request = useCallback((method, params = {}, onResult = null) => {
+    const id = connectionRef.current?.request(method, params);
+    if (!id) return false;
+    if (onResult) pendingRequestsRef.current.set(id, onResult);
+    return true;
+  }, []);
 
   const sendInput = useCallback(data => {
     const state = appStateRef.current;
@@ -144,12 +150,12 @@ export default function App() {
       if (!next || (next.cols === sentTerminalSizeRef.current?.cols && next.rows === sentTerminalSizeRef.current?.rows)) return;
       const state = appStateRef.current;
       if (state.activeSession && state.attachedSession === state.activeSession) {
-        if (send({ t: "resize", cols: next.cols, rows: next.rows })) {
+        if (request("session.resize", { cols: next.cols, rows: next.rows })) {
           sentTerminalSizeRef.current = next;
         }
       }
     }, 40);
-  }, [send]);
+  }, [request]);
 
   const attachSession = useCallback((sessionID, force = false) => {
     if (!sessionID) return;
@@ -170,8 +176,9 @@ export default function App() {
     const anchor = (!changed || reanchorRequiredRef.current)
       ? null
       : recoveryAnchorRef.current;
-    send(attachTerminalMessage(sessionID, terminalRef.current, anchor));
-  }, [send]);
+    const message = attachTerminalMessage(sessionID, terminalRef.current, anchor);
+    request(message.method, message.params);
+  }, [request]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
@@ -191,26 +198,28 @@ export default function App() {
 
     if (preferredSessionID) attachSession(preferredSessionID, true);
     else if (nextTabs.length) attachSession(nextTabs[0].id, true);
-    else if (wasAttached) send({ t: "detach" });
-  }, [attachSession, send]);
+    else if (wasAttached) request("session.detach");
+  }, [attachSession, request]);
 
   const createSession = useCallback(kind => {
     const workspaceID = appStateRef.current.activeWorkspace;
     if (!workspaceID) return;
     const preset = sessionPresets.find(value => value.kind === kind) || sessionPresets[0];
-    const sent = send({
-      t: "create",
+    const sent = request("session.create", {
       workspace: workspaceID,
       kind: preset.kind,
-      command: preset.command || null,
+      command: preset.command || "",
       title: preset.title,
+    }, result => {
+      const sessionID = result?.id;
+      if (sessionID) attachSession(sessionID);
     });
     setEmptyOverride({
       loading: true,
       message: sent ? `Starting ${preset.title}…` : "Waiting for connection…",
     });
     if (!sent) connectionRef.current?.reconnectNow();
-  }, [send]);
+  }, [attachSession, request]);
 
   const openWorkspace = useCallback(workspaceID => {
     chooseWorkspace(workspaceID);
@@ -254,17 +263,17 @@ export default function App() {
     setConnectionStatus({ message: "Connected", online: true });
     if (state.activeSession) attachSession(state.activeSession);
     else if (nextTabs.length) attachSession(nextTabs[0].id);
-    else if (activeTabWasRemoved) send({ t: "detach" });
-  }, [attachSession, send]);
+    else if (activeTabWasRemoved) request("session.detach");
+  }, [attachSession, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
       const bytes = new Uint8Array(event.data);
       const decoded = decodeOutputFrame(bytes);
       const attached = appStateRef.current.attachedSession;
-      if (!decoded || !attached || decoded.header.sessionID === attached) {
+      if (decoded && (!attached || decoded.header.sessionID === attached)) {
         const current = recoveryAnchorRef.current;
-        if (decoded && current && !snapshotPendingRef.current) {
+        if (current && !snapshotPendingRef.current) {
           if (decoded.header.epoch !== current.epoch || decoded.header.sequence !== current.sequence) {
             // A gap means Host rotated the spool or the ring evicted our
             // anchor; reconnect without an anchor and reanchor from a tmux
@@ -278,7 +287,20 @@ export default function App() {
             sequence: current.sequence + decoded.header.payloadLength,
           };
         }
-        batcherRef.current?.enqueue(decoded ? decoded.payload : bytes);
+        batcherRef.current?.enqueue(decoded.payload);
+      } else if (decoded) {
+        // A stale frame can still be queued while switching sessions. It must
+        // not leak into the newly selected terminal.
+      } else if (isBinaryEnvelope(bytes)) {
+        // The frame claims to be a Warren envelope but cannot be decoded.
+        // Rendering it would print binary garbage (DENB headers) into the
+        // terminal; treat it as a protocol error and reanchor instead.
+        reanchorRequiredRef.current = true;
+        connectionRef.current?.reset();
+      } else {
+        // Legacy raw PTY payload (macOS WebRelay sends bytes without the
+        // envelope). Render it as-is.
+        batcherRef.current?.enqueue(bytes);
       }
       return;
     }
@@ -297,6 +319,18 @@ export default function App() {
     }
 
     switch (message.t) {
+    case "response": {
+      const handler = pendingRequestsRef.current.get(message.id);
+      pendingRequestsRef.current.delete(message.id);
+      if (!message.ok) {
+        const detail = message.error || "Request failed";
+        setConnectionStatus({ message: detail, online: false });
+        setEmptyOverride({ loading: false, message: detail });
+      } else {
+        handler?.(message.result);
+      }
+      break;
+    }
     case "roster":
       acceptRoster(message);
       break;
@@ -312,10 +346,16 @@ export default function App() {
       } else {
         snapshotPendingRef.current = false;
       }
-      recoveryAnchorRef.current = {
-        epoch: message.epoch,
-        sequence: message.sequence,
-      };
+      if (Number.isFinite(message.epoch) && Number.isFinite(message.sequence)) {
+        recoveryAnchorRef.current = {
+          epoch: message.epoch,
+          sequence: message.sequence,
+        };
+      } else {
+        // Legacy relay: no recovery metadata, raw payloads only. Keep the
+        // anchor null so frame validation stays disabled.
+        recoveryAnchorRef.current = null;
+      }
       reanchorRequiredRef.current = false;
       requestAnimationFrame(() => {
         fitTerminal();

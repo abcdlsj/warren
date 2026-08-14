@@ -1,4 +1,23 @@
 export function rosterFromMessage(message = {}) {
+  if (message.state) {
+    const state = message.state;
+    return {
+      host: state.host || {},
+      projects: state.projects || [],
+      workspaces: state.workspaces || [],
+      tabs: (state.sessions || [])
+        .filter(session => session.lifecycle === "running")
+        .map(session => ({
+          id: session.id,
+          session: session.id,
+          workspace: session.workspace,
+          title: session.title,
+          kind: session.kind,
+          lifecycle: session.lifecycle,
+          process: session.command || "",
+        })),
+    };
+  }
   return {
     host: message.host || {},
     projects: message.projects || [],

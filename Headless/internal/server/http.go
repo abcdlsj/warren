@@ -34,24 +34,9 @@ type HTTPServer struct {
 	upgrader websocket.Upgrader
 }
 
-type relayRoster struct {
-	Type       string          `json:"t"`
-	State      api.State       `json:"state"`
-	Host       api.Host        `json:"host"`
-	Projects   []api.Project   `json:"projects"`
-	Workspaces []api.Workspace `json:"workspaces"`
-	Tabs       []relayTab      `json:"tabs"`
-}
-
-type relayTab struct {
-	ID        string `json:"id"`
-	Workspace string `json:"workspace"`
-	Session   string `json:"session"`
-	Title     string `json:"title"`
-	Kind      string `json:"kind"`
-	Lifecycle string `json:"lifecycle"`
-	Process   string `json:"process,omitempty"`
-	Directory string `json:"directory,omitempty"`
+type rosterMessage struct {
+	Type  string    `json:"t"`
+	State api.State `json:"state"`
 }
 
 func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPServer {
@@ -153,7 +138,9 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 	if err != nil {
 		return
 	}
-	peer := newWSPeer(s, connection, request.URL.Path == "/ws")
+	// /ws remains as a URL compatibility alias for the browser. Both it and
+	// /v1/ws use the same authenticated request/response protocol.
+	peer := newWSPeer(s, connection)
 	defer peer.close()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var envelope api.Envelope
@@ -172,7 +159,7 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 	if err := peer.writeJSON(map[string]any{"t": "welcome", "version": api.Version, "host": state.Host}); err != nil {
 		return
 	}
-	_ = peer.writeJSON(makeRelayRoster(state))
+	_ = peer.writeJSON(makeRoster(state))
 	peer.startRoster(request.Context(), state, revision)
 	for {
 		messageType, data, err := connection.ReadMessage()
@@ -218,7 +205,6 @@ type wsPeer struct {
 	server     *HTTPServer
 	connection *websocket.Conn
 	outbound   chan outboundMessage
-	browser    bool
 
 	enqueueMu      sync.Mutex
 	closed         chan struct{}
@@ -228,12 +214,11 @@ type wsPeer struct {
 	rosterCancel   context.CancelFunc
 }
 
-func newWSPeer(server *HTTPServer, connection *websocket.Conn, browser bool) *wsPeer {
+func newWSPeer(server *HTTPServer, connection *websocket.Conn) *wsPeer {
 	peer := &wsPeer{
 		server:     server,
 		connection: connection,
 		outbound:   make(chan outboundMessage, outboundQueueCapacity),
-		browser:    browser,
 		closed:     make(chan struct{}),
 	}
 	go peer.writeLoop()
@@ -376,7 +361,7 @@ func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialR
 		revision := initialRevision
 		var last []byte
 		for {
-			data, _ := json.Marshal(makeRelayRoster(state))
+			data, _ := json.Marshal(makeRoster(state))
 			if !bytes.Equal(data, last) {
 				last = append(last[:0], data...)
 				if !p.enqueue(outboundMessage{kind: websocket.TextMessage, data: data}) {
@@ -396,28 +381,11 @@ func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialR
 	}()
 }
 
-func makeRelayRoster(state api.State) relayRoster {
-	tabs := make([]relayTab, 0, len(state.Sessions))
-	for _, session := range state.Sessions {
-		if session.Lifecycle != "running" {
-			continue
-		}
-		tabs = append(tabs, relayTab{
-			ID: session.ID, Workspace: session.WorkspaceID, Session: session.ID,
-			Title: session.Title, Kind: session.Kind, Lifecycle: session.Lifecycle,
-			Process: session.Command,
-		})
-	}
-	return relayRoster{
-		Type: "roster", State: state, Host: state.Host,
-		Projects: state.Projects, Workspaces: state.Workspaces, Tabs: tabs,
-	}
+func makeRoster(state api.State) rosterMessage {
+	return rosterMessage{Type: "roster", State: state}
 }
 
 func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
-	if p.browser {
-		return p.handleBrowser(ctx, command)
-	}
 	if command.Type != "request" {
 		return fmt.Errorf("unsupported message type: %s", command.Type)
 	}
@@ -534,75 +502,6 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	default:
 		return fmt.Errorf("unknown method: %s", command.Method)
 	}
-}
-
-func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error {
-	switch command.Type {
-	case "attach":
-		session, ok := p.server.Service.Session(command.Session)
-		if !ok {
-			return fmt.Errorf("session not found: %s", command.Session)
-		}
-		if session.Lifecycle != "running" {
-			return fmt.Errorf("session is not running: %s", command.Session)
-		}
-		p.attach(session)
-		lock, resume, err := p.server.Service.prepareAttach(ctx, session)
-		if err != nil {
-			p.detach()
-			return err
-		}
-		if command.Cols != 0 || command.Rows != 0 {
-			if command.Cols <= 0 || command.Rows <= 0 {
-				lock.Unlock()
-				resume()
-				p.detach()
-				return fmt.Errorf("invalid terminal size")
-			}
-			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, command.Cols, command.Rows); err != nil {
-				lock.Unlock()
-				resume()
-				p.detach()
-				return err
-			}
-		}
-		anchor := &output.Anchor{Epoch: command.Epoch, Sequence: command.Sequence}
-		if command.Epoch == 0 && command.Sequence == 0 {
-			anchor = nil
-		}
-		err = p.server.Service.attachOutputLocked(ctx, p, session, anchor)
-		lock.Unlock()
-		resume()
-		if err != nil {
-			p.detach()
-			return err
-		}
-	case "create":
-		session, err := p.server.Service.CreateSession(ctx, command.Workspace, command.Command, command.Kind, command.Title)
-		if err != nil {
-			return err
-		}
-		return p.writeJSON(map[string]any{"t": "created", "session": session.ID})
-	case "resize":
-		if err := p.requireControl(); err != nil {
-			return err
-		}
-		if command.Cols <= 0 || command.Rows <= 0 {
-			return fmt.Errorf("invalid terminal size")
-		}
-		return p.server.Service.Runtime.Resize(ctx, p.attached.Runtime, command.Cols, command.Rows)
-	case "detach":
-		p.detach()
-	case "deleteSession":
-		if err := p.server.Service.DeleteSession(ctx, command.Session); err != nil {
-			return err
-		}
-		p.detach()
-		return p.writeJSON(map[string]any{"t": "sessionDeleted", "session": command.Session})
-	default:
-		return fmt.Errorf("unsupported browser message type: %s", command.Type)
-	}
-	return nil
 }
 
 func (p *wsPeer) requireControl() error {

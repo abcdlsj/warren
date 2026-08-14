@@ -754,10 +754,21 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	upper := recovery.Upper
 	epoch := recovery.Epoch
 	if outputSession != nil && outputSession.watcher != nil {
-		if err := outputSession.watcher.SkipTo(int64(len(snapshot))); err != nil {
+		// The capture snapshot is a rendered screen, not a byte position in
+		// the append-only spool: capture-pane output can be much larger than
+		// the raw PTY bytes (clear sequences, cursor restore, padded rows).
+		// Skipping to len(snapshot) would overshoot the spool and make the
+		// watcher misread every attach as an in-place compaction. Measure the
+		// spool size before capturing and re-anchor the byte stream there.
+		adapter := s.outputAdapter()
+		size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
+		if sizeErr != nil {
+			return fmt.Errorf("read output spool size before reanchor: %w", sizeErr)
+		}
+		if err := outputSession.watcher.SkipTo(size); err != nil {
 			return err
 		}
-		upper = uint64(len(snapshot))
+		upper = uint64(size)
 	}
 	if outputSession != nil {
 		outputSession.mu.Lock()

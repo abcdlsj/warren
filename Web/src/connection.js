@@ -28,6 +28,7 @@ export class RelayConnection {
     this.socket = null;
     this.timer = null;
     this.attempt = 0;
+    this.requestSequence = 0;
     this.running = false;
   }
 
@@ -69,6 +70,12 @@ export class RelayConnection {
     return this.send(JSON.stringify(message));
   }
 
+  request(method, params = {}) {
+    this.requestSequence += 1;
+    const id = `web-${Date.now()}-${this.requestSequence}`;
+    return this.sendJSON({ t: "request", id, method, params }) ? id : null;
+  }
+
   sendBinary(data) {
     return this.send(new TextEncoder().encode(data));
   }
@@ -89,7 +96,7 @@ export class RelayConnection {
     socket.onopen = () => {
       if (socket !== this.socket) return;
       this.onState("open");
-      this.sendJSON({ t: "auth", token: this.token });
+      this.sendJSON({ t: "auth", token: this.token, version: "1.0" });
     };
     socket.onmessage = event => {
       if (socket === this.socket) this.onMessage(event);

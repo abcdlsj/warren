@@ -83,21 +83,35 @@ def read_text_frame():
         if opcode == 1:
             return json.loads(payload.decode())
 
-send_text(json.dumps({"t": "auth", "token": token}))
+send_text(json.dumps({"t": "auth", "token": token, "version": "1.0"}))
 roster = read_text_frame()
 assert roster.get("t") == "roster", roster
+assert isinstance(roster.get("state"), dict), roster
 print("auth/roster ok", flush=True)
 
 attached = False
-if roster.get("tabs"):
-    session_id = roster["tabs"][0]["session"]
+sessions = [
+    session for session in roster["state"].get("sessions", [])
+    if session.get("lifecycle") == "running"
+]
+if sessions:
+    session_id = sessions[0]["id"]
     attached_msg = None
-    send_text(json.dumps({"t": "attach", "session": session_id}))
+    request_id = "verify-web-attach"
+    send_text(json.dumps({
+        "t": "request",
+        "id": request_id,
+        "method": "session.attach",
+        "params": {"id": session_id},
+    }))
     deadline = time.time() + 15
     while time.time() < deadline:
         try:
             s.settimeout(deadline - time.time())
             candidate = read_text_frame()
+            if candidate.get("t") == "response" and candidate.get("id") == request_id:
+                assert candidate.get("ok") is True, candidate
+                continue
             if candidate.get("t") == "attached":
                 attached_msg = candidate
                 break

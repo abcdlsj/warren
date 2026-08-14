@@ -9,9 +9,10 @@ import Security
 /// Local WebSocket relay for the browser client.
 ///
 /// The relay is a small POSIX HTTP+WebSocket server on one port: `GET /`
-/// serves the bundled web page, `GET /ws` upgrades to WebSocket, and binary
-/// frames carry PTY bytes. Cloudflare needs the origin to answer plain HTTP
-/// health checks, so the same port must speak both protocols.
+/// serves the bundled web page, `GET /v1/ws` upgrades to the canonical Host
+/// WebSocket protocol, and binary frames carry PTY bytes. `/ws` remains an
+/// alias for already deployed relay clients. Cloudflare needs the origin to
+/// answer plain HTTP health checks, so the same port must speak both protocols.
 @MainActor
 public final class WebRelayServer {
     nonisolated public static let defaultPort: UInt16 = 8788
@@ -463,10 +464,9 @@ public final class WebRelayServer {
 
     // MARK: - Relay logic
 
-    /// The client roster is deliberately Project → Workspace → Tab only.
-    /// Sessions remain Host-owned runtime resources and are carried as
-    /// metadata on their owning Tab; they are never exposed as a standalone
-    /// client collection or navigation surface.
+    /// The canonical roster is the Host state projection shared with
+    /// warren-headless. The old top-level Project → Workspace → Tab view is
+    /// retained below only for already deployed relay clients.
     func rosterJSON() async -> String {
         rosterJSON(snapshot: await service.snapshot())
     }
@@ -505,14 +505,41 @@ public final class WebRelayServer {
                 return value
             }
         }
+        let host: [String: Any] = [
+            "id": snapshot.host.id.description,
+            "name": snapshot.host.name,
+            "user": NSUserName(),
+            "os": ProcessInfo.processInfo.operatingSystemVersionString,
+        ]
+        let sessions: [[String: Any]] = snapshot.sessions.map { session in
+            var value: [String: Any] = [
+                "id": session.id.description,
+                "workspace": session.workspaceID.description,
+                "title": session.title,
+                "kind": session.kind.rawValue,
+                "command": session.runtimeProcess,
+                "lifecycle": session.lifecycle.rawValue,
+            ]
+            if let anchor = session.recoveryAnchor {
+                value["epoch"] = anchor.epoch
+                value["sequence"] = anchor.sequence
+            }
+            return value
+        }
+        let state: [String: Any] = [
+            "schema": 1,
+            "host": host,
+            "projects": projects,
+            "workspaces": workspaces,
+            "sessions": sessions,
+        ]
         return Self.json([
             "t": "roster",
-            "host": [
-                "id": snapshot.host.id.description,
-                "name": snapshot.host.name,
-                "user": NSUserName(),
-                "os": ProcessInfo.processInfo.operatingSystemVersionString,
-            ],
+            "state": state,
+            // Keep the old projection for already deployed relay clients. New
+            // clients consume state.sessions and ignore this compatibility
+            // surface.
+            "host": host,
             "projects": projects,
             "workspaces": workspaces,
             "tabs": tabs,
@@ -538,7 +565,13 @@ public final class WebRelayServer {
         )
     }
 
-    fileprivate func attach(_ sessionID: TerminalSessionID, to peer: SocketConnection) async {
+    fileprivate func attach(
+        _ sessionID: TerminalSessionID,
+        recoveryAnchor: RecoveryAnchor? = nil,
+        size: TerminalSize? = nil,
+        requestID: String? = nil,
+        to peer: SocketConnection
+    ) async {
         do {
             await detach(peer)
             guard peer.isOpen else { return }
@@ -546,7 +579,8 @@ public final class WebRelayServer {
             let channel = try await service.openClientAttachment(
                 sessionID: sessionID,
                 clientID: peer.clientID,
-                attachmentID: attachmentID
+                attachmentID: attachmentID,
+                recoveryAnchor: recoveryAnchor
             )
             guard peer.isOpen else {
                 await service.closeClientAttachment(
@@ -558,12 +592,26 @@ public final class WebRelayServer {
             }
             peer.attachmentID = channel.result.attachmentID
             peer.sessionID = sessionID
+            if let size {
+                try await service.resizeClientAttachment(
+                    sessionID: sessionID,
+                    attachmentID: channel.result.attachmentID,
+                    size: size
+                )
+            }
+            if let requestID {
+                peer.sendResponse(id: requestID, result: ["id": sessionID.description])
+            }
             peer.startOutputStream(channel.events)
         } catch {
-            peer.sendText(Self.json([
-                "t": "error",
-                "message": String(describing: error),
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, error: String(describing: error))
+            } else {
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": String(describing: error),
+                ]))
+            }
         }
     }
 
@@ -572,6 +620,7 @@ public final class WebRelayServer {
         command: String?,
         kind: TerminalSessionKind,
         title: String?,
+        requestID: String? = nil,
         to peer: SocketConnection
     ) async {
         do {
@@ -588,21 +637,36 @@ public final class WebRelayServer {
                 throw WarrenApplicationError.tabNotFound(tabID)
             }
             WebRelayServer.log("create done \(sessionID)")
-            peer.sendText(Self.json([
-                "t": "created",
-                "session": sessionID.description,
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, result: ["id": sessionID.description])
+            } else {
+                peer.sendText(Self.json([
+                    "t": "created",
+                    "session": sessionID.description,
+                ]))
+            }
         } catch {
-            peer.sendText(Self.json([
-                "t": "error",
-                "message": String(describing: error),
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, error: String(describing: error))
+            } else {
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": String(describing: error),
+                ]))
+            }
         }
     }
 
-    fileprivate func input(_ data: Data, to peer: SocketConnection) async {
+    fileprivate func input(
+        _ data: Data,
+        requestID: String? = nil,
+        to peer: SocketConnection
+    ) async {
         guard let sessionID = peer.sessionID,
-              let attachmentID = peer.attachmentID else { return }
+              let attachmentID = peer.attachmentID else {
+            if let requestID { peer.sendResponse(id: requestID, error: "no attached session") }
+            return
+        }
         WebRelayServer.log("input begin \(sessionID) bytes=\(data.count)")
         do {
             try await service.sendClientInput(
@@ -611,34 +675,52 @@ public final class WebRelayServer {
                 data: data
             )
             WebRelayServer.log("input done")
+            if let requestID {
+                peer.sendResponse(id: requestID, result: ["sent": true])
+            }
         } catch {
             WebRelayServer.log("input error \(error)")
-            peer.sendText(Self.json([
-                "t": "error",
-                "message": String(describing: error),
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, error: String(describing: error))
+            } else {
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": String(describing: error),
+                ]))
+            }
         }
     }
 
     fileprivate func resize(
         cols: Int,
         rows: Int,
+        requestID: String? = nil,
         to peer: SocketConnection
     ) async {
         guard let sessionID = peer.sessionID,
               let attachmentID = peer.attachmentID,
-              let size = TerminalSize(columns: cols, rows: rows) else { return }
+              let size = TerminalSize(columns: cols, rows: rows) else {
+            if let requestID { peer.sendResponse(id: requestID, error: "invalid terminal size") }
+            return
+        }
         do {
             try await service.resizeClientAttachment(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
                 size: size
             )
+            if let requestID {
+                peer.sendResponse(id: requestID, result: ["resized": true])
+            }
         } catch {
-            peer.sendText(Self.json([
-                "t": "error",
-                "message": String(describing: error),
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, error: String(describing: error))
+            } else {
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": String(describing: error),
+                ]))
+            }
         }
     }
 
@@ -657,6 +739,7 @@ public final class WebRelayServer {
 
     fileprivate func delete(
         _ sessionID: TerminalSessionID,
+        requestID: String? = nil,
         from peer: SocketConnection
     ) async {
         do {
@@ -666,15 +749,23 @@ public final class WebRelayServer {
                 peer.attachmentID = nil
             }
             try await service.deleteSession(sessionID: sessionID)
-            peer.sendText(Self.json([
-                "t": "sessionDeleted",
-                "session": sessionID.description,
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, result: ["deleted": true])
+            } else {
+                peer.sendText(Self.json([
+                    "t": "sessionDeleted",
+                    "session": sessionID.description,
+                ]))
+            }
         } catch {
-            peer.sendText(Self.json([
-                "t": "error",
-                "message": String(describing: error),
-            ]))
+            if let requestID {
+                peer.sendResponse(id: requestID, error: String(describing: error))
+            } else {
+                peer.sendText(Self.json([
+                    "t": "error",
+                    "message": String(describing: error),
+                ]))
+            }
         }
     }
 
@@ -689,15 +780,27 @@ public final class WebRelayServer {
             switch event {
             case .binary(let frame):
                 peer.sendBinary(frame.payload)
-            case .control(.attached):
+            case .control(.attached(let message)):
                 peer.sendText(Self.json([
                     "t": "attached",
                     "session": sessionID.description,
+                    "epoch": message.epoch,
+                    "sequence": message.sequence,
+                    "reanchor": true,
                 ]))
-            case .control(.exit):
+            case .control(.synced(let message)):
+                peer.sendText(Self.json([
+                    "t": "synced",
+                    "session": sessionID.description,
+                    "epoch": message.epoch,
+                    "sequence": message.sequence,
+                ]))
+            case .control(.exit(let message)):
                 peer.sendText(Self.json([
                     "t": "exited",
                     "session": sessionID.description,
+                    "epoch": message.epoch,
+                    "sequence": message.sequence,
                 ]))
             case .control(.error(let error)):
                 peer.sendText(Self.json([
@@ -866,7 +969,7 @@ private final class SocketConnection {
             }
             if method == "GET",
                headers["upgrade"]?.lowercased() == "websocket",
-               path == "/ws" || path == "/",
+               path == "/ws" || path == "/v1/ws" || path == "/",
                let key = headers["sec-websocket-key"] {
                 let accept = Self.websocketAccept(key: key)
                 let response =
@@ -926,7 +1029,15 @@ private final class SocketConnection {
 
     private func handleText(_ text: String) {
         guard let data = text.data(using: .utf8),
-              let envelope = try? JSONDecoder().decode(RelayEnvelope.self, from: data) else {
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            WebRelayServer.log("decode fail \(text)")
+            return
+        }
+        if object["t"] as? String == "request" {
+            handleRequest(object)
+            return
+        }
+        guard let envelope = try? JSONDecoder().decode(RelayEnvelope.self, from: data) else {
             WebRelayServer.log("decode fail \(text)")
             return
         }
@@ -943,6 +1054,15 @@ private final class SocketConnection {
             }
             authenticated = true
             Task {
+                let snapshot = await server.service.snapshot()
+                self.sendText(WebRelayServer.json([
+                    "t": "welcome",
+                    "version": "1.0",
+                    "host": [
+                        "id": snapshot.host.id.description,
+                        "name": snapshot.host.name,
+                    ],
+                ]))
                 let roster = await server.rosterJSON()
                 self.sendText(roster)
                 self.startRosterStream()
@@ -998,6 +1118,154 @@ private final class SocketConnection {
         default:
             break
         }
+    }
+
+    private func stringParam(_ params: [String: Any], key: String) -> String? {
+        guard let value = params[key] as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func intParam(_ params: [String: Any], key: String) -> Int? {
+        if let value = params[key] as? NSNumber { return value.intValue }
+        return params[key] as? Int
+    }
+
+    private func uintParam(_ params: [String: Any], key: String) -> UInt64? {
+        if let value = params[key] as? NSNumber { return value.uint64Value }
+        return params[key] as? UInt64
+    }
+
+    private func sessionIDParam(_ params: [String: Any], key: String) -> TerminalSessionID? {
+        guard let raw = stringParam(params, key: key),
+              let uuid = UUID(uuidString: raw) else { return nil }
+        return TerminalSessionID(rawValue: uuid)
+    }
+
+    private func workspaceIDParam(_ params: [String: Any], key: String) -> WorkspaceID? {
+        guard let raw = stringParam(params, key: key),
+              let uuid = UUID(uuidString: raw) else { return nil }
+        return WorkspaceID(rawValue: uuid)
+    }
+
+    private func recoveryAnchor(_ params: [String: Any]) -> RecoveryAnchor? {
+        guard let epoch = uintParam(params, key: "epoch"),
+              let sequence = uintParam(params, key: "sequence") else { return nil }
+        return RecoveryAnchor(epoch: epoch, sequence: sequence)
+    }
+
+    private func handleRequest(_ object: [String: Any]) {
+        guard let id = object["id"] as? String, !id.isEmpty,
+              let method = object["method"] as? String else { return }
+        guard authenticated else {
+            sendResponse(id: id, error: "unauthorized")
+            return
+        }
+        let params = object["params"] as? [String: Any] ?? [:]
+        switch method {
+        case "roster":
+            Task { [weak self] in
+                guard let self, self.isOpen else { return }
+                let roster = await self.server.rosterJSON()
+                let state = (try? JSONSerialization.jsonObject(
+                    with: Data(roster.utf8)
+                ) as? [String: Any])?["state"] as? [String: Any] ?? [:]
+                self.sendResponse(id: id, result: state)
+            }
+        case "session.create":
+            guard let workspaceID = workspaceIDParam(params, key: "workspace") else {
+                sendResponse(id: id, error: "invalid workspace")
+                return
+            }
+            let kind = TerminalSessionKind(
+                rawValue: stringParam(params, key: "kind") ?? "shell"
+            ) ?? .shell
+            let command = stringParam(params, key: "command")
+            let title = stringParam(params, key: "title")
+            enqueueCommand { peer in
+                await peer.server.create(
+                    workspaceID: workspaceID,
+                    command: command,
+                    kind: kind,
+                    title: title,
+                    requestID: id,
+                    to: peer
+                )
+            }
+        case "session.attach":
+            guard let sessionID = sessionIDParam(params, key: "id") else {
+                sendResponse(id: id, error: "invalid session")
+                return
+            }
+            let hasSize = params["cols"] != nil || params["rows"] != nil
+            let size: TerminalSize?
+            if hasSize {
+                guard let cols = intParam(params, key: "cols"),
+                      let rows = intParam(params, key: "rows"),
+                      let value = TerminalSize(columns: cols, rows: rows) else {
+                    sendResponse(id: id, error: "invalid terminal size")
+                    return
+                }
+                size = value
+            } else {
+                size = nil
+            }
+            let anchor = recoveryAnchor(params)
+            enqueueCommand { peer in
+                await peer.server.attach(
+                    sessionID,
+                    recoveryAnchor: anchor,
+                    size: size,
+                    requestID: id,
+                    to: peer
+                )
+            }
+        case "session.input":
+            guard let encoded = stringParam(params, key: "data"),
+                  let payload = Data(base64Encoded: encoded) else {
+                sendResponse(id: id, error: "invalid input")
+                return
+            }
+            enqueueCommand { peer in
+                await peer.server.input(payload, requestID: id, to: peer)
+            }
+        case "session.resize":
+            guard let cols = intParam(params, key: "cols"),
+                  let rows = intParam(params, key: "rows"),
+                  TerminalSize(columns: cols, rows: rows) != nil else {
+                sendResponse(id: id, error: "invalid terminal size")
+                return
+            }
+            enqueueCommand { peer in
+                await peer.server.resize(cols: cols, rows: rows, requestID: id, to: peer)
+            }
+        case "session.detach":
+            enqueueCommand { peer in
+                await peer.server.detach(peer)
+                peer.sendResponse(id: id, result: ["detached": true])
+            }
+        case "session.delete":
+            guard let sessionID = sessionIDParam(params, key: "id") else {
+                sendResponse(id: id, error: "invalid session")
+                return
+            }
+            enqueueCommand { peer in
+                await peer.server.delete(sessionID, requestID: id, from: peer)
+            }
+        default:
+            sendResponse(id: id, error: "unknown method: \(method)")
+        }
+    }
+
+    fileprivate func sendResponse(id: String, result: Any? = nil, error: String? = nil) {
+        var object: [String: Any] = [
+            "t": "response",
+            "id": id,
+            "ok": error == nil,
+        ]
+        if let result { object["result"] = result }
+        if let error { object["error"] = error }
+        sendText(WebRelayServer.json(object))
     }
 
     private func enqueueCommand(

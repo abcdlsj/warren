@@ -125,6 +125,57 @@ final class WebRelayTests: XCTestCase {
     }
 
     @MainActor
+    func testCanonicalWebSocketProtocolUsesVersionedRosterAndResponses() async throws {
+        let service = WarrenApplicationService(
+            repository: InMemoryHostStateRepository(),
+            runtime: InMemoryTerminalRuntime()
+        )
+        try await service.start()
+        defer { Task { await service.shutdown() } }
+        let relay = WebRelayServer(service: service)
+        relay.start(port: 0)
+        let port = try XCTUnwrap(relay.listeningPort)
+        defer { relay.stop() }
+
+        let socket = URLSession.shared.webSocketTask(
+            with: URL(string: "ws://127.0.0.1:\(port)/v1/ws")!
+        )
+        socket.resume()
+        try await socket.send(.string(#"{"t":"auth","token":"\#(WebRelayServer.accessToken)","version":"1.0"}"#))
+
+        guard case .string(let welcomeText) = try await socket.receive() else {
+            return XCTFail("Expected the canonical welcome frame")
+        }
+        XCTAssertEqual(try Self.decodeJSON(welcomeText)["t"] as? String, "welcome")
+
+        guard case .string(let rosterText) = try await socket.receive() else {
+            return XCTFail("Expected the canonical roster frame")
+        }
+        let roster = try Self.decodeJSON(rosterText)
+        XCTAssertEqual(roster["t"] as? String, "roster")
+        XCTAssertNotNil(roster["state"] as? [String: Any])
+
+        let requestID = "canonical-roster"
+        let requestData = try JSONSerialization.data(withJSONObject: [
+            "t": "request",
+            "id": requestID,
+            "method": "roster",
+            "params": [:],
+        ])
+        try await socket.send(.string(String(decoding: requestData, as: UTF8.self)))
+        while true {
+            guard case .string(let text) = try await socket.receive() else { continue }
+            let response = try Self.decodeJSON(text)
+            guard response["t"] as? String == "response",
+                  response["id"] as? String == requestID else { continue }
+            XCTAssertEqual(response["ok"] as? Bool, true)
+            XCTAssertNotNil(response["result"] as? [String: Any])
+            break
+        }
+        socket.cancel(with: .normalClosure, reason: nil)
+    }
+
+    @MainActor
     func testWebPageResourceIsBundledAndURLInjectionIsSafe() {
         XCTAssertNotNil(WebRelayServer.webPageURL)
         XCTAssertNotNil(WebRelayServer.resourceData(named: "manifest", extension: "webmanifest"))

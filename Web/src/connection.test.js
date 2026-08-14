@@ -44,12 +44,13 @@ test("connection authenticates and forwards messages", () => {
   connection.start();
   const socket = FakeSocket.instances[0];
   assert.equal(socket.binaryType, "arraybuffer");
-  assert.equal(connection.sendJSON({ t: "attach" }), false);
+  assert.equal(connection.request("session.attach", { id: "session-1" }), null);
   socket.open();
-  assert.deepEqual(socket.sent, ['{"t":"auth","token":"secret"}']);
+  assert.deepEqual(socket.sent, ['{"t":"auth","token":"secret","version":"1.0"}']);
   socket.onmessage({ data: "roster" });
   assert.deepEqual(messages, ["roster"]);
-  assert.equal(connection.sendJSON({ t: "detach" }), true);
+  assert.match(connection.request("session.detach"), /^web-/);
+  assert.equal(JSON.parse(socket.sent[1]).method, "session.detach");
 });
 
 test("connection retries after a close and stop cancels retry", () => {

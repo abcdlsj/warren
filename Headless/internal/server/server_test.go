@@ -270,11 +270,7 @@ func TestBrowserAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
 	defer connection.Close()
 
-	if err := connection.WriteJSON(api.Envelope{
-		Type: "attach", Session: session.ID, Cols: 101, Rows: 33,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	attachBrowserWithSize(t, connection, session.ID, nil, 101, 33)
 	readBrowserMessage(t, connection, "attached")
 	waitForCapture(t, runtime.captureSeen)
 	assertResizePrecedesCapture(t, runtime, 101, 33)

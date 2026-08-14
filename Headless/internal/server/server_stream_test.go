@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -19,11 +20,12 @@ import (
 // append-only file per session, input echoes into the same file, and pipe
 // installation is idempotent.
 type spoolRuntime struct {
-	mu           sync.Mutex
-	directory    string
-	sessions     map[string]bool
-	pipeInstalls map[string]int
-	resizes      []recordedResize
+	mu             sync.Mutex
+	directory      string
+	sessions       map[string]bool
+	pipeInstalls   map[string]int
+	resizes        []recordedResize
+	capturePadding int
 }
 
 func newSpoolRuntime(t *testing.T) *spoolRuntime {
@@ -59,7 +61,17 @@ func (runtime *spoolRuntime) List(context.Context) (map[string]bool, error) {
 }
 
 func (runtime *spoolRuntime) Capture(_ context.Context, name string) ([]byte, error) {
-	return os.ReadFile(runtime.SpoolPath(name))
+	data, err := os.ReadFile(runtime.SpoolPath(name))
+	if err != nil {
+		return nil, err
+	}
+	runtime.mu.Lock()
+	padding := runtime.capturePadding
+	runtime.mu.Unlock()
+	if padding > 0 {
+		data = append(data, make([]byte, padding)...)
+	}
+	return data, nil
 }
 
 func (runtime *spoolRuntime) Input(_ context.Context, name string, data []byte) error {
@@ -225,6 +237,57 @@ func TestRepeatedAttachInstallsPipeOnce(t *testing.T) {
 	}
 }
 
+func TestReanchorDoesNotBumpEpochWhenCaptureExceedsSpool(t *testing.T) {
+	state := newStateWithSession(t, "session-reanchor", "runtime-reanchor")
+	runtime := newSpoolRuntime(t)
+	_ = runtime.Create(context.Background(), "runtime-reanchor", t.TempDir(), "")
+	if err := os.WriteFile(runtime.SpoolPath("runtime-reanchor"), []byte("prompt\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// capture-pane renders more bytes than the raw spool (clear sequences,
+	// cursor restore, padded rows). This must not be treated as compaction.
+	runtime.mu.Lock()
+	runtime.capturePadding = 4096
+	runtime.mu.Unlock()
+
+	service := &Service{Store: state, Runtime: runtime}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	defer connection.Close()
+
+	attachBrowser(t, connection, "session-reanchor", nil)
+	attached := readBrowserMessage(t, connection, "attached")
+	if attached["reanchor"] != true {
+		t.Fatalf("first attach should reanchor, got %#v", attached)
+	}
+	readBinaryFrame(t, connection)
+	readBrowserMessage(t, connection, "synced")
+
+	// A spurious rotation would send a second attached/reanchor and bump the
+	// epoch in Host state.
+	_ = connection.SetReadDeadline(time.Now().Add(250 * time.Millisecond))
+	defer connection.SetReadDeadline(time.Time{})
+	for {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			break
+		}
+		if kind != websocket.TextMessage {
+			t.Fatal("unexpected binary frame after reanchor")
+		}
+		var message map[string]any
+		if json.Unmarshal(data, &message) == nil && message["t"] == "attached" {
+			t.Fatal("spurious reanchor after attach")
+		}
+	}
+	for _, session := range state.Snapshot().Sessions {
+		if session.ID == "session-reanchor" && session.Epoch != 0 {
+			t.Fatalf("epoch bumped to %d by spurious rotation", session.Epoch)
+		}
+	}
+}
+
 func TestSlowClientOverflowClosesOnlyThatPeer(t *testing.T) {
 	state, _ := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
 	service := &Service{Store: state, Runtime: newSpoolRuntime(t)}
@@ -345,20 +408,32 @@ func newStateWithSession(t *testing.T, sessionID, runtimeName string) *store.Sto
 }
 
 func attachBrowser(t *testing.T, connection *websocket.Conn, sessionID string, anchor *output.Anchor) {
+	attachBrowserWithSize(t, connection, sessionID, anchor, 0, 0)
+}
+
+func attachBrowserWithSize(t *testing.T, connection *websocket.Conn, sessionID string, anchor *output.Anchor, columns, rows int) {
 	t.Helper()
-	message := api.Envelope{Type: "attach", Session: sessionID}
-	if anchor != nil {
-		message.Epoch = anchor.Epoch
-		message.Sequence = anchor.Sequence
+	params := map[string]any{"id": sessionID}
+	if columns != 0 || rows != 0 {
+		params["cols"] = columns
+		params["rows"] = rows
 	}
-	if err := connection.WriteJSON(message); err != nil {
+	if anchor != nil {
+		params["epoch"] = anchor.Epoch
+		params["sequence"] = anchor.Sequence
+	}
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: store.NewID(), Method: "session.attach", Params: params,
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func sendDetach(t *testing.T, connection *websocket.Conn) {
 	t.Helper()
-	if err := connection.WriteJSON(api.Envelope{Type: "detach"}); err != nil {
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: store.NewID(), Method: "session.detach",
+	}); err != nil {
 		t.Fatal(err)
 	}
 }

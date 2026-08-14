@@ -9,14 +9,14 @@ export function terminalSize(terminal) {
 
 export function attachTerminalMessage(session, terminal, anchor = null) {
   const size = terminalSize(terminal);
-  const message = size
-    ? { t: "attach", session, ...size }
-    : { t: "attach", session };
+  const params = size
+    ? { id: session, ...size }
+    : { id: session };
   if (anchor) {
-    message.epoch = anchor.epoch;
-    message.sequence = anchor.sequence;
+    params.epoch = anchor.epoch;
+    params.sequence = anchor.sequence;
   }
-  return message;
+  return { method: "session.attach", params };
 }
 
 export function fitTerminalToHost(fitAddon, host) {

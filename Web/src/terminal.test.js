@@ -13,11 +13,11 @@ test("terminalSize accepts only a positive integer grid", () => {
 test("initial attach carries the fitted terminal grid", () => {
   assert.deepEqual(
     attachTerminalMessage("session-1", { cols: 96, rows: 31 }),
-    { t: "attach", session: "session-1", cols: 96, rows: 31 },
+    { method: "session.attach", params: { id: "session-1", cols: 96, rows: 31 } },
   );
   assert.deepEqual(
     attachTerminalMessage("session-1", { cols: 0, rows: 31 }),
-    { t: "attach", session: "session-1" },
+    { method: "session.attach", params: { id: "session-1" } },
   );
 });
 

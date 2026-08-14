@@ -207,7 +207,7 @@ private actor LocalWebProxy {
     }
 
     func start() {
-        guard task == nil, let url = URL(string: "ws://127.0.0.1:\(WebRelayServer.defaultPort)/ws") else { return }
+        guard task == nil, let url = URL(string: "ws://127.0.0.1:\(WebRelayServer.defaultPort)/v1/ws") else { return }
         let socket = URLSession.shared.webSocketTask(with: url)
         task = socket
         socket.resume()
