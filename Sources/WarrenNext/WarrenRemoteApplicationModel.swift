@@ -79,6 +79,21 @@ private struct RemoteRoster: Decodable, Sendable {
     let projects: [Project]
     let workspaces: [Workspace]
     let sessions: [Session]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        host = try container.decode(Host.self, forKey: .host)
+        projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
+        workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
+        sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case host
+        case projects
+        case workspaces
+        case sessions
+    }
 }
 
 private enum RemoteWireEvent: Sendable {
