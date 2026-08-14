@@ -87,13 +87,14 @@ struct WarrenDesktopSidebarHeader: View {
                     .accessibilityHidden(true)
 
                 Text("Search")
-                    .font(WarrenTypography.chromeLabel)
+                    .font(WarrenTypography.navigationGroup)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
 
                 Text("⌘K")
                     .font(WarrenTypography.shortcut)
+                    .tracking(1.2)
                     .foregroundStyle(WarrenColorTokens.resolved(for: colorScheme).mutedForeground)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)

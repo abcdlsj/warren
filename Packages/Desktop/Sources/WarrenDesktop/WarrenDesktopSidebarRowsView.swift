@@ -34,7 +34,7 @@ struct WarrenDesktopSidebarRows: View {
             if groups.isEmpty && !isCollapsed {
                 VStack(spacing: WarrenSpacing.xs) {
                     Text("No workspaces yet")
-                        .font(WarrenTypography.emptyState)
+                        .font(WarrenTypography.body)
                     Text("Add a project or drop a Git repository folder")
                         .font(WarrenTypography.supporting)
                         .foregroundStyle(WarrenColorTokens.dark.mutedForeground)
@@ -232,7 +232,7 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                 HStack(spacing: WarrenSpacing.small) {
                     Text(title.uppercased())
                         .font(WarrenTypography.sectionLabel)
-                        .tracking(0.75)
+                        .tracking(1.0)
                     if let disclosureExpanded {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .semibold))

@@ -49,7 +49,7 @@ struct WarrenDesktopPresetBar: View {
                                 .frame(width: 14, height: 14)
 
                             Text(preset.presetBarTitle)
-                                .font(.system(size: 12, weight: .regular))
+                                .font(.system(size: 13, weight: .regular))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 6)

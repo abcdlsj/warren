@@ -6,14 +6,19 @@ public enum WarrenTypography {
     /// most navigation and chrome, with weight reserved for active hierarchy.
     public static let navigationGroup = Font.system(size: 13, weight: .medium)
     public static let navigationItem = Font.system(size: 13, weight: .regular)
-    public static let navigationMeta = Font.system(size: 10, weight: .medium)
-    public static let shortcut = Font.system(size: 10, weight: .medium, design: .monospaced)
+    /// Secondary row metadata is Superset's `text-xs` tier.
+    public static let navigationMeta = Font.system(size: 12, weight: .regular)
+    /// Superset group headings are `text-xs font-medium`.
+    public static let groupHeading = Font.system(size: 12, weight: .medium)
+    /// Superset shortcuts are `text-xs tracking-widest`; Warren keeps the
+    /// monospaced design for keyboard hints.
+    public static let shortcut = Font.system(size: 12, weight: .medium, design: .monospaced)
     public static let chromeLabel = Font.system(size: 12, weight: .regular)
     /// Compatibility aliases for clients that have not migrated yet.
     public static let sidebarRow = navigationGroup
     public static let workspaceRow = navigationItem
     /// Section labels are intentionally compact and uppercase in their source.
-    public static let sectionLabel = Font.system(size: 10, weight: .semibold)
+    public static let sectionLabel = Font.system(size: 10, weight: .medium)
     /// Superset tab and pane titles use the compact text-xs tier.
     public static let tabTitle = Font.system(size: 12, weight: .regular)
     public static let activeTabTitle = Font.system(size: 12, weight: .medium)
@@ -27,7 +32,8 @@ public enum WarrenTypography {
     public static let dialogTitle = Font.system(size: 17, weight: .semibold)
     public static let body = Font.system(size: 13, weight: .regular)
     public static let bodyEmphasis = Font.system(size: 13, weight: .medium)
-    public static let supporting = Font.system(size: 11, weight: .regular)
+    /// Superset `text-xs` descriptions and hints.
+    public static let supporting = Font.system(size: 12, weight: .regular)
     public static let code = Font.system(size: 12, weight: .regular, design: .monospaced)
     public static let compactCode = Font.system(size: 11, weight: .semibold, design: .monospaced)
 }

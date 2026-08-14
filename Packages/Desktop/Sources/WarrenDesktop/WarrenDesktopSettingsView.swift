@@ -127,7 +127,7 @@ struct WarrenDesktopSettingsView: View {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
                     Text("TERMINAL")
                         .font(WarrenTypography.sectionLabel)
-                        .tracking(0.75)
+                        .tracking(1.0)
                         .foregroundStyle(tokens.mutedForeground)
                         .padding(.horizontal, WarrenSpacing.standard)
                         .padding(.top, WarrenSpacing.standard)
@@ -249,13 +249,13 @@ struct WarrenDesktopSettingsView: View {
         settingsSection("Terminal font", section: .terminalFont, tokens: tokens) {
             HStack(alignment: .bottom, spacing: WarrenSpacing.standard) {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Font family").font(WarrenTypography.supporting)
+                    Text("Font family").font(WarrenTypography.bodyEmphasis)
                     TextField("monospace", text: $fontFamily)
                         .textFieldStyle(.roundedBorder)
                         .font(WarrenTypography.code)
                 }
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Size").font(WarrenTypography.supporting)
+                    Text("Size").font(WarrenTypography.bodyEmphasis)
                     Stepper(value: $fontSize, in: 8...32, step: 1) {
                         Text("\(Int(fontSize)) pt")
                             .font(WarrenTypography.code)

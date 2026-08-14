@@ -177,6 +177,7 @@ struct WarrenDesktopCommandPalette: View {
 
             Text("esc")
                 .font(WarrenTypography.shortcut)
+                .tracking(1.2)
                 .foregroundStyle(tokens.mutedForeground)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
@@ -196,7 +197,7 @@ struct WarrenDesktopCommandPalette: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
             Text(result.group.project.name)
-                .font(WarrenTypography.navigationMeta)
+                .font(WarrenTypography.groupHeading)
                 .foregroundStyle(tokens.mutedForeground)
                 .padding(.horizontal, WarrenSpacing.compact)
                 .padding(.top, WarrenSpacing.xs)
