@@ -97,7 +97,7 @@ public enum WarrenPreferenceKey {
 /// The value is normalized at the boundary so an invalid preference cannot
 /// make Ghostty or a web terminal construct an unusable grid.
 public struct TerminalFontPreference: Hashable, Sendable {
-    public static let defaultFamily = "monospace"
+    public static let defaultFamily = "SF Mono"
     public static let defaultSize = 13.0
     public static let allowedSizeRange = 8.0...32.0
 

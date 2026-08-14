@@ -250,7 +250,7 @@ struct WarrenDesktopSettingsView: View {
             HStack(alignment: .bottom, spacing: WarrenSpacing.standard) {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
                     Text("Font family").font(WarrenTypography.bodyEmphasis)
-                    TextField("monospace", text: $fontFamily)
+                    TextField(TerminalFontPreference.defaultFamily, text: $fontFamily)
                         .textFieldStyle(.roundedBorder)
                         .font(WarrenTypography.code)
                 }
@@ -264,7 +264,7 @@ struct WarrenDesktopSettingsView: View {
                 }
                 .frame(width: 150)
             }
-            Text("Aa  The quick brown fox  0123456789")
+            Text("$  The quick brown fox  0123456789  中文  │─└")
                 .font(.custom(normalizedFont.family, size: normalizedFont.size))
                 .foregroundStyle(tokens.foreground)
                 .padding(WarrenSpacing.standard)

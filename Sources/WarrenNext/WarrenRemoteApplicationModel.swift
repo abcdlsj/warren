@@ -330,6 +330,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
+    @ObservationIgnored private var terminalFont = TerminalFontPreference()
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
@@ -426,7 +427,13 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    func updateTerminalFont(_ preference: TerminalFontPreference) {}
+    func updateTerminalFont(_ preference: TerminalFontPreference) {
+        guard preference != terminalFont else { return }
+        terminalFont = preference
+        for surface in mountedSurfaces {
+            surface.apply(font: preference)
+        }
+    }
     func startWebRelayFromUI() {}
     func stopWebRelay() {}
     func openWebRelayURL(_ url: URL) { NSWorkspace.shared.open(url) }
@@ -729,6 +736,7 @@ final class WarrenRemoteApplicationModel {
             id: sessionID,
             attachmentID: TerminalAttachmentID(),
             workingDirectory: session.workingDirectory,
+            font: terminalFont,
             onInput: { [weak self] data in Task { await self?.sendInput(data) } },
             onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
         )

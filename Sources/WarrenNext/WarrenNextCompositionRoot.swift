@@ -130,7 +130,10 @@ struct WarrenNextCompositionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
             remoteModel.copySecureWebURL()
         }
-        .task { restoreEndpointSelection() }
+        .task {
+            updateTerminalFont()
+            restoreEndpointSelection()
+        }
         .onChange(of: selectedEndpointID) { _, _ in connectSelectedEndpoint() }
     }
 
