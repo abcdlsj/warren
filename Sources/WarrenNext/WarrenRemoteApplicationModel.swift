@@ -666,8 +666,12 @@ final class WarrenRemoteApplicationModel {
                 workingDirectory: workspacePaths[workspaceID] ?? ""
             )
         }
-        let tabs = remoteSessions.map { value, id, _ in
-            ClientTab(
+        // Ended sessions stay in the projection for history, but they are
+        // not openable tabs: attaching to them would fail and leave the user
+        // staring at a terminal that cannot accept input.
+        let tabs = remoteSessions.compactMap { value, id, _ -> ClientTab? in
+            guard value.lifecycle == "running" else { return nil }
+            return ClientTab(
                 id: Self.tabID(id),
                 title: value.title,
                 sessionID: id,
