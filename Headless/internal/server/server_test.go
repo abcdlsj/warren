@@ -294,6 +294,78 @@ func TestDesktopAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	assertResizePrecedesCapture(t, runtime, 88, 27)
 }
 
+func TestOnlyFocusedPeerCanResizeSharedRuntime(t *testing.T) {
+	state, session := testSession(t)
+	runtime := &recordingRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{session.Runtime: []byte("prompt")}},
+		captureSeen:   make(chan struct{}),
+	}
+	httpServer := httptest.NewServer(NewHTTPServer(&Service{Store: state, Runtime: runtime}, "secret", slog.Default()).Handler())
+	defer httpServer.Close()
+
+	first := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer first.Close()
+	second := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer second.Close()
+
+	_ = requestResultBeforeBinary[api.Session](t, first, "session.attach", map[string]any{
+		"id": session.ID, "focused": true, "cols": 101, "rows": 33,
+	})
+	readBrowserMessage(t, first, "attached")
+	readBinaryFrame(t, first)
+	readBrowserMessage(t, first, "synced")
+
+	_ = requestResultBeforeBinary[api.Session](t, second, "session.attach", map[string]any{
+		"id": session.ID, "focused": false, "cols": 77, "rows": 27,
+	})
+	readBrowserMessage(t, second, "attached")
+	readBinaryFrame(t, second)
+	readBrowserMessage(t, second, "synced")
+
+	_, resizes := runtime.snapshotOrder()
+	if len(resizes) != 1 || resizes[0] != (recordedResize{columns: 101, rows: 33}) {
+		t.Fatalf("passive attach changed runtime size: %#v", resizes)
+	}
+
+	background := requestResult[map[string]bool](t, second, "session.resize", map[string]any{
+		"cols": 77, "rows": 27,
+	})
+	if background["resized"] {
+		t.Fatal("background resize unexpectedly changed the runtime")
+	}
+
+	focused := requestResult[map[string]bool](t, second, "session.focus", map[string]any{
+		"focused": true, "cols": 77, "rows": 27,
+	})
+	if !focused["focused"] || !focused["resized"] {
+		t.Fatalf("focus handoff result = %#v", focused)
+	}
+
+	oldOwner := requestResult[map[string]bool](t, first, "session.resize", map[string]any{
+		"cols": 101, "rows": 33,
+	})
+	if oldOwner["resized"] {
+		t.Fatal("previous focus owner resized after handoff")
+	}
+	newOwner := requestResult[map[string]bool](t, second, "session.resize", map[string]any{
+		"cols": 78, "rows": 28,
+	})
+	if !newOwner["resized"] {
+		t.Fatal("current focus owner resize was ignored")
+	}
+
+	_, resizes = runtime.snapshotOrder()
+	want := []recordedResize{{columns: 101, rows: 33}, {columns: 77, rows: 27}, {columns: 78, rows: 28}}
+	if len(resizes) != len(want) {
+		t.Fatalf("runtime resize calls = %#v, want %#v", resizes, want)
+	}
+	for index := range want {
+		if resizes[index] != want[index] {
+			t.Fatalf("runtime resize calls = %#v, want %#v", resizes, want)
+		}
+	}
+}
+
 func testSession(t *testing.T) (*store.Store, api.Session) {
 	t.Helper()
 	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")

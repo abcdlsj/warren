@@ -448,25 +448,39 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if err != nil {
 			return err
 		}
+		focused, focusSpecified, err := optionalBoolParam(params, "focused")
+		if err != nil {
+			return err
+		}
 		p.attach(session)
 		lock, resume, err := p.server.Service.prepareAttach(ctx, session)
 		if err != nil {
 			p.detach()
 			return err
 		}
-		if err := p.writeResult(command.ID, session); err != nil {
-			lock.Unlock()
-			resume()
-			p.detach()
-			return err
+		// Register before claiming focus so a disconnect cannot leave a stale
+		// focus owner behind while the initial snapshot is being prepared.
+		p.server.Service.registerPeer(session.ID, p)
+		// Older clients did not send a focus flag. Let the first such attach
+		// claim the empty focus slot for compatibility, while every updated
+		// client explicitly sends focused=false until its terminal is focused.
+		if !focusSpecified {
+			focused = !p.server.Service.hasFocusedPeer(session.ID)
 		}
-		if specified {
-			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+		if focused || focusSpecified {
+			_, err := p.server.Service.focusPeerLocked(ctx, p, session, focused, columns, rows, specified && focused)
+			if err != nil {
 				lock.Unlock()
 				resume()
 				p.detach()
 				return err
 			}
+		}
+		if err := p.writeResult(command.ID, session); err != nil {
+			lock.Unlock()
+			resume()
+			p.detach()
+			return err
 		}
 		anchor := anchorFromParams(params)
 		if err := p.server.Service.attachOutputLocked(ctx, p, session, anchor); err != nil {
@@ -481,6 +495,37 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	case "session.detach":
 		p.detach()
 		return p.writeResult(command.ID, map[string]bool{"detached": true})
+	case "session.focus":
+		if p.attached == nil {
+			return fmt.Errorf("no attached session")
+		}
+		focused, specified, err := optionalBoolParam(params, "focused")
+		if err != nil {
+			return err
+		}
+		if !specified {
+			focused = true
+		}
+		columns, rows, resizeSpecified, err := attachSizeFromParams(params)
+		if err != nil {
+			return err
+		}
+		isFocused, resized, err := p.server.Service.focusPeer(
+			ctx,
+			p,
+			*p.attached,
+			focused,
+			columns,
+			rows,
+			resizeSpecified && focused,
+		)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{
+			"focused": isFocused,
+			"resized": resized,
+		})
 	case "session.input":
 		encoded := stringParam(params, "data")
 		value, err := base64.StdEncoding.DecodeString(encoded)
@@ -492,18 +537,19 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		}
 		return p.writeResult(command.ID, map[string]bool{"sent": true})
 	case "session.resize":
-		if err := p.requireControl(); err != nil {
-			return err
+		if p.attached == nil {
+			return fmt.Errorf("no attached session")
 		}
 		columns := intParam(params, "cols")
 		rows := intParam(params, "rows")
 		if columns <= 0 || rows <= 0 {
 			return fmt.Errorf("invalid terminal size")
 		}
-		if err := p.server.Service.Runtime.Resize(ctx, p.attached.Runtime, columns, rows); err != nil {
+		resized, err := p.server.Service.resizeFocused(ctx, p, *p.attached, columns, rows)
+		if err != nil {
 			return err
 		}
-		return p.writeResult(command.ID, map[string]bool{"resized": true})
+		return p.writeResult(command.ID, map[string]bool{"resized": resized})
 	default:
 		return fmt.Errorf("unknown method: %s", command.Method)
 	}
@@ -563,6 +609,26 @@ func stringParam(values map[string]any, key string) string {
 	return strings.TrimSpace(value)
 }
 func boolParam(values map[string]any, key string) bool { value, _ := values[key].(bool); return value }
+
+func optionalBoolParam(values map[string]any, key string) (value, specified bool, err error) {
+	raw, specified := values[key]
+	if !specified {
+		return false, false, nil
+	}
+	switch value := raw.(type) {
+	case bool:
+		return value, true, nil
+	case string:
+		parsed, parseErr := strconv.ParseBool(strings.TrimSpace(value))
+		if parseErr != nil {
+			return false, true, fmt.Errorf("invalid boolean parameter %q", key)
+		}
+		return parsed, true, nil
+	default:
+		return false, true, fmt.Errorf("invalid boolean parameter %q", key)
+	}
+}
+
 func intParam(values map[string]any, key string) int {
 	switch value := values[key].(type) {
 	case float64:

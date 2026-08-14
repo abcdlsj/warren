@@ -7,7 +7,7 @@ import WarrenHost
 @testable import WarrenNext
 
 final class WarrenRendererCoordinatorTests: XCTestCase {
-    func testRemoteAttachParametersIncludeMeasuredGrid() throws {
+    func testRemoteAttachParametersDoNotClaimFocus() throws {
         let sessionID = TerminalSessionID()
         let size = try XCTUnwrap(TerminalSize(columns: 117, rows: 38))
 
@@ -15,18 +15,17 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
             WarrenRemoteTerminalProtocol.attachParameters(sessionID: sessionID, size: size),
             [
                 "id": sessionID.description,
-                "cols": "117",
-                "rows": "38",
+                "focused": "false",
             ]
         )
     }
 
-    func testRemoteAttachParametersRemainBackwardCompatibleWithoutGrid() {
+    func testRemoteAttachParametersRemainExplicitlyPassiveWithoutGrid() {
         let sessionID = TerminalSessionID()
 
         XCTAssertEqual(
             WarrenRemoteTerminalProtocol.attachParameters(sessionID: sessionID, size: nil),
-            ["id": sessionID.description]
+            ["id": sessionID.description, "focused": "false"]
         )
     }
 

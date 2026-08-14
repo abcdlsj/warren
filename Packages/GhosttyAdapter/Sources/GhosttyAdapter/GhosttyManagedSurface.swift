@@ -13,6 +13,7 @@ public struct GhosttyManagedSurface: View {
     public let focusDriver: GhosttyFocusDriver
     public let viewportSize: CGSize?
     public let onFocused: () -> Void
+    public let onBlurred: () -> Void
 
     @FocusState private var surfaceFocused: Bool
 
@@ -21,13 +22,15 @@ public struct GhosttyManagedSurface: View {
         isActive: Bool,
         focusDriver: GhosttyFocusDriver,
         viewportSize: CGSize? = nil,
-        onFocused: @escaping () -> Void = {}
+        onFocused: @escaping () -> Void = {},
+        onBlurred: @escaping () -> Void = {}
     ) {
         self.surface = surface
         self.isActive = isActive
         self.focusDriver = focusDriver
         self.viewportSize = viewportSize
         self.onFocused = onFocused
+        self.onBlurred = onBlurred
     }
 
     public var body: some View {
@@ -66,10 +69,12 @@ public struct GhosttyManagedSurface: View {
                         canRefresh: { isActive },
                         onRefreshed: { surface.synchronizeViewport() }
                     )
+                } else {
+                    onBlurred()
                 }
             }
             .onChange(of: surfaceFocused) { _, focused in
-                if focused { onFocused() }
+                if focused { onFocused() } else { onBlurred() }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -85,6 +90,16 @@ public struct GhosttyManagedSurface: View {
                     canFocus: { isActive },
                     onFocused: onFocused
                 )
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSWindow.didResignKeyNotification
+                )
+            ) { note in
+                guard isActive,
+                      let window = note.object as? NSWindow,
+                      focusDriver.owns(surface.state, in: window) else { return }
+                onBlurred()
             }
             .id(ObjectIdentifier(surface.state))
     }

@@ -109,14 +109,11 @@ private enum RemoteWireEvent: Sendable {
 enum WarrenRemoteTerminalProtocol {
     static func attachParameters(
         sessionID: TerminalSessionID,
-        size: TerminalSize?
+        size _: TerminalSize?
     ) -> [String: String] {
-        var parameters = ["id": sessionID.description]
-        if let size {
-            parameters["cols"] = String(size.columns)
-            parameters["rows"] = String(size.rows)
-        }
-        return parameters
+        // Attach subscribes to output only. PTY geometry is controlled by the
+        // endpoint that actually owns UI focus via session.focus.
+        return ["id": sessionID.description, "focused": "false"]
     }
 
     static func shouldAttach(
@@ -327,8 +324,13 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var wire: WarrenRemoteWire?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var selectedSessionID: TerminalSessionID?
+    @ObservationIgnored private var attachedSessionID: TerminalSessionID?
+    @ObservationIgnored private var focusedSessionID: TerminalSessionID?
+    @ObservationIgnored private var pendingFocusSessionID: TerminalSessionID?
+    @ObservationIgnored private var pendingFocusSize: TerminalSize?
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var focusTask: Task<Void, Never>?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
 
@@ -363,9 +365,15 @@ final class WarrenRemoteApplicationModel {
         wire = nil
         currentRoster = nil
         selectedSessionID = nil
+        attachedSessionID = nil
+        focusedSessionID = nil
+        pendingFocusSessionID = nil
+        pendingFocusSize = nil
         attachGeneration &+= 1
         resizeTask?.cancel()
         resizeTask = nil
+        focusTask?.cancel()
+        focusTask = nil
         mountedSurfaces.removeAll()
         webRelayStatus = WarrenDesktopWebRelayStatus()
     }
@@ -577,6 +585,9 @@ final class WarrenRemoteApplicationModel {
     }
 
     func resize(columns: Int, rows: Int) {
+        guard let sessionID = selectedSessionID,
+              attachedSessionID == sessionID,
+              focusedSessionID == sessionID else { return }
         resizeTask?.cancel()
         resizeTask = Task { @MainActor [weak self] in
             do {
@@ -590,6 +601,62 @@ final class WarrenRemoteApplicationModel {
                 return
             } catch {
                 self?.present(error)
+            }
+        }
+    }
+
+    func focus(sessionID: TerminalSessionID, size: TerminalSize?) {
+        guard selectedSessionID == sessionID else { return }
+        let measuredSize = size ?? mountedSurfaces
+            .first(where: { $0.id == sessionID })?
+            .state.surfaceSize
+            .flatMap { TerminalSize(columns: Int($0.columns), rows: Int($0.rows)) }
+        guard attachedSessionID == sessionID else {
+            pendingFocusSessionID = sessionID
+            pendingFocusSize = measuredSize
+            return
+        }
+        sendFocus(sessionID: sessionID, focused: true, size: measuredSize)
+    }
+
+    func blur(sessionID: TerminalSessionID) {
+        if pendingFocusSessionID == sessionID {
+            pendingFocusSessionID = nil
+            pendingFocusSize = nil
+        }
+        guard selectedSessionID == sessionID else { return }
+        focusTask?.cancel()
+        focusedSessionID = nil
+        guard attachedSessionID == sessionID else { return }
+        sendFocus(sessionID: sessionID, focused: false, size: nil)
+    }
+
+    private func sendFocus(sessionID: TerminalSessionID, focused: Bool, size: TerminalSize?) {
+        guard let wire,
+              selectedSessionID == sessionID,
+              attachedSessionID == sessionID else { return }
+        focusTask?.cancel()
+        focusTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                var params = ["focused": focused ? "true" : "false"]
+                if focused, let size {
+                    params["cols"] = String(size.columns)
+                    params["rows"] = String(size.rows)
+                }
+                let data = try await wire.request("session.focus", params: params)
+                let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                guard self.selectedSessionID == sessionID,
+                      self.attachedSessionID == sessionID else { return }
+                if focused {
+                    self.focusedSessionID = (result?["focused"] as? Bool == true) ? sessionID : nil
+                } else if self.focusedSessionID == sessionID {
+                    self.focusedSessionID = nil
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                self.present(error)
             }
         }
     }
@@ -700,10 +767,18 @@ final class WarrenRemoteApplicationModel {
         navigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
         if let selectedSessionID, !sessions.contains(where: { $0.id == selectedSessionID }) {
             self.selectedSessionID = nil
+            attachedSessionID = nil
+            focusedSessionID = nil
+            pendingFocusSessionID = nil
+            pendingFocusSize = nil
             mountedSurfaces.removeAll()
         }
         if navigation.selectedTabID == nil {
             selectedSessionID = nil
+            attachedSessionID = nil
+            focusedSessionID = nil
+            pendingFocusSessionID = nil
+            pendingFocusSize = nil
             mountedSurfaces.removeAll()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: previousTabID,
@@ -732,6 +807,8 @@ final class WarrenRemoteApplicationModel {
         guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
         attachGeneration &+= 1
         let generation = attachGeneration
+        attachedSessionID = nil
+        focusedSessionID = nil
         let surface = GhosttySurface(
             id: sessionID,
             attachmentID: TerminalAttachmentID(),
@@ -761,9 +838,20 @@ final class WarrenRemoteApplicationModel {
                     size: size
                 )
             )
+            guard generation == attachGeneration,
+                  selectedSessionID == sessionID else { return }
+            attachedSessionID = sessionID
+            if pendingFocusSessionID == sessionID {
+                let pendingSize = pendingFocusSize ?? size
+                pendingFocusSessionID = nil
+                pendingFocusSize = nil
+                sendFocus(sessionID: sessionID, focused: true, size: pendingSize)
+            }
         } catch {
             if generation == attachGeneration, selectedSessionID == sessionID {
                 selectedSessionID = nil
+                attachedSessionID = nil
+                focusedSessionID = nil
                 mountedSurfaces.removeAll()
             }
             present(error)
