@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
-import { captureNavigationPosition, restoreNavigationPosition } from "./navigation.js";
+import {
+  captureNavigationPosition,
+  resolveRestoredWorkspace,
+  restoreNavigationPosition,
+} from "./navigation.js";
 import { renderTerminalTitle } from "./title.js";
 import { escapeHTML } from "./view.js";
 
@@ -72,5 +76,31 @@ test("settings return keeps the workspace when its previous session disappeared"
   assert.equal(
     restoreNavigationPosition({ workspaceID: "deleted", sessionID: "deleted" }, catalog),
     null,
+  );
+});
+
+test("refresh restore prefers the saved session's workspace", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    workspaces: [
+      { id: "workspace-main", project: "project" },
+      { id: "workspace-review", project: "project" },
+    ],
+    tabs: [
+      { id: "tab-main", session: "session-main", workspace: "workspace-main", title: "Main" },
+      { id: "tab-review", session: "session-review", workspace: "workspace-review", title: "Review" },
+    ],
+  }));
+
+  assert.equal(
+    resolveRestoredWorkspace(catalog, "workspace-main", "session-review"),
+    "workspace-review",
+  );
+  assert.equal(
+    resolveRestoredWorkspace(catalog, "workspace-main", "deleted"),
+    "workspace-main",
+  );
+  assert.equal(
+    resolveRestoredWorkspace(catalog, "deleted", "deleted"),
+    "workspace-main",
   );
 });

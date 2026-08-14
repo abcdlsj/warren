@@ -440,4 +440,45 @@ final class WarrenDesktopTests: XCTestCase {
             state
         )
     }
+
+    func testNavigationPersistenceRoundTripsWorkspaceAndTab() throws {
+        let suiteName = "WarrenDesktopTests.navigation.workspace.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fixture = WarrenDesktopFixture.preview
+        let state = WarrenDesktopNavigationState(
+            selection: .workspace(fixture.groups[0].workspaces[0].id),
+            selectedTabID: "tab-main"
+        )
+
+        WarrenDesktopNavigationPersistence.save(state, to: defaults)
+        XCTAssertEqual(WarrenDesktopNavigationPersistence.restore(from: defaults), state)
+    }
+
+    func testNavigationPersistenceRoundTripsProject() throws {
+        let suiteName = "WarrenDesktopTests.navigation.project.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let fixture = WarrenDesktopFixture.preview
+        let state = WarrenDesktopNavigationState(
+            selection: .project(fixture.groups[0].project.id),
+            selectedTabID: nil
+        )
+
+        WarrenDesktopNavigationPersistence.save(state, to: defaults)
+        XCTAssertEqual(WarrenDesktopNavigationPersistence.restore(from: defaults), state)
+    }
+
+    func testNavigationPersistenceClearsWhenEmpty() throws {
+        let suiteName = "WarrenDesktopTests.navigation.empty.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        WarrenDesktopNavigationPersistence.save(
+            WarrenDesktopNavigationState(selection: nil, selectedTabID: nil),
+            to: defaults
+        )
+
+        XCTAssertNil(WarrenDesktopNavigationPersistence.restore(from: defaults))
+    }
 }

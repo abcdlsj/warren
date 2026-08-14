@@ -7,7 +7,11 @@ import "./style.css";
 
 import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
 import { RelayConnection } from "./connection.js";
-import { captureNavigationPosition, restoreNavigationPosition } from "./navigation.js";
+import {
+  captureNavigationPosition,
+  resolveRestoredWorkspace,
+  restoreNavigationPosition,
+} from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
 import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
@@ -25,6 +29,7 @@ import {
 
 const storageKeys = {
   activeWorkspace: "warren.activeWorkspace",
+  activeSession: "warren.activeSession",
   expandedProjects: "warren.expandedProjects",
   fontFamily: "warren.terminalFontFamily",
   fontSize: "warren.terminalFontSize",
@@ -53,7 +58,7 @@ const sessionPresets = [
 export default function App() {
   const [catalog, setCatalog] = useState(() => buildCatalog());
   const [activeWorkspace, setActiveWorkspace] = useState(() => localStorage.getItem(storageKeys.activeWorkspace));
-  const [activeSession, setActiveSession] = useState(null);
+  const [activeSession, setActiveSession] = useState(() => localStorage.getItem(storageKeys.activeSession));
   const [attachedSession, setAttachedSession] = useState(null);
   const [expandedProjects, setExpandedProjects] = useState(() => loadSet(storageKeys.expandedProjects));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem(storageKeys.fontFamily) || defaultFontFamily);
@@ -232,9 +237,7 @@ export default function App() {
     connectionRef.current?.markStable();
     const nextCatalog = buildCatalog(rosterFromMessage(message));
     const state = appStateRef.current;
-    const nextWorkspaceID = state.activeWorkspace && nextCatalog.workspaces.some(workspace => workspace.id === state.activeWorkspace)
-      ? state.activeWorkspace
-      : nextCatalog.workspaces[0]?.id || null;
+    const nextWorkspaceID = resolveRestoredWorkspace(nextCatalog, state.activeWorkspace, state.activeSession);
     const nextTabs = nextWorkspaceID ? workspaceTabs(nextCatalog, nextWorkspaceID) : [];
     const activeTabWasRemoved = state.activeSession && !nextTabs.some(tab => tab.id === state.activeSession);
 
@@ -548,6 +551,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(storageKeys.activeWorkspace, selectedWorkspaceID || "");
   }, [selectedWorkspaceID]);
+
+  useEffect(() => {
+    localStorage.setItem(storageKeys.activeSession, activeSession || "");
+  }, [activeSession]);
 
   useEffect(() => {
     localStorage.setItem(storageKeys.expandedProjects, JSON.stringify([...expandedProjects]));

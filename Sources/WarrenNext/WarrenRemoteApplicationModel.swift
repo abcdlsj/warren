@@ -319,7 +319,9 @@ private actor WarrenRemoteWire {
 @Observable
 final class WarrenRemoteApplicationModel {
     private(set) var projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: "Server"))
-    private(set) var navigation = WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
+    private(set) var navigation: WarrenDesktopNavigationState {
+        didSet { WarrenDesktopNavigationPersistence.save(navigation) }
+    }
     private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
     private(set) var webRelayStatus = WarrenDesktopWebRelayStatus()
@@ -331,6 +333,11 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
+
+    init() {
+        self.navigation = WarrenDesktopNavigationPersistence.restore()
+            ?? WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
+    }
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
@@ -697,7 +704,10 @@ final class WarrenRemoteApplicationModel {
         )
         issue = nil
         let previousTabID = navigation.selectedTabID
-        navigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
+        let nextNavigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
+        if nextNavigation != navigation {
+            navigation = nextNavigation
+        }
         if let selectedSessionID, !sessions.contains(where: { $0.id == selectedSessionID }) {
             self.selectedSessionID = nil
             mountedSurfaces.removeAll()
