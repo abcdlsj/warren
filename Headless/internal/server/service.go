@@ -9,16 +9,48 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/output"
+	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
 
+const (
+	defaultRingCapacity = 256
+	defaultRingMaxBytes = 8 * 1024 * 1024
+	defaultMaxSpool     = 64 * 1024 * 1024
+	cursorPersistEvery  = 256 * 1024
+)
+
 type Service struct {
-	Store        *store.Store
-	Runtime      Runtime
-	WorktreeRoot string
+	Store         *store.Store
+	Runtime       Runtime
+	WorktreeRoot  string
+	MaxSpoolBytes int64
+	RingCapacity  int
+	RingMaxBytes  int
+
+	outputMu       sync.Mutex
+	outputs        map[string]*outputSession
+	peers          map[string]map[*wsPeer]struct{}
+	controllers    map[string]*wsPeer
+	broadcastLocks map[string]*sync.Mutex
+
+	lifecycleOnce   sync.Once
+	lifecycleCancel context.CancelFunc
+}
+
+type outputSession struct {
+	mu                sync.Mutex
+	sessionID         string
+	runtimeName       string
+	ring              *output.Ring
+	watcher           *runtime.SpoolWatcher
+	persistedSequence uint64
+	reanchorRequired  bool
 }
 
 type Runtime interface {
@@ -32,6 +64,103 @@ type Runtime interface {
 
 type RuntimeLister interface {
 	List(context.Context) (map[string]bool, error)
+}
+
+// OutputRuntime is implemented by the tmux adapter: pipe-pane installs an
+// idempotent raw byte pipe and the service owns one SpoolWatcher per session.
+type OutputRuntime interface {
+	Runtime
+	EnsurePipe(context.Context, string) error
+	SpoolPath(string) string
+	SpoolSize(context.Context, string) (int64, error)
+	TruncateSpool(context.Context, string) error
+	ArchiveSpool(context.Context, string) error
+	RemoveSpool(string)
+}
+
+func (s *Service) outputAdapter() OutputRuntime {
+	adapter, _ := s.Runtime.(OutputRuntime)
+	return adapter
+}
+
+func (s *Service) lazyInit() {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	s.lazyInitLocked()
+}
+
+func (s *Service) lazyInitLocked() {
+	if s.outputs == nil {
+		s.outputs = map[string]*outputSession{}
+	}
+	if s.peers == nil {
+		s.peers = map[string]map[*wsPeer]struct{}{}
+	}
+	if s.controllers == nil {
+		s.controllers = map[string]*wsPeer{}
+	}
+	if s.broadcastLocks == nil {
+		s.broadcastLocks = map[string]*sync.Mutex{}
+	}
+}
+
+// Start runs the single lifecycle watcher. One goroutine probes tmux for all
+// managed sessions; it never creates a polling task per Session.
+func (s *Service) Start(parent context.Context) {
+	s.lifecycleOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+		s.lifecycleCancel = cancel
+		go s.lifecycleLoop(ctx)
+	})
+}
+
+func (s *Service) Shutdown() {
+	if s.lifecycleCancel != nil {
+		s.lifecycleCancel()
+	}
+	s.outputMu.Lock()
+	outputs := make([]*outputSession, 0, len(s.outputs))
+	for _, outputSession := range s.outputs {
+		outputs = append(outputs, outputSession)
+	}
+	s.outputMu.Unlock()
+	for _, outputSession := range outputs {
+		outputSession.watcher.Close()
+		outputSession.mu.Lock()
+		_ = s.persistCursorLocked(outputSession)
+		outputSession.mu.Unlock()
+	}
+}
+
+func (s *Service) lifecycleLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	s.reconcile(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.reconcile(ctx)
+		}
+	}
+}
+
+func (s *Service) reconcile(ctx context.Context) {
+	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	running := s.runningSessions(probeContext)
+	for _, session := range s.Store.Snapshot().Sessions {
+		if session.Lifecycle != "running" {
+			s.stopOutput(session.ID, false)
+			continue
+		}
+		if !running(session.Runtime) {
+			s.markEnded(session.ID)
+			continue
+		}
+		_, _ = s.ensureOutput(ctx, session)
+	}
 }
 
 func (s *Service) Roster(ctx context.Context) api.State {
@@ -75,6 +204,9 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 			}
 			return nil
 		})
+		for sessionID := range ended {
+			s.stopOutput(sessionID, true)
+		}
 		state, revision = s.Store.SnapshotVersion()
 	}
 	sort.Slice(state.Projects, func(i, j int) bool { return state.Projects[i].Name < state.Projects[j].Name })
@@ -84,8 +216,8 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 }
 
 func (s *Service) runningSessions(ctx context.Context) func(string) bool {
-	if runtime, ok := s.Runtime.(RuntimeLister); ok {
-		if sessions, err := runtime.List(ctx); err == nil {
+	if runtimeAdapter, ok := s.Runtime.(RuntimeLister); ok {
+		if sessions, err := runtimeAdapter.List(ctx); err == nil {
 			return func(name string) bool { return sessions[name] }
 		}
 	}
@@ -309,6 +441,17 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 		_ = s.Runtime.Kill(ctx, runtimeName)
 		return api.Session{}, err
 	}
+	if _, err := s.ensureOutput(ctx, session); err != nil {
+		_ = s.Runtime.Kill(ctx, runtimeName)
+		_ = s.Store.Update(func(value *api.State) error {
+			value.Sessions = filter(value.Sessions, func(item api.Session) bool { return item.ID != id })
+			return nil
+		})
+		if adapter := s.outputAdapter(); adapter != nil {
+			adapter.RemoveSpool(runtimeName)
+		}
+		return api.Session{}, err
+	}
 	return session, nil
 }
 
@@ -324,8 +467,13 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	if session == nil {
 		return fmt.Errorf("session not found: %s", id)
 	}
+	// Only explicit Close Tab / Terminate Session reaches kill-session.
 	if err := s.Runtime.Kill(ctx, session.Runtime); err != nil {
 		return err
+	}
+	s.stopOutput(id, true)
+	if adapter := s.outputAdapter(); adapter != nil {
+		adapter.RemoveSpool(session.Runtime)
 	}
 	return s.Store.Update(func(value *api.State) error {
 		value.Sessions = filter(value.Sessions, func(item api.Session) bool { return item.ID != id })
@@ -346,9 +494,433 @@ func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, w
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == workspaceID {
 			_ = s.Runtime.Kill(ctx, session.Runtime)
+			s.stopOutput(session.ID, true)
+			if adapter := s.outputAdapter(); adapter != nil {
+				adapter.RemoveSpool(session.Runtime)
+			}
 		}
 	}
 	return nil
+}
+
+// ensureOutput adopts a running Session: idempotently installs the output
+// pipe, opens the spool watcher from the persisted offset, and creates the
+// output ring. Repeating attach/adopt never stacks another pipe.
+func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outputSession, error) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	if existing := s.outputs[session.ID]; existing != nil {
+		s.outputMu.Unlock()
+		return existing, nil
+	}
+	s.outputMu.Unlock()
+
+	adapter := s.outputAdapter()
+	if adapter == nil {
+		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring}
+		s.outputMu.Lock()
+		s.outputs[session.ID] = outputSession
+		s.outputMu.Unlock()
+		return outputSession, nil
+	}
+	if err := adapter.EnsurePipe(ctx, session.Runtime); err != nil {
+		return nil, err
+	}
+	spoolOffset := int64(session.Sequence)
+	if size, err := adapter.SpoolSize(ctx, session.Runtime); err == nil && size < spoolOffset {
+		spoolOffset = 0
+	}
+	// Adoption always reanchors the next client once: tmux may have emitted
+	// bytes while this Host was down and the spool could not capture them.
+	// A snapshot restores the screen without pretending the byte stream has
+	// no gap.
+	outputSession := &outputSession{
+		sessionID:         session.ID,
+		runtimeName:       session.Runtime,
+		persistedSequence: session.Sequence,
+		reanchorRequired:  true,
+	}
+	watcher, err := runtime.NewSpoolWatcher(
+		adapter.SpoolPath(session.Runtime),
+		spoolOffset,
+		func(data []byte) { s.recordOutput(session.ID, data) },
+		func() { s.rotated(session.ID) },
+		func() { s.compactSpool(session.ID) },
+	)
+	if err != nil {
+		return nil, fmt.Errorf("watch output spool: %w", err)
+	}
+	watcher.SetMaxBytes(s.maxSpoolBytes())
+	watcher.Start()
+	outputSession.watcher = watcher
+	outputSession.ring = output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
+
+	s.outputMu.Lock()
+	if previous := s.outputs[session.ID]; previous != nil {
+		s.outputMu.Unlock()
+		watcher.Close()
+		return previous, nil
+	}
+	s.outputs[session.ID] = outputSession
+	s.outputMu.Unlock()
+	return outputSession, nil
+}
+
+func (s *Service) ringCapacity() int {
+	if s.RingCapacity > 0 {
+		return s.RingCapacity
+	}
+	return defaultRingCapacity
+}
+
+func (s *Service) ringMaxBytes() int {
+	if s.RingMaxBytes > 0 {
+		return s.RingMaxBytes
+	}
+	return defaultRingMaxBytes
+}
+
+func (s *Service) maxSpoolBytes() int64 {
+	if s.MaxSpoolBytes > 0 {
+		return s.MaxSpoolBytes
+	}
+	return defaultMaxSpool
+}
+
+func (s *Service) recordOutput(sessionID string, data []byte) {
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	s.outputMu.Unlock()
+	if outputSession == nil {
+		return
+	}
+	for _, chunk := range output.SplitPayload(data) {
+		outputSession.mu.Lock()
+		frame, err := outputSession.ring.Append(sessionID, chunk)
+		epoch := outputSession.ring.Epoch
+		sequence := outputSession.ring.Upper()
+		outputSession.mu.Unlock()
+		if err != nil {
+			continue
+		}
+		// Ring first, then clients: recovery is always authoritative even when
+		// a peer cannot keep up and has to reconnect.
+		s.broadcastFrame(frame)
+		s.maybePersistCursor(sessionID, epoch, sequence)
+	}
+}
+
+func (s *Service) maybePersistCursor(sessionID string, epoch, sequence uint64) {
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	s.outputMu.Unlock()
+	if outputSession == nil {
+		return
+	}
+	outputSession.mu.Lock()
+	if sequence-outputSession.persistedSequence < cursorPersistEvery {
+		outputSession.mu.Unlock()
+		return
+	}
+	outputSession.persistedSequence = sequence
+	err := s.persistCursorLocked(outputSession)
+	outputSession.mu.Unlock()
+	_ = err
+}
+
+func (s *Service) persistCursorLocked(outputSession *outputSession) error {
+	epoch := outputSession.ring.Epoch
+	sequence := outputSession.ring.Upper()
+	return s.Store.Update(func(value *api.State) error {
+		for index := range value.Sessions {
+			if value.Sessions[index].ID == outputSession.sessionID && value.Sessions[index].Lifecycle == "running" {
+				value.Sessions[index].Epoch = epoch
+				value.Sessions[index].Sequence = sequence
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Service) broadcastFrame(frame output.Frame) {
+	encoded, err := output.EncodeOutput(frame.SessionID, frame.Epoch, frame.Sequence, frame.Payload)
+	if err != nil {
+		return
+	}
+	lock := s.broadcastLock(frame.SessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	s.outputMu.Lock()
+	peers := make([]*wsPeer, 0, len(s.peers[frame.SessionID]))
+	for peer := range s.peers[frame.SessionID] {
+		peers = append(peers, peer)
+	}
+	s.outputMu.Unlock()
+	for _, peer := range peers {
+		if !peer.enqueueBinary(encoded) {
+			s.detachPeer(peer, frame.SessionID)
+		}
+	}
+}
+
+func (s *Service) broadcastLock(sessionID string) *sync.Mutex {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	s.lazyInitLocked()
+	lock := s.broadcastLocks[sessionID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.broadcastLocks[sessionID] = lock
+	}
+	return lock
+}
+
+// attachOutput prepares a peer's subscription under the session broadcast
+// lock, so recovery replay can never interleave with newer live output.
+func (s *Service) attachOutput(ctx context.Context, peer *wsPeer, session api.Session, anchor *output.Anchor) error {
+	lock, resume, err := s.prepareAttach(ctx, session)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		lock.Unlock()
+		resume()
+	}()
+	return s.attachOutputLocked(ctx, peer, session, anchor)
+}
+
+// prepareAttach pauses the session's spool watcher before taking the
+// broadcast lock. A paused watcher cannot read or broadcast, so a reanchor
+// snapshot is an atomic point in the byte stream: bytes at or below the
+// snapshot are represented exactly once.
+func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sync.Mutex, func(), error) {
+	outputSession, err := s.ensureOutput(ctx, session)
+	if err != nil {
+		return nil, nil, err
+	}
+	resume := func() {}
+	if outputSession.watcher != nil {
+		outputSession.watcher.Pause()
+		resume = outputSession.watcher.Resume
+	}
+	lock := s.broadcastLock(session.ID)
+	lock.Lock()
+	return lock, resume, nil
+}
+
+func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session api.Session, anchor *output.Anchor) error {
+	s.lazyInit()
+	s.outputMu.Lock()
+	outputSession := s.outputs[session.ID]
+	s.outputMu.Unlock()
+
+	s.outputMu.Lock()
+	if s.peers[session.ID] == nil {
+		s.peers[session.ID] = map[*wsPeer]struct{}{}
+	}
+	s.peers[session.ID][peer] = struct{}{}
+	s.controllers[session.ID] = peer
+	s.outputMu.Unlock()
+
+	outputSession.mu.Lock()
+	recovery := outputSession.ring.Recovery(anchor)
+	reanchorRequired := outputSession.reanchorRequired
+	outputSession.mu.Unlock()
+
+	if !recovery.Reanchor && !reanchorRequired {
+		if err := peer.enqueueAttached(session.ID, recovery.Epoch, recovery.Lower, false); err != nil {
+			return err
+		}
+		for _, frame := range recovery.Frames {
+			encoded, encodeErr := output.EncodeOutput(frame.SessionID, frame.Epoch, frame.Sequence, frame.Payload)
+			if encodeErr != nil {
+				return encodeErr
+			}
+			if !peer.enqueueBinary(encoded) {
+				return errors.New("outbound queue overflow during recovery")
+			}
+		}
+		return peer.enqueueSynced(session.ID, recovery.Epoch, recovery.Upper)
+	}
+
+	// Reanchor: capture the real tmux screen and replay it as a snapshot
+	// reset. Snapshot frames reuse the current upper sequence; clients do not
+	// advance their anchor until the synced marker arrives.
+	snapshot, err := s.Runtime.Capture(ctx, session.Runtime)
+	if err != nil {
+		return err
+	}
+	upper := recovery.Upper
+	epoch := recovery.Epoch
+	if outputSession != nil && outputSession.watcher != nil {
+		if err := outputSession.watcher.SkipTo(int64(len(snapshot))); err != nil {
+			return err
+		}
+		upper = uint64(len(snapshot))
+	}
+	if outputSession != nil {
+		outputSession.mu.Lock()
+		outputSession.ring.Reset(epoch, upper)
+		outputSession.persistedSequence = upper
+		outputSession.reanchorRequired = false
+		outputSession.mu.Unlock()
+	}
+	if err := peer.enqueueAttached(session.ID, epoch, upper, true); err != nil {
+		return err
+	}
+	for _, chunk := range output.SplitPayload(snapshot) {
+		encoded, encodeErr := output.EncodeOutput(session.ID, epoch, upper, chunk)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if !peer.enqueueBinary(encoded) {
+			return errors.New("outbound queue overflow during reanchor")
+		}
+	}
+	return peer.enqueueSynced(session.ID, epoch, upper)
+}
+
+func (s *Service) PingOutput(sessionID string) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	s.outputMu.Unlock()
+	if outputSession != nil && outputSession.watcher != nil {
+		outputSession.watcher.Ping()
+	}
+}
+
+func (s *Service) detachPeer(peer *wsPeer, sessionID string) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	if peers := s.peers[sessionID]; peers != nil {
+		delete(peers, peer)
+		if len(peers) == 0 {
+			delete(s.peers, sessionID)
+		}
+	}
+	if s.controllers[sessionID] == peer {
+		delete(s.controllers, sessionID)
+	}
+	s.outputMu.Unlock()
+}
+
+func (s *Service) stopOutput(sessionID string, notify bool) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	delete(s.outputs, sessionID)
+	peers := make([]*wsPeer, 0, len(s.peers[sessionID]))
+	for peer := range s.peers[sessionID] {
+		peers = append(peers, peer)
+	}
+	delete(s.peers, sessionID)
+	delete(s.controllers, sessionID)
+	s.outputMu.Unlock()
+	if outputSession != nil && outputSession.watcher != nil {
+		outputSession.watcher.Close()
+	}
+	if notify {
+		for _, peer := range peers {
+			_ = peer.enqueueExited(sessionID)
+		}
+	}
+}
+
+func (s *Service) markEnded(sessionID string) {
+	now := time.Now().UTC()
+	changed := false
+	_ = s.Store.Update(func(value *api.State) error {
+		for index := range value.Sessions {
+			if value.Sessions[index].ID == sessionID && value.Sessions[index].Lifecycle == "running" {
+				value.Sessions[index].Lifecycle = "ended"
+				value.Sessions[index].EndedAt = &now
+				changed = true
+			}
+		}
+		return nil
+	})
+	if changed {
+		s.stopOutput(sessionID, true)
+	}
+}
+
+func (s *Service) compactSpool(sessionID string) {
+	state := s.Store.Snapshot()
+	var session api.Session
+	for _, value := range state.Sessions {
+		if value.ID == sessionID {
+			session = value
+			break
+		}
+	}
+	if session.ID == "" {
+		return
+	}
+	adapter := s.outputAdapter()
+	if adapter == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = adapter.ArchiveSpool(ctx, session.Runtime)
+	_ = adapter.TruncateSpool(ctx, session.Runtime)
+}
+
+// rotated runs when the spool watcher observes an in-place compaction. Host
+// bumps the epoch, resets the ring, persists the cursor, and reanchors every
+// attached peer with a fresh tmux snapshot.
+func (s *Service) rotated(sessionID string) {
+	s.lazyInit()
+	state := s.Store.Snapshot()
+	var session api.Session
+	for _, value := range state.Sessions {
+		if value.ID == sessionID {
+			session = value
+			break
+		}
+	}
+	if session.ID == "" {
+		return
+	}
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	s.outputMu.Unlock()
+	if outputSession == nil {
+		return
+	}
+	lock := s.broadcastLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	outputSession.mu.Lock()
+	outputSession.ring.Reset(outputSession.ring.Epoch+1, 0)
+	outputSession.persistedSequence = 0
+	_ = s.persistCursorLocked(outputSession)
+	outputSession.mu.Unlock()
+
+	snapshot, err := s.Runtime.Capture(context.Background(), session.Runtime)
+	if err != nil {
+		return
+	}
+	s.outputMu.Lock()
+	peers := make([]*wsPeer, 0, len(s.peers[sessionID]))
+	for peer := range s.peers[sessionID] {
+		peers = append(peers, peer)
+	}
+	s.outputMu.Unlock()
+	epoch := outputSession.ring.Epoch
+	for _, peer := range peers {
+		_ = peer.enqueueAttached(session.ID, epoch, 0, true)
+		for _, chunk := range output.SplitPayload(snapshot) {
+			if encoded, encodeErr := output.EncodeOutput(session.ID, epoch, 0, chunk); encodeErr == nil {
+				if !peer.enqueueBinary(encoded) {
+					s.detachPeer(peer, sessionID)
+				}
+			}
+		}
+		_ = peer.enqueueSynced(session.ID, epoch, 0)
+	}
 }
 
 func gitOutput(path string, args ...string) string {

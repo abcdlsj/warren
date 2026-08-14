@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,7 +18,13 @@ import (
 	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/output"
 	"github.com/gorilla/websocket"
+)
+
+const (
+	outboundQueueCapacity = 1024
+	outboundWriteTimeout  = 10 * time.Second
 )
 
 type HTTPServer struct {
@@ -146,13 +153,7 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 	if err != nil {
 		return
 	}
-	peer := &wsPeer{
-		connection: connection,
-		server:     s,
-		closed:     make(chan struct{}),
-		outputWake: make(chan struct{}, 1),
-		browser:    request.URL.Path == "/ws",
-	}
+	peer := newWSPeer(s, connection, request.URL.Path == "/ws")
 	defer peer.close()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var envelope api.Envelope
@@ -205,51 +206,157 @@ func (s *HTTPServer) authorized(value string) bool {
 	return value != "" && subtle.ConstantTimeCompare([]byte(value), []byte(s.Token)) == 1
 }
 
+type outboundMessage struct {
+	kind int
+	data []byte
+}
+
+// wsPeer owns an independent outbound queue and writer goroutine. A slow
+// client only fills its own queue; overflow or a write timeout closes exactly
+// this peer, and the client reconnects from its last Recovery Anchor.
 type wsPeer struct {
-	connection   *websocket.Conn
-	server       *HTTPServer
-	writeMu      sync.Mutex
-	attached     *api.Session
-	streamCancel context.CancelFunc
-	rosterCancel context.CancelFunc
-	closed       chan struct{}
-	outputWake   chan struct{}
-	browser      bool
-	closeOnce    sync.Once
+	server     *HTTPServer
+	connection *websocket.Conn
+	outbound   chan outboundMessage
+	browser    bool
+
+	enqueueMu      sync.Mutex
+	closed         chan struct{}
+	closeFlag      bool
+	attached       *api.Session
+	controlSession string
+	rosterCancel   context.CancelFunc
+}
+
+func newWSPeer(server *HTTPServer, connection *websocket.Conn, browser bool) *wsPeer {
+	peer := &wsPeer{
+		server:     server,
+		connection: connection,
+		outbound:   make(chan outboundMessage, outboundQueueCapacity),
+		browser:    browser,
+		closed:     make(chan struct{}),
+	}
+	go peer.writeLoop()
+	return peer
 }
 
 func (p *wsPeer) close() {
-	p.closeOnce.Do(func() {
-		if p.streamCancel != nil {
-			p.streamCancel()
+	p.enqueueMu.Lock()
+	sessionID := p.closeLocked()
+	p.enqueueMu.Unlock()
+	if sessionID != "" {
+		p.server.Service.detachPeer(p, sessionID)
+	}
+}
+
+func (p *wsPeer) writeLoop() {
+	for item := range p.outbound {
+		_ = p.connection.SetWriteDeadline(time.Now().Add(outboundWriteTimeout))
+		if err := p.connection.WriteMessage(item.kind, item.data); err != nil {
+			p.close()
+			return
 		}
-		if p.rosterCancel != nil {
-			p.rosterCancel()
+	}
+	// The channel closed after a peer teardown; let the writer flush the
+	// already-queued final messages (for example the auth error) before
+	// releasing the socket.
+	_ = p.connection.Close()
+}
+
+func (p *wsPeer) enqueue(item outboundMessage) bool {
+	p.enqueueMu.Lock()
+	select {
+	case <-p.closed:
+		p.enqueueMu.Unlock()
+		return false
+	default:
+	}
+	select {
+	case p.outbound <- item:
+		p.enqueueMu.Unlock()
+		return true
+	default:
+		// Queue overflow is a per-client failure: close only this peer. The
+		// client reconnects with its Recovery Anchor and Host re-serves the
+		// retained tail from the ring.
+		sessionID := p.closeLocked()
+		p.enqueueMu.Unlock()
+		if sessionID != "" {
+			p.server.Service.detachPeer(p, sessionID)
 		}
-		close(p.closed)
-		_ = p.connection.Close()
-	})
+		return false
+	}
+}
+
+// closeLocked must be called with enqueueMu held. It is idempotent so both
+// the writer's error path and queue overflow can tear down the same peer
+// exactly once.
+// closeLocked must be called with enqueueMu held. It returns the attached
+// session ID so the caller can unregister after releasing the lock, keeping
+// lock ordering between the outbound queue and the service registry acyclic.
+func (p *wsPeer) closeLocked() string {
+	if p.closeFlag {
+		if p.attached != nil {
+			return p.attached.ID
+		}
+		return ""
+	}
+	p.closeFlag = true
+	if p.rosterCancel != nil {
+		p.rosterCancel()
+		p.rosterCancel = nil
+	}
+	sessionID := ""
+	if p.attached != nil {
+		sessionID = p.attached.ID
+	}
+	close(p.closed)
+	close(p.outbound)
+	return sessionID
 }
 
 func (p *wsPeer) writeJSON(value any) error {
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	_ = p.connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return p.connection.WriteJSON(value)
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return p.writeText(data)
 }
 
-func (p *wsPeer) writeBinary(value []byte) error {
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	_ = p.connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return p.connection.WriteMessage(websocket.BinaryMessage, value)
+func (p *wsPeer) writeText(data []byte) error {
+	if !p.enqueue(outboundMessage{kind: websocket.TextMessage, data: data}) {
+		return errors.New("outbound queue overflow")
+	}
+	return nil
 }
 
-func (p *wsPeer) writeText(value []byte) error {
-	p.writeMu.Lock()
-	defer p.writeMu.Unlock()
-	_ = p.connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return p.connection.WriteMessage(websocket.TextMessage, value)
+func (p *wsPeer) writeBinary(data []byte) error {
+	if !p.enqueue(outboundMessage{kind: websocket.BinaryMessage, data: data}) {
+		return errors.New("outbound queue overflow")
+	}
+	return nil
+}
+
+func (p *wsPeer) enqueueBinary(data []byte) bool {
+	return p.enqueue(outboundMessage{kind: websocket.BinaryMessage, data: data})
+}
+
+func (p *wsPeer) enqueueAttached(sessionID string, epoch, sequence uint64, reanchor bool) error {
+	return p.writeJSON(map[string]any{
+		"t": "attached", "session": sessionID,
+		"epoch": epoch, "sequence": sequence,
+		"reanchor": reanchor,
+	})
+}
+
+func (p *wsPeer) enqueueSynced(sessionID string, epoch, sequence uint64) error {
+	return p.writeJSON(map[string]any{
+		"t": "synced", "session": sessionID, "epoch": epoch, "sequence": sequence,
+	})
+}
+
+func (p *wsPeer) enqueueExited(sessionID string) error {
+	return p.writeJSON(map[string]any{"t": "exited", "session": sessionID})
 }
 
 func (p *wsPeer) writeResult(id string, result any) error {
@@ -272,7 +379,7 @@ func (p *wsPeer) startRoster(parent context.Context, initial api.State, initialR
 			data, _ := json.Marshal(makeRelayRoster(state))
 			if !bytes.Equal(data, last) {
 				last = append(last[:0], data...)
-				if p.writeText(data) != nil {
+				if !p.enqueue(outboundMessage{kind: websocket.TextMessage, data: data}) {
 					p.close()
 					return
 				}
@@ -368,16 +475,35 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if err != nil {
 			return err
 		}
+		p.attach(session)
+		lock, resume, err := p.server.Service.prepareAttach(ctx, session)
+		if err != nil {
+			p.detach()
+			return err
+		}
+		if err := p.writeResult(command.ID, session); err != nil {
+			lock.Unlock()
+			resume()
+			p.detach()
+			return err
+		}
 		if specified {
 			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+				lock.Unlock()
+				resume()
+				p.detach()
 				return err
 			}
 		}
-		p.attach(session)
-		if err := p.writeResult(command.ID, session); err != nil {
+		anchor := anchorFromParams(params)
+		if err := p.server.Service.attachOutputLocked(ctx, p, session, anchor); err != nil {
+			lock.Unlock()
+			resume()
+			p.detach()
 			return err
 		}
-		p.startOutputStream(ctx, session)
+		lock.Unlock()
+		resume()
 		return nil
 	case "session.detach":
 		p.detach()
@@ -393,8 +519,8 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		}
 		return p.writeResult(command.ID, map[string]bool{"sent": true})
 	case "session.resize":
-		if p.attached == nil {
-			return fmt.Errorf("no attached session")
+		if err := p.requireControl(); err != nil {
+			return err
 		}
 		columns := intParam(params, "cols")
 		rows := intParam(params, "rows")
@@ -420,19 +546,37 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 		if session.Lifecycle != "running" {
 			return fmt.Errorf("session is not running: %s", command.Session)
 		}
+		p.attach(session)
+		lock, resume, err := p.server.Service.prepareAttach(ctx, session)
+		if err != nil {
+			p.detach()
+			return err
+		}
 		if command.Cols != 0 || command.Rows != 0 {
 			if command.Cols <= 0 || command.Rows <= 0 {
+				lock.Unlock()
+				resume()
+				p.detach()
 				return fmt.Errorf("invalid terminal size")
 			}
 			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, command.Cols, command.Rows); err != nil {
+				lock.Unlock()
+				resume()
+				p.detach()
 				return err
 			}
 		}
-		p.attach(session)
-		if err := p.writeJSON(map[string]any{"t": "attached", "session": session.ID}); err != nil {
+		anchor := &output.Anchor{Epoch: command.Epoch, Sequence: command.Sequence}
+		if command.Epoch == 0 && command.Sequence == 0 {
+			anchor = nil
+		}
+		err = p.server.Service.attachOutputLocked(ctx, p, session, anchor)
+		lock.Unlock()
+		resume()
+		if err != nil {
+			p.detach()
 			return err
 		}
-		p.startOutputStream(ctx, session)
 	case "create":
 		session, err := p.server.Service.CreateSession(ctx, command.Workspace, command.Command, command.Kind, command.Title)
 		if err != nil {
@@ -440,8 +584,8 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 		}
 		return p.writeJSON(map[string]any{"t": "created", "session": session.ID})
 	case "resize":
-		if p.attached == nil {
-			return fmt.Errorf("no attached session")
+		if err := p.requireControl(); err != nil {
+			return err
 		}
 		if command.Cols <= 0 || command.Rows <= 0 {
 			return fmt.Errorf("invalid terminal size")
@@ -453,6 +597,7 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 		if err := p.server.Service.DeleteSession(ctx, command.Session); err != nil {
 			return err
 		}
+		p.detach()
 		return p.writeJSON(map[string]any{"t": "sessionDeleted", "session": command.Session})
 	default:
 		return fmt.Errorf("unsupported browser message type: %s", command.Type)
@@ -460,81 +605,53 @@ func (p *wsPeer) handleBrowser(ctx context.Context, command api.Envelope) error 
 	return nil
 }
 
-func (p *wsPeer) input(ctx context.Context, data []byte) error {
+func (p *wsPeer) requireControl() error {
 	if p.attached == nil {
 		return fmt.Errorf("no attached session")
 	}
-	if err := p.server.Service.Runtime.Input(ctx, p.attached.Runtime, data); err != nil {
-		return err
-	}
-	select {
-	case p.outputWake <- struct{}{}:
-	default:
+	if p.controlSession != p.attached.ID {
+		return fmt.Errorf("control lease required")
 	}
 	return nil
 }
 
+func (p *wsPeer) input(ctx context.Context, data []byte) error {
+	if err := p.requireControl(); err != nil {
+		return err
+	}
+	payload := data
+	if len(data) >= len(output.BinaryMagic) && bytes.Equal(data[:len(output.BinaryMagic)], output.BinaryMagic) {
+		metadata, decoded, err := output.DecodeInput(data)
+		if err != nil {
+			return err
+		}
+		if metadata.SessionID != "" && metadata.SessionID != p.attached.ID {
+			return fmt.Errorf("input session mismatch")
+		}
+		payload = decoded
+	}
+	if err := p.server.Service.Runtime.Input(ctx, p.attached.Runtime, payload); err != nil {
+		return err
+	}
+	p.server.Service.PingOutput(p.attached.ID)
+	return nil
+}
+
+// attach only changes the peer's local projection and takes the Control
+// Lease for the session. It never touches the tmux session lifetime; detach
+// later only unsubscribes output.
 func (p *wsPeer) attach(session api.Session) {
 	p.detach()
 	p.attached = &session
-}
-
-func (p *wsPeer) startOutputStream(parent context.Context, session api.Session) {
-	ctx, cancel := context.WithCancel(parent)
-	p.streamCancel = cancel
-	go func() {
-		const activeInterval = 50 * time.Millisecond
-		const idleInterval = 500 * time.Millisecond
-		timer := time.NewTimer(0)
-		defer timer.Stop()
-		last := ""
-		interval := activeInterval
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-p.outputWake:
-				resetTimer(timer, 0)
-				continue
-			case <-timer.C:
-			}
-			output, err := p.server.Service.Runtime.Capture(ctx, session.Runtime)
-			if err != nil {
-				_ = p.writeJSON(map[string]any{"t": "exited", "session": session.ID})
-				return
-			}
-			current := string(output)
-			if current != last {
-				last = current
-				interval = activeInterval
-				if p.writeBinary(output) != nil {
-					p.close()
-					return
-				}
-			} else {
-				interval = min(interval*2, idleInterval)
-			}
-			resetTimer(timer, interval)
-		}
-	}()
-}
-
-func resetTimer(timer *time.Timer, delay time.Duration) {
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
-	}
-	timer.Reset(delay)
+	p.controlSession = session.ID
 }
 
 func (p *wsPeer) detach() {
-	if p.streamCancel != nil {
-		p.streamCancel()
-		p.streamCancel = nil
+	if p.attached != nil {
+		p.server.Service.detachPeer(p, p.attached.ID)
 	}
 	p.attached = nil
+	p.controlSession = ""
 }
 
 func stringParam(values map[string]any, key string) string {
@@ -551,6 +668,15 @@ func intParam(values map[string]any, key string) int {
 		return result
 	}
 	return 0
+}
+
+func anchorFromParams(values map[string]any) *output.Anchor {
+	epoch, hasEpoch := values["epoch"].(float64)
+	sequence, hasSequence := values["sequence"].(float64)
+	if !hasEpoch || !hasSequence {
+		return nil
+	}
+	return &output.Anchor{Epoch: uint64(epoch), Sequence: uint64(sequence)}
 }
 
 func attachSizeFromParams(values map[string]any) (columns, rows int, specified bool, err error) {

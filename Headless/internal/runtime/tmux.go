@@ -2,19 +2,30 @@ package runtime
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type Tmux struct {
-	Binary string
-	Socket string
+	Binary    string
+	Socket    string
+	OutputDir string
+
+	sessionMu sync.Mutex
+	sessions  map[string]*sync.Mutex
 }
 
-func (t Tmux) command(ctx context.Context, args ...string) *exec.Cmd {
+func (t *Tmux) command(ctx context.Context, args ...string) *exec.Cmd {
 	all := make([]string, 0, len(args)+2)
 	if t.Socket != "" {
 		all = append(all, "-L", t.Socket)
@@ -27,14 +38,14 @@ func (t Tmux) command(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, binary, all...)
 }
 
-func (t Tmux) Check(ctx context.Context) error {
+func (t *Tmux) Check(ctx context.Context) error {
 	if _, err := exec.LookPath(defaultString(t.Binary, "tmux")); err != nil {
 		return fmt.Errorf("tmux is required: %w", err)
 	}
 	return nil
 }
 
-func (t Tmux) Create(ctx context.Context, runtimeName, directory, command string) error {
+func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command string) error {
 	args := []string{"new-session", "-d", "-s", runtimeName, "-c", directory, "-x", "120", "-y", "36"}
 	if strings.TrimSpace(command) != "" {
 		args = append(args, command)
@@ -43,14 +54,193 @@ func (t Tmux) Create(ctx context.Context, runtimeName, directory, command string
 	if err != nil {
 		return fmt.Errorf("create tmux session: %s: %w", strings.TrimSpace(string(output)), err)
 	}
+	if err := t.setLatestWindowSize(ctx, runtimeName); err != nil {
+		_ = t.Kill(ctx, runtimeName)
+		return err
+	}
 	return nil
 }
 
-func (t Tmux) Exists(ctx context.Context, runtimeName string) bool {
+// EnsurePipe installs the raw PTY byte pipe for a session. `-o` makes the
+// install idempotent: repeated attach/adopt never stack a second pipe, and
+// tmux keeps the pane output flowing into the same append-only spool.
+func (t *Tmux) EnsurePipe(ctx context.Context, runtimeName string) error {
+	if !t.Exists(ctx, runtimeName) {
+		return fmt.Errorf("tmux session not found: %s", runtimeName)
+	}
+	if t.OutputDir == "" {
+		t.OutputDir = defaultOutputDirectory()
+	}
+	if err := os.MkdirAll(t.OutputDir, 0o700); err != nil {
+		return fmt.Errorf("create runtime output directory: %w", err)
+	}
+	spoolPath := t.SpoolPath(runtimeName)
+	file, err := os.OpenFile(spoolPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open output spool: %w", err)
+	}
+	_ = file.Close()
+	pane, err := t.PaneTarget(ctx, runtimeName)
+	if err != nil {
+		return err
+	}
+	output, err := t.command(ctx,
+		"pipe-pane", "-o", "-O", "-t", pane,
+		"cat >> "+shellQuote(spoolPath),
+	).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("install tmux output pipe: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return t.setLatestWindowSize(ctx, runtimeName)
+}
+
+func (t *Tmux) ClosePipe(ctx context.Context, runtimeName string) error {
+	pane, err := t.PaneTarget(ctx, runtimeName)
+	if err != nil {
+		return err
+	}
+	output, err := t.command(ctx, "pipe-pane", "-t", pane).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("close tmux output pipe: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+func (t *Tmux) PaneTarget(ctx context.Context, runtimeName string) (string, error) {
+	output, err := t.command(ctx, "display-message", "-p", "-t", runtimeName, "#{pane_id}").Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve tmux pane: %w", err)
+	}
+	pane := strings.TrimSpace(string(output))
+	if pane == "" {
+		return runtimeName + ":0.0", nil
+	}
+	return pane, nil
+}
+
+func (t *Tmux) setLatestWindowSize(ctx context.Context, runtimeName string) error {
+	output, err := t.command(ctx, "set-window-option", "-t", runtimeName, "window-size", "latest").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("set tmux window-size latest: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+func (t *Tmux) SpoolPath(runtimeName string) string {
+	dir := t.OutputDir
+	if dir == "" {
+		dir = defaultOutputDirectory()
+	}
+	return filepath.Join(dir, runtimeName+".out")
+}
+
+func (t *Tmux) SpoolSize(ctx context.Context, runtimeName string) (int64, error) {
+	info, err := os.Stat(t.SpoolPath(runtimeName))
+	if err != nil {
+		return 0, err
+	}
+	return info.Size(), nil
+}
+
+// TruncateSpool compacts the live spool in place. The pipe command keeps its
+// O_APPEND file descriptor, so tmux output continues into the same inode from
+// byte zero; Host bumps the epoch and reanchors clients.
+func (t *Tmux) TruncateSpool(ctx context.Context, runtimeName string) error {
+	path := t.SpoolPath(runtimeName)
+	if err := os.Truncate(path, 0); err != nil {
+		return fmt.Errorf("truncate output spool: %w", err)
+	}
+	return nil
+}
+
+// ArchiveSpool compresses the current spool to a timestamped .gz file and
+// prunes old archives. Best-effort diagnostics; truncation must not depend on
+// archive success.
+func (t *Tmux) ArchiveSpool(ctx context.Context, runtimeName string) error {
+	path := t.SpoolPath(runtimeName)
+	info, err := os.Stat(path)
+	if err != nil || info.Size() == 0 {
+		return nil
+	}
+	archive := path + "." + strconv.FormatInt(time.Now().UnixNano(), 10) + ".gz"
+	source, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	destination, err := os.OpenFile(archive, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	writer := gzip.NewWriter(destination)
+	if _, err := io.Copy(writer, source); err != nil {
+		_ = writer.Close()
+		_ = destination.Close()
+		_ = os.Remove(archive)
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		_ = destination.Close()
+		_ = os.Remove(archive)
+		return err
+	}
+	if err := destination.Close(); err != nil {
+		return err
+	}
+	return t.pruneArchives(path)
+}
+
+func (t *Tmux) pruneArchives(path string) error {
+	matches, err := filepath.Glob(path + ".*.gz")
+	if err != nil {
+		return err
+	}
+	for len(matches) > 3 {
+		oldest := matches[0]
+		for _, match := range matches[1:] {
+			if match < oldest {
+				oldest = match
+			}
+		}
+		_ = os.Remove(oldest)
+		matches = removeString(matches, oldest)
+	}
+	return nil
+}
+
+func removeString(values []string, target string) []string {
+	result := values[:0]
+	for _, value := range values {
+		if value != target {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func (t *Tmux) RemoveSpool(runtimeName string) {
+	path := t.SpoolPath(runtimeName)
+	_ = os.Remove(path)
+	for _, match := range mustGlob(path + ".*.gz") {
+		_ = os.Remove(match)
+	}
+}
+
+func mustGlob(pattern string) []string {
+	matches, _ := filepath.Glob(pattern)
+	return matches
+}
+
+func defaultOutputDirectory() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".warren", "output")
+}
+
+func (t *Tmux) Exists(ctx context.Context, runtimeName string) bool {
 	return t.command(ctx, "has-session", "-t", runtimeName).Run() == nil
 }
 
-func (t Tmux) List(ctx context.Context) (map[string]bool, error) {
+func (t *Tmux) List(ctx context.Context) (map[string]bool, error) {
 	output, err := t.command(ctx, "list-sessions", "-F", "#{session_name}").CombinedOutput()
 	if err != nil {
 		message := string(output)
@@ -66,7 +256,7 @@ func (t Tmux) List(ctx context.Context) (map[string]bool, error) {
 	return sessions, nil
 }
 
-func (t Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
+func (t *Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	target := runtimeName + ":0.0"
 	// Query the cursor and capture the pane in one tmux command sequence. A
 	// shell can move between two separate tmux invocations, which would make a
@@ -152,28 +342,71 @@ func normalizeCaptureOutput(output []byte) []byte {
 	return normalized
 }
 
-func (t Tmux) Input(ctx context.Context, runtimeName string, data []byte) error {
-	cmd := t.command(ctx, "load-buffer", "-")
+func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	lock := t.sessionLock(runtimeName)
+	lock.Lock()
+	defer lock.Unlock()
+	// Every write uses a unique tmux buffer so concurrent inputs can never
+	// cross. paste-buffer -d deletes the buffer on success; a failed write is
+	// cleaned up below and never touches another input.
+	bufferName := "warren-in-" + strings.ReplaceAll(newID(), "-", "")
+	cmd := t.command(ctx, "load-buffer", "-b", bufferName, "-")
 	cmd.Stdin = bytes.NewReader(data)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("load tmux input: %s: %w", strings.TrimSpace(string(output)), err)
 	}
-	if output, err := t.command(ctx, "paste-buffer", "-d", "-t", runtimeName+":0.0").CombinedOutput(); err != nil {
+	if output, err := t.command(ctx, "paste-buffer", "-b", bufferName, "-d", "-t", runtimeName+":0.0").CombinedOutput(); err != nil {
+		_, _ = t.command(ctx, "delete-buffer", "-b", bufferName).CombinedOutput()
 		return fmt.Errorf("send tmux input: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
 }
 
-func (t Tmux) Resize(ctx context.Context, runtimeName string, columns, rows int) error {
+func (t *Tmux) Resize(ctx context.Context, runtimeName string, columns, rows int) error {
+	lock := t.sessionLock(runtimeName)
+	lock.Lock()
+	defer lock.Unlock()
 	return t.command(ctx, "resize-window", "-t", runtimeName, "-x", fmt.Sprint(columns), "-y", fmt.Sprint(rows)).Run()
 }
 
-func (t Tmux) Kill(ctx context.Context, runtimeName string) error {
+func (t *Tmux) Kill(ctx context.Context, runtimeName string) error {
 	output, err := t.command(ctx, "kill-session", "-t", runtimeName).CombinedOutput()
 	if err != nil && t.Exists(ctx, runtimeName) {
 		return fmt.Errorf("kill tmux session: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
+}
+
+func (t *Tmux) sessionLock(name string) *sync.Mutex {
+	t.sessionMu.Lock()
+	defer t.sessionMu.Unlock()
+	if t.sessions == nil {
+		t.sessions = map[string]*sync.Mutex{}
+	}
+	lock := t.sessions[name]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		t.sessions[name] = lock
+	}
+	return lock
+}
+
+// newID is a UUIDv4-style generator used only for tmux buffer names.
+func newID() string {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	raw[6] = (raw[6] & 0x0f) | 0x40
+	raw[8] = (raw[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func defaultString(value, fallback string) string {

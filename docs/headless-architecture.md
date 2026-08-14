@@ -49,10 +49,31 @@ Local 与 Server 是两套独立 Host 资源树。切换 endpoint 只切换投�
 - 协议可增加 request receipt、增量输出 sequence、Input Lease 和 capability negotiation。
 - Desktop 远端模型独立于本地 `WarrenApplicationService`，后续可收敛到统一 Host Client repository。
 
+## 输出与恢复
+
+- tmux `pipe-pane -o -O` 把每个 Session 的原始 PTY 字节写入独立 append-only
+  spool（`~/.warren/output/<runtime>.out`）。Host 为每个 Session 持有一个
+  SpoolWatcher，按持久化 offset 持续读取字节，不再轮询 capture-pane。
+- `capture-pane` 只用于首次恢复和 reanchor：新客户端、Host 重启 adopt、
+  anchor 被 Ring 淘汰或 spool 压缩时，Host 发送 tmux 屏幕快照并重定锚。
+- 二进制输出帧使用与 Swift 端相同的 DENB envelope：
+  `DENB | version | direction | kind | headerLen | payloadLen | JSON header | payload`，
+  header 携带 `sessionID/epoch/sequence/payloadLength`。输出先写入有界
+  OutputRing，再广播给客户端；客户端用最后确认的 Recovery Anchor 重连，
+  Host 按 Ring 内区间精确补发或发送快照 reanchor。
+- 每个 WebSocket 客户端有独立 outbound writer 与发送队列；队列溢出或写超时
+  只断开该客户端，由其重连并从 anchor 补数据。
+- Host 启动后由单一 lifecycle watcher 探测并 adopt 存活 tmux（幂等重装
+  pipe），缺失的 Runtime 被标记 ended。只有显式删除 Session 才执行
+  `kill-session`；detach 和客户端退出都不终止 tmux。
+
 ## 当前限制
 
-- Headless 输出以 100 ms 周期抓取 tmux 当前屏幕，协议会发送完整终端快照。下一版应使用增量 pipe-pane spool、epoch 和 sequence。
+- spool 达到上限时执行 in-place 压缩（archive + truncate）并 bump epoch；
+  所有客户端以 tmux 屏幕快照 reanchor，不做静默字节裁剪。
+- macOS Swift Host 与 Headless Go 使用同一套帧/恢复语义，但浏览器控制消息
+  仍走轻量 JSON（`attach/attached/synced/reanchor`），未完全并入 Swift 的
+  `ServerControlMessage` 枚举。
 - Desktop 从 CLI 配置文件发现 server；配置改变后需重新选择或重启 Desktop。
 - 远端 Project 的路径必须通过 CLI 添加，Desktop 文件选择器只适用于 Local。
 - SSH 自动启动要求远端已安装 `warren-headless` 和 `openssl`。
-

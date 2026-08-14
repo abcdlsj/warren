@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/output"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 	"github.com/gorilla/websocket"
 )
@@ -130,8 +131,14 @@ func (c *Client) ReadOutput(ctx context.Context, onOutput func([]byte) bool) err
 		if err != nil {
 			return err
 		}
-		if typeID == websocket.BinaryMessage && onOutput(data) {
-			return nil
+		if typeID == websocket.BinaryMessage {
+			payload := data
+			if frame, err := output.DecodeOutput(data); err == nil {
+				payload = frame.Payload
+			}
+			if onOutput(payload) {
+				return nil
+			}
 		}
 	}
 }

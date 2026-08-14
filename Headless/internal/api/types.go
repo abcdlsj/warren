@@ -37,6 +37,8 @@ type Session struct {
 	Command     string     `json:"command,omitempty"`
 	Runtime     string     `json:"runtime"`
 	Lifecycle   string     `json:"lifecycle"`
+	Epoch       uint64     `json:"epoch,omitempty"`
+	Sequence    uint64     `json:"sequence,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	EndedAt     *time.Time `json:"endedAt,omitempty"`
 }
@@ -65,6 +67,8 @@ type Envelope struct {
 	Data      string         `json:"data,omitempty"`
 	Cols      int            `json:"cols,omitempty"`
 	Rows      int            `json:"rows,omitempty"`
+	Epoch     uint64         `json:"epoch,omitempty"`
+	Sequence  uint64         `json:"sequence,omitempty"`
 }
 
 type Response struct {

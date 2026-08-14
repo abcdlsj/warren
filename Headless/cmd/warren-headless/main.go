@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"flag"
@@ -30,6 +31,7 @@ func main() {
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
+	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
@@ -45,11 +47,17 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	runtimeAdapter := runtime.Tmux{Socket: *tmuxSocket}
+	runtimeAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
 	if err := runtimeAdapter.Check(nil); err != nil {
 		fatal(err)
 	}
 	service := &server.Service{Store: state, Runtime: runtimeAdapter, WorktreeRoot: *worktreeRoot}
+	serviceContext, stopService := context.WithCancel(context.Background())
+	service.Start(serviceContext)
+	defer func() {
+		stopService()
+		service.Shutdown()
+	}()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	handler := server.NewHTTPServer(service, token, logger).Handler()
 	httpServer := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
@@ -76,6 +84,8 @@ func main() {
 	<-stop
 	_ = httpServer.Close()
 	_ = webRelayServer.Close()
+	stopService()
+	service.Shutdown()
 }
 
 func loadOrCreateToken(path string) (string, error) {

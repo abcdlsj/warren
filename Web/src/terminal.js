@@ -7,11 +7,16 @@ export function terminalSize(terminal) {
   return { cols, rows };
 }
 
-export function attachTerminalMessage(session, terminal) {
+export function attachTerminalMessage(session, terminal, anchor = null) {
   const size = terminalSize(terminal);
-  return size
+  const message = size
     ? { t: "attach", session, ...size }
     : { t: "attach", session };
+  if (anchor) {
+    message.epoch = anchor.epoch;
+    message.sequence = anchor.sequence;
+  }
+  return message;
 }
 
 export function fitTerminalToHost(fitAddon, host) {

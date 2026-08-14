@@ -59,3 +59,12 @@ warren --endpoint my-vps session attach SESSION_ID
 ## API 边界
 
 控制接口是 `/v1/ws`，先发送 token 鉴权，再使用带 request ID 的 request/response。Roster 是 Host 资源投影；终端输出使用 WebSocket binary frame。SSH、Tailscale 和未来的 Relay 只负责可达性，不进入资源领域模型。
+
+## 输出链路
+
+每个 Session 的原始 PTY 字节通过 `tmux pipe-pane -o -O` 写入独立 append-only
+spool（默认 `~/.warren/output/<runtime>.out`）。Host 的 SpoolWatcher 按持久化
+offset 持续读取，先写入有界 OutputRing，再以 DENB binary frame
+（`sessionID/epoch/sequence/payloadLength`）广播给客户端。断线重连时客户端携带
+最后确认的 Recovery Anchor；Anchor 在 Ring 内精确补发，被淘汰时发送 tmux
+屏幕快照并 reanchor。每个客户端拥有独立 outbound 队列，慢客户端只会断开自己。
