@@ -28,7 +28,7 @@ description = "Run headless daemon and CLI tests"
 run = "go test -race ./Headless/..."
 
 [tasks.install]
-description = "Build the release app and install Warren.app into /Applications"
+description = "Build the release app, install Warren.app into /Applications, and initialize the local CLI endpoint"
 run = "bash scripts/install-app.sh"
 
 [tasks."build:release"]

@@ -40,6 +40,36 @@ notify_maintenance() {
         >/dev/null 2>&1 || true
 }
 
+initialize_local_endpoint() {
+    local endpoint_name="local"
+    local endpoint_url="http://127.0.0.1:8789"
+    local config_path="$HOME/.warren/config.json"
+    local token_path="$HOME/.warren/token"
+    local cli="$cli_install_directory/warren"
+
+    if [[ -f "$config_path" ]] && "$cli" --config "$config_path" endpoint list 2>/dev/null | \
+        awk -v name="$endpoint_name" '$1 == name || $2 == name { found=1 } END { exit !found }'; then
+        echo "Local endpoint '$endpoint_name' already configured"
+        return
+    fi
+
+    mkdir -p "$(dirname "$config_path")"
+    if [[ ! -s "$token_path" ]]; then
+        (umask 077; openssl rand -base64 32 | tr -d '\n' > "$token_path")
+    fi
+
+    local token
+    token="$(tr -d '[:space:]' < "$token_path")"
+    if [[ -z "$token" ]]; then
+        echo "Could not initialize local endpoint: token is empty at $token_path" >&2
+        exit 1
+    fi
+
+    "$cli" --config "$config_path" endpoint add "$endpoint_name" \
+        --url "$endpoint_url" --token "$token" --use
+    echo "Initialized local endpoint '$endpoint_name' at $endpoint_url"
+}
+
 force_terminate() {
     local pattern="$1"
     pkill -TERM -f "$pattern$" >/dev/null 2>&1 || true
@@ -115,6 +145,8 @@ install -m 755 "$app_path/Contents/MacOS/warren-cli" "$cli_install_directory/war
 install -m 755 "$app_path/Contents/MacOS/warren-headless" "$cli_install_directory/warren-headless"
 echo "Installed $install_path"
 echo "Installed CLI tools to $cli_install_directory"
+echo "Initializing local CLI endpoint..."
+initialize_local_endpoint
 if [[ "$relaunch_after_install" == true ]]; then
     open "$install_path"
     echo "Relaunched $install_path"

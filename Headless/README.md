@@ -73,6 +73,11 @@ worktree under `~/.warren/worktrees/<project>/<workspace>-<branch>`; pass
 Desktop and Web clients see it as soon as the daemon broadcasts the updated
 roster.
 
+On macOS, `mise run install` also initializes a `local` endpoint pointing at
+`http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the
+CLI works against the local daemon without extra setup. On a remote host, use
+`warren ssh user@vps` to create and select the endpoint instead.
+
 ## API Boundaries
 
 The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `project.move` and `workspace.move` persist the sidebar order on the Host (both accept `id` and an optional `before`; omitting `before` moves the entry to the end). `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
