@@ -42,10 +42,6 @@ final class WarrenRendererCoordinator {
     @ObservationIgnored private var pendingResizeSizes: [TerminalSessionID: TerminalSize] = [:]
     @ObservationIgnored private var appliedResizeSizes: [TerminalSessionID: TerminalSize] = [:]
     @ObservationIgnored private var resizeTasks: [TerminalSessionID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var outputBuffers: [TerminalSessionID: WarrenTerminalOutputBuffer] = [:]
-    @ObservationIgnored private var outputTasks: [TerminalSessionID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var outputGenerations: [TerminalSessionID: UInt64] = [:]
-    @ObservationIgnored private var nextOutputGeneration: UInt64 = 0
     @ObservationIgnored private var snapshot = WarrenApplicationSnapshot.empty()
     @ObservationIgnored private var activeWorkspaceID: WorkspaceID?
     @ObservationIgnored private var activeSessionID: TerminalSessionID?
@@ -152,11 +148,8 @@ final class WarrenRendererCoordinator {
 
     func shutdown() {
         for task in resizeTasks.values { task.cancel() }
-        for task in outputTasks.values { task.cancel() }
+        for surface in surfaces.values { surface.outputWriter.shutdown() }
         resizeTasks.removeAll()
-        outputTasks.removeAll()
-        outputBuffers.removeAll()
-        outputGenerations.removeAll()
         pendingResizeSizes.removeAll()
         appliedResizeSizes.removeAll()
         surfaces.removeAll()
@@ -190,6 +183,8 @@ final class WarrenRendererCoordinator {
             attachmentID: attachmentID,
             workingDirectory: snapshot.workspace(id: session.workspaceID)?.path ?? "",
             font: terminalFont,
+            outputRenderBudgetBytes: outputRenderBudgetBytes,
+            outputRenderYield: outputRenderYield,
             onInput: { [weak self] data in
                 Task { @MainActor in await self?.receiveInput(data, from: key) }
             },
@@ -276,75 +271,26 @@ final class WarrenRendererCoordinator {
         guard let surface = surfaces[key],
               let output = session.output,
               !output.frames.isEmpty else { return }
-        var buffer = outputBuffers[session.id] ?? WarrenTerminalOutputBuffer()
-        if buffer.epoch != output.epoch {
-            cancelOutputTask(for: session.id)
+        if surface.outputWriter.bufferEpoch != output.epoch {
             let sequence = surface.renderedEpoch == output.epoch
                 ? surface.renderedSequence
                 : 0
-            buffer.reset(epoch: output.epoch, sequence: sequence)
+            surface.outputWriter.reset(epoch: output.epoch, sequence: sequence)
         }
-        guard output.upperSequence > buffer.enqueuedSequence else { return }
+        guard output.upperSequence > surface.outputWriter.enqueuedSequence else { return }
         for frame in output.frames where frame.header.epoch == output.epoch {
-            buffer.append(
+            surface.outputWriter.enqueue(
                 epoch: frame.header.epoch,
                 sequence: frame.header.sequence,
                 payload: frame.payload
             )
         }
-        outputBuffers[session.id] = buffer
-        guard !buffer.isEmpty, outputTasks[session.id] == nil else { return }
-        nextOutputGeneration &+= 1
-        let generation = nextOutputGeneration
-        outputGenerations[session.id] = generation
-        outputTasks[session.id] = Task { @MainActor [weak self] in
-            await self?.drainOutput(for: key, generation: generation)
-        }
-    }
-
-    private func drainOutput(
-        for key: WarrenRendererSurfaceKey,
-        generation: UInt64
-    ) async {
-        defer {
-            if outputGenerations[key.sessionID] == generation {
-                outputTasks.removeValue(forKey: key.sessionID)
-            }
-        }
-        while !Task.isCancelled,
-              outputGenerations[key.sessionID] == generation,
-              let surface = surfaces[key] {
-            let interval = WarrenPerformance.signposter.beginInterval("Ghostty Feed")
-            var remaining = outputRenderBudgetBytes
-            while remaining > 0,
-                  var buffer = outputBuffers[key.sessionID],
-                  let slice = buffer.take(maxBytes: remaining) {
-                outputBuffers[key.sessionID] = buffer
-                surface.receive(slice.payload)
-                surface.markRendered(epoch: slice.epoch, sequence: slice.endSequence)
-                remaining -= slice.payload.count
-            }
-            WarrenPerformance.signposter.endInterval("Ghostty Feed", interval)
-            guard outputBuffers[key.sessionID]?.isEmpty == false else { return }
-            do {
-                try await Task.sleep(for: outputRenderYield)
-            } catch {
-                return
-            }
-        }
-    }
-
-    private func cancelOutputTask(for sessionID: TerminalSessionID) {
-        outputTasks.removeValue(forKey: sessionID)?.cancel()
-        outputGenerations.removeValue(forKey: sessionID)
     }
 
     private func disposeSurface(_ key: WarrenRendererSurfaceKey) {
+        surfaces[key]?.outputWriter.shutdown()
         surfaces.removeValue(forKey: key)
         resizeTasks.removeValue(forKey: key.sessionID)?.cancel()
-        cancelOutputTask(for: key.sessionID)
-        outputBuffers.removeValue(forKey: key.sessionID)
-        outputGenerations.removeValue(forKey: key.sessionID)
         pendingResizeSizes.removeValue(forKey: key.sessionID)
         appliedResizeSizes.removeValue(forKey: key.sessionID)
     }

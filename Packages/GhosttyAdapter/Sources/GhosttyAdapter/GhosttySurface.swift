@@ -21,24 +21,26 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let attachmentID: TerminalAttachmentID
     public let state: TerminalViewState
     public let inMemory: InMemoryTerminalSession
+    /// Background output feed shared by the local and remote render paths.
+    /// Immutable and thread-safe; scroll events stay on the main thread while
+    /// Ghostty's ANSI parsing happens off it.
+    public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
-    public private(set) var renderedSequence: UInt64
-    public private(set) var renderedEpoch: UInt64
 
     public init(
         id: TerminalSessionID,
         attachmentID: TerminalAttachmentID,
         workingDirectory: String,
         font: TerminalFontPreference = .init(),
+        outputRenderBudgetBytes: Int = 128 * 1024,
+        outputRenderYield: Duration = .milliseconds(8),
         onInput: @escaping @Sendable (Data) -> Void,
         onResize: @escaping @Sendable (Int, Int) -> Void
     ) {
         self.id = id
         self.attachmentID = attachmentID
         self.onViewportResize = onResize
-        renderedSequence = 0
-        renderedEpoch = 0
 
         let inMemory = InMemoryTerminalSession(
             write: onInput,
@@ -46,7 +48,14 @@ public final class GhosttySurface: Identifiable, ObservableObject {
                 onResize(Int(viewport.columns), Int(viewport.rows))
             }
         )
+        let outputWriter = WarrenGhosttyOutputWriter(
+            inMemory: inMemory,
+            ansiObserver: ansiObserver,
+            budgetBytes: outputRenderBudgetBytes,
+            yield: outputRenderYield
+        )
         self.inMemory = inMemory
+        self.outputWriter = outputWriter
 
         let theme = TerminalTheme(
             dark: TerminalConfiguration { builder in
@@ -75,13 +84,19 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     }
 
     public func markRendered(epoch: UInt64, sequence: UInt64) {
-        renderedEpoch = epoch
-        renderedSequence = sequence
+        outputWriter.markRendered(epoch: epoch, sequence: sequence)
+    }
+
+    public var renderedEpoch: UInt64 {
+        outputWriter.renderedEpoch
+    }
+
+    public var renderedSequence: UInt64 {
+        outputWriter.renderedSequence
     }
 
     public func receive(_ payload: Data) {
-        ansiObserver.receive(payload)
-        inMemory.receive(payload)
+        outputWriter.receive(payload)
     }
 
     /// Requests an immediate Ghostty display tick. The first reanchor

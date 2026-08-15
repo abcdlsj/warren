@@ -847,31 +847,13 @@ final class WarrenRemoteApplicationModel {
         guard !data.isEmpty,
               let surface = mountedSurfaces.first,
               surface.id == selectedSessionID else { return }
-        let interval = WarrenPerformance.signposter.beginInterval("Remote Ghostty Feed")
-        defer { WarrenPerformance.signposter.endInterval("Remote Ghostty Feed", interval) }
-        let budget = 128 * 1024
-        var offset = 0
-        while offset < data.count,
-              !Task.isCancelled,
-              mountedSurfaces.first === surface {
-            let end = min(offset + budget, data.count)
-            surface.receive(offset == 0 && end == data.count
-                ? data
-                : Data(data[offset..<end]))
-            if offset == 0, initialRefreshPending {
-                // The attach snapshot is fed before Ghostty's display loop
-                // necessarily paints; nudge one tick so the old shell appears
-                // immediately instead of after the first resize or keystroke.
-                initialRefreshPending = false
-                Task { @MainActor [weak surface] in surface?.requestDisplayRefresh() }
-            }
-            offset = end
-            guard offset < data.count else { return }
-            do {
-                try await Task.sleep(for: .milliseconds(8))
-            } catch {
-                return
-            }
+        surface.outputWriter.enqueueRaw(data)
+        if initialRefreshPending {
+            // The attach snapshot is fed before Ghostty's display loop
+            // necessarily paints; nudge one tick so the old shell appears
+            // immediately instead of after the first resize or keystroke.
+            initialRefreshPending = false
+            Task { @MainActor [weak surface] in surface?.requestDisplayRefresh() }
         }
     }
 

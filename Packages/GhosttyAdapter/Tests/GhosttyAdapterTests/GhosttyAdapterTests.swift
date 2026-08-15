@@ -76,4 +76,27 @@ final class GhosttyAdapterTests: XCTestCase {
             )
         }
     }
+
+    @MainActor
+    func testOutputWriterDrainsFramedAndRawBytesOffMainInOrder() async throws {
+        let surface = GhosttySurface(
+            id: TerminalSessionID(),
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: "/tmp",
+            outputRenderBudgetBytes: 4,
+            outputRenderYield: .milliseconds(1),
+            onInput: { _ in },
+            onResize: { _, _ in }
+        )
+
+        surface.outputWriter.enqueue(epoch: 1, sequence: 0, payload: Data("abcd".utf8))
+        surface.outputWriter.enqueue(epoch: 1, sequence: 4, payload: Data("ef".utf8))
+        surface.outputWriter.enqueueRaw(Data("gh".utf8))
+
+        for _ in 0..<100 where surface.renderedSequence < 8 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(surface.semanticSnapshot().plainText, "abcdefgh")
+        surface.outputWriter.shutdown()
+    }
 }
