@@ -27,6 +27,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
+    private var settleDrawWorkItem: DispatchWorkItem?
 
     public init(
         id: TerminalSessionID,
@@ -133,13 +134,26 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 
     /// Presents the settled grid after the output queue drains.
     ///
-    /// Renderer-thread refresh only: never pair this with an inline draw, or
-    /// an older queued frame can land after a newer present and roll part of
+    /// `ghostty_surface_refresh` is a no-op when the pixel dimensions are
+    /// unchanged, which is exactly the state after a tab switch reuses the
+    /// same pane size — the stale half-replayed frame stays on screen until a
+    /// real resize. Debounce one inline draw after the queue settles instead;
+    /// never pair it with a queued renderer-thread refresh in the same turn,
+    /// or an older queued frame can land after this present and roll part of
     /// the pane backwards.
     public func presentSettledOutput() {
-        state.controller.tick()
-        guard let raw = state.surface?.rawValue else { return }
-        ghostty_surface_refresh(raw)
+        settleDrawWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  let raw = self.state.surface?.rawValue else { return }
+            self.state.controller.tick()
+            ghostty_surface_draw(raw)
+        }
+        settleDrawWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 0.15,
+            execute: workItem
+        )
     }
 
     public func apply(font: TerminalFontPreference) {
