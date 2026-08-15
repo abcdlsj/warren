@@ -388,6 +388,7 @@ final class WarrenRemoteApplicationModel {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
     private(set) var mountedSurfaces: [GhosttySurface] = []
+    private(set) var settledSessionIDs: Set<TerminalSessionID> = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Set while the daemon has announced an operator-initiated maintenance
@@ -496,6 +497,7 @@ final class WarrenRemoteApplicationModel {
         attachGeneration &+= 1
         outputAnchors.removeAll()
         suppressFramedAnchorUpdates.removeAll()
+        settledSessionIDs.removeAll()
         resizeTask?.cancel()
         resizeTask = nil
         focusTask?.cancel()
@@ -508,6 +510,7 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
         }
         mountedSurfaces.removeAll()
+        settledSessionIDs.removeAll()
     }
 
     private func removeMountedSurface(sessionID: TerminalSessionID) {
@@ -516,6 +519,7 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
             return true
         }
+        settledSessionIDs.remove(sessionID)
     }
 
     private func clearMaintenance() {
@@ -1168,6 +1172,7 @@ final class WarrenRemoteApplicationModel {
         guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
             return
         }
+        settledSessionIDs.remove(sessionID)
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
@@ -1188,6 +1193,9 @@ final class WarrenRemoteApplicationModel {
                 onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
             )
             mountedSurfaces.append(surface)
+        }
+        surface.onSettled = { [weak self] in
+            self?.settledSessionIDs.insert(sessionID)
         }
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
@@ -1234,6 +1242,16 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
+            if existingSurface != nil {
+                surface.requestSettledReflow()
+            }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                guard let self,
+                      self.attachGeneration == generation,
+                      self.selectedSessionID == sessionID else { return }
+                self.settledSessionIDs.insert(sessionID)
+            }
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
