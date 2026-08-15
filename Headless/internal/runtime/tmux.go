@@ -350,6 +350,13 @@ func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
 		return nil
 	}
 	output = trimCaptureFinalLineEnding(output)
+	// Known limitation: replaying a full tmux snapshot through Ghostty can
+	// misalign background color blocks on soft-wrapped colored history
+	// (Ghostty BCE behavior, upstream #12497 / #12505). A transient resize
+	// clears it but causes visible flicker or a black reveal window, and
+	// rewriting per-row SGR is intrusive on colors. Warren deliberately keeps
+	// the snapshot bytes faithful and tracks upstream instead of applying a
+	// lossy workaround here.
 	// capture-pane emits LF-only lines. A terminal interprets LF as a line
 	// feed without returning to column zero, which makes every subsequent
 	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
