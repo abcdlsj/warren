@@ -102,9 +102,41 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// Requests an immediate Ghostty display tick. The first reanchor
     /// snapshot can be written before the surface's display loop has painted
     /// anything; an explicit tick renders it without waiting for the next
-    /// resize or keystroke.
+    /// resize or keystroke. The renderer-thread refresh mirrors what the
+    /// embedded view's display link does: process app state, then ask
+    /// Ghostty to present a frame asynchronously.
     public func requestDisplayRefresh() {
         state.controller.tick()
+        guard let raw = state.surface?.rawValue else { return }
+        ghostty_surface_refresh(raw)
+    }
+
+    /// Presents Ghostty's current grid inline after its view re-enters the
+    /// window (tab switch, settings dismissal).
+    ///
+    /// A renderer-thread refresh can be suppressed when the pixel dimensions
+    /// are unchanged, leaving a reattached surface on a stale framebuffer
+    /// until a resize or keystroke. This draw-only nudge is scheduled after
+    /// the renderer refresh has been requested and the layout has settled;
+    /// never pair it with `requestDisplayRefresh()` in the same runloop turn,
+    /// or an already-queued renderer frame can land after the inline present
+    /// and roll part of the pane backwards.
+    public func forceDisplayRefresh() {
+        guard let raw = state.surface?.rawValue else { return }
+        ghostty_surface_draw(raw)
+    }
+
+    /// Re-entry repaint for a surface whose AppKit view is being recreated or
+    /// reattached: request a renderer-thread frame immediately and once more
+    /// after the runloop, then present the current grid once layout settles.
+    public func refreshAfterReentry() {
+        requestDisplayRefresh()
+        DispatchQueue.main.async { [weak self] in
+            self?.requestDisplayRefresh()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.forceDisplayRefresh()
+        }
     }
 
     public func apply(font: TerminalFontPreference) {

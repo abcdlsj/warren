@@ -78,6 +78,22 @@ final class GhosttyAdapterTests: XCTestCase {
     }
 
     @MainActor
+    func testForceDisplayRefreshIsSafeBeforeSurfaceAttaches() {
+        let surface = GhosttySurface(
+            id: TerminalSessionID(),
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: "/tmp",
+            onInput: { _ in },
+            onResize: { _, _ in }
+        )
+
+        // No AppKit view is attached in a unit test, so there is no ghostty
+        // surface yet. The re-entry repaint kick must be a safe no-op instead
+        // of crashing on the nil C handle.
+        surface.forceDisplayRefresh()
+    }
+
+    @MainActor
     func testOutputWriterDrainsFramedAndRawBytesOffMainInOrder() async throws {
         let surface = GhosttySurface(
             id: TerminalSessionID(),
