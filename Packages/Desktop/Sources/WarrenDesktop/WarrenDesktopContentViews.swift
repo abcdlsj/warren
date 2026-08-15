@@ -45,13 +45,17 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             emptyWorkspace(tokens: tokens, workspace: workspace)
         } else {
             VStack(spacing: WarrenSpacing.medium) {
-                Text(tab == nil ? "No tabs open" : "No panes open")
+                Text("Select a workspace")
                     .font(WarrenTypography.emptyState)
                     .foregroundStyle(tokens.mutedForeground)
+                Text("Choose a workspace to open its terminals")
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .opacity(0.75)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(tab == nil ? "No open tabs" : "No open panels")
+            .accessibilityLabel("No workspace selected")
         }
     }
 
@@ -93,22 +97,18 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     }
 
     private func emptyWorkspace(tokens: WarrenColorTokens, workspace: Workspace) -> some View {
-        VStack(spacing: WarrenSpacing.standard) {
-            Image(systemName: "terminal")
-                .font(.system(size: 26, weight: .light))
-                .foregroundStyle(tokens.mutedForeground)
+        VStack(spacing: WarrenSpacing.compact) {
             Text("Start a session")
-                .font(WarrenTypography.screenTitle)
-            Button(action: onNewSession) {
-                Text("New Session…")
-                    .font(WarrenTypography.bodyEmphasis)
-            }
-            .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
-            .focused($primaryButtonFocused)
-            .controlSize(.regular)
+                .font(WarrenTypography.emptyState)
+                .foregroundStyle(tokens.mutedForeground)
+            Text("Open a terminal with the + button or a preset")
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+                .opacity(0.75)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .contain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No open sessions in \(workspace.name)")
     }
 }
 
