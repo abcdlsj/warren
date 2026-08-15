@@ -112,12 +112,16 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
     let rows: [String: WarrenSidebarRowDragFrame]
     let onDropProject: (String, ProjectID?) -> Bool
     let onDropWorkspace: (String, WorkspaceID?, ProjectID?) -> Bool
+    let onProjectDragBegan: () -> Void
+    let onProjectDragEnded: () -> Void
 
     func makeNSView(context: Context) -> WarrenDesktopSidebarDragOverlayView {
         let view = WarrenDesktopSidebarDragOverlayView(session: session)
         view.rows = rows
         view.onDropProject = onDropProject
         view.onDropWorkspace = onDropWorkspace
+        view.onProjectDragBegan = onProjectDragBegan
+        view.onProjectDragEnded = onProjectDragEnded
         return view
     }
 
@@ -125,6 +129,8 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         nsView.rows = rows
         nsView.onDropProject = onDropProject
         nsView.onDropWorkspace = onDropWorkspace
+        nsView.onProjectDragBegan = onProjectDragBegan
+        nsView.onProjectDragEnded = onProjectDragEnded
     }
 }
 
@@ -137,6 +143,8 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     var onDropProject: ((String, ProjectID?) -> Bool)?
     var onDropWorkspace: ((String, WorkspaceID?, ProjectID?) -> Bool)?
+    var onProjectDragBegan: (() -> Void)?
+    var onProjectDragEnded: (() -> Void)?
 
     private let session: WarrenDesktopSidebarDragSession
     private var highlightRect: NSRect?
@@ -200,6 +208,9 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
             return
         }
         suppressClickUntil = nil
+        if row.info.isProjectRow {
+            onProjectDragBegan?()
+        }
         let item = NSDraggingItem(
             pasteboardWriter: NSString(string: Self.payload(for: row.info))
         )
@@ -249,6 +260,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
             let zone = dropZone(at: local, payload: payload)
             _ = performDrop(payload, zone: zone)
         }
+        onProjectDragEnded?()
         suppressClickUntil = Date().addingTimeInterval(0.5)
         escapePressed = false
         currentPayload = nil
