@@ -18,9 +18,11 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     private let axes: Axis.Set
     private let fadeLength: CGFloat
     private let surface: Color
+    private let showsEdgeChevrons: Bool
     private let onHorizontalOverflowChange: ((Bool) -> Void)?
     private let content: () -> Content
     private let spaceName = UUID()
+    private let contentID = "warren-overflow-content"
 
     @State private var canScrollTop = false
     @State private var canScrollBottom = false
@@ -28,56 +30,70 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     @State private var canScrollRight = false
     @State private var hasOverflowX = false
     @State private var hasOverflowY = false
+    @Environment(\.colorScheme) private var colorScheme
 
     public init(
         _ axes: Axis.Set = .vertical,
         fadeLength: CGFloat = 24,
         surface: Color,
+        showsEdgeChevrons: Bool = false,
         onHorizontalOverflowChange: ((Bool) -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.axes = axes
         self.fadeLength = fadeLength
         self.surface = surface
+        self.showsEdgeChevrons = showsEdgeChevrons
         self.onHorizontalOverflowChange = onHorizontalOverflowChange
         self.content = content
     }
 
     public var body: some View {
         GeometryReader { viewport in
-            ScrollView(axes, showsIndicators: false) {
-                content()
-                    .background {
-                        GeometryReader { contentGeometry in
-                            Color.clear.preference(
-                                key: WarrenOverflowFadeMetricsKey.self,
-                                value: WarrenOverflowFadeMetrics(frame: contentGeometry.frame(in: .named(spaceName)))
-                            )
+            ScrollViewReader { proxy in
+                ScrollView(axes, showsIndicators: false) {
+                    content()
+                        .id(contentID)
+                        .background {
+                            GeometryReader { contentGeometry in
+                                Color.clear.preference(
+                                    key: WarrenOverflowFadeMetricsKey.self,
+                                    value: WarrenOverflowFadeMetrics(frame: contentGeometry.frame(in: .named(spaceName)))
+                                )
+                            }
+                        }
+                }
+                .coordinateSpace(name: spaceName)
+                .onPreferenceChange(WarrenOverflowFadeMetricsKey.self) { metrics in
+                    updateEdges(contentFrame: metrics.frame, viewport: viewport.size)
+                }
+                .overlay(alignment: .top) {
+                    if axes.contains(.vertical), canScrollTop {
+                        fade(edge: .top)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if axes.contains(.vertical), canScrollBottom {
+                        fade(edge: .bottom)
+                    }
+                }
+                .overlay(alignment: .leading) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollLeft {
+                        chevron(edge: .leading) {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                proxy.scrollTo(contentID, anchor: .leading)
+                            }
                         }
                     }
-            }
-            .coordinateSpace(name: spaceName)
-            .onPreferenceChange(WarrenOverflowFadeMetricsKey.self) { metrics in
-                updateEdges(contentFrame: metrics.frame, viewport: viewport.size)
-            }
-            .overlay(alignment: .top) {
-                if axes.contains(.vertical), canScrollTop {
-                    fade(edge: .top)
                 }
-            }
-            .overlay(alignment: .bottom) {
-                if axes.contains(.vertical), canScrollBottom {
-                    fade(edge: .bottom)
-                }
-            }
-            .overlay(alignment: .leading) {
-                if axes.contains(.horizontal), canScrollLeft {
-                    fade(edge: .leading)
-                }
-            }
-            .overlay(alignment: .trailing) {
-                if axes.contains(.horizontal), canScrollRight {
-                    fade(edge: .trailing)
+                .overlay(alignment: .trailing) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollRight {
+                        chevron(edge: .trailing) {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                proxy.scrollTo(contentID, anchor: .trailing)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -105,6 +121,27 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                 .frame(width: fadeLength)
                 .allowsHitTesting(false)
         }
+    }
+
+    @ViewBuilder
+    private func chevron(edge: Edge, action: @escaping () -> Void) -> some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        Button(action: action) {
+            Image(systemName: edge == .trailing ? "chevron.right" : "chevron.left")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(tokens.foreground)
+                .frame(width: 22, height: 22)
+                .background(tokens.muted.opacity(0.85), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(tokens.border.opacity(0.8), lineWidth: WarrenSpacing.hairline)
+                }
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 4)
+        .accessibilityLabel(edge == .trailing ? "Scroll tabs forward" : "Scroll tabs backward")
+        .help(edge == .trailing ? "More tabs" : "Earlier tabs")
     }
 
     private func updateEdges(contentFrame: CGRect, viewport: CGSize) {

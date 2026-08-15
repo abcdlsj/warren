@@ -48,6 +48,7 @@ struct WarrenDesktopTabBar: View {
                     .horizontal,
                     fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
                     surface: tokens.chromeSurface,
+                    showsEdgeChevrons: true,
                     onHorizontalOverflowChange: { hasTabOverflow = $0 }
                 ) {
                     HStack(spacing: 0) {
