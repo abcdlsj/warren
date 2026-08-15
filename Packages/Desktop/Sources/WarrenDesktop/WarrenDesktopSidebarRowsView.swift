@@ -21,6 +21,7 @@ struct WarrenDesktopSidebarRows: View {
     @State private var dragFrames: [String: WarrenSidebarRowDragFrame] = [:]
     @State private var dragRestoreExpansions: Set<ProjectID> = []
     @State private var isProjectDragActive = false
+    @State private var dragSourceRowID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -96,6 +97,11 @@ struct WarrenDesktopSidebarRows: View {
                         )
                     }
                     )
+                    .opacity(dragSourceRowID == group.project.id.description ? 0.2 : 1)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: 0.12),
+                        value: dragSourceRowID
+                    )
                     if isCollapsed || tree.expandedProjectIDs.contains(group.project.id) {
                         ForEach(group.workspaces) { workspace in
                             ZStack {
@@ -144,6 +150,11 @@ struct WarrenDesktopSidebarRows: View {
                                 )
                             }
                             )
+                            .opacity(dragSourceRowID == workspace.id.description ? 0.2 : 1)
+                            .animation(
+                                reduceMotion ? nil : .easeOut(duration: 0.12),
+                                value: dragSourceRowID
+                            )
                         }
                     }
                 }
@@ -169,7 +180,10 @@ struct WarrenDesktopSidebarRows: View {
                     )
                 },
                 onProjectDragBegan: beginProjectDrag,
-                onProjectDragEnded: endProjectDrag
+                onProjectDragEnded: endProjectDrag,
+                onDragSourceChanged: { id in
+                    dragSourceRowID = id
+                }
             )
         }
         .onChange(of: selection) { _, newSelection in

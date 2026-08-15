@@ -114,6 +114,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
     let onDropWorkspace: (String, WorkspaceID?, ProjectID?) -> Bool
     let onProjectDragBegan: () -> Void
     let onProjectDragEnded: () -> Void
+    let onDragSourceChanged: (String?) -> Void
 
     func makeNSView(context: Context) -> WarrenDesktopSidebarDragOverlayView {
         let view = WarrenDesktopSidebarDragOverlayView(session: session)
@@ -122,6 +123,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         view.onDropWorkspace = onDropWorkspace
         view.onProjectDragBegan = onProjectDragBegan
         view.onProjectDragEnded = onProjectDragEnded
+        view.onDragSourceChanged = onDragSourceChanged
         return view
     }
 
@@ -131,6 +133,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         nsView.onDropWorkspace = onDropWorkspace
         nsView.onProjectDragBegan = onProjectDragBegan
         nsView.onProjectDragEnded = onProjectDragEnded
+        nsView.onDragSourceChanged = onDragSourceChanged
     }
 }
 
@@ -145,6 +148,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     var onDropWorkspace: ((String, WorkspaceID?, ProjectID?) -> Bool)?
     var onProjectDragBegan: (() -> Void)?
     var onProjectDragEnded: (() -> Void)?
+    var onDragSourceChanged: ((String?) -> Void)?
 
     private let session: WarrenDesktopSidebarDragSession
     private var highlightRect: NSRect?
@@ -208,6 +212,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
             return
         }
         suppressClickUntil = nil
+        onDragSourceChanged?(row.info.id)
         if row.info.isProjectRow {
             onProjectDragBegan?()
         }
@@ -260,6 +265,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
             let zone = dropZone(at: local, payload: payload)
             _ = performDrop(payload, zone: zone)
         }
+        onDragSourceChanged?(nil)
         onProjectDragEnded?()
         suppressClickUntil = Date().addingTimeInterval(0.5)
         escapePressed = false
