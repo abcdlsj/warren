@@ -554,6 +554,15 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const textarea = terminal.textarea;
+    if (textarea) {
+      // Hint mobile keyboards toward the English layout by default; the user
+      // can still switch IMEs when they actually need CJK input.
+      textarea.lang = "en-US";
+      textarea.setAttribute("autocorrect", "off");
+      textarea.setAttribute("autocapitalize", "off");
+      textarea.setAttribute("spellcheck", "false");
+    }
     try {
       const webglAddon = new WebglAddon();
       terminal.loadAddon(webglAddon);
@@ -591,7 +600,35 @@ export default function App() {
       if (terminalRef.current === terminal) fitTerminalToHost(fitAddon, terminalHost);
     });
 
-    const dataSubscription = terminal.onData(sendInput);
+    // Mobile soft keyboards and CJK IMEs can fire xterm onData twice for the
+    // same keystroke (compositionend plus the following input event). Track
+    // composition state and drop exact duplicates inside a short window.
+    const isTouch = isCoarsePointer();
+    let isComposing = false;
+    let compositionEndTime = 0;
+    let lastSentData = "";
+    let lastSentTime = 0;
+    const onCompositionStart = () => {
+      isComposing = true;
+    };
+    const onCompositionEnd = () => {
+      isComposing = false;
+      compositionEndTime = Date.now();
+    };
+    textarea?.addEventListener("compositionstart", onCompositionStart);
+    textarea?.addEventListener("compositionend", onCompositionEnd);
+    const dataSubscription = terminal.onData(data => {
+      const now = Date.now();
+      const inCompositionWindow = isComposing || now - compositionEndTime < 150;
+      if ((inCompositionWindow || isTouch)
+        && data === lastSentData
+        && now - lastSentTime < 150) {
+        return;
+      }
+      lastSentData = data;
+      lastSentTime = now;
+      sendInput(data);
+    });
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const onTerminalFocus = () => requestSessionFocus(true);
     const onTerminalBlur = () => requestSessionFocus(false);
@@ -618,6 +655,8 @@ export default function App() {
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
+      textarea?.removeEventListener("compositionstart", onCompositionStart);
+      textarea?.removeEventListener("compositionend", onCompositionEnd);
       terminal.textarea?.removeEventListener("focus", onTerminalFocus);
       terminal.textarea?.removeEventListener("blur", onTerminalBlur);
       window.removeEventListener("blur", releaseWindowFocus);

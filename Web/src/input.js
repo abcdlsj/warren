@@ -59,3 +59,45 @@ export class InputQueue {
     return this.pending.length;
   }
 }
+
+// Mobile soft keyboards and CJK IMEs can make xterm fire onData twice for the
+// same keystroke (compositionend plus the following input event). This tracks
+// composition state and drops exact duplicates inside a short window.
+export class MobileInputDeduper {
+  constructor({
+    isTouch = false,
+    windowMs = 150,
+    now = Date.now,
+  } = {}) {
+    this.isTouch = isTouch;
+    this.windowMs = windowMs;
+    this.now = now;
+    this.isComposing = false;
+    this.compositionEndTime = Number.NEGATIVE_INFINITY;
+    this.lastData = "";
+    this.lastTime = 0;
+  }
+
+  onCompositionStart() {
+    this.isComposing = true;
+  }
+
+  onCompositionEnd() {
+    this.isComposing = false;
+    this.compositionEndTime = this.now();
+  }
+
+  shouldSend(data) {
+    const time = this.now();
+    const inCompositionWindow = this.isComposing
+      || time - this.compositionEndTime < this.windowMs;
+    if ((inCompositionWindow || this.isTouch)
+      && data === this.lastData
+      && time - this.lastTime < this.windowMs) {
+      return false;
+    }
+    this.lastData = data;
+    this.lastTime = time;
+    return true;
+  }
+}

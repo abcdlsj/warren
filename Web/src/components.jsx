@@ -253,10 +253,17 @@ export function MobileKeys({ onInput }) {
     ["tab", "Tab", "\t"],
     ["ctrlC", "Ctrl-C", "\u0003"],
     ["ctrlD", "Ctrl-D", "\u0004"],
+    ["ctrlA", "Ctrl-A", "\u0001"],
+    ["ctrlE", "Ctrl-E", "\u0005"],
+    ["ctrlU", "Ctrl-U", "\u0015"],
+    ["ctrlK", "Ctrl-K", "\u000b"],
+    ["ctrlL", "Ctrl-L", "\u000c"],
     ["up", "↑", "\u001b[A"],
     ["down", "↓", "\u001b[B"],
     ["left", "←", "\u001b[D"],
     ["right", "→", "\u001b[C"],
+    ["home", "Home", "\u001b[H"],
+    ["end", "End", "\u001b[F"],
   ];
   return (
     <nav className="mobile-keys" aria-label="Terminal keys">

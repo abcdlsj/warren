@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { InputQueue } from "./input.js";
+import { InputQueue, MobileInputDeduper } from "./input.js";
 
 function encoded(value) {
   return new TextEncoder().encode(value);
@@ -108,4 +108,44 @@ test("send exceptions are treated as failures and keep the frame", () => {
   assert.equal(queue.flush("session-a"), false);
   assert.equal(failures, 1);
   assert.equal(queue.size, 1);
+});
+
+test("mobile deduper drops exact duplicates inside the composition window", () => {
+  let now = 0;
+  const deduper = new MobileInputDeduper({ isTouch: true, windowMs: 150, now: () => now });
+
+  assert.equal(deduper.shouldSend("a"), true);
+  now += 20;
+  assert.equal(deduper.shouldSend("a"), false);
+  now += 200;
+  assert.equal(deduper.shouldSend("a"), true);
+});
+
+test("mobile deduper keeps different characters and respects IME composition", () => {
+  let now = 0;
+  const deduper = new MobileInputDeduper({ isTouch: false, windowMs: 150, now: () => now });
+
+  deduper.onCompositionStart();
+  assert.equal(deduper.shouldSend("h"), true);
+  now += 10;
+  assert.equal(deduper.shouldSend("e"), true);
+  now += 10;
+  assert.equal(deduper.shouldSend("l"), true);
+  now += 10;
+  assert.equal(deduper.shouldSend("l"), false);
+
+  deduper.onCompositionEnd();
+  now += 10;
+  assert.equal(deduper.shouldSend("l"), false);
+  now += 200;
+  assert.equal(deduper.shouldSend("l"), true);
+});
+
+test("mobile deduper does not gate desktop key repeat", () => {
+  let now = 0;
+  const deduper = new MobileInputDeduper({ isTouch: false, windowMs: 150, now: () => now });
+
+  assert.equal(deduper.shouldSend("a"), true);
+  now += 20;
+  assert.equal(deduper.shouldSend("a"), true);
 });
