@@ -356,7 +356,10 @@ func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
 	// clears it but causes visible flicker or a black reveal window, and
 	// rewriting per-row SGR is intrusive on colors. Warren deliberately keeps
 	// the snapshot bytes faithful and tracks upstream instead of applying a
-	// lossy workaround here.
+	// lossy workaround here. Because surfaces are retained across tab
+	// switches, one manual resize reflows Ghostty back into alignment and
+	// later switches resume from an anchor without replaying history, so the
+	// corruption does not come back.
 	// capture-pane emits LF-only lines. A terminal interprets LF as a line
 	// feed without returning to column zero, which makes every subsequent
 	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
