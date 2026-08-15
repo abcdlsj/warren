@@ -79,6 +79,16 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                     }
                 }
                 .overlay(alignment: .leading) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollLeft {
+                        fade(edge: .leading)
+                    }
+                }
+                .overlay(alignment: .trailing) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollRight {
+                        fade(edge: .trailing)
+                    }
+                }
+                .overlay(alignment: .leading) {
                     if showsEdgeChevrons, axes.contains(.horizontal) {
                         chevron(edge: .leading, isActive: true) {
                             withAnimation(.easeOut(duration: 0.18)) {

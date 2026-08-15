@@ -3,13 +3,6 @@ import WarrenClientCore
 import WarrenDesignSystem
 import WarrenDomain
 
-private struct WarrenTabViewportWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// Superset v2's workspace chrome is one 40pt row. Leading controls only
 /// appear when the left rail is collapsed; an expanded sidebar owns its own
 /// header controls, so the workspace never gets a duplicate 48pt top bar.
@@ -47,9 +40,14 @@ struct WarrenDesktopTabBar: View {
     @State private var pendingRenameSessionID: TerminalSessionID?
     @State private var sessionRenameTitle = ""
 
-    private var tabTrackWidth: CGFloat {
-        CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
+    static func tabTrackWidth(tabCount: Int) -> CGFloat {
+        CGFloat(tabCount) * WarrenLayoutMetrics.tabWidth
             + WarrenLayoutMetrics.tabAddButtonSlotWidth
+            // The add-tab affordance carries a small leading inset, so its
+            // real in-track width is the slot plus one xs step. Matching the
+            // frame cap to the measured content avoids an overflow toggle at
+            // the exact-fit boundary.
+            + WarrenSpacing.xs
     }
 
     var body: some View {
@@ -67,7 +65,8 @@ struct WarrenDesktopTabBar: View {
                     .horizontal,
                     fadeLength: WarrenLayoutMetrics.tabScrollFadeLength,
                     surface: tokens.chromeSurface,
-                    showsEdgeChevrons: hasTabOverflow
+                    showsEdgeChevrons: hasTabOverflow,
+                    onHorizontalOverflowChange: { hasTabOverflow = $0 }
                 ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
@@ -120,21 +119,11 @@ struct WarrenDesktopTabBar: View {
                                 return true
                             }
                         }
-
-                        // When tabs do not fill the bar, the leftover track is
-                        // still a window-drag surface. It lives inside the
-                        // scroll content so the scroll view can always occupy
-                        // the full remaining width and measure overflow
-                        // against the real viewport instead of the content.
-                        if !hasTabOverflow {
-                            WarrenDesktopWindowDragRegion()
-                                .frame(maxWidth: .infinity)
-                        }
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
                 }
                 .frame(
-                    maxWidth: hasTabOverflow ? .infinity : tabTrackWidth,
+                    maxWidth: hasTabOverflow ? .infinity : Self.tabTrackWidth(tabCount: tabs.count),
                     alignment: .leading
                 )
                 .layoutPriority(1)
@@ -175,20 +164,6 @@ struct WarrenDesktopTabBar: View {
                 }
             }
             .frame(height: WarrenLayoutMetrics.tabBarHeight)
-            .background {
-                // Measure against the full HStack, not the constrained scroll
-                // track, so overflow reflects the real available tab width.
-                GeometryReader { viewport in
-                    Color.clear.preference(
-                        key: WarrenTabViewportWidthKey.self,
-                        value: viewport.size.width
-                    )
-                }
-            }
-            .onPreferenceChange(WarrenTabViewportWidthKey.self) { viewportWidth in
-                hasTabOverflow = viewportWidth > 0
-                    && tabTrackWidth > viewportWidth + 1
-            }
         }
         .frame(height: WarrenLayoutMetrics.tabBarHeight)
         .alert("Rename Session", isPresented: Binding(

@@ -80,6 +80,78 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(filler.frame.width, 100)
     }
 
+    func testTabBarEngagesOverflowModeWhenTrailingChromeLeavesNarrowTrack() {
+        let tabs = (0..<6).map { index in
+            ClientTab(
+                id: "tab-\(index)",
+                title: "Session \(index)",
+                sessionID: TerminalSessionID(rawValue: UUID()),
+                kind: .shell
+            )
+        }
+        let tabBar = tabBar(tabs: tabs)
+
+        let hostingView = NSHostingView(rootView: tabBar)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1000, height: WarrenLayoutMetrics.tabBarHeight)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hostingView.layoutSubtreeIfNeeded()
+
+        let scrollViews = descendantViews(of: hostingView, as: NSScrollView.self)
+        let tabTrack = WarrenDesktopTabBar.tabTrackWidth(tabCount: tabs.count)
+        XCTAssertTrue(
+            scrollViews.contains { $0.frame.width < tabTrack - 1 },
+            "Scroll track must shrink below the tab track when overflow engages"
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        hostingView.layoutSubtreeIfNeeded()
+        let settledScrollViews = descendantViews(of: hostingView, as: NSScrollView.self)
+        XCTAssertEqual(
+            settledScrollViews.map(\.frame.width),
+            scrollViews.map(\.frame.width),
+            "Overflow state must settle instead of toggling"
+        )
+    }
+
+    func testTabBarStaysInFitModeWhenTabsFit() {
+        let tabs = [
+            ClientTab(
+                id: "tab-a",
+                title: "A",
+                sessionID: TerminalSessionID(rawValue: UUID()),
+                kind: .shell
+            ),
+            ClientTab(
+                id: "tab-b",
+                title: "B",
+                sessionID: TerminalSessionID(rawValue: UUID()),
+                kind: .shell
+            ),
+        ]
+        let tabBar = tabBar(tabs: tabs)
+
+        let hostingView = NSHostingView(rootView: tabBar)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1000, height: WarrenLayoutMetrics.tabBarHeight)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        hostingView.layoutSubtreeIfNeeded()
+
+        let scrollViews = descendantViews(of: hostingView, as: NSScrollView.self)
+        let tabTrack = WarrenDesktopTabBar.tabTrackWidth(tabCount: tabs.count)
+        XCTAssertTrue(
+            scrollViews.contains { abs($0.frame.width - tabTrack) < 1 },
+            "Scroll track must exactly match the tab track when tabs fit"
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        hostingView.layoutSubtreeIfNeeded()
+        let settledScrollViews = descendantViews(of: hostingView, as: NSScrollView.self)
+        XCTAssertEqual(
+            settledScrollViews.map(\.frame.width),
+            scrollViews.map(\.frame.width),
+            "Fit state must settle instead of toggling"
+        )
+    }
+
     func testOverflowFadeScrollViewReportsHorizontalOverflow() {
         var observed: [Bool] = []
         let scroll = WarrenOverflowFadeScrollView(
@@ -118,6 +190,39 @@ final class WarrenDesktopTests: XCTestCase {
             matches.append(contentsOf: descendantViews(of: subview, as: type))
         }
         return matches
+    }
+
+    private func tabBar(tabs: [ClientTab]) -> some View {
+        WarrenDesktopTabBar(
+            tabs: tabs,
+            tabTitles: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.title) }),
+            pinnedSessionIDs: [],
+            selectedTabID: tabs.first?.id,
+            chromeMode: .workspace,
+            isSidebarCollapsed: false,
+            isConnected: true,
+            endpointOptions: [WarrenDesktopEndpointOption(id: "local", label: "Local", isLocal: true)],
+            selectedEndpointID: "local",
+            webStatus: WarrenDesktopWebStatus(),
+            hasInspector: false,
+            isInspectorVisible: false,
+            onToggleSidebar: {},
+            onToggleInspector: {},
+            onCommandPalette: {},
+            onSettings: {},
+            onWeb: {},
+            onSelectEndpoint: { _ in },
+            onSelectTab: { _ in },
+            onMoveTab: { _, _ in },
+            canAddTab: true,
+            onAddTab: {},
+            onCloseTab: { _ in },
+            onCloseOtherTabs: { _ in },
+            onCloseAllTabs: {},
+            onRenameSession: { _, _ in },
+            onToggleSessionPin: { _, _ in }
+        )
+        .frame(width: 1000, height: WarrenLayoutMetrics.tabBarHeight)
     }
 
     func testWindowDragRegionUsesDedicatedAppKitView() {
