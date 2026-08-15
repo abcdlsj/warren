@@ -1306,9 +1306,7 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
-            if existingSurface != nil {
-                surface.presentNow()
-            }
+            scheduleInitialPresent(surface, generation: generation)
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
@@ -1331,6 +1329,26 @@ final class WarrenRemoteApplicationModel {
                 // close of the very tab it was connecting; reporting that
                 // would flash a daemon error during normal tab churn.
                 present(error)
+            }
+        }
+    }
+
+    /// Forces the first attach snapshot onto the screen. The AppKit view can
+    /// still be settling when the snapshot arrives (especially for a freshly
+    /// created surface), and a tick alone is a no-op until the renderer owns
+    /// a mounted view; the later inline draws cover the same path a resize
+    /// would otherwise take to reveal the frame.
+    private func scheduleInitialPresent(_ surface: GhosttySurface, generation: UInt64) {
+        surface.requestDisplayRefresh()
+        surface.presentNow()
+        for delay in [0.05, 0.2, 0.5] {
+            Task { @MainActor [weak self, weak surface] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, let surface,
+                      generation == self.attachGeneration,
+                      self.attachedSessionID == surface.id else { return }
+                surface.requestDisplayRefresh()
+                surface.presentNow()
             }
         }
     }
