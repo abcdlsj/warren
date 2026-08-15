@@ -36,6 +36,7 @@ import {
   TerminalSearch,
   TopBar,
 } from "./components.jsx";
+import { enableTerminalTouchScroll } from "./touch.js";
 
 const storageKeys = {
   activeWorkspace: "warren.activeWorkspace",
@@ -707,6 +708,7 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const stopTouchScroll = enableTerminalTouchScroll(terminal, terminalHost);
     const textarea = terminal.textarea;
     if (textarea) {
       // Hint mobile keyboards toward the English layout by default; the user
@@ -840,6 +842,7 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      stopTouchScroll();
       webglAddonRef.current?.dispose();
       webglAddonRef.current = null;
       searchAddon.dispose();

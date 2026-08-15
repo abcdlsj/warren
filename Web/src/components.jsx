@@ -554,16 +554,17 @@ export function MobileKeys({ onInput }) {
   useEffect(() => {
     const bar = barRef.current;
     const viewport = window.visualViewport;
-    if (!bar || !viewport) return undefined;
+    const main = bar?.parentElement;
+    if (!bar || !main || !viewport) return undefined;
 
     const update = () => {
       // Cross-platform keyboard inset: Android resizes the layout viewport
       // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
-      // the visual viewport (covered == keyboard height). Once the keyboard
-      // collapses, clear the inline offset so CSS bottom:0 and the safe-area
-      // padding take over again.
+      // the visual viewport (covered == keyboard height). Shrink the main
+      // grid with bottom padding so the shell and the shortcut bar both sit
+      // above the keyboard; clear it again once the keyboard collapses.
       const inset = keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop);
-      bar.style.bottom = inset > 0 ? `${inset}px` : "";
+      main.style.paddingBottom = inset > 0 ? `${inset}px` : "";
       bar.classList.toggle("keyboard-open", inset > 0);
     };
     update();
