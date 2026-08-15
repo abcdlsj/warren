@@ -169,13 +169,29 @@ struct WarrenNextCompositionRoot: View {
     }
 
     private var endpointOptions: [WarrenDesktopEndpointOption] {
-        let local = WarrenDesktopEndpointOption(id: "local", label: "Local", isLocal: true)
+        let local = WarrenDesktopEndpointOption(
+            id: "local",
+            label: "Local",
+            isLocal: true,
+            detail: Self.endpointDetail(WarrenRemoteEndpointConfiguration.localDaemon().url)
+        )
         let configured = endpointCatalog
             .filter { $0.id != local.id }
             .map { endpoint in
-                WarrenDesktopEndpointOption(id: endpoint.id, label: endpoint.name)
+                WarrenDesktopEndpointOption(
+                    id: endpoint.id,
+                    label: endpoint.name,
+                    detail: Self.endpointDetail(endpoint.url)
+                )
             }
         return [local] + configured
+    }
+
+    private static func endpointDetail(_ urlString: String) -> String {
+        guard let url = URL(string: urlString), let host = url.host, !host.isEmpty else {
+            return urlString
+        }
+        return url.port.map { "\(host):\($0)" } ?? host
     }
 
     private var isLocalEndpoint: Bool { selectedEndpointID == "local" }

@@ -2,6 +2,13 @@ import SwiftUI
 import WarrenClientCore
 import WarrenDesignSystem
 
+private struct WarrenTabViewportWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 /// Superset v2's workspace chrome is one 40pt row. Leading controls only
 /// appear when the left rail is collapsed; an expanded sidebar owns its own
 /// header controls, so the workspace never gets a duplicate 48pt top bar.
@@ -49,8 +56,7 @@ struct WarrenDesktopTabBar: View {
                     .horizontal,
                     fadeLength: WarrenLayoutMetrics.tabScrollFadeLength,
                     surface: tokens.chromeSurface,
-                    showsEdgeChevrons: true,
-                    onHorizontalOverflowChange: { hasTabOverflow = $0 }
+                    showsEdgeChevrons: hasTabOverflow
                 ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
@@ -105,6 +111,19 @@ struct WarrenDesktopTabBar: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
+                .background {
+                    GeometryReader { viewport in
+                        Color.clear.preference(
+                            key: WarrenTabViewportWidthKey.self,
+                            value: viewport.size.width
+                        )
+                    }
+                }
+                .onPreferenceChange(WarrenTabViewportWidthKey.self) { viewportWidth in
+                    let neededWidth = CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
+                        + WarrenLayoutMetrics.tabAddButtonSlotWidth
+                    hasTabOverflow = viewportWidth > 0 && neededWidth > viewportWidth + 1
+                }
 
                 if hasTabOverflow {
                     WarrenDesktopTabAddSlot(
@@ -193,18 +212,17 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
 
     var body: some View {
         HStack(spacing: WarrenSpacing.xs) {
-            WarrenDesktopEndpointControl(
-                isConnected: isConnected,
-                endpoints: endpointOptions,
-                selectedID: selectedEndpointID,
-                onSelect: onSelectEndpoint
-            )
-
             WarrenDesktopChromeButton(
                 systemImage: "gearshape",
                 label: "Settings",
                 hint: "Open Warren settings",
                 action: onSettings
+            )
+            WarrenDesktopEndpointControl(
+                isConnected: isConnected,
+                endpoints: endpointOptions,
+                selectedID: selectedEndpointID,
+                onSelect: onSelectEndpoint
             )
             WarrenDesktopChromeButton(
                 systemImage: "globe",
@@ -269,11 +287,6 @@ private struct WarrenDesktopEndpointControl: View {
         .foregroundStyle(tokens.mutedForeground)
         .accessibilityLabel("Execution server: \(selectedEndpoint?.label ?? "Server")")
         .accessibilityHint(isConnected ? "Connected. Click for details." : "Disconnected. Click for details.")
-        .onHover { hovering in
-            if hovering {
-                show()
-            }
-        }
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             popoverContent(tokens: tokens)
         }
@@ -289,13 +302,10 @@ private struct WarrenDesktopEndpointControl: View {
                 Circle()
                     .fill(isConnected ? Color.green : Color.orange)
                     .frame(width: 8, height: 8)
-                Text(selectedEndpoint?.label ?? "Server")
-                    .font(WarrenTypography.navigationMeta)
-                    .foregroundStyle(tokens.foreground)
-                Spacer()
                 Text(isConnected ? "Connected" : "Disconnected")
                     .font(WarrenTypography.supporting)
                     .foregroundStyle(tokens.mutedForeground)
+                Spacer()
             }
             .padding(.bottom, WarrenSpacing.compact)
 
@@ -318,15 +328,17 @@ private struct WarrenDesktopEndpointControl: View {
                                     ? tokens.highlight
                                     : tokens.mutedForeground
                             )
-                        Text(endpoint.label)
-                            .font(WarrenTypography.navigationMeta)
-                            .foregroundStyle(tokens.foreground)
-                        Spacer()
-                        if endpoint.isLocal {
-                            Text("Local")
-                                .font(WarrenTypography.supporting)
-                                .foregroundStyle(tokens.mutedForeground)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(endpoint.label)
+                                .font(WarrenTypography.navigationMeta)
+                                .foregroundStyle(tokens.foreground)
+                            if let detail = endpoint.detail {
+                                Text(detail)
+                                    .font(WarrenTypography.supporting)
+                                    .foregroundStyle(tokens.mutedForeground)
+                            }
                         }
+                        Spacer()
                     }
                     .padding(.vertical, WarrenSpacing.xs)
                     .contentShape(.rect)
