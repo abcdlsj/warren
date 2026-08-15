@@ -446,6 +446,12 @@ type wsPeer struct {
 	rosterCancel   context.CancelFunc
 }
 
+func (p *wsPeer) logInfo(message string, args ...any) {
+	if p.server.Logger != nil {
+		p.server.Logger.Info(message, args...)
+	}
+}
+
 func newWSPeer(server *HTTPServer, connection *websocket.Conn) *wsPeer {
 	peer := &wsPeer{
 		server:     server,
@@ -728,15 +734,18 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if err != nil {
 			return err
 		}
+		p.logInfo("attach: begin", "session", id, "size", fmt.Sprintf("%dx%d", columns, rows), "specified", specified, "focused", focused, "focusSpecified", focusSpecified)
 		p.attach(session)
 		lock, resume, err := p.server.Service.prepareAttach(ctx, session)
 		if err != nil {
 			p.detach()
 			return err
 		}
+		p.logInfo("attach: prepared", "session", id)
 		// Register before claiming focus so a disconnect cannot leave a stale
 		// focus owner behind while the initial snapshot is being prepared.
 		p.server.Service.registerPeer(session.ID, p)
+		p.logInfo("attach: registered", "session", id)
 		// Older clients did not send a focus flag. Let the first such attach
 		// claim the empty focus slot for compatibility, while every updated
 		// client explicitly sends focused=false until its terminal is focused.
@@ -752,6 +761,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 				return err
 			}
 		}
+		p.logInfo("attach: focus done", "session", id)
 		// A passive attach (focused=false) still carries the client's viewport
 		// size. When nobody owns focus, resize the shared runtime before the
 		// reanchor snapshot so soft-wrapped history is captured at the same
@@ -766,12 +776,14 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			}
 			p.server.Service.updateResponderSize(session.ID, columns, rows)
 		}
+		p.logInfo("attach: resize done", "session", id)
 		if err := p.writeResult(command.ID, session); err != nil {
 			lock.Unlock()
 			resume()
 			p.detach()
 			return err
 		}
+		p.logInfo("attach: result sent", "session", id)
 		anchor := anchorFromParams(params)
 		if err := p.server.Service.attachOutputLocked(ctx, p, session, anchor); err != nil {
 			lock.Unlock()
@@ -779,6 +791,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			p.detach()
 			return err
 		}
+		p.logInfo("attach: output attached", "session", id)
 		lock.Unlock()
 		resume()
 		return nil

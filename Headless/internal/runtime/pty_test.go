@@ -51,6 +51,31 @@ func TestPTYCreateWritesSpoolAndCapture(t *testing.T) {
 	}
 }
 
+func TestPTYCapturePreservesStyleAndScrollback(t *testing.T) {
+	runtimeAdapter := newTestPTY(t)
+	ctx := context.Background()
+	command := "printf '\\033[31mRED\\033[0m\\n'; i=1; while [ $i -le 25 ]; do echo line-$i; i=$((i+1)); done"
+	if err := runtimeAdapter.Create(ctx, "warren_test_vt", t.TempDir(), command); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	waitSpoolContains(t, runtimeAdapter, "warren_test_vt", "line-25")
+
+	snapshot, err := runtimeAdapter.Capture(ctx, "warren_test_vt")
+	if err != nil {
+		t.Fatalf("Capture: %v", err)
+	}
+	// libghostty-vt normalizes SGR 31 to the indexed color 38;5;1.
+	if !bytes.Contains(snapshot, []byte("\x1b[38;5;1mRED")) {
+		t.Fatalf("snapshot missing red SGR: %q", snapshot)
+	}
+	if !bytes.Contains(snapshot, []byte("RED")) {
+		t.Fatalf("snapshot missing styled text: %q", snapshot)
+	}
+	if !bytes.Contains(snapshot, []byte("line-1")) {
+		t.Fatalf("snapshot missing scrollback head: %q", snapshot)
+	}
+}
+
 func TestPTYInputReachesChild(t *testing.T) {
 	runtimeAdapter := newTestPTY(t)
 	ctx := context.Background()

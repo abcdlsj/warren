@@ -41,6 +41,7 @@ type ptySession struct {
 	command   *exec.Cmd
 	master    *os.File
 	spool     *os.File
+	vt        *VTTerminal
 	createdAt time.Time
 
 	inputMu   sync.Mutex
@@ -77,10 +78,16 @@ func (p *PTY) Create(_ context.Context, runtimeName, directory, command string) 
 	if err != nil {
 		return fmt.Errorf("open output spool: %w", err)
 	}
+	vt, err := NewVTTerminal(120, 36)
+	if err != nil {
+		_ = spool.Close()
+		return fmt.Errorf("create ghostty vt: %w", err)
+	}
 	cmd := ptyCommand(directory, command)
 	master, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 120, Rows: 36})
 	if err != nil {
 		_ = spool.Close()
+		vt.Close()
 		return fmt.Errorf("start pty: %w", err)
 	}
 	session := &ptySession{
@@ -88,6 +95,7 @@ func (p *PTY) Create(_ context.Context, runtimeName, directory, command string) 
 		command:   cmd,
 		master:    master,
 		spool:     spool,
+		vt:        vt,
 		createdAt: time.Now(),
 		done:      make(chan struct{}),
 		reaped:    make(chan struct{}),
@@ -150,7 +158,18 @@ func ptyEnvironment() []string {
 // tmux pipe-pane path.
 func (p *PTY) copyOutput(session *ptySession) {
 	defer close(session.done)
-	_, _ = io.Copy(session.spool, session.master)
+	buffer := make([]byte, 32*1024)
+	for {
+		read, err := session.master.Read(buffer)
+		if read > 0 {
+			chunk := buffer[:read]
+			_, _ = session.spool.Write(chunk)
+			session.vt.Feed(chunk)
+		}
+		if err != nil {
+			break
+		}
+	}
 	_ = session.command.Wait()
 	close(session.reaped)
 }
@@ -190,26 +209,29 @@ func (p *PTY) Resize(_ context.Context, runtimeName string, columns, rows int) e
 	}
 	session.inputMu.Lock()
 	defer session.inputMu.Unlock()
-	return pty.Setsize(session.master, &pty.Winsize{Cols: uint16(columns), Rows: uint16(rows)})
+	if err := pty.Setsize(session.master, &pty.Winsize{Cols: uint16(columns), Rows: uint16(rows)}); err != nil {
+		return err
+	}
+	session.vt.Resize(columns, rows)
+	return nil
 }
 
-// Capture replays the raw PTY bytes accumulated in the spool. The client
-// clears its screen and scrollback first, then consumes the bytes exactly as
-// it would live output, which preserves full terminal fidelity without a
-// server-side emulator. If the spool was compacted, only the bytes written
-// after compaction are available; Warren tracks the same limitation for
-// truncated tmux spools.
+// Capture renders the current emulated screen (visible grid + scrollback)
+// with SGR styles preserved, so the client can replay a complete snapshot at
+// its own size. This replaces the raw spool replay, which could not restore
+// the screen when the PTY history was produced at a different size.
 func (p *PTY) Capture(_ context.Context, runtimeName string) ([]byte, error) {
-	if p.session(runtimeName) == nil {
+	session := p.session(runtimeName)
+	if session == nil {
 		return nil, fmt.Errorf("pty session not found: %s", runtimeName)
 	}
-	data, err := os.ReadFile(p.SpoolPath(runtimeName))
+	snapshot, err := session.vt.Snapshot()
 	if err != nil {
-		return nil, fmt.Errorf("read output spool: %w", err)
+		return nil, err
 	}
-	result := make([]byte, 0, len(data)+7)
+	result := make([]byte, 0, len(snapshot)+7)
 	result = append(result, "\x1b[3J\x1b[2J\x1b[H"...)
-	result = append(result, data...)
+	result = append(result, snapshot...)
 	return result, nil
 }
 
@@ -297,6 +319,7 @@ func (s *ptySession) close() {
 	s.closeOnce.Do(func() {
 		_ = s.master.Close()
 		_ = s.spool.Close()
+		s.vt.Close()
 	})
 }
 
