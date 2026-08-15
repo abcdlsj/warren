@@ -129,7 +129,7 @@ export default function App() {
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
   const webglAddonRef = useRef(null);
-  const fitFrameRef = useRef(null);
+  const fitTimerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const pendingTerminalSizeRef = useRef(null);
   const sentTerminalSizeRef = useRef(null);
@@ -236,7 +236,10 @@ export default function App() {
   }, []);
 
   const fitTerminal = useCallback(() => {
-    fitFrameRef.current = null;
+    if (fitTimerRef.current !== null) {
+      clearTimeout(fitTimerRef.current);
+      fitTimerRef.current = null;
+    }
     const node = terminalHostRef.current;
     fitTerminalToHost(fitAddonRef.current, node);
   }, []);
@@ -303,8 +306,15 @@ export default function App() {
   }, []);
 
   const scheduleTerminalFit = useCallback(() => {
-    if (fitFrameRef.current !== null) return;
-    fitFrameRef.current = requestAnimationFrame(fitTerminal);
+    // Keyboard animations resize the terminal host every frame; fitting on
+    // each event makes the canvas re-render continuously and flicker. Wait
+    // until the resize stream settles so a single fit lands after the
+    // keyboard (or window) stops moving.
+    if (fitTimerRef.current !== null) clearTimeout(fitTimerRef.current);
+    fitTimerRef.current = setTimeout(() => {
+      fitTimerRef.current = null;
+      fitTerminal();
+    }, 80);
   }, [fitTerminal]);
 
   const returnFocusToTerminal = useCallback(() => {
@@ -718,19 +728,24 @@ export default function App() {
       textarea.setAttribute("autocapitalize", "off");
       textarea.setAttribute("spellcheck", "false");
     }
-    try {
-      const webglAddon = new WebglAddon();
-      terminal.loadAddon(webglAddon);
-      webglAddon.onContextLoss(() => {
-        // Mobile GPUs can drop the context under memory pressure. Dispose and
-        // let xterm fall back to its DOM renderer instead of freezing.
-        webglAddonRef.current?.dispose();
-        webglAddonRef.current = null;
-      });
-      webglAddonRef.current = webglAddon;
-    } catch {
-      // WebGL is optional; older browsers and some embedded webviews keep the
-      // DOM renderer.
+    // Mobile GPUs churn through WebGL contexts while the keyboard resizes
+    // the terminal, which reads as flicker. The DOM renderer is steadier on
+    // touch devices; desktop keeps WebGL for large outputs.
+    if (!isCoarsePointer()) {
+      try {
+        const webglAddon = new WebglAddon();
+        terminal.loadAddon(webglAddon);
+        webglAddon.onContextLoss(() => {
+          // Desktop GPUs can still drop the context under memory pressure.
+          // Dispose and let xterm fall back to its DOM renderer.
+          webglAddonRef.current?.dispose();
+          webglAddonRef.current = null;
+        });
+        webglAddonRef.current = webglAddon;
+      } catch {
+        // WebGL is optional; older browsers and some embedded webviews keep
+        // the DOM renderer.
+      }
     }
     const searchAddon = new SearchAddon({ highlightLimit: 2000 });
     terminal.loadAddon(searchAddon);
@@ -843,6 +858,10 @@ export default function App() {
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stopTouchScroll();
+      if (fitTimerRef.current !== null) {
+        clearTimeout(fitTimerRef.current);
+        fitTimerRef.current = null;
+      }
       webglAddonRef.current?.dispose();
       webglAddonRef.current = null;
       searchAddon.dispose();

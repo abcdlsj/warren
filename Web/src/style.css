@@ -173,7 +173,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
   .app.drawer-open .sidebar { transform:translateX(0); }
   .backdrop { position:fixed; z-index:19; inset:0; display:block; border:0; background:rgba(0,0,0,.48); opacity:0; pointer-events:none; transition:opacity .2s ease; }
   .app.drawer-open .backdrop { opacity:1; pointer-events:auto; }
-  .main { height:100%; grid-template-rows:calc(40px + env(safe-area-inset-top)) 26px 28px minmax(0,1fr) auto; }
+  .main { height:100%; grid-template-rows:calc(40px + env(safe-area-inset-top)) 26px 28px minmax(0,1fr) auto; transition:padding-bottom .12s ease-out; }
   .topbar { padding-top:env(safe-area-inset-top); height:calc(40px + env(safe-area-inset-top)); }
   .menu-button { display:block; flex:0 0 auto; height:40px; }
   .tabs { height:40px; }

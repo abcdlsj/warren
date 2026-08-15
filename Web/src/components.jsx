@@ -557,6 +557,17 @@ export function MobileKeys({ onInput }) {
     const main = bar?.parentElement;
     if (!bar || !main || !viewport) return undefined;
 
+    // Apply the keyboard inset only at discrete open/close points instead of
+    // on every visualViewport event. During the keyboard animation those
+    // events fire per frame; following them continuously resizes the shell
+    // and makes the terminal canvas flicker.
+    const OPEN_THRESHOLD_PX = 24;
+    let keyboardOpen = false;
+    let appliedInset = 0;
+    const apply = inset => {
+      main.style.paddingBottom = inset > 0 ? `${inset}px` : "";
+      bar.classList.toggle("keyboard-open", inset > 0);
+    };
     const update = () => {
       // Cross-platform keyboard inset: Android resizes the layout viewport
       // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
@@ -564,8 +575,22 @@ export function MobileKeys({ onInput }) {
       // grid with bottom padding so the shell and the shortcut bar both sit
       // above the keyboard; clear it again once the keyboard collapses.
       const inset = keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop);
-      main.style.paddingBottom = inset > 0 ? `${inset}px` : "";
-      bar.classList.toggle("keyboard-open", inset > 0);
+      if (keyboardOpen) {
+        if (inset === 0) {
+          keyboardOpen = false;
+          appliedInset = 0;
+          apply(0);
+        } else if (inset > appliedInset) {
+          // Follow a keyboard that grows taller (IME/layout switch), but
+          // never shrink mid-animation so the shell does not jitter.
+          appliedInset = inset;
+          apply(inset);
+        }
+      } else if (inset > OPEN_THRESHOLD_PX) {
+        keyboardOpen = true;
+        appliedInset = inset;
+        apply(inset);
+      }
     };
     update();
     viewport.addEventListener("resize", update);
