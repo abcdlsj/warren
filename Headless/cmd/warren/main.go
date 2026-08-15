@@ -279,7 +279,7 @@ func endpointCommand(args []string) error {
 		return err
 	}
 	if len(args) == 0 || args[0] == "list" {
-		for _, name := range settings.Names() {
+		for index, name := range settings.Names() {
 			value := settings.Endpoints[name]
 			marker := " "
 			if name == settings.Current {
@@ -287,6 +287,9 @@ func endpointCommand(args []string) error {
 			}
 			if outputJSON {
 				continue
+			}
+			if index == 0 {
+				fmt.Printf("%s %-16s %s\t%s\n", " ", "NAME", "URL", "SSH")
 			}
 			fmt.Printf("%s %-16s %s\t%s\n", marker, name, value.URL, displayValue(value.SSH))
 		}
@@ -568,6 +571,7 @@ func printValue(value any) error {
 	}
 	switch items := value.(type) {
 	case []ProjectRow:
+		fmt.Println("ID\tNAME\tPATH\tWORKSPACES\tPINNED\tCREATED")
 		for _, item := range items {
 			fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\n",
 				item.ID,
@@ -579,6 +583,7 @@ func printValue(value any) error {
 			)
 		}
 	case []WorkspaceRow:
+		fmt.Println("ID\tPROJECT\tNAME\tBRANCH\tPATH\tKIND\tSESSIONS\tPINNED\tCREATED")
 		for _, item := range items {
 			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 				item.ID,
@@ -593,6 +598,7 @@ func printValue(value any) error {
 			)
 		}
 	case []SessionRow:
+		fmt.Println("ID\tPROJECT\tWORKSPACE\tBRANCH\tTITLE\tKIND\tCOMMAND\tLIFECYCLE\tPINNED\tCREATED")
 		for _, item := range items {
 			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				item.ID,
