@@ -27,7 +27,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
-    private var settleDrawWorkItem: DispatchWorkItem?
 
     public init(
         id: TerminalSessionID,
@@ -82,17 +81,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             workingDirectory: workingDirectory
         )
         self.state = state
-
-        // A reanchor snapshot is fed in bounded background chunks. Ghostty
-        // requests a frame after each write, but a frame can land while the
-        // grid is only partially replayed and stay on screen until the next
-        // real resize. Once the queue has fully drained, request one final
-        // renderer-thread frame so the settled snapshot is presented.
-        outputWriter.setOnDrained { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.presentSettledOutput()
-            }
-        }
     }
 
     public func markRendered(epoch: UInt64, sequence: UInt64) {
@@ -111,49 +99,12 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         outputWriter.receive(payload)
     }
 
-    /// Requests an immediate Ghostty app tick so pending state (including a
-    /// freshly attached snapshot) is processed without waiting for the next
+    /// Requests an immediate Ghostty display tick. The first reanchor
+    /// snapshot can be written before the surface's display loop has painted
+    /// anything; an explicit tick renders it without waiting for the next
     /// resize or keystroke.
-    ///
-    /// This deliberately does not call `ghostty_surface_refresh`: host output
-    /// is written in bounded background chunks, and an arbitrary main-thread
-    /// refresh can ask the renderer to draw while the grid is only partially
-    /// updated. Ghostty's own render request (fired after each write and
-    /// coalesced through the display link) paints a consistent grid instead.
     public func requestDisplayRefresh() {
         state.controller.tick()
-    }
-
-    /// Re-entry repaint for a surface whose AppKit view is being recreated or
-    /// reattached (tab switch, settings dismissal). App tick only; rendering
-    /// stays on Ghostty's write-completion path so the grid is never sampled
-    /// mid-update.
-    public func refreshAfterReentry() {
-        requestDisplayRefresh()
-    }
-
-    /// Presents the settled grid after the output queue drains.
-    ///
-    /// `ghostty_surface_refresh` is a no-op when the pixel dimensions are
-    /// unchanged, which is exactly the state after a tab switch reuses the
-    /// same pane size — the stale half-replayed frame stays on screen until a
-    /// real resize. Debounce one inline draw after the queue settles instead;
-    /// never pair it with a queued renderer-thread refresh in the same turn,
-    /// or an older queued frame can land after this present and roll part of
-    /// the pane backwards.
-    public func presentSettledOutput() {
-        settleDrawWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self,
-                  let raw = self.state.surface?.rawValue else { return }
-            self.state.controller.tick()
-            ghostty_surface_draw(raw)
-        }
-        settleDrawWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.15,
-            execute: workItem
-        )
     }
 
     public func apply(font: TerminalFontPreference) {

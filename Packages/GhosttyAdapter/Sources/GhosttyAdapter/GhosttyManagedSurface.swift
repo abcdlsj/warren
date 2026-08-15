@@ -128,10 +128,11 @@ public struct GhosttyManagedSurface: View {
     private func requestImmediateDisplayRefresh() {
         // Re-entering a shell (tab switch, settings dismissal) can recreate
         // the AppKit view while the renderer is still settling. Request a
-        // renderer-thread frame immediately and once more after the runloop,
-        // then force-present the settled grid so the first frame never waits
-        // for a resize or keystroke.
-        surface.refreshAfterReentry()
+        // renderer-thread frame immediately and once more after the runloop.
+        surface.requestDisplayRefresh()
+        DispatchQueue.main.async { [weak surface] in
+            surface?.requestDisplayRefresh()
+        }
     }
 }
 

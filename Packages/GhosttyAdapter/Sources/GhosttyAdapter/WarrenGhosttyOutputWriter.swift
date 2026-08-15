@@ -104,7 +104,6 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
     private var latestRenderedSequence: UInt64 = 0
     private var rawEpoch: UInt64 = 1
     private var rawSequence: UInt64 = 0
-    private var onDrained: (@Sendable () -> Void)?
 
     init(
         inMemory: InMemoryTerminalSession,
@@ -193,17 +192,7 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
         feedTask?.cancel()
         feedTask = nil
         buffer = Buffer()
-        onDrained = nil
         lock.unlock()
-    }
-
-    /// Registers a callback fired when the background feed finishes draining
-    /// the pending buffer. Called off the main thread; hop to the main actor
-    /// before touching UI state.
-    public func setOnDrained(_ handler: @escaping @Sendable () -> Void) {
-        lock.withLock {
-            onDrained = handler
-        }
     }
 
     private func startFeedIfNeeded() {
@@ -239,11 +228,7 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
 
             let hasMore = lock.withLock { !buffer.isEmpty }
             if !hasMore {
-                let handler = lock.withLock { () -> (@Sendable () -> Void)? in
-                    feedTask = nil
-                    return onDrained
-                }
-                handler?()
+                lock.withLock { feedTask = nil }
                 return
             }
             do {
