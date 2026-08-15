@@ -17,15 +17,9 @@ struct WarrenDesktopSidebarRows: View {
     @State private var workspaceName = ""
     @State private var pendingRenameProject: Project?
     @State private var projectName = ""
-    @State private var dragTargetID: String?
-    @State private var commandHeld = false
-    @State private var commandMonitor: Any?
+    @State private var dragSession = WarrenDesktopSidebarDragSession()
+    @State private var dragFrames: [String: WarrenSidebarRowDragFrame] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
-
-    private static let projectPayloadPrefix = "project:"
-    private static let workspacePayloadPrefix = "workspace:"
-    private static let endMarker = "warren.sidebar.drag.end"
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
@@ -81,22 +75,25 @@ struct WarrenDesktopSidebarRows: View {
                             }
                         )
                     }
-                    .dropDestination(for: String.self) { payloads, _ in
-                        guard let payload = payloads.first else { return false }
-                        return dropProject(payload, before: group.project.id)
-                    } isTargeted: { targeted in
-                        updateDragTarget(
-                            id: group.project.id.description,
-                            isTargeted: targeted
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: WarrenSidebarRowDragFramesKey.self,
+                            value: [
+                                group.project.id.description: WarrenSidebarRowDragFrame(
+                                    info: WarrenSidebarRowDragInfo(
+                                        id: group.project.id.description,
+                                        kind: .project(group.project.id),
+                                        name: group.project.name,
+                                        isLastOfList: group.project.id == groups.last?.project.id
+                                    ),
+                                    frame: proxy.frame(
+                                        in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                                    )
+                                ),
+                            ]
                         )
                     }
-                    .modifier(CommandDraggable(
-                        enabled: commandHeld,
-                        payload: Self.projectPayload(group.project.id)
-                    ))
-                    .overlay {
-                        dragTargetIndicator(id: group.project.id.description)
-                    }
+                    )
                     if isCollapsed || tree.expandedProjectIDs.contains(group.project.id) {
                         ForEach(group.workspaces) { workspace in
                             ZStack {
@@ -123,33 +120,53 @@ struct WarrenDesktopSidebarRows: View {
                             }
                             .id(workspace.id)
                             .transition(.opacity)
-                            .dropDestination(for: String.self) { payloads, _ in
-                                guard let payload = payloads.first else { return false }
-                                return dropWorkspace(payload, before: workspace.id)
-                            } isTargeted: { targeted in
-                                updateDragTarget(
-                                    id: workspace.id.description,
-                                    isTargeted: targeted
+                            .background(GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: WarrenSidebarRowDragFramesKey.self,
+                                    value: [
+                                        workspace.id.description: WarrenSidebarRowDragFrame(
+                                            info: WarrenSidebarRowDragInfo(
+                                                id: workspace.id.description,
+                                                kind: .workspace(
+                                                    workspace.id,
+                                                    projectID: group.project.id
+                                                ),
+                                                name: workspace.name,
+                                                isLastOfList: workspace.id == group.workspaces.last?.id
+                                            ),
+                                            frame: proxy.frame(
+                                                in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                                            )
+                                        ),
+                                    ]
                                 )
                             }
-                            .modifier(CommandDraggable(
-                                enabled: commandHeld,
-                                payload: Self.workspacePayload(workspace.id)
-                            ))
-                            .overlay {
-                                dragTargetIndicator(id: workspace.id.description)
-                            }
-                        }
-                        if commandHeld {
-                            dragEndSlot(.workspace, projectID: group.project.id)
+                            )
                         }
                     }
                 }
                 .transition(.opacity)
-                if commandHeld {
-                    dragEndSlot(.project)
-                }
             }
+        }
+        .coordinateSpace(name: WarrenSidebarRowsDragCoordinateSpace.name)
+        .onPreferenceChange(WarrenSidebarRowDragFramesKey.self) { frames in
+            dragFrames = frames
+        }
+        .overlay {
+            WarrenDesktopSidebarDragOverlay(
+                session: dragSession,
+                rows: dragFrames,
+                onDropProject: { payload, beforeProjectID in
+                    dropProject(payload, before: beforeProjectID)
+                },
+                onDropWorkspace: { payload, beforeWorkspaceID, projectID in
+                    dropWorkspace(
+                        payload,
+                        before: beforeWorkspaceID,
+                        inProject: projectID
+                    )
+                }
+            )
         }
         .onChange(of: selection) { _, newSelection in
             guard case .workspace(let workspaceID)? = newSelection,
@@ -198,8 +215,6 @@ struct WarrenDesktopSidebarRows: View {
                 tree.expandedProjectIDs.insert(projectID)
             }
         }
-        .onAppear(perform: installCommandMonitor)
-        .onDisappear(perform: removeCommandMonitor)
     }
 
     private var selectedProjectID: ProjectID? {
@@ -253,11 +268,14 @@ struct WarrenDesktopSidebarRows: View {
         _ payload: String,
         before projectID: ProjectID?
     ) -> Bool {
-        guard payload.hasPrefix(Self.projectPayloadPrefix),
+        guard payload.hasPrefix(WarrenSidebarDragPayload.projectPrefix),
               let sourceID = ProjectID(uuidString: String(
-                payload.dropFirst(Self.projectPayloadPrefix.count)
+                payload.dropFirst(WarrenSidebarDragPayload.projectPrefix.count)
               ))
         else { return false }
+        if projectID == sourceID {
+            return false
+        }
         onAction(.moveProject(sourceID, before: projectID))
         return true
     }
@@ -267,14 +285,17 @@ struct WarrenDesktopSidebarRows: View {
         before workspaceID: WorkspaceID?,
         inProject projectID: ProjectID? = nil
     ) -> Bool {
-        guard payload.hasPrefix(Self.workspacePayloadPrefix),
+        guard payload.hasPrefix(WarrenSidebarDragPayload.workspacePrefix),
               let sourceID = WorkspaceID(uuidString: String(
-                payload.dropFirst(Self.workspacePayloadPrefix.count)
+                payload.dropFirst(WarrenSidebarDragPayload.workspacePrefix.count)
               )),
               let source = groups
                 .flatMap(\.workspaces)
                 .first(where: { $0.id == sourceID })
         else { return false }
+        if workspaceID == sourceID {
+            return false
+        }
         if let projectID, source.projectID != projectID {
             return false
         }
@@ -289,111 +310,6 @@ struct WarrenDesktopSidebarRows: View {
         return true
     }
 
-    private func updateDragTarget(
-        id: String,
-        isTargeted: Bool
-    ) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-            if isTargeted {
-                dragTargetID = id
-            } else if dragTargetID == id {
-                dragTargetID = nil
-            }
-        }
-    }
-
-    private func installCommandMonitor() {
-        guard commandMonitor == nil else { return }
-        commandHeld = NSEvent.modifierFlags.contains(.command)
-        commandMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
-            commandHeld = event.modifierFlags.contains(.command)
-            return event
-        }
-    }
-
-    private func removeCommandMonitor() {
-        if let commandMonitor {
-            NSEvent.removeMonitor(commandMonitor)
-            self.commandMonitor = nil
-        }
-    }
-
-    @ViewBuilder
-    private func dragTargetIndicator(
-        id: String
-    ) -> some View {
-        if dragTargetID == id {
-            let tokens = WarrenColorTokens.resolved(for: colorScheme)
-            RoundedRectangle(cornerRadius: WarrenRadius.row)
-                .strokeBorder(tokens.ring.opacity(0.75), lineWidth: 1)
-                .padding(.horizontal, WarrenSpacing.compact)
-                .allowsHitTesting(false)
-        }
-    }
-
-    @ViewBuilder
-    private func dragEndSlot(
-        _ kind: WarrenDesktopSidebarDragKind,
-        projectID: ProjectID? = nil
-    ) -> some View {
-        let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        Color.clear
-            .frame(height: WarrenSpacing.standard)
-            .contentShape(Rectangle())
-            .overlay(alignment: .leading) {
-                if dragTargetID == Self.endMarker {
-                    RoundedRectangle(cornerRadius: WarrenRadius.row)
-                        .fill(tokens.ring.opacity(0.35))
-                        .padding(.horizontal, WarrenSpacing.compact)
-                }
-            }
-            .dropDestination(for: String.self) { payloads, _ in
-                guard let payload = payloads.first else { return false }
-                switch kind {
-                case .project:
-                    return dropProject(payload, before: nil)
-                case .workspace:
-                    return dropWorkspace(
-                        payload,
-                        before: nil,
-                        inProject: projectID
-                    )
-                }
-            } isTargeted: { targeted in
-                updateDragTarget(
-                    id: Self.endMarker,
-                    isTargeted: targeted
-                )
-            }
-            .padding(.horizontal, WarrenSpacing.compact)
-    }
-
-    private static func projectPayload(_ projectID: ProjectID) -> String {
-        projectPayloadPrefix + projectID.description
-    }
-
-    private static func workspacePayload(_ workspaceID: WorkspaceID) -> String {
-        workspacePayloadPrefix + workspaceID.description
-    }
-
-}
-
-private enum WarrenDesktopSidebarDragKind: String {
-    case project
-    case workspace
-}
-
-private struct CommandDraggable: ViewModifier {
-    let enabled: Bool
-    let payload: String
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.draggable(payload)
-        } else {
-            content
-        }
-    }
 }
 
 private struct WarrenDesktopSessionRow: View {
