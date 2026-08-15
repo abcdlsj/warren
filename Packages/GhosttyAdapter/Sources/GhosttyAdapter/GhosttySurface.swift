@@ -115,6 +115,11 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withCustom("search-selected-background", "#e07850")
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
+            // Ghostty's macOS app doubles precise trackpad deltas before they
+            // reach the C API; libghostty-swift forwards raw pixels instead.
+            // Compensate in the core so scroll pacing matches standalone
+            // Ghostty instead of feeling half-speed and slightly choppy.
+            builder.withCustom("mouse-scroll-multiplier", "precision:2")
             builder.withCustom("keybind", "super+t=unbind")
             builder.withCustom("keybind", "super+w=unbind")
             builder.withCustom("keybind", "super+x=unbind")

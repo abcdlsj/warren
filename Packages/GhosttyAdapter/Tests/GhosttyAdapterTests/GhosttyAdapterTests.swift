@@ -42,6 +42,7 @@ final class GhosttyAdapterTests: XCTestCase {
         XCTAssertTrue(surface.state.renderedConfig.contains("font-thicken = false"))
         XCTAssertTrue(surface.state.renderedConfig.contains("adjust-cell-height = 12%"))
         XCTAssertTrue(surface.state.renderedConfig.contains("copy-on-select = true"))
+        XCTAssertTrue(surface.state.renderedConfig.contains("mouse-scroll-multiplier = precision:2"))
         XCTAssertTrue(surface.state.renderedConfig.contains("search-selected-background = #e07850"))
         let theme = surface.state.theme.dark.rendered
         XCTAssertTrue(theme.contains("palette = 0=#151110"))
