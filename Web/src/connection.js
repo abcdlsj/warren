@@ -22,8 +22,10 @@ export class RelayConnection {
     this.WebSocketClass = WebSocketClass;
     this.onMessage = onMessage;
     this.onState = onState;
-    this.setTimer = setTimer;
-    this.clearTimer = clearTimer;
+    // Keep the injected timers behind wrappers: native `setTimeout` and
+    // `clearTimeout` reject calls with a non-Window receiver.
+    this.setTimer = (...args) => setTimer(...args);
+    this.clearTimer = (...args) => clearTimer(...args);
     this.random = random;
     this.socket = null;
     this.timer = null;

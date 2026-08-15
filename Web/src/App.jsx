@@ -578,8 +578,10 @@ export default function App() {
 
     const dataSubscription = terminal.onData(sendInput);
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
-    const focusSubscription = terminal.onFocus(() => requestSessionFocus(true));
-    const blurSubscription = terminal.onBlur(() => requestSessionFocus(false));
+    const onTerminalFocus = () => requestSessionFocus(true);
+    const onTerminalBlur = () => requestSessionFocus(false);
+    terminal.textarea?.addEventListener("focus", onTerminalFocus);
+    terminal.textarea?.addEventListener("blur", onTerminalBlur);
     const releaseWindowFocus = () => requestSessionFocus(false);
     const claimWindowFocus = () => {
       if (terminal.element?.contains(document.activeElement)) requestSessionFocus(true);
@@ -601,8 +603,8 @@ export default function App() {
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
-      focusSubscription.dispose();
-      blurSubscription.dispose();
+      terminal.textarea?.removeEventListener("focus", onTerminalFocus);
+      terminal.textarea?.removeEventListener("blur", onTerminalBlur);
       window.removeEventListener("blur", releaseWindowFocus);
       window.removeEventListener("focus", claimWindowFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
