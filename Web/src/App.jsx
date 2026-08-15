@@ -40,6 +40,11 @@ const storageKeys = {
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
 const pendingInputLimit = 64 * 1024;
+const isCoarsePointer = () => (
+  typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false
+);
 const previewSession = {
   title: "Claude",
   process: "claude",
@@ -148,7 +153,9 @@ export default function App() {
     state.attachedSession = sessionID;
     setAttachedSession(sessionID);
     if (flush) inputQueueRef.current.flush(sessionID);
-    terminalRef.current?.focus();
+    // Touch devices must not pop the software keyboard as a side effect of
+    // attaching a session; the user focuses the terminal by tapping it.
+    if (!isCoarsePointer()) terminalRef.current?.focus();
   }, []);
 
   const sendInput = useCallback(data => {
@@ -430,7 +437,7 @@ export default function App() {
         fitTerminal();
         terminalRef.current?.scrollToBottom();
         const terminal = terminalRef.current;
-        if (terminal && document.hasFocus()) {
+        if (terminal && document.hasFocus() && !isCoarsePointer()) {
           terminal.focus();
           if (focusedSessionRef.current !== message.session) requestSessionFocus(true);
         }
@@ -810,7 +817,14 @@ export default function App() {
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title"><span>{paneTitle}</span></div>
-          <section className="terminal-shell" aria-label="Terminal" onPointerDown={focusTerminal}>
+          <section
+            className="terminal-shell"
+            aria-label="Terminal"
+            onPointerDown={event => {
+              if (event.pointerType === "mouse") focusTerminal();
+            }}
+            onClick={focusTerminal}
+          >
             <div id="terminal" ref={terminalHostRef} />
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}
