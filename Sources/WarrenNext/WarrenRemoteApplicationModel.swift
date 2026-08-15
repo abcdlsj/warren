@@ -425,7 +425,15 @@ final class WarrenRemoteApplicationModel {
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
            let url = URL(string: "http://127.0.0.1:8789/#t=\(configuration.token)") {
-            webStatus = WarrenDesktopWebStatus(isRunning: true, localURL: url, canControl: true)
+            let lanURL = WarrenLANAddress.primaryIPv4().flatMap { ip in
+                URL(string: "http://\(ip):8789/#t=\(configuration.token)")
+            }
+            webStatus = WarrenDesktopWebStatus(
+                isRunning: true,
+                localURL: url,
+                lanURL: lanURL,
+                canControl: true
+            )
         }
         projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
         eventTask = Task { @MainActor [weak self] in
