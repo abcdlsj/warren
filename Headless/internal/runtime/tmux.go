@@ -276,6 +276,36 @@ func (t *Tmux) List(ctx context.Context) (map[string]bool, error) {
 	return sessions, nil
 }
 
+// ListCreated returns the sessions on this socket with their tmux creation
+// timestamps. The service uses it to reclaim orphaned sessions that outlived
+// their state record, e.g. after a state reset or daemon crash.
+func (t *Tmux) ListCreated(ctx context.Context) (map[string]time.Time, error) {
+	output, err := t.command(ctx, "list-sessions", "-F", "#{session_name}\t#{session_created}").CombinedOutput()
+	if err != nil {
+		message := string(output)
+		if strings.Contains(message, "no server running") || strings.Contains(message, "failed to connect") {
+			return map[string]time.Time{}, nil
+		}
+		return nil, fmt.Errorf("list tmux sessions: %s: %w", strings.TrimSpace(message), err)
+	}
+	sessions := make(map[string]time.Time)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		created, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		sessions[fields[0]] = time.Unix(created, 0)
+	}
+	return sessions, nil
+}
+
 func (t *Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	target := runtimeName + ":0.0"
 	// Query the cursor and capture the pane in one tmux command sequence. A

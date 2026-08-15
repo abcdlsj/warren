@@ -83,6 +83,34 @@ func TestCaptureUsesRealTmuxCursorAndSingleCommandSnapshot(t *testing.T) {
 	}
 }
 
+func TestListCreatedReturnsSessionCreationTimestamps(t *testing.T) {
+	binary, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	name := "warren_list_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	tmux := Tmux{Binary: binary, Socket: name}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+		t.Fatal(err)
+	}
+	defer tmux.Kill(context.Background(), name)
+
+	created, err := tmux.ListCreated(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdAt, ok := created[name]
+	if !ok {
+		t.Fatalf("ListCreated() = %v, missing %s", created, name)
+	}
+	if age := time.Since(createdAt); age < 0 || age > time.Minute {
+		t.Fatalf("ListCreated() timestamp %v is not near now", createdAt)
+	}
+}
+
 func TestNormalizeCaptureOutput(t *testing.T) {
 	tests := []struct {
 		name  string

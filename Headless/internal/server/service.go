@@ -24,6 +24,11 @@ const (
 	defaultMaxSpool       = 64 * 1024 * 1024
 	defaultCommandTimeout = 10 * time.Second
 	cursorPersistEvery    = 256 * 1024
+	orphanReapInterval    = 30 * time.Second
+	// orphanReapGrace protects a session between tmux creation and its state
+	// record becoming durable, so a concurrent reaper cannot kill a brand-new
+	// runtime while CreateSession is still persisting it.
+	orphanReapGrace = 30 * time.Second
 )
 
 type Service struct {
@@ -70,6 +75,12 @@ type Runtime interface {
 
 type RuntimeLister interface {
 	List(context.Context) (map[string]bool, error)
+}
+
+// RuntimeCreatedLister is implemented by the tmux adapter and lets the
+// lifecycle loop reclaim sessions that are no longer tracked in state.
+type RuntimeCreatedLister interface {
+	ListCreated(context.Context) (map[string]time.Time, error)
 }
 
 // OutputRuntime is implemented by the tmux adapter: pipe-pane installs an
@@ -141,13 +152,18 @@ func (s *Service) Shutdown() {
 func (s *Service) lifecycleLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	reaper := time.NewTicker(orphanReapInterval)
+	defer reaper.Stop()
 	s.reconcile(ctx)
+	s.reapOrphans(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			s.reconcile(ctx)
+		case <-reaper.C:
+			s.reapOrphans(ctx)
 		}
 	}
 }
@@ -167,6 +183,46 @@ func (s *Service) reconcile(ctx context.Context) {
 		}
 		_, _ = s.ensureOutput(ctx, session)
 	}
+}
+
+// reapOrphans kills sessions that Warren created but state no longer owns:
+// running records protect their runtime, everything else in the warren
+// namespace is reclaimed after a grace period. Unknown sessions can survive a
+// state reset, so the daemon must own their cleanup instead of leaking tmux
+// processes indefinitely.
+func (s *Service) reapOrphans(ctx context.Context) {
+	adapter, ok := s.Runtime.(RuntimeCreatedLister)
+	if !ok {
+		return
+	}
+	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	created, err := adapter.ListCreated(probeContext)
+	if err != nil {
+		return
+	}
+	managed := make(map[string]bool)
+	for _, session := range s.Store.Snapshot().Sessions {
+		if session.Lifecycle == "running" {
+			managed[session.Runtime] = true
+		}
+	}
+	now := time.Now()
+	for name, createdAt := range created {
+		if managed[name] || !isWarrenRuntimeName(name) || now.Sub(createdAt) < orphanReapGrace {
+			continue
+		}
+		if err := s.Runtime.Kill(probeContext, name); err != nil {
+			continue
+		}
+		if output := s.outputAdapter(); output != nil {
+			output.RemoveSpool(name)
+		}
+	}
+}
+
+func isWarrenRuntimeName(name string) bool {
+	return strings.HasPrefix(name, "warren_") || strings.HasPrefix(name, "warren-")
 }
 
 func (s *Service) Roster(ctx context.Context) api.State {
