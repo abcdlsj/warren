@@ -31,6 +31,7 @@ struct WarrenDesktopTabBar: View {
     let onCloseAllTabs: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var hasTabOverflow = false
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -46,7 +47,8 @@ struct WarrenDesktopTabBar: View {
                 WarrenOverflowFadeScrollView(
                     .horizontal,
                     fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
-                    surface: tokens.chromeSurface
+                    surface: tokens.chromeSurface,
+                    onHorizontalOverflowChange: { hasTabOverflow = $0 }
                 ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
@@ -61,19 +63,29 @@ struct WarrenDesktopTabBar: View {
                             )
                         }
 
-                        // The add affordance belongs to the tab track. Keeping
-                        // it inside the scroll content makes it follow the last
-                        // tab when tabs are inserted or removed, matching
-                        // Superset's GroupStrip instead of pinning it after a
-                        // greedily expanding ScrollView.
-                        WarrenDesktopTabAddSlot(
-                            action: onAddTab,
-                            isEnabled: canAddTab
-                        )
-                        .dropDestination(for: String.self) { tabIDs, _ in
-                            guard let tabID = tabIDs.first else { return false }
-                            onMoveTab(tabID, nil)
-                            return true
+                        // Superset's GroupStrip pins the add affordance outside
+                        // the scroller once tabs overflow, so the right edge
+                        // always exposes a clickable anchor. Inside the track
+                        // we keep a same-width drop target so "move to end"
+                        // still works after the button leaves the scroll area.
+                        if hasTabOverflow {
+                            Color.clear
+                                .frame(width: WarrenLayoutMetrics.tabAddButtonSlotWidth)
+                                .dropDestination(for: String.self) { tabIDs, _ in
+                                    guard let tabID = tabIDs.first else { return false }
+                                    onMoveTab(tabID, nil)
+                                    return true
+                                }
+                        } else {
+                            WarrenDesktopTabAddSlot(
+                                action: onAddTab,
+                                isEnabled: canAddTab
+                            )
+                            .dropDestination(for: String.self) { tabIDs, _ in
+                                guard let tabID = tabIDs.first else { return false }
+                                onMoveTab(tabID, nil)
+                                return true
+                            }
                         }
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
@@ -82,6 +94,18 @@ struct WarrenDesktopTabBar: View {
                 // Its intrinsic track ends after the add button; the remaining
                 // chrome is a real AppKit window-drag surface.
                 .frame(maxWidth: tabTrackWidth, alignment: .leading)
+
+                if hasTabOverflow {
+                    WarrenDesktopTabAddSlot(
+                        action: onAddTab,
+                        isEnabled: canAddTab
+                    )
+                    .dropDestination(for: String.self) { tabIDs, _ in
+                        guard let tabID = tabIDs.first else { return false }
+                        onMoveTab(tabID, nil)
+                        return true
+                    }
+                }
 
                 // The drag filler lives outside the scroll view, exactly like
                 // Superset's TabBar: tabs scroll independently and the remaining

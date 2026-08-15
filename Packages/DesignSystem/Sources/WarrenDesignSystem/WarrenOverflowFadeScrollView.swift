@@ -18,6 +18,7 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     private let axes: Axis.Set
     private let fadeLength: CGFloat
     private let surface: Color
+    private let onHorizontalOverflowChange: ((Bool) -> Void)?
     private let content: () -> Content
     private let spaceName = UUID()
 
@@ -25,16 +26,20 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     @State private var canScrollBottom = false
     @State private var canScrollLeft = false
     @State private var canScrollRight = false
+    @State private var hasOverflowX = false
+    @State private var hasOverflowY = false
 
     public init(
         _ axes: Axis.Set = .vertical,
         fadeLength: CGFloat = 24,
         surface: Color,
+        onHorizontalOverflowChange: ((Bool) -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.axes = axes
         self.fadeLength = fadeLength
         self.surface = surface
+        self.onHorizontalOverflowChange = onHorizontalOverflowChange
         self.content = content
     }
 
@@ -104,16 +109,24 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
 
     private func updateEdges(contentFrame: CGRect, viewport: CGSize) {
         let epsilon: CGFloat = 1
+        let nextOverflowX = axes.contains(.horizontal)
+            && contentFrame.width > viewport.width + epsilon
+        let nextOverflowY = axes.contains(.vertical)
+            && contentFrame.height > viewport.height + epsilon
         let nextTop = axes.contains(.vertical) && contentFrame.minY < -epsilon
         let nextBottom = axes.contains(.vertical) && contentFrame.maxY > viewport.height + epsilon
         let nextLeft = axes.contains(.horizontal) && contentFrame.minX < -epsilon
         let nextRight = axes.contains(.horizontal) && contentFrame.maxX > viewport.width + epsilon
 
-        guard nextTop != canScrollTop || nextBottom != canScrollBottom
+        guard nextOverflowX != hasOverflowX || nextOverflowY != hasOverflowY
+                || nextTop != canScrollTop || nextBottom != canScrollBottom
                 || nextLeft != canScrollLeft || nextRight != canScrollRight else { return }
+        hasOverflowX = nextOverflowX
+        hasOverflowY = nextOverflowY
         canScrollTop = nextTop
         canScrollBottom = nextBottom
         canScrollLeft = nextLeft
         canScrollRight = nextRight
+        onHorizontalOverflowChange?(hasOverflowX)
     }
 }
