@@ -248,6 +248,7 @@ export function EmptyTerminal({
 }
 
 export function MobileKeys({ onInput }) {
+  const barRef = useRef(null);
   const keys = [
     ["escape", "Esc", "\u001b"],
     ["tab", "Tab", "\t"],
@@ -265,8 +266,40 @@ export function MobileKeys({ onInput }) {
     ["home", "Home", "\u001b[H"],
     ["end", "End", "\u001b[F"],
   ];
+
+  useEffect(() => {
+    const bar = barRef.current;
+    const viewport = window.visualViewport;
+    if (!bar || !viewport) return undefined;
+
+    const safeBottom = () => {
+      const raw = getComputedStyle(document.documentElement)
+        .getPropertyValue("--safe-bottom")
+        .trim();
+      const value = Number.parseFloat(raw);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const update = () => {
+      // Cross-platform keyboard inset: Android resizes the layout viewport
+      // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
+      // the visual viewport (covered == keyboard height). When the keyboard
+      // collapses, clamp back to the safe-area bottom so the bar sinks.
+      const covered = window.innerHeight - (viewport.height + viewport.offsetTop);
+      bar.style.bottom = `${covered > 2 ? covered : safeBottom()}px`;
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   return (
-    <nav className="mobile-keys" aria-label="Terminal keys">
+    <nav ref={barRef} className="mobile-keys" aria-label="Terminal keys">
       {keys.map(([key, label, sequence]) => (
         <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
       ))}
