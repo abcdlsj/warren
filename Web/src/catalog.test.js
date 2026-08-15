@@ -6,7 +6,7 @@ import {
   resolveRestoredWorkspace,
   restoreNavigationPosition,
 } from "./navigation.js";
-import { renderTerminalTitle } from "./title.js";
+import { renderTerminalTitle, terminalTabTitle } from "./title.js";
 import { escapeHTML } from "./view.js";
 
 test("catalog indexes workspaces and open tabs", () => {
@@ -35,6 +35,30 @@ test("terminal title removes empty separators", () => {
     renderTerminalTitle("{command} — {directoryName}", { process: "codex", directory: "/work/warren" }),
     "codex — warren",
   );
+});
+
+test("terminal tab title uses directory name for interactive shells", () => {
+  assert.equal(
+    terminalTabTitle(
+      { title: "Shell", process: "zsh", directory: "/Users/me/Workspace/warren" },
+      {},
+    ),
+    "warren",
+  );
+});
+
+test("terminal tab title shows running process alongside directory", () => {
+  assert.equal(
+    terminalTabTitle(
+      { title: "Codex", process: "codex", directory: "/Users/me/Workspace/superset" },
+      {},
+    ),
+    "codex — superset",
+  );
+});
+
+test("terminal tab title falls back without a directory", () => {
+  assert.equal(terminalTabTitle({ title: "Shell" }, {}), "Shell");
 });
 
 test("HTML escaping is safe for text and attributes", () => {

@@ -45,8 +45,16 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .main { min-width:0; min-height:0; display:grid; grid-template-rows:40px 26px 28px minmax(0,1fr); overflow:hidden; overscroll-behavior:contain; }
 .topbar { display:flex; align-items:center; min-width:0; background:var(--panel); border-bottom:1px solid var(--muted); }
 .menu-button { display:none; width:40px; height:40px; border:0; background:transparent; font-size:18px; }
-.tabs { display:flex; align-items:stretch; min-width:0; height:40px; overflow-x:auto; scrollbar-width:none; }
+.tabs-wrap { position:relative; display:flex; align-items:stretch; min-width:0; flex:100 1 auto; }
+.tabs { display:flex; align-items:stretch; min-width:0; height:40px; overflow-x:auto; scrollbar-width:none; flex:1 1 auto; }
 .tabs::-webkit-scrollbar { display:none; }
+.tabs.fade-left { mask-image:linear-gradient(to right, transparent 0, black 36px, black 100%); -webkit-mask-image:linear-gradient(to right, transparent 0, black 36px, black 100%); }
+.tabs.fade-right { mask-image:linear-gradient(to left, transparent 0, black 36px, black 100%); -webkit-mask-image:linear-gradient(to left, transparent 0, black 36px, black 100%); }
+.tabs.fade-left.fade-right { mask-image:linear-gradient(to right, transparent 0, black 36px, black calc(100% - 36px), transparent 100%); -webkit-mask-image:linear-gradient(to right, transparent 0, black 36px, black calc(100% - 36px), transparent 100%); }
+.tabs-chevron { position:absolute; top:50%; transform:translateY(-50%); z-index:2; display:grid; place-items:center; width:22px; height:22px; padding:0; border:1px solid var(--ring); border-radius:50%; background:var(--panel); color:var(--fg); font-size:16px; line-height:1; cursor:pointer; }
+.tabs-chevron:hover { background:var(--muted); }
+.tabs-chevron-left { left:4px; }
+.tabs-chevron-right { right:4px; }
 .tab { display:flex; align-items:center; gap:7px; min-width:112px; max-width:190px; height:40px; padding:0 12px; border:0; border-right:1px solid var(--muted); background:rgba(42,40,39,.2); color:var(--sub); cursor:pointer; }
 .tab.active { background:var(--bg); color:rgba(234,232,230,.9); }
 .tab-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:300; }

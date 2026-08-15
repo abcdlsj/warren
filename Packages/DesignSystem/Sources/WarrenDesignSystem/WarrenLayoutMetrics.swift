@@ -46,6 +46,9 @@ public enum WarrenLayoutMetrics {
     public static let sidebarActionButtonSize: CGFloat = 24
     /// `OverflowFadeContainer` uses a 1.5rem edge fade in Superset.
     public static let sidebarScrollFadeLength: CGFloat = 24
+    /// Tab overflow needs to read as a real affordance; use a longer gradient
+    /// than the sidebar so the hidden track is obvious at a glance.
+    public static let tabScrollFadeLength: CGFloat = 36
 
     // Confirmed interaction hit areas from Superset's resizable panel.
     public static let sidebarResizeHitWidth: CGFloat = 20

@@ -14,6 +14,15 @@ export const titlePlaceholders = {
 
 const placeholderPattern = new RegExp(`\\{(${Object.keys(titlePlaceholders).join("|")})\\}`, "g");
 const separators = "—|·:/-";
+const shellProcessNames = new Set([
+  "zsh", "bash", "sh", "dash", "fish", "ksh", "csh", "tcsh",
+  "pwsh", "powershell", "cmd", "nu", "elvish", "xonsh", "oil", "osh",
+]);
+const kindLabels = {
+  claude: "Claude Code",
+  codex: "Codex",
+  custom: "Custom",
+};
 
 export function renderTerminalTitle(template, session = {}, workspace = {}, host = {}) {
   const directory = session.directory || workspace.path || "";
@@ -36,6 +45,20 @@ export function renderTerminalTitle(template, session = {}, workspace = {}, host
     .replace(new RegExp(`^[\\s${separators}]+|[\\s${separators}]+$`, "g"), "");
 
   return title || values.session;
+}
+
+/**
+ * Tab title matching Superset's GroupStrip: interactive shells read as their
+ * directory, while a real process is shown as "command — directory".
+ */
+export function terminalTabTitle(session = {}, workspace = {}) {
+  const dirName = directoryName(session.directory || workspace.path || "");
+  const process = String(session.process || "").trim();
+  const command = process && !shellProcessNames.has(process)
+    ? process
+    : (session.kind && session.kind !== "shell" ? kindLabels[session.kind] || session.kind : "");
+  if (!dirName) return session.title || command || "Shell";
+  return command ? `${command} — ${dirName}` : dirName;
 }
 
 function directoryName(path) {

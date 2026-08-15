@@ -47,7 +47,7 @@ struct WarrenDesktopTabBar: View {
 
                 WarrenOverflowFadeScrollView(
                     .horizontal,
-                    fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
+                    fadeLength: WarrenLayoutMetrics.tabScrollFadeLength,
                     surface: tokens.chromeSurface,
                     showsEdgeChevrons: true,
                     onHorizontalOverflowChange: { hasTabOverflow = $0 }
@@ -90,13 +90,21 @@ struct WarrenDesktopTabBar: View {
                                 return true
                             }
                         }
+
+                        // When tabs do not fill the bar, the leftover track is
+                        // still a window-drag surface. It lives inside the
+                        // scroll content so the scroll view can always occupy
+                        // the full remaining width and measure overflow
+                        // against the real viewport instead of the content.
+                        if !hasTabOverflow {
+                            WarrenDesktopWindowDragRegion()
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
                 }
-                // Do not let the ScrollView greedily consume the entire bar.
-                // Its intrinsic track ends after the add button; the remaining
-                // chrome is a real AppKit window-drag surface.
-                .frame(maxWidth: tabTrackWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
                 if hasTabOverflow {
                     WarrenDesktopTabAddSlot(
@@ -111,8 +119,8 @@ struct WarrenDesktopTabBar: View {
                 }
 
                 // The drag filler lives outside the scroll view, exactly like
-                // Superset's TabBar: tabs scroll independently and the remaining
-                // empty leaf is the only window-drag target.
+                // Superset's TabBar: it stays available when the track is full
+                // so there is always a small native drag leaf.
                 WarrenDesktopWindowDragRegion()
                     .frame(minWidth: WarrenSpacing.standard, maxWidth: .infinity)
                     .accessibilityHidden(true)
@@ -141,11 +149,6 @@ struct WarrenDesktopTabBar: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace tab bar")
-    }
-
-    private var tabTrackWidth: CGFloat {
-        CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
-            + WarrenLayoutMetrics.tabAddButtonSlotWidth
     }
 }
 

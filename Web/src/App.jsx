@@ -1006,6 +1006,7 @@ export default function App() {
           <TopBar
             tabs={tabs}
             activeSession={activeSession}
+            workspace={selectedWorkspace}
             onAttachSession={attachSession}
             onNewSession={() => createSession("shell")}
             onOpenMenu={() => setDrawerOpen(true)}

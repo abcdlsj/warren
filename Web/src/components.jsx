@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 import { terminalSearchSummary } from "./terminal.js";
+import { terminalTabTitle } from "./title.js";
 
 const activityLabels = {
   working: "Working",
@@ -142,12 +143,39 @@ export function Sidebar({
 export function TopBar({
   tabs,
   activeSession,
+  workspace,
   onAttachSession,
   onNewSession,
   onOpenMenu,
   onOpenSearch,
 }) {
   const tabRefs = useRef(new Map());
+  const tabsRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateOverflow = useCallback(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft < maxScrollLeft - 1);
+  }, []);
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(el);
+    el.addEventListener("scroll", updateOverflow, { passive: true });
+    window.addEventListener("resize", updateOverflow);
+    updateOverflow();
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", updateOverflow);
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [updateOverflow, tabs]);
 
   useEffect(() => {
     if (!activeSession) return;
@@ -155,30 +183,63 @@ export function TopBar({
     node?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
   }, [activeSession, tabs]);
 
+  const scrollTabs = useCallback(direction => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const distance = Math.max(160, el.clientWidth * 0.8);
+    el.scrollBy({ left: direction === "left" ? -distance : distance, behavior: "smooth" });
+  }, []);
+
   return (
     <header className="topbar">
       <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
-      <div className="tabs" role="tablist">
-        {tabs.map(session => {
-          const active = session.id === activeSession;
-          return (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              className={`tab${active ? " active" : ""}`}
-              key={session.id}
-              onClick={() => onAttachSession(session.id)}
-              ref={node => {
-                if (node) tabRefs.current.set(session.id, node);
-                else tabRefs.current.delete(session.id);
-              }}
-            >
-              <ActivityDot activity={session.activity} />
-              <span className="tab-title">{session.title}</span>
-            </button>
-          );
-        })}
+      <div className="tabs-wrap">
+        {canScrollLeft && (
+          <button
+            type="button"
+            className="tabs-chevron tabs-chevron-left"
+            aria-label="Earlier tabs"
+            onClick={() => scrollTabs("left")}
+          >
+            ‹
+          </button>
+        )}
+        <div
+          ref={tabsRef}
+          className={`tabs${canScrollLeft ? " fade-left" : ""}${canScrollRight ? " fade-right" : ""}`}
+          role="tablist"
+        >
+          {tabs.map(session => {
+            const active = session.id === activeSession;
+            return (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={`tab${active ? " active" : ""}`}
+                key={session.id}
+                onClick={() => onAttachSession(session.id)}
+                ref={node => {
+                  if (node) tabRefs.current.set(session.id, node);
+                  else tabRefs.current.delete(session.id);
+                }}
+              >
+                <ActivityDot activity={session.activity} />
+                <span className="tab-title">{terminalTabTitle(session, workspace)}</span>
+              </button>
+            );
+          })}
+        </div>
+        {canScrollRight && (
+          <button
+            type="button"
+            className="tabs-chevron tabs-chevron-right"
+            aria-label="More tabs"
+            onClick={() => scrollTabs("right")}
+          >
+            ›
+          </button>
+        )}
       </div>
       <button type="button" className="new-session" aria-label="New shell" onClick={onNewSession}>+</button>
       <div className="chrome-spacer" />
