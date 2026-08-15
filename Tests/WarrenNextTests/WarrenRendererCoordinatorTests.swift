@@ -52,6 +52,22 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         ))
     }
 
+    func testRemoteRosterReattachesSameTabAfterTransportReset() {
+        XCTAssertTrue(WarrenRemoteTerminalProtocol.shouldAttach(
+            previousTabID: "tab-1",
+            nextTabID: "tab-1",
+            mountedSurfaceCount: 0
+        ))
+    }
+
+    func testReconnectDelayBacksOffExponentiallyAndCapsAtThirtySeconds() {
+        XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 0), 500)
+        XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 1), 1_000)
+        XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 2), 2_000)
+        XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 6), 30_000)
+        XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 99), 30_000)
+    }
+
     @MainActor
     func testPendingShellTabIDIsStablePerWorkspace() {
         let workspaceID = WorkspaceID(

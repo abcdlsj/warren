@@ -349,19 +349,8 @@ final class WarrenRemoteApplicationModel {
             webRelayStatus = WarrenDesktopWebRelayStatus(isRunning: true, localURL: url, canControl: false)
         }
         projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
-        let wire = WarrenRemoteWire(configuration: configuration)
-        self.wire = wire
-        let events = wire.events()
         eventTask = Task { @MainActor [weak self] in
-            do {
-                try await wire.connect()
-                for await event in events {
-                    guard !Task.isCancelled else { return }
-                    await self?.consume(event)
-                }
-            } catch {
-                self?.present(error)
-            }
+            await self?.runConnectionLoop(configuration)
         }
     }
 
@@ -371,6 +360,51 @@ final class WarrenRemoteApplicationModel {
         if let wire { Task { await wire.close() } }
         wire = nil
         currentRoster = nil
+        resetAttachmentState()
+        webRelayStatus = WarrenDesktopWebRelayStatus()
+    }
+
+    /// Keeps the endpoint alive across daemon restarts and transient network
+    /// failures. A fresh wire is created per attempt; the old wire's event
+    /// stream is finished by `close()` so it can never be reused.
+    private func runConnectionLoop(_ configuration: WarrenRemoteEndpointConfiguration) async {
+        var attempt = 0
+        while !Task.isCancelled {
+            let wire = WarrenRemoteWire(configuration: configuration)
+            self.wire = wire
+            let events = wire.events()
+            do {
+                try await wire.connect()
+                for await event in events {
+                    guard !Task.isCancelled else { return }
+                    if case .roster = event {
+                        attempt = 0
+                    }
+                    if case .disconnected = event {
+                        break
+                    }
+                    await consume(event)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                if attempt == 0 {
+                    present(error)
+                }
+            }
+            await wire.close()
+            guard !Task.isCancelled else { return }
+            resetAttachmentState()
+            projection = projection.withConnectionState(.reconnecting)
+            let delay = Self.reconnectDelay(attempt: attempt)
+            attempt += 1
+            try? await Task.sleep(for: .milliseconds(delay))
+        }
+    }
+
+    /// Drops client-side attachment state so the next roster re-attaches the
+    /// selected tab on a fresh transport. The projection and navigation are
+    /// intentionally kept: the old tab remains visible while reconnecting.
+    private func resetAttachmentState() {
         selectedSessionID = nil
         attachedSessionID = nil
         focusedSessionID = nil
@@ -382,7 +416,12 @@ final class WarrenRemoteApplicationModel {
         focusTask?.cancel()
         focusTask = nil
         mountedSurfaces.removeAll()
-        webRelayStatus = WarrenDesktopWebRelayStatus()
+    }
+
+    /// Exponential backoff matching the Web client: 500ms doubling to 30s.
+    nonisolated static func reconnectDelay(attempt: Int) -> Int {
+        let bounded = min(max(attempt, 0), 6)
+        return min(30_000, 500 * (1 << bounded))
     }
 
     func createWorkspace(projectID: ProjectID, request creation: WorkspaceCreationRequest) {
@@ -685,10 +724,10 @@ final class WarrenRemoteApplicationModel {
             apply(roster)
         case .output(let data):
             await feedOutput(data)
-        case .disconnected(let detail):
-            if let wire { Task { await wire.close() } }
-            projection = projection.withConnectionState(.failed)
-            present(NSError(domain: "WarrenRemote", code: 4, userInfo: [NSLocalizedDescriptionKey: detail]))
+        case .disconnected:
+            // The connection loop observes this event before consume and
+            // drives the reconnect; it is unreachable here.
+            break
         }
     }
 
