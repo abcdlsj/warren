@@ -69,7 +69,7 @@ description = "Run the Vite development server"
 run = "npm --prefix Web run dev"
 
 [tasks."web:build"]
-description = "Build the Vite web client into WebRelay resources"
+description = "Build the Vite web client into Web/dist"
 run = "bash scripts/prepare-web.sh && npm --prefix Web run build"
 
 [tasks."brand:assets"]

@@ -6,5 +6,5 @@ import "embed"
 // embed declaration at the repository root avoids a second, drifting copy of
 // the PWA inside the deployable Relay Service.
 //
-//go:embed Packages/WebRelay/Sources/WebRelay/Resources/*
+//go:embed Web/dist/*
 var Web embed.FS

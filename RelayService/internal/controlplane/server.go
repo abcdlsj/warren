@@ -66,7 +66,7 @@ func NewServer(config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	web, err := fs.Sub(relayassets.Web, "Packages/WebRelay/Sources/WebRelay/Resources")
+	web, err := fs.Sub(relayassets.Web, "Web/dist")
 	if err != nil {
 		return nil, err
 	}

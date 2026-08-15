@@ -19,7 +19,6 @@ let package = Package(
         .package(path: "Packages/Protocol"),
         .package(path: "Packages/Transport"),
         .package(path: "Packages/Observation"),
-        .package(path: "Packages/WebRelay"),
     ],
     targets: [
         .executableTarget(
@@ -34,7 +33,6 @@ let package = Package(
                 .product(name: "WarrenProtocol", package: "Protocol"),
                 .product(name: "WarrenTransport", package: "Transport"),
                 .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
-                .product(name: "WebRelay", package: "WebRelay"),
             ],
             path: "Sources/WarrenNext"
         ),

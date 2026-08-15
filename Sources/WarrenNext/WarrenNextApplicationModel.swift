@@ -9,8 +9,6 @@ import GhosttyAdapter
 import WarrenProtocol
 import WarrenStateStore
 import WarrenTmuxRuntime
-import WebRelay
-import Darwin
 
 @MainActor
 @Observable
@@ -20,15 +18,10 @@ final class WarrenNextApplicationModel {
     private(set) var navigation: WarrenDesktopNavigationState
     private(set) var presentedIssue: WarrenApplicationIssue?
     private(set) var pendingDefaultShellWorkspaceIDs: Set<WorkspaceID> = []
-    private(set) var webRelayStatus = WarrenDesktopWebRelayStatus()
 
     @ObservationIgnored private let service: WarrenApplicationService
     @ObservationIgnored private let runtime: TmuxRuntime
     @ObservationIgnored private let renderer: WarrenRendererCoordinator
-    @ObservationIgnored private var webRelay: WebRelayServer?
-    @ObservationIgnored private var relayHostConnector: RelayHostConnector?
-    @ObservationIgnored private let controlPlaneConfiguration: (url: URL, hostID: String, credential: String)?
-    @ObservationIgnored private var relayStopTask: Task<Void, Never>?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     /// Host mutations are ordered per Workspace. A slow agent launch in one
     /// project must never block navigation or operations in another project.
@@ -40,52 +33,24 @@ final class WarrenNextApplicationModel {
 
     init(
         service: WarrenApplicationService,
-        runtime: TmuxRuntime,
-        controlPlaneConfiguration: (url: URL, hostID: String, credential: String)? = nil
+        runtime: TmuxRuntime
     ) {
         self.service = service
         self.runtime = runtime
-        self.controlPlaneConfiguration = controlPlaneConfiguration
         self.renderer = WarrenRendererCoordinator(service: service)
         let initialSnapshot = WarrenApplicationSnapshot.empty()
         let initialProjection = WarrenDesktopProjection.empty(host: initialSnapshot.host)
         self.snapshot = initialSnapshot
         self.desktopProjection = initialProjection
         self.navigation = WarrenDesktopNavigationReducer.initial(for: initialProjection)
-        // Bind the local WebRelay as soon as the composition model exists.
-        // Startup/session restoration may be expensive; remote availability
-        // must not depend on SwiftUI finishing its first transaction.
-        startWebRelay()
-        startControlPlaneConnectorIfConfigured()
     }
 
     static func live() -> WarrenNextApplicationModel {
-        let isHeadlessAcceptance = ProcessInfo.processInfo.environment[
-            "WARREN_HEADLESS_ACCEPTANCE"
-        ] == "1"
-        let controlPlaneConfiguration = isHeadlessAcceptance
-            ? nil
-            : WarrenControlPlaneCredentialStore.loadOrImport(
-                environment: ProcessInfo.processInfo.environment
-            )
-        if !isHeadlessAcceptance {
-            unsetenv("WARREN_CONTROL_PLANE_URL")
-            unsetenv("WARREN_CONTROL_PLANE_HOST_ID")
-            unsetenv("WARREN_CONTROL_PLANE_HOST_TOKEN")
-        }
-        // Headless verification must not read/write real pairing preferences
-        // or rewrite real user agent config.
-        let hookEnvironment = isHeadlessAcceptance
-            ? [:]
-            : WebRelayServer.agentHookEnvironment
-        if !isHeadlessAcceptance {
-            _ = WebRelayServer.installAgentHooks()
-        }
         let tmuxSocketName = ProcessInfo.processInfo.environment["WARREN_TMUX_SOCKET_NAME"]
         let runtime = TmuxRuntime(
             executor: ProcessTmuxCommandExecutor(socketName: tmuxSocketName),
             outputDirectory: WarrenApplicationDefaults.runtimeOutputDirectory(),
-            sessionEnvironment: hookEnvironment
+            sessionEnvironment: [:]
         )
         let repository: SQLiteHostStateRepository
         do {
@@ -102,8 +67,7 @@ final class WarrenNextApplicationModel {
         )
         return WarrenNextApplicationModel(
             service: service,
-            runtime: runtime,
-            controlPlaneConfiguration: controlPlaneConfiguration
+            runtime: runtime
         )
     }
 
@@ -183,10 +147,6 @@ final class WarrenNextApplicationModel {
         }
         do {
             try await service.start()
-            // The model may have been constructed before AppKit's run loop
-            // started. Kick the outbound connector again from the live startup
-            // task so URLSession gets a scheduling point after launch.
-            startControlPlaneConnectorIfConfigured()
         } catch {
             present(error)
         }
@@ -203,20 +163,11 @@ final class WarrenNextApplicationModel {
         }
         workspaceActionTasks.removeAll()
         renderer.shutdown()
-        webRelay?.stop()
-        webRelay = nil
-        webRelayStatus = WarrenDesktopWebRelayStatus()
-        if let relayHostConnector {
-            self.relayHostConnector = nil
-            relayStopTask = Task { await relayHostConnector.stop() }
-        }
     }
 
     func shutdown() async {
         beginShutdown()
         guard !shutdownFinished else { return }
-        await relayStopTask?.value
-        relayStopTask = nil
         await service.shutdown()
         await runtime.shutdown()
         shutdownFinished = true
@@ -242,105 +193,6 @@ final class WarrenNextApplicationModel {
 
     func runtimeExists(sessionID: TerminalSessionID) async -> Bool {
         await runtime.presence(sessionID: sessionID) == .present
-    }
-
-    private func startWebRelay() {
-        guard webRelay == nil else { return }
-        let relay = WebRelayServer(service: service)
-        relay.start()
-        webRelay = relay
-        updateWebRelayStatus()
-        guard relay.listeningPort == WebRelayServer.defaultPort else { return }
-        startControlPlaneConnectorIfConfigured()
-    }
-
-    func startWebRelayFromUI() {
-        if webRelay == nil {
-            let relay = WebRelayServer(service: service)
-            relay.start()
-            webRelay = relay
-        } else if webRelay?.listeningPort == nil {
-            webRelay?.start()
-        }
-        updateWebRelayStatus()
-    }
-
-    func stopWebRelay() {
-        webRelay?.stop()
-        updateWebRelayStatus()
-    }
-
-    private func updateWebRelayStatus() {
-        webRelayStatus = WarrenDesktopWebRelayStatus(
-            isRunning: webRelay?.listeningPort == WebRelayServer.defaultPort,
-            localURL: WebRelayServer.localWebURL,
-            secureURL: webRelay?.secureWebURL
-        )
-    }
-
-    func openWebRelayURL(_ url: URL) {
-        NSWorkspace.shared.open(url)
-    }
-
-    func copyWebRelayURL(_ url: URL) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
-
-    /// Remote control is opt-in. Defining both environment values creates one
-    /// outbound Host tunnel; ordinary launches remain loopback-only.
-    private func startControlPlaneConnectorIfConfigured() {
-        guard ProcessInfo.processInfo.environment["WARREN_HEADLESS_ACCEPTANCE"] != "1",
-              relayHostConnector == nil,
-              let configuration = controlPlaneConfiguration
-                  ?? WarrenControlPlaneCredentialStore.loadOrImport(
-                      environment: ProcessInfo.processInfo.environment
-                  ) else { return }
-        NSLog("Warren control-plane connector starting for %@", configuration.url.absoluteString)
-        let connector = RelayHostConnector(configuration: .init(
-            relayURL: configuration.url,
-            hostID: configuration.hostID,
-            hostName: snapshot.host.name,
-            bootstrapToken: configuration.credential,
-            localPairingToken: WebRelayServer.accessToken
-        ))
-        relayHostConnector = connector
-        // Do not inherit the SwiftUI main actor here. A busy AttributeGraph
-        // update must not prevent the Host WebSocket from reaching Relay.
-        Task.detached { await connector.start() }
-    }
-
-    func copyLocalWebURL() {
-        guard webRelay != nil, let url = WebRelayServer.localWebURL else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
-
-    func startCloudflareWebAccess() {
-        webRelay?.startTunnel()
-    }
-
-    func stopCloudflareWebAccess() {
-        webRelay?.stopTunnel()
-    }
-
-    func startTailscaleWebAccess() {
-        Task { await webRelay?.startTailscale() }
-    }
-
-    func stopTailscaleWebAccess() {
-        Task { await webRelay?.stopTailscale() }
-    }
-
-    func copySecureWebURL() {
-        guard let url = webRelay?.secureWebURL else {
-            present(WarrenApplicationError.transport(
-                "Secure Web access is not ready. Start Cloudflare Tunnel or Tailscale Serve first."
-            ))
-            return
-        }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     func previewSupersetImport(from databaseURL: URL) async throws -> SupersetImportPreview {

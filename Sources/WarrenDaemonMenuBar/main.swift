@@ -271,7 +271,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         }
         if let endpoint = statusItem.menu?.item(withTag: 2) {
             endpoint.title = switch state {
-            case .running: "Endpoint: 127.0.0.1:8789 · Web Relay: 8788"
+            case .running: "Endpoint: 127.0.0.1:8789 · Web: 8789"
             case .checking: "Endpoint: 127.0.0.1:8789 · Checking…"
             case .stopped: "Endpoint: 127.0.0.1:8789 · Offline"
             case .failed: "Endpoint: 127.0.0.1:8789 · Unavailable"

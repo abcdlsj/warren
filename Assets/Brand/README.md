@@ -25,7 +25,7 @@ mise run web:build
 ```
 
 第一条命令生成 macOS iconset、ICNS、Web favicon 和 PWA PNG；第二条命令把
-`Web/public/` 构建到 `Packages/WebRelay/Sources/WebRelay/Resources/`。派生文件不得手工修改。
+`Web/public/` 构建到 `Web/dist/`。派生文件不得手工修改。
 
 ## 颜色
 

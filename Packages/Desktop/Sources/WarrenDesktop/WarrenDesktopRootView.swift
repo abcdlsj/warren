@@ -16,7 +16,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let projection: WarrenDesktopProjection
     public let navigation: WarrenDesktopNavigationState
     public let chromeMode: WarrenDesktopChromeMode
-    public let webRelayStatus: WarrenDesktopWebRelayStatus
+    public let webStatus: WarrenDesktopWebStatus
 
     private let endpointOptions: [WarrenDesktopEndpointOption]
     private let selectedEndpointID: String
@@ -24,17 +24,17 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private let actions: WarrenDesktopActions
     private let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
-    private let onWebRelayStart: () -> Void
-    private let onWebRelayStop: () -> Void
-    private let onWebRelayOpenURL: (URL) -> Void
-    private let onWebRelayCopyURL: (URL) -> Void
+    private let onWebStart: () -> Void
+    private let onWebStop: () -> Void
+    private let onWebOpenURL: (URL) -> Void
+    private let onWebCopyURL: (URL) -> Void
     @State private var sidebarState: WarrenDesktopSidebarState
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
     @State private var settingsPresented = false
     @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
-    @State private var webRelayPresented = false
+    @State private var webPresented = false
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -56,31 +56,31 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         navigation: WarrenDesktopNavigationState? = nil,
         chromeMode: WarrenDesktopChromeMode = .workspace,
         actions: WarrenDesktopActions = WarrenDesktopActions(),
-        webRelayStatus: WarrenDesktopWebRelayStatus = .init(),
+        webStatus: WarrenDesktopWebStatus = .init(),
         endpointOptions: [WarrenDesktopEndpointOption] = [
             .init(id: "local", label: "Local", isLocal: true),
         ],
         selectedEndpointID: String = "local",
         onSelectEndpoint: @escaping (String) -> Void = { _ in },
-        onWebRelayStart: @escaping () -> Void = {},
-        onWebRelayStop: @escaping () -> Void = {},
-        onWebRelayOpenURL: @escaping (URL) -> Void = { _ in },
-        onWebRelayCopyURL: @escaping (URL) -> Void = { _ in },
+        onWebStart: @escaping () -> Void = {},
+        onWebStop: @escaping () -> Void = {},
+        onWebOpenURL: @escaping (URL) -> Void = { _ in },
+        onWebCopyURL: @escaping (URL) -> Void = { _ in },
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
         self.projection = projection
         self.navigation = navigation ?? WarrenDesktopNavigationReducer.initial(for: projection)
         self.chromeMode = chromeMode
-        self.webRelayStatus = webRelayStatus
+        self.webStatus = webStatus
         self.endpointOptions = endpointOptions
         self.selectedEndpointID = selectedEndpointID
         self.onSelectEndpoint = onSelectEndpoint
         self.actions = actions
         self.terminalSurface = terminalSurface
-        self.onWebRelayStart = onWebRelayStart
-        self.onWebRelayStop = onWebRelayStop
-        self.onWebRelayOpenURL = onWebRelayOpenURL
-        self.onWebRelayCopyURL = onWebRelayCopyURL
+        self.onWebStart = onWebStart
+        self.onWebStop = onWebStop
+        self.onWebOpenURL = onWebOpenURL
+        self.onWebCopyURL = onWebCopyURL
         _sidebarState = State(initialValue: Self.restoredSidebarState())
         _inspectorVisible = State(initialValue: projection.inspector != nil)
         _inspectorWasAvailable = State(initialValue: projection.inspector != nil)
@@ -124,7 +124,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         isConnected: projection.isConnected,
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
-                        webRelayStatus: webRelayStatus,
+                        webStatus: webStatus,
                         hasInspector: projection.inspector != nil,
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
@@ -135,7 +135,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             navigationBeforeSettings = navigation
                             settingsPresented = true
                         },
-                        onWebRelay: { webRelayPresented.toggle() },
+                        onWeb: { webPresented.toggle() },
                         onSelectEndpoint: onSelectEndpoint,
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
@@ -262,13 +262,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if webRelayPresented && !settingsPresented {
-                WarrenDesktopWebRelayPanel(
-                    status: webRelayStatus,
-                    onStart: onWebRelayStart,
-                    onStop: onWebRelayStop,
-                    onOpenURL: onWebRelayOpenURL,
-                    onCopyURL: onWebRelayCopyURL
+            if webPresented && !settingsPresented {
+                WarrenDesktopWebPanel(
+                    status: webStatus,
+                    onStart: onWebStart,
+                    onStop: onWebStop,
+                    onOpenURL: onWebOpenURL,
+                    onCopyURL: onWebCopyURL
                 )
                 .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.small)
                 .padding(.trailing, WarrenSpacing.medium)

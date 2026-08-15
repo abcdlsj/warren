@@ -29,7 +29,7 @@ export function webSocketURL() {
   const host = usesControlPlane
     ? location.host
     : (hostParam || location.hostname || "127.0.0.1");
-  const port = usesControlPlane || hostParam ? "" : (location.port || "8788");
+  const port = usesControlPlane || hostParam ? "" : (location.port || "8789");
   const path = usesControlPlane
     ? `/v1/client/connect?host_id=${encodeURIComponent(relayHostID)}`
     : "/v1/ws";

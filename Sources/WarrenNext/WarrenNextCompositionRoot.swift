@@ -37,14 +37,14 @@ struct WarrenNextCompositionRoot: View {
             navigation: activeNavigation,
             chromeMode: .workspace,
             actions: WarrenDesktopActions(send: handle),
-            webRelayStatus: remoteModel.webRelayStatus,
+            webStatus: remoteModel.webStatus,
             endpointOptions: endpointOptions,
             selectedEndpointID: selectedEndpointID,
             onSelectEndpoint: selectEndpoint,
-            onWebRelayStart: { remoteModel.startWebRelayFromUI() },
-            onWebRelayStop: { remoteModel.stopWebRelay() },
-            onWebRelayOpenURL: { remoteModel.openWebRelayURL($0) },
-            onWebRelayCopyURL: { remoteModel.copyWebRelayURL($0) }
+            onWebStart: { remoteModel.startWebFromUI() },
+            onWebStop: { remoteModel.stopWeb() },
+            onWebOpenURL: { remoteModel.openWebURL($0) },
+            onWebCopyURL: { remoteModel.copyWebURL($0) }
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,
@@ -116,24 +116,24 @@ struct WarrenNextCompositionRoot: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copyLocalURL)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.copyLocalURL)) { _ in
             remoteModel.copyLocalWebURL()
         }
         .onChange(of: terminalFontFamily) { _, _ in updateTerminalFont() }
         .onChange(of: terminalFontSize) { _, _ in updateTerminalFont() }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startCloudflare)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.startCloudflare)) { _ in
             remoteModel.startCloudflareWebAccess()
         }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopCloudflare)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.stopCloudflare)) { _ in
             remoteModel.stopCloudflareWebAccess()
         }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.startTailscale)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.startTailscale)) { _ in
             remoteModel.startTailscaleWebAccess()
         }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.stopTailscale)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.stopTailscale)) { _ in
             remoteModel.stopTailscaleWebAccess()
         }
-        .onReceive(NotificationCenter.default.publisher(for: WebRelayCommand.copySecureURL)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: WebCommand.copySecureURL)) { _ in
             remoteModel.copySecureWebURL()
         }
         .task {

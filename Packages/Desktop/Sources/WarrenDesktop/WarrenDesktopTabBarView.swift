@@ -13,14 +13,14 @@ struct WarrenDesktopTabBar: View {
     let isConnected: Bool
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
-    let webRelayStatus: WarrenDesktopWebRelayStatus
+    let webStatus: WarrenDesktopWebStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onToggleSidebar: () -> Void
     let onToggleInspector: () -> Void
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
-    let onWebRelay: () -> Void
+    let onWeb: () -> Void
     let onSelectEndpoint: (String) -> Void
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
@@ -102,12 +102,12 @@ struct WarrenDesktopTabBar: View {
                         isConnected: isConnected,
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
-                        webRelayStatus: webRelayStatus,
+                        webStatus: webStatus,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
                         onCommandPalette: onCommandPalette,
                         onSettings: onSettings,
-                        onWebRelay: onWebRelay,
+                        onWeb: onWeb,
                         onSelectEndpoint: onSelectEndpoint,
                         onToggleInspector: onToggleInspector
                     )
@@ -159,12 +159,12 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let isConnected: Bool
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
-    let webRelayStatus: WarrenDesktopWebRelayStatus
+    let webStatus: WarrenDesktopWebStatus
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
-    let onWebRelay: () -> Void
+    let onWeb: () -> Void
     let onSelectEndpoint: (String) -> Void
     let onToggleInspector: () -> Void
 
@@ -206,10 +206,10 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
             )
             WarrenDesktopChromeButton(
                 systemImage: "globe",
-                label: "Web Relay",
-                hint: webRelayStatus.isRunning ? "Web Relay is running" : "Web Relay is stopped",
-                action: onWebRelay,
-                tint: webRelayStatus.isRunning ? .green : nil
+                label: "Web",
+                hint: webStatus.isRunning ? "Web is running" : "Web is stopped",
+                action: onWeb,
+                tint: webStatus.isRunning ? .green : nil
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",

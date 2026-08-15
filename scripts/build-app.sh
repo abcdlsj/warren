@@ -55,7 +55,7 @@ install -m 644 "$repository_root/Assets/Brand/Warren.icns" "$staging_path/Conten
 cp -R \
     "$binary_directory/WarrenDesktop_WarrenDesktop.bundle" \
     "$staging_path/Contents/Resources/WarrenDesktop_WarrenDesktop.bundle"
-cp -R "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/." "$staging_path/Contents/Resources/"
+cp -R "$repository_root/Web/dist/." "$staging_path/Contents/Resources/"
 
 codesign --force --sign - "$staging_path"
 rm -rf "$app_path"

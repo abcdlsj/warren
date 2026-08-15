@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 import WarrenDesignSystem
 
-public struct WarrenDesktopWebRelayStatus: Hashable, Sendable {
+public struct WarrenDesktopWebStatus: Hashable, Sendable {
     public var isRunning: Bool
     public var localURL: URL?
     public var secureURL: URL?
@@ -16,15 +16,15 @@ public struct WarrenDesktopWebRelayStatus: Hashable, Sendable {
     }
 }
 
-public struct WarrenDesktopWebRelayPanel: View {
-    public let status: WarrenDesktopWebRelayStatus
+public struct WarrenDesktopWebPanel: View {
+    public let status: WarrenDesktopWebStatus
     public let onStart: () -> Void
     public let onStop: () -> Void
     public let onOpenURL: (URL) -> Void
     public let onCopyURL: (URL) -> Void
 
     public init(
-        status: WarrenDesktopWebRelayStatus,
+        status: WarrenDesktopWebStatus,
         onStart: @escaping () -> Void,
         onStop: @escaping () -> Void,
         onOpenURL: @escaping (URL) -> Void,
@@ -41,7 +41,7 @@ public struct WarrenDesktopWebRelayPanel: View {
         let tokens = WarrenColorTokens.resolved(for: .dark)
         VStack(alignment: .leading, spacing: WarrenSpacing.small) {
             HStack {
-                Label("Web Relay", systemImage: "globe")
+                Label("Web", systemImage: "globe")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Circle()
@@ -73,7 +73,7 @@ public struct WarrenDesktopWebRelayPanel: View {
                         .controlSize(.small)
                 }
             } else {
-                Text("Local Web Relay is unavailable")
+                Text("Local Web is unavailable")
                     .font(.system(size: 11))
                     .foregroundStyle(tokens.mutedForeground)
             }

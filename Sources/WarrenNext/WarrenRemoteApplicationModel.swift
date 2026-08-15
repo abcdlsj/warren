@@ -321,9 +321,10 @@ final class WarrenRemoteApplicationModel {
     }
     private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
-    private(set) var webRelayStatus = WarrenDesktopWebRelayStatus()
+    private(set) var webStatus = WarrenDesktopWebStatus()
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
+    @ObservationIgnored private var endpointConfiguration: WarrenRemoteEndpointConfiguration?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var selectedSessionID: TerminalSessionID?
     @ObservationIgnored private var attachedSessionID: TerminalSessionID?
@@ -343,10 +344,11 @@ final class WarrenRemoteApplicationModel {
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
+        endpointConfiguration = configuration
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
-           let url = URL(string: "http://127.0.0.1:8788/#t=\(configuration.token)") {
-            webRelayStatus = WarrenDesktopWebRelayStatus(isRunning: true, localURL: url, canControl: false)
+           let url = URL(string: "http://127.0.0.1:8789/#t=\(configuration.token)") {
+            webStatus = WarrenDesktopWebStatus(isRunning: true, localURL: url, canControl: true)
         }
         projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
         eventTask = Task { @MainActor [weak self] in
@@ -357,11 +359,12 @@ final class WarrenRemoteApplicationModel {
     func disconnect() {
         eventTask?.cancel()
         eventTask = nil
+        endpointConfiguration = nil
         if let wire { Task { await wire.close() } }
         wire = nil
         currentRoster = nil
         resetAttachmentState()
-        webRelayStatus = WarrenDesktopWebRelayStatus()
+        webStatus = WarrenDesktopWebStatus()
     }
 
     /// Keeps the endpoint alive across daemon restarts and transient network
@@ -488,24 +491,120 @@ final class WarrenRemoteApplicationModel {
             surface.apply(font: preference)
         }
     }
-    func startWebRelayFromUI() {}
-    func stopWebRelay() {}
-    func openWebRelayURL(_ url: URL) { NSWorkspace.shared.open(url) }
-    func copyWebRelayURL(_ url: URL) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
+    func startWebFromUI() {}
+    func stopWeb() {}
+    func openWebURL(_ url: URL) { NSWorkspace.shared.open(url) }
+    func copyWebURL(_ url: URL) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
     func copyLocalWebURL() {
-        if let url = webRelayStatus.localURL { copyWebRelayURL(url) }
+        if let url = webStatus.localURL { copyWebURL(url) }
     }
-    func startCloudflareWebAccess() { relayFeatureUnavailable() }
-    func stopCloudflareWebAccess() { relayFeatureUnavailable() }
-    func startTailscaleWebAccess() { relayFeatureUnavailable() }
-    func stopTailscaleWebAccess() { relayFeatureUnavailable() }
-    func copySecureWebURL() { relayFeatureUnavailable() }
+    func startCloudflareWebAccess() {
+        controlTunnel(.start, kind: "cloudflared")
+    }
+    func stopCloudflareWebAccess() {
+        controlTunnel(.stop, kind: "cloudflared")
+    }
+    func startTailscaleWebAccess() {
+        controlTunnel(.start, kind: "tailscale")
+    }
+    func stopTailscaleWebAccess() {
+        controlTunnel(.stop, kind: "tailscale")
+    }
+    func copySecureWebURL() {
+        Task {
+            await refreshTunnelStatus()
+            guard let url = webStatus.secureURL else {
+                present(NSError(domain: "WarrenRemote", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "Secure Web access is not ready. Start Cloudflare Tunnel or Tailscale Serve first.",
+                ]))
+                return
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        }
+    }
 
-    private func relayFeatureUnavailable() {
-        present(NSError(domain: "WarrenRemote", code: 8, userInfo: [
-            NSLocalizedDescriptionKey: "The daemon Web Relay only serves local access; "
-                + "Cloudflare/Tailscale entry points are not migrated yet.",
-        ]))
+    private enum TunnelAction: String {
+        case start
+        case stop
+    }
+
+    private func controlTunnel(_ action: TunnelAction, kind: String) {
+        Task {
+            do {
+                try await tunnelRequest(action, kind: kind)
+            } catch {
+                present(error)
+            }
+        }
+    }
+
+    private func tunnelRequest(_ action: TunnelAction, kind: String) async throws {
+        guard let configuration = endpointConfiguration else {
+            throw NSError(domain: "WarrenRemote", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "No daemon endpoint is selected.",
+            ])
+        }
+        let base = configuration.url.hasSuffix("/")
+            ? String(configuration.url.dropLast())
+            : configuration.url
+        guard let url = URL(string: base + "/v1/tunnels/" + action.rawValue) else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(configuration.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["kind": kind])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let message = String(data: data, encoding: .utf8) ?? "Tunnel request failed."
+            throw NSError(domain: "WarrenRemote", code: 13, userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        applyTunnelStatus(from: data)
+    }
+
+    private func refreshTunnelStatus() async {
+        guard let configuration = endpointConfiguration else { return }
+        let base = configuration.url.hasSuffix("/")
+            ? String(configuration.url.dropLast())
+            : configuration.url
+        guard let url = URL(string: base + "/v1/tunnels") else { return }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        request.setValue("Bearer \(configuration.token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            applyTunnelStatus(from: data)
+        } catch {
+            return
+        }
+    }
+
+    private func applyTunnelStatus(from data: Data) {
+        struct Response: Decodable {
+            let tunnels: [String: Tunnel]
+        }
+        struct Tunnel: Decodable {
+            let running: Bool
+            let webURL: String?
+
+            enum CodingKeys: String, CodingKey {
+                case running
+                case webURL = "web_url"
+            }
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data),
+              let tunnel = response.tunnels.values.first(where: { $0.running && $0.webURL != nil }),
+              let url = tunnel.webURL.flatMap(URL.init(string:)) else {
+            webStatus.secureURL = nil
+            return
+        }
+        webStatus.secureURL = url
     }
 
     func previewSupersetImport() async throws -> SupersetImportPreview {

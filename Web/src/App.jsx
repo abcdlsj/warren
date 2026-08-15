@@ -6,7 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
 import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
-import { RelayConnection } from "./connection.js";
+import { WarrenConnection } from "./connection.js";
 import {
   captureNavigationPosition,
   resolveRestoredWorkspace,
@@ -367,7 +367,7 @@ export default function App() {
         reanchorRequiredRef.current = true;
         connectionRef.current?.reset();
       } else {
-        // Legacy raw PTY payload (macOS WebRelay sends bytes without the
+        // Legacy raw PTY payload (older daemon builds send bytes without the
         // envelope). Render it as-is.
         batcherRef.current?.enqueue(bytes);
       }
@@ -660,7 +660,7 @@ export default function App() {
   }, [titleTemplate]);
 
   useEffect(() => {
-    const connection = new RelayConnection({
+    const connection = new WarrenConnection({
       url: webSocketURL(),
       token: runtime.token,
       onMessage: event => messageHandlerRef.current(event),

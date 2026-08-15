@@ -144,7 +144,7 @@ func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
 
-	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
 	defer connection.Close()
 
 	attachBrowser(t, connection, "session-stream", nil)
@@ -207,7 +207,7 @@ func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
 
-	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
 	defer connection.Close()
 
 	attachBrowserWithSize(t, connection, "session-input-early", nil, 80, 24)
@@ -276,7 +276,7 @@ func TestRepeatedAttachInstallsPipeOnce(t *testing.T) {
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
 
-	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
 	defer connection.Close()
 	for attempt := 0; attempt < 2; attempt++ {
 		attachBrowser(t, connection, "session-pipe", nil)
@@ -308,7 +308,7 @@ func TestReanchorDoesNotBumpEpochWhenCaptureExceedsSpool(t *testing.T) {
 	service := &Service{Store: state, Runtime: runtime}
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
-	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
 	defer connection.Close()
 
 	attachBrowser(t, connection, "session-reanchor", nil)

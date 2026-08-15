@@ -267,7 +267,7 @@ func TestBrowserAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	}
 	httpServer := httptest.NewServer(NewHTTPServer(&Service{Store: state, Runtime: runtime}, "secret", slog.Default()).Handler())
 	defer httpServer.Close()
-	connection := openAuthenticatedConnection(t, httpServer.URL, "/ws")
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
 	defer connection.Close()
 
 	attachBrowserWithSize(t, connection, session.ID, nil, 101, 33)

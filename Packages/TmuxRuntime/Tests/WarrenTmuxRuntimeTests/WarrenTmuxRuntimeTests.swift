@@ -118,15 +118,15 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         await runtime.shutdown()
     }
 
-    func testCreateInjectsWarrenHookEnvironmentPerSession() async throws {
+    func testCreateInjectsSessionEnvironmentPerSession() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()
         let runtime = TmuxRuntime(
             executor: executor,
             outputDirectory: outputDirectory,
             sessionEnvironment: [
-                "WARREN_HOOK_URL": "http://127.0.0.1:8788/hook",
-                "WARREN_HOOK_TOKEN": "test-token",
+                "WARREN_TEST_ENV_URL": "http://127.0.0.1:8789/v1/tunnels",
+                "WARREN_TEST_ENV_TOKEN": "test-token",
             ]
         )
         let sessionID = TerminalSessionID()
@@ -140,8 +140,8 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         let newSession = try XCTUnwrap(commands.first { $0.arguments.contains("new-session") })
         let rendered = newSession.arguments.joined(separator: " ")
         XCTAssertTrue(rendered.contains("WARREN_SESSION_ID=\(sessionID.description)"))
-        XCTAssertTrue(rendered.contains("WARREN_HOOK_URL=http://127.0.0.1:8788/hook"))
-        XCTAssertTrue(rendered.contains("WARREN_HOOK_TOKEN=test-token"))
+        XCTAssertTrue(rendered.contains("WARREN_TEST_ENV_URL=http://127.0.0.1:8789/v1/tunnels"))
+        XCTAssertTrue(rendered.contains("WARREN_TEST_ENV_TOKEN=test-token"))
         await runtime.shutdown()
     }
 

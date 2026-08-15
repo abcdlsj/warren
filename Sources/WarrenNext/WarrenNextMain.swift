@@ -152,7 +152,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
             let bundledResources = executable.deletingLastPathComponent()
                 .appendingPathComponent("../Resources").standardizedFileURL
             let developmentResources = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("Packages/WebRelay/Sources/WebRelay/Resources")
+                .appendingPathComponent("Web/dist")
             let resources = FileManager.default.fileExists(atPath: bundledResources.path)
                 ? bundledResources : developmentResources
             if FileManager.default.fileExists(atPath: resources.appendingPathComponent("index.html").path) {
@@ -183,27 +183,27 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func copyLocalWebURL(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.copyLocalURL, object: nil)
+        NotificationCenter.default.post(name: WebCommand.copyLocalURL, object: nil)
     }
 
     @objc private func startCloudflareWebAccess(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.startCloudflare, object: nil)
+        NotificationCenter.default.post(name: WebCommand.startCloudflare, object: nil)
     }
 
     @objc private func stopCloudflareWebAccess(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.stopCloudflare, object: nil)
+        NotificationCenter.default.post(name: WebCommand.stopCloudflare, object: nil)
     }
 
     @objc private func startTailscaleWebAccess(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.startTailscale, object: nil)
+        NotificationCenter.default.post(name: WebCommand.startTailscale, object: nil)
     }
 
     @objc private func stopTailscaleWebAccess(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.stopTailscale, object: nil)
+        NotificationCenter.default.post(name: WebCommand.stopTailscale, object: nil)
     }
 
     @objc private func copySecureWebURL(_ sender: NSMenuItem) {
-        NotificationCenter.default.post(name: WebRelayCommand.copySecureURL, object: nil)
+        NotificationCenter.default.post(name: WebCommand.copySecureURL, object: nil)
     }
 
     private static func buildMainMenu(target: AnyObject) -> NSMenu {
