@@ -35,6 +35,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var settingsPresented = false
     @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
     @State private var webPresented = false
+    @State private var webDismissalNonce = 0
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -291,14 +292,37 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             if webPresented && !settingsPresented {
                 WarrenDesktopWebPanel(
                     status: webStatus,
-                    onStart: onWebStart,
-                    onStop: onWebStop,
-                    onOpenURL: onWebOpenURL,
-                    onCopyURL: onWebCopyURL
+                    onStart: {
+                        onWebStart()
+                        refreshWebDismissal()
+                    },
+                    onStop: {
+                        onWebStop()
+                        refreshWebDismissal()
+                    },
+                    onOpenURL: { url in
+                        onWebOpenURL(url)
+                        refreshWebDismissal()
+                    },
+                    onCopyURL: { url in
+                        onWebCopyURL(url)
+                        refreshWebDismissal()
+                    }
                 )
                 .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.small)
                 .padding(.trailing, WarrenSpacing.medium)
             }
+        }
+        .onChange(of: webPresented) { _, isPresented in
+            if isPresented {
+                refreshWebDismissal()
+            }
+        }
+        .task(id: webDismissalNonce) {
+            guard webPresented else { return }
+            try? await Task.sleep(for: WarrenDesktopWebDismissal.interval)
+            guard !Task.isCancelled else { return }
+            webPresented = false
         }
         .warrenSemanticObservationRoot(recorder: semanticRecorder)
     }
@@ -364,6 +388,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         actions(.toggleInspector)
     }
 
+    private func refreshWebDismissal() {
+        guard webPresented else { return }
+        webDismissalNonce += 1
+    }
+
     private func reconcileInspector(with newProjection: WarrenDesktopProjection) {
         if newProjection.inspector == nil {
             inspectorVisible = false
@@ -414,6 +443,10 @@ enum WarrenDesktopTabSelector {
         guard number >= 1, tabs.indices.contains(number - 1) else { return nil }
         return tabs[number - 1].id
     }
+}
+
+private enum WarrenDesktopWebDismissal {
+    static let interval: Duration = .seconds(3)
 }
 
 private enum WarrenDesktopPerformance {

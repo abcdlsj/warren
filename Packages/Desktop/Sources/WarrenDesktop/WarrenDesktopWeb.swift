@@ -57,35 +57,20 @@ public struct WarrenDesktopWebPanel: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(tokens.mutedForeground)
                     .lineLimit(1)
-                HStack(spacing: WarrenSpacing.xs) {
+                HStack(spacing: WarrenSpacing.compact) {
                     if status.canControl {
-                        Button(status.isRunning ? "Stop" : "Start") {
+                        WarrenDesktopWebActionButton(
+                            title: status.isRunning ? "Stop" : "Start"
+                        ) {
                             status.isRunning ? onStop() : onStart()
                         }
-                        .buttonStyle(WarrenPrimaryButtonStyle())
-                        .controlSize(.small)
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: WarrenLayoutMetrics.compactControlHeight
-                        )
                     }
-                    Button("Open") { onOpenURL(url) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: WarrenLayoutMetrics.compactControlHeight
-                        )
-                    Button("Copy") { onCopyURL(url) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .font(.system(size: 11, weight: .medium))
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: WarrenLayoutMetrics.compactControlHeight
-                        )
+                    WarrenDesktopWebActionButton(title: "Open") {
+                        onOpenURL(url)
+                    }
+                    WarrenDesktopWebActionButton(title: "Copy") {
+                        onCopyURL(url)
+                    }
                 }
             } else {
                 Text("Local Web is unavailable")
@@ -101,5 +86,32 @@ public struct WarrenDesktopWebPanel: View {
                 .stroke(tokens.border.opacity(0.55), lineWidth: WarrenSpacing.hairline)
         )
         .clipShape(.rect(cornerRadius: WarrenRadius.medium))
+    }
+}
+
+/// Plain-text action used by the Web panel so Stop, Open, and Copy share one
+/// consistent hit target and visual language without button borders.
+private struct WarrenDesktopWebActionButton: View {
+    let title: String
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isHovered ? tokens.foreground : tokens.mutedForeground)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: WarrenLayoutMetrics.compactControlHeight
+                )
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel(title)
     }
 }
