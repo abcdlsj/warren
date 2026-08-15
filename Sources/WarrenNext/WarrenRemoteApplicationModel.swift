@@ -448,22 +448,7 @@ final class WarrenRemoteApplicationModel {
         resizeTask = nil
         focusTask?.cancel()
         focusTask = nil
-        shutdownAllMountedSurfaces()
-    }
-
-    private func shutdownAllMountedSurfaces() {
-        for surface in mountedSurfaces {
-            surface.outputWriter.shutdown()
-        }
         mountedSurfaces.removeAll()
-    }
-
-    private func removeMountedSurface(sessionID: TerminalSessionID) {
-        mountedSurfaces.removeAll { surface in
-            guard surface.id == sessionID else { return false }
-            surface.outputWriter.shutdown()
-            return true
-        }
     }
 
     private func clearMaintenance() {
@@ -921,7 +906,8 @@ final class WarrenRemoteApplicationModel {
 
     private func feedOutput(_ data: Data) async {
         guard !data.isEmpty,
-              let surface = mountedSurfaces.first(where: { $0.id == selectedSessionID }) else { return }
+              let surface = mountedSurfaces.first,
+              surface.id == selectedSessionID else { return }
         surface.outputWriter.enqueueRaw(data)
         if initialRefreshPending {
             // The attach snapshot is fed before Ghostty's display loop
@@ -1000,11 +986,6 @@ final class WarrenRemoteApplicationModel {
             sessionWorkspaceIDs: sessionWorkspaces,
             connectionState: .attached
         )
-        let liveTabSessionIDs = Set(tabs.compactMap(\.sessionID))
-        for surface in mountedSurfaces where !liveTabSessionIDs.contains(surface.id) {
-            surface.outputWriter.shutdown()
-        }
-        mountedSurfaces.removeAll { !liveTabSessionIDs.contains($0.id) }
         issue = nil
         let previousTabID = navigation.selectedTabID
         let nextNavigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
@@ -1018,7 +999,7 @@ final class WarrenRemoteApplicationModel {
             pendingFocusSessionID = nil
             pendingFocusSize = nil
             pendingInput.removeAll(keepingCapacity: true)
-            shutdownAllMountedSurfaces()
+            mountedSurfaces.removeAll()
         }
         if navigation.selectedTabID == nil {
             selectedSessionID = nil
@@ -1027,7 +1008,7 @@ final class WarrenRemoteApplicationModel {
             pendingFocusSessionID = nil
             pendingFocusSize = nil
             pendingInput.removeAll(keepingCapacity: true)
-            shutdownAllMountedSurfaces()
+            mountedSurfaces.removeAll()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: previousTabID,
             nextTabID: navigation.selectedTabID,
@@ -1052,10 +1033,7 @@ final class WarrenRemoteApplicationModel {
         // produce the first tmux snapshot immediately after it accepts the
         // attach request; feeding that snapshot into an already-created surface
         // prevents the initial prompt from disappearing in the network race.
-        let existingSurface = mountedSurfaces.first { $0.id == sessionID }
-        guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
-            return
-        }
+        guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
@@ -1063,23 +1041,16 @@ final class WarrenRemoteApplicationModel {
         let generation = attachGeneration
         attachedSessionID = nil
         focusedSessionID = nil
-        let surface: GhosttySurface
-        if let existingSurface {
-            surface = existingSurface
-        } else {
-            surface = GhosttySurface(
-                id: sessionID,
-                attachmentID: TerminalAttachmentID(),
-                workingDirectory: session.workingDirectory,
-                font: terminalFont,
-                onInput: { [weak self] data in Task { await self?.sendInput(data) } },
-                onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
-            )
-            mountedSurfaces.append(surface)
-        }
+        let surface = GhosttySurface(
+            id: sessionID,
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: session.workingDirectory,
+            font: terminalFont,
+            onInput: { [weak self] data in Task { await self?.sendInput(data) } },
+            onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
+        )
         selectedSessionID = sessionID
-        mountedSurfaces.removeAll { $0 === surface }
-        mountedSurfaces.insert(surface, at: 0)
+        mountedSurfaces = [surface]
 
         // SwiftUI/AppKit reports the actual Ghostty grid only after the
         // surface has entered a measured pane. Waiting here makes the very
@@ -1119,7 +1090,7 @@ final class WarrenRemoteApplicationModel {
                 selectedSessionID = nil
                 attachedSessionID = nil
                 focusedSessionID = nil
-                removeMountedSurface(sessionID: sessionID)
+                mountedSurfaces.removeAll()
             }
             present(error)
         }
