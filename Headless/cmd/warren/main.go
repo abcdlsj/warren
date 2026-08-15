@@ -113,9 +113,9 @@ func resourceCommand(args []string) error {
 		}
 		switch resource {
 		case "project":
-			return printValue(state.Projects)
+			return printValue(projectRows(state))
 		case "workspace":
-			return printValue(state.Workspaces)
+			return printValue(workspaceRows(state))
 		case "session":
 			return printValue(sessionRows(state))
 		}
@@ -239,7 +239,7 @@ func endpointCommand(args []string) error {
 			if outputJSON {
 				continue
 			}
-			fmt.Printf("%s %-16s %s\n", marker, name, value.URL)
+			fmt.Printf("%s %-16s %s\t%s\n", marker, name, value.URL, displayValue(value.SSH))
 		}
 		if outputJSON {
 			return printValue(settings)
@@ -459,6 +459,55 @@ func sessionRows(state api.State) []SessionRow {
 	return rows
 }
 
+// ProjectRow adds roster-derived context (workspace count) to a project while
+// keeping the original JSON fields intact.
+type ProjectRow struct {
+	api.Project
+	Workspaces int `json:"workspaces,omitempty"`
+}
+
+func projectRows(state api.State) []ProjectRow {
+	byProject := make(map[string]int)
+	for _, workspace := range state.Workspaces {
+		byProject[workspace.ProjectID]++
+	}
+	rows := make([]ProjectRow, 0, len(state.Projects))
+	for _, project := range state.Projects {
+		rows = append(rows, ProjectRow{Project: project, Workspaces: byProject[project.ID]})
+	}
+	return rows
+}
+
+// WorkspaceRow joins a workspace with its project and adds a running session
+// count while keeping the original JSON fields intact.
+type WorkspaceRow struct {
+	api.Workspace
+	ProjectName string `json:"projectName,omitempty"`
+	Sessions    int    `json:"sessions,omitempty"`
+}
+
+func workspaceRows(state api.State) []WorkspaceRow {
+	projects := make(map[string]api.Project, len(state.Projects))
+	for _, project := range state.Projects {
+		projects[project.ID] = project
+	}
+	runningByWorkspace := make(map[string]int)
+	for _, session := range state.Sessions {
+		if session.Lifecycle == "running" {
+			runningByWorkspace[session.WorkspaceID]++
+		}
+	}
+	rows := make([]WorkspaceRow, 0, len(state.Workspaces))
+	for _, workspace := range state.Workspaces {
+		row := WorkspaceRow{Workspace: workspace, Sessions: runningByWorkspace[workspace.ID]}
+		if project, ok := projects[workspace.ProjectID]; ok {
+			row.ProjectName = project.Name
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func printValue(value any) error {
 	if outputJSON {
 		data, err := json.MarshalIndent(value, "", "  ")
@@ -469,17 +518,34 @@ func printValue(value any) error {
 		return nil
 	}
 	switch items := value.(type) {
-	case []api.Project:
+	case []ProjectRow:
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\n", item.ID, item.Name, item.Path)
+			fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\n",
+				item.ID,
+				item.Name,
+				item.Path,
+				item.Workspaces,
+				displayBool(item.Pinned),
+				formatTime(item.CreatedAt),
+			)
 		}
-	case []api.Workspace:
+	case []WorkspaceRow:
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Name, item.Branch, item.Path)
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+				item.ID,
+				displayValue(item.ProjectName),
+				item.Name,
+				displayValue(item.Branch),
+				item.Path,
+				item.Kind,
+				item.Sessions,
+				displayBool(item.Pinned),
+				formatTime(item.CreatedAt),
+			)
 		}
 	case []SessionRow:
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				item.ID,
 				displayValue(item.ProjectName),
 				displayValue(item.WorkspaceName),
@@ -488,6 +554,8 @@ func printValue(value any) error {
 				item.Kind,
 				displayValue(item.Command),
 				item.Lifecycle,
+				displayBool(item.Pinned),
+				formatTime(item.CreatedAt),
 			)
 		}
 	default:
@@ -502,6 +570,20 @@ func displayValue(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func displayBool(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
+func formatTime(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	return value.Local().Format("2006-01-02 15:04")
 }
 
 func env(key, fallback string) string {
