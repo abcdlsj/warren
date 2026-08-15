@@ -139,6 +139,7 @@ export default function App() {
   const snapshotPendingRef = useRef(false);
   const messageHandlerRef = useRef(() => {});
   const connectionStateHandlerRef = useRef(() => {});
+  const maintenanceTimeoutRef = useRef(null);
   const appStateRef = useRef({});
    const pendingRequestsRef = useRef(new Map());
    const inputQueueRef = useRef(null);
@@ -152,6 +153,21 @@ export default function App() {
       onSendFailure: () => connectionRef.current?.reconnectNow(),
     });
   }
+
+  const clearMaintenanceTimeout = useCallback(() => {
+    if (maintenanceTimeoutRef.current !== null) {
+      clearTimeout(maintenanceTimeoutRef.current);
+      maintenanceTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleMaintenanceTimeout = useCallback(() => {
+    clearMaintenanceTimeout();
+    maintenanceTimeoutRef.current = setTimeout(() => {
+      maintenanceTimeoutRef.current = null;
+      setConnectionStatus({ message: "Reconnecting…", online: false });
+    }, 10_000);
+  }, [clearMaintenanceTimeout]);
 
   const selectedWorkspaceID = useMemo(() => {
     if (activeWorkspace && catalog.workspaces.some(workspace => workspace.id === activeWorkspace)) {
@@ -423,6 +439,7 @@ export default function App() {
   }, [chooseWorkspace, createSession]);
 
   const acceptRoster = useCallback(message => {
+    clearMaintenanceTimeout();
     connectionRef.current?.markStable();
     const nextCatalog = buildCatalog(rosterFromMessage(message));
     const state = appStateRef.current;
@@ -460,7 +477,7 @@ export default function App() {
     if (state.activeSession) attachSession(state.activeSession, false, false);
     else if (nextTabs.length) attachSession(nextTabs[0].id, false, false);
     else if (activeTabWasRemoved) request("session.detach");
-  }, [attachSession, clearTerminalSearch, request]);
+  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
@@ -627,14 +644,25 @@ export default function App() {
       if (message.message === "unauthorized") connectionRef.current?.stop();
       break;
     case "maintenance":
+      scheduleMaintenanceTimeout();
       setConnectionStatus({ message: message.message || "Updating Warren…", online: false });
       break;
     default:
       break;
     }
-  }, [acceptRoster, attachSession, clearTerminalSearch, fitTerminal, markAttachReady, requestSessionFocus]);
+  }, [
+    acceptRoster,
+    attachSession,
+    clearMaintenanceTimeout,
+    clearTerminalSearch,
+    fitTerminal,
+    markAttachReady,
+    requestSessionFocus,
+    scheduleMaintenanceTimeout,
+  ]);
 
   const acceptConnectionState = useCallback(state => {
+    clearMaintenanceTimeout();
     if (state === "connecting") {
       setConnectionStatus({ message: "Connecting…", online: false });
       return;
@@ -651,10 +679,12 @@ export default function App() {
     // The Recovery Anchor survives a transport reconnect; only an explicit
     // reanchor decision (overflow, host adoption, evicted ring) clears it.
     setConnectionStatus({ message: "Reconnecting…", online: false });
-  }, []);
+  }, [clearMaintenanceTimeout]);
 
   messageHandlerRef.current = acceptMessage;
   connectionStateHandlerRef.current = acceptConnectionState;
+
+  useEffect(() => clearMaintenanceTimeout, [clearMaintenanceTimeout]);
 
   useEffect(() => {
     const terminalHost = terminalHostRef.current;

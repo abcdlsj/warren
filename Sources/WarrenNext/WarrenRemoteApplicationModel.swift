@@ -883,7 +883,7 @@ final class WarrenRemoteApplicationModel {
             // clears on the next roster once the daemon is back, and after a
             // bounded timeout so an aborted update cannot linger forever.
             maintenanceResetTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(10))
                 guard !Task.isCancelled else { return }
                 self?.clearMaintenance()
             }

@@ -6,16 +6,20 @@ repository_root="$(cd "$(dirname "$0")/.." && pwd)"
 app_path="$repository_root/Warren.app"
 install_path="/Applications/Warren.app"
 executable_path="$app_path/Contents/MacOS/Warren"
+installed_executable_path="$install_path/Contents/MacOS/Warren"
 menubar_executable_path="$app_path/Contents/MacOS/WarrenDaemonMenuBar"
+installed_menubar_executable_path="$install_path/Contents/MacOS/WarrenDaemonMenuBar"
 daemon_executable_path="$app_path/Contents/MacOS/warren-headless"
 installed_daemon_executable_path="$install_path/Contents/MacOS/warren-headless"
 
 is_running() {
-    pgrep -f "$executable_path$" >/dev/null 2>&1
+    pgrep -f "$executable_path$" >/dev/null 2>&1 \
+        || pgrep -f "$installed_executable_path$" >/dev/null 2>&1
 }
 
 is_menubar_running() {
-    pgrep -f "$menubar_executable_path$" >/dev/null 2>&1
+    pgrep -f "$menubar_executable_path$" >/dev/null 2>&1 \
+        || pgrep -f "$installed_menubar_executable_path$" >/dev/null 2>&1
 }
 
 is_daemon_running() {
@@ -44,7 +48,9 @@ bash "$repository_root/scripts/build-app.sh" release
 # old daemons without the endpoint simply restart without the notice.
 notify_maintenance
 
+relaunch_after_install=false
 if is_running; then
+    relaunch_after_install=true
     osascript -e 'tell application id "com.abcdlsj.warren" to quit' >/dev/null 2>&1 || true
     for _ in {1..50}; do
         is_running || break
@@ -54,6 +60,7 @@ fi
 
 if is_menubar_running; then
     pkill -f "$menubar_executable_path$" >/dev/null 2>&1 || true
+    pkill -f "$installed_menubar_executable_path$" >/dev/null 2>&1 || true
     for _ in {1..50}; do
         is_menubar_running || break
         sleep 0.1
@@ -96,3 +103,7 @@ install -m 755 "$app_path/Contents/MacOS/warren-cli" "$cli_install_directory/war
 install -m 755 "$app_path/Contents/MacOS/warren-headless" "$cli_install_directory/warren-headless"
 echo "Installed $install_path"
 echo "Installed CLI tools to $cli_install_directory"
+if [[ "$relaunch_after_install" == true ]]; then
+    open "$install_path"
+    echo "Relaunched $install_path"
+fi
