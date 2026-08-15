@@ -262,6 +262,16 @@ final class WarrenNextApplicationModel {
         case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession,
              .restoreNavigation:
             reconcileSurfaces(with: snapshot)
+        case .moveProject(let projectID, let before):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.run { try await self.service.moveProject(projectID, before: before) }
+            }
+        case .moveWorkspace(let workspaceID, let before):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.run { try await self.service.moveWorkspace(workspaceID, before: before) }
+            }
         case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
              .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
@@ -327,7 +337,7 @@ final class WarrenNextApplicationModel {
             return selectedWorkspaceID
         case .renameWorkspace(let workspaceID, _):
             return workspaceID
-        case .addProject, .importSuperset, .requestNewWorkspace,
+        case .addProject, .importSuperset, .requestNewWorkspace, .moveProject, .moveWorkspace,
              .selectProject, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             return nil
@@ -397,6 +407,7 @@ extension WarrenNextApplicationModel {
                 present(error)
             }
         case .addProject, .importSuperset, .requestNewWorkspace, .moveTab,
+             .moveProject, .moveWorkspace,
              .selectProject, .selectWorkspace, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             break
@@ -625,7 +636,7 @@ private extension WarrenDesktopAction {
     var requiresHostSideEffect: Bool {
         switch self {
         case .closeTab, .closeOtherTabs, .closeAllTabs, .renameWorkspace,
-             .openSession, .deleteSession, .launchSession:
+             .openSession, .deleteSession, .launchSession, .moveProject, .moveWorkspace:
             true
         case .addProject, .importSuperset, .requestNewWorkspace,
              .requestNewSession, .selectProject,

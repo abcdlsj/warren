@@ -595,4 +595,50 @@ final class WarrenDesktopTests: XCTestCase {
 
         XCTAssertNil(WarrenDesktopNavigationPersistence.restore(from: defaults))
     }
+
+    func testSidebarTreePersistenceIsPerScopeAndRoundTrips() throws {
+        let suiteName = "WarrenDesktopTests.sidebarTree.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let state = WarrenDesktopSidebarTreeState(
+            expandedProjectIDs: [ProjectID(), ProjectID()],
+            projectsCollapsed: true
+        )
+
+        WarrenDesktopSidebarTreePersistence.save(state, scope: "local", defaults: defaults)
+
+        XCTAssertEqual(
+            WarrenDesktopSidebarTreePersistence.restore(scope: "local", defaults: defaults),
+            state
+        )
+        XCTAssertEqual(
+            WarrenDesktopSidebarTreePersistence.restore(scope: "server", defaults: defaults),
+            WarrenDesktopSidebarTreeState()
+        )
+    }
+
+    func testNavigationReducerIgnoresSidebarMoves() {
+        let projection = WarrenDesktopFixture.preview.projection
+        let initial = WarrenDesktopNavigationReducer.initial(for: projection)
+        let projectID = projection.groups[0].project.id
+
+        XCTAssertEqual(
+            WarrenDesktopNavigationReducer.reduce(
+                initial,
+                action: .moveProject(projectID, before: nil),
+                in: projection
+            ),
+            initial
+        )
+        if let workspace = projection.groups[0].workspaces.first {
+            XCTAssertEqual(
+                WarrenDesktopNavigationReducer.reduce(
+                    initial,
+                    action: .moveWorkspace(workspace.id, before: nil),
+                    in: projection
+                ),
+                initial
+            )
+        }
+    }
 }

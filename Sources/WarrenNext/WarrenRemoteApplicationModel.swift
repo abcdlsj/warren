@@ -723,6 +723,14 @@ final class WarrenRemoteApplicationModel {
                 NSLocalizedDescriptionKey: "Remote workspace renaming is not available yet; "
                     + "continue managing it from the CLI.",
             ]))
+        case .moveProject(let projectID, let before):
+            var params = ["id": projectID.description]
+            if let before { params["before"] = before.description }
+            request("project.move", params: params)
+        case .moveWorkspace(let workspaceID, let before):
+            var params = ["id": workspaceID.description]
+            if let before { params["before"] = before.description }
+            request("workspace.move", params: params)
         case .importSuperset, .requestNewWorkspace, .requestNewSession, .moveTab,
              .toggleInspector, .toggleSidebar:
             break

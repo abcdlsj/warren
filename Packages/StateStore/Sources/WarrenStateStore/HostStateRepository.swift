@@ -16,6 +16,8 @@ public protocol HostStateRepository: Sendable {
     func updateSessionCursor(sessionID: TerminalSessionID, anchor: RecoveryAnchor) async throws
     func insertProject(_ project: Project, rootWorkspace: Workspace) async throws
     func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws
+    func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws
+    func moveWorkspace(_ workspaceID: WorkspaceID, before otherWorkspaceID: WorkspaceID?) async throws
     func upsertHost(_ host: WarrenDomain.Host) async throws
 }
 
@@ -47,6 +49,41 @@ public extension HostStateRepository {
     }
     func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws {
         var state = try await load(); state.workspaces.append(workspace); if let receipt { state.requestReceipts.append(receipt) }; try await save(state)
+    }
+    func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws {
+        var state = try await load()
+        guard let source = state.projects.firstIndex(where: { $0.id == projectID }) else { return }
+        var target = state.projects.endIndex
+        if let otherProjectID, let otherIndex = state.projects.firstIndex(where: { $0.id == otherProjectID }) {
+            target = otherIndex
+        }
+        let moved = state.projects.remove(at: source)
+        if source < target { target -= 1 }
+        state.projects.insert(moved, at: target)
+        for index in state.projects.indices { state.projects[index].order = index }
+        try await save(state)
+    }
+    func moveWorkspace(_ workspaceID: WorkspaceID, before otherWorkspaceID: WorkspaceID?) async throws {
+        var state = try await load()
+        guard let workspace = state.workspaces.first(where: { $0.id == workspaceID }) else { return }
+        let projectID = workspace.projectID
+        var scoped = state.workspaces.filter { $0.projectID == projectID }
+        guard let source = scoped.firstIndex(where: { $0.id == workspaceID }) else { return }
+        var target = scoped.endIndex
+        if let otherWorkspaceID, let otherIndex = scoped.firstIndex(where: { $0.id == otherWorkspaceID }) {
+            target = otherIndex
+        }
+        let moved = scoped.remove(at: source)
+        if source < target { target -= 1 }
+        scoped.insert(moved, at: target)
+        var orderByID: [WorkspaceID: Int] = [:]
+        for index in scoped.indices { orderByID[scoped[index].id] = index }
+        for index in state.workspaces.indices where state.workspaces[index].projectID == projectID {
+            if let order = orderByID[state.workspaces[index].id] {
+                state.workspaces[index].order = order
+            }
+        }
+        try await save(state)
     }
     func updateSessionSize(sessionID: TerminalSessionID, size: TerminalSize) async throws {
         var state = try await load()

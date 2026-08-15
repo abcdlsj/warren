@@ -26,7 +26,7 @@ public struct PersistedRequestReceipt: Codable, Hashable, Sendable {
 /// represented by WarrenDomain's strong identifiers.  Device-local layout and
 /// connection-scoped control state do not belong here.
 public struct PersistedHostState: Codable, Hashable, Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
 
     public var schemaVersion: Int
     public var hosts: [WarrenDomain.Host]

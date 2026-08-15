@@ -53,7 +53,60 @@ export function Sidebar({
   onOpenWorkspace,
   onNewSession,
   onOpenSettings,
+  onMoveProject,
+  onMoveWorkspace,
+  onBeginProjectDrag,
+  onEndProjectDrag,
 }) {
+  const [dragState, setDragState] = useState(null);
+  const [dragOverID, setDragOverID] = useState(null);
+
+  const beginDrag = (kind, id, projectID, event) => {
+    if (!(event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+    setDragOverID(null);
+    setDragState({ kind, id, projectID });
+    if (kind === "project") onBeginProjectDrag(expandedProjects);
+  };
+
+  const endDrag = () => {
+    if (dragState?.kind === "project") onEndProjectDrag();
+    setDragState(null);
+    setDragOverID(null);
+  };
+
+  const projectDragOver = (projectID, event) => {
+    if (dragState?.kind !== "project") return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dragOverID !== projectID) setDragOverID(projectID);
+  };
+
+  const workspaceDragOver = (workspace, event) => {
+    if (dragState?.kind !== "workspace" || dragState.projectID !== workspace.project) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dragOverID !== workspace.id) setDragOverID(workspace.id);
+  };
+
+  const dropProject = (beforeProjectID, event) => {
+    if (dragState?.kind !== "project") return;
+    event.preventDefault();
+    onMoveProject(dragState.id, beforeProjectID);
+    endDrag();
+  };
+
+  const dropWorkspace = (workspace, event) => {
+    if (dragState?.kind !== "workspace" || dragState.projectID !== workspace.project) return;
+    event.preventDefault();
+    onMoveWorkspace(dragState.id, workspace.id);
+    endDrag();
+  };
+
   return (
     <aside className="sidebar" aria-label="Projects and workspaces">
       <div className="brand">
@@ -71,7 +124,14 @@ export function Sidebar({
           const open = expandedProjects.has(project.id);
           return (
             <section className={`project${open ? " open" : ""}`} key={project.id}>
-              <div className="project-toggle">
+              <div
+                className={`project-toggle${dragOverID === project.id ? " drag-over" : ""}`}
+                draggable
+                onDragStart={event => beginDrag("project", project.id, null, event)}
+                onDragEnd={endDrag}
+                onDragOver={event => projectDragOver(project.id, event)}
+                onDrop={event => dropProject(project.id, event)}
+              >
                 <button
                   type="button"
                   className="project-toggle-main"
@@ -108,19 +168,56 @@ export function Sidebar({
                 {workspaces.map(workspace => (
                   <button
                     type="button"
-                    className={`workspace-row${workspace.id === activeWorkspace ? " active" : ""}`}
+                    className={`workspace-row${workspace.id === activeWorkspace ? " active" : ""}${dragOverID === workspace.id ? " drag-over" : ""}`}
                     key={workspace.id}
                     onClick={() => onChooseWorkspace(workspace.id)}
                     onDoubleClick={() => onOpenWorkspace(workspace.id)}
+                    draggable
+                    onDragStart={event => beginDrag("workspace", workspace.id, workspace.project, event)}
+                    onDragEnd={endDrag}
+                    onDragOver={event => workspaceDragOver(workspace, event)}
+                    onDrop={event => dropWorkspace(workspace, event)}
                   >
                     <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />
                     <span className="branch">{workspace.branch || workspace.name || "Workspace"}</span>
                   </button>
                 ))}
+                {dragState?.kind === "workspace" && dragState.projectID === project.id && (
+                  <div
+                    className={`sidebar-drop-end${dragOverID === "__workspace_end" ? " drag-over" : ""}`}
+                    onDragOver={event => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      if (dragOverID !== "__workspace_end") setDragOverID("__workspace_end");
+                    }}
+                    onDrop={event => {
+                      if (dragState?.kind !== "workspace") return;
+                      event.preventDefault();
+                      onMoveWorkspace(dragState.id, null);
+                      endDrag();
+                    }}
+                  />
+                )}
               </div>
             </section>
           );
         }) : <div className="workspace-row">No projects</div>}
+        {dragState?.kind === "project" && (
+          <div
+            className={`sidebar-drop-end${dragOverID === "__project_end" ? " drag-over" : ""}`}
+            onDragOver={event => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              if (dragOverID !== "__project_end") setDragOverID("__project_end");
+            }}
+            onDrop={event => {
+              if (dragState?.kind !== "project") return;
+              event.preventDefault();
+              onMoveProject(dragState.id, null);
+              endDrag();
+            }}
+          />
+        )}
       </div>
       <footer className="sidebar-footer">
         <button

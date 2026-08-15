@@ -95,6 +95,7 @@ Terminal Session
 | State | Single authority | Persisted |
 | --- | --- | --- |
 | Projects, Workspaces, Sessions | Host Store | Yes |
+| Project and Workspace sidebar order | Host Store | Yes |
 | Runtime Bindings, Session state | Host Store | Yes |
 | PTY output recovery position | Host Output Store | Yes |
 | Windows, Workspace Views, Tabs | Client Layout Store | Yes, device-local |

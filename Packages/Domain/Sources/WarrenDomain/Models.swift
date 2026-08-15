@@ -15,17 +15,38 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
     public let hostID: HostID
     public var name: String
     public var rootPath: String
+    /// Host-owned sidebar order. Zero is the legacy fallback (creation order).
+    public var order: Int
 
     public init(
         id: ProjectID = ProjectID(),
         hostID: HostID,
         name: String,
-        rootPath: String
+        rootPath: String,
+        order: Int = 0
     ) {
         self.id = id
         self.hostID = hostID
         self.name = name
         self.rootPath = rootPath
+        self.order = order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case hostID
+        case name
+        case rootPath
+        case order
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(ProjectID.self, forKey: .id)
+        hostID = try container.decode(HostID.self, forKey: .hostID)
+        name = try container.decode(String.self, forKey: .name)
+        rootPath = try container.decode(String.self, forKey: .rootPath)
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }
 }
 
@@ -35,19 +56,43 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
     public var name: String
     public var path: String
     public var branch: String?
+    /// Host-owned sidebar order within its project. Zero is the legacy
+    /// fallback (creation order).
+    public var order: Int
 
     public init(
         id: WorkspaceID = WorkspaceID(),
         projectID: ProjectID,
         name: String,
         path: String,
-        branch: String? = nil
+        branch: String? = nil,
+        order: Int = 0
     ) {
         self.id = id
         self.projectID = projectID
         self.name = name
         self.path = path
         self.branch = branch
+        self.order = order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectID
+        case name
+        case path
+        case branch
+        case order
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(WorkspaceID.self, forKey: .id)
+        projectID = try container.decode(ProjectID.self, forKey: .projectID)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }
 }
 

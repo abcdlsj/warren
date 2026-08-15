@@ -117,6 +117,44 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertTrue(runtimeRecords.isEmpty)
     }
 
+    func testMoveProjectAndWorkspacePersistHostOrder() async throws {
+        let repository = InMemoryHostStateRepository()
+        let host = Host(name: "Mac")
+        let alpha = Project(hostID: host.id, name: "alpha", rootPath: "/tmp/alpha", order: 1)
+        let bravo = Project(hostID: host.id, name: "bravo", rootPath: "/tmp/bravo", order: 0)
+        let alphaMain = Workspace(
+            projectID: alpha.id,
+            name: "main",
+            path: "/tmp/alpha",
+            branch: "main",
+            order: 1
+        )
+        let alphaReview = Workspace(
+            projectID: alpha.id,
+            name: "review",
+            path: "/tmp/alpha-review",
+            branch: "review",
+            order: 0
+        )
+        try await repository.save(PersistedHostState(
+            hosts: [host],
+            projects: [alpha, bravo],
+            workspaces: [alphaMain, alphaReview]
+        ))
+        let service = makeService(repository: repository)
+        try await service.start()
+
+        try await service.moveProject(alpha.id, before: bravo.id)
+        try await service.moveWorkspace(alphaMain.id, before: alphaReview.id)
+
+        let snapshot = await service.snapshot()
+        XCTAssertEqual(snapshot.projects.map(\.name), ["alpha", "bravo"])
+        XCTAssertEqual(snapshot.projects.map(\.order), [0, 1])
+        let alphaWorkspaces = snapshot.workspaces.filter { $0.projectID == alpha.id }
+        XCTAssertEqual(alphaWorkspaces.map(\.name), ["main", "review"])
+        XCTAssertEqual(alphaWorkspaces.map(\.order), [0, 1])
+    }
+
     func testFirstBootstrapCreatesStableLocalHost() async throws {
         let service = makeService()
         try await service.start()

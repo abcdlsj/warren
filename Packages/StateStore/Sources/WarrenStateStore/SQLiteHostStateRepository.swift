@@ -64,26 +64,28 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
 
                 let projects = try Row.fetchAll(
                     database,
-                    sql: "SELECT id, host_id, name, repository_path FROM projects ORDER BY created_at, id"
+                    sql: "SELECT id, host_id, name, repository_path, position FROM projects ORDER BY position, created_at, id"
                 ).map { row in
                     Project(
                         id: try Self.domainID(row: row, table: "projects", column: "id"),
                         hostID: try Self.domainID(row: row, table: "projects", column: "host_id"),
                         name: row["name"],
-                        rootPath: row["repository_path"]
+                        rootPath: row["repository_path"],
+                        order: row["position"]
                     )
                 }
 
                 let workspaces = try Row.fetchAll(
                     database,
-                    sql: "SELECT id, project_id, name, path, branch FROM workspaces ORDER BY created_at, id"
+                    sql: "SELECT id, project_id, name, path, branch, position FROM workspaces ORDER BY project_id, position, created_at, id"
                 ).map { row in
                     Workspace(
                         id: try Self.domainID(row: row, table: "workspaces", column: "id"),
                         projectID: try Self.domainID(row: row, table: "workspaces", column: "project_id"),
                         name: row["name"],
                         path: row["path"],
-                        branch: row["branch"]
+                        branch: row["branch"],
+                        order: row["position"]
                     )
                 }
 
@@ -308,15 +310,61 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
     public func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws {
         try await database.write { db in try db.execute(sql: "UPDATE workspaces SET name = ? WHERE id = ?", arguments: [name, workspaceID.description]) }
     }
+    public func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws {
+        do { try await database.write { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT id FROM projects ORDER BY position, created_at, id")
+            var ids: [ProjectID] = try rows.map { try Self.domainID(row: $0, table: "projects", column: "id") }
+            guard let source = ids.firstIndex(of: projectID) else { return }
+            var target = ids.endIndex
+            if let otherProjectID, let otherIndex = ids.firstIndex(of: otherProjectID) {
+                target = otherIndex
+            }
+            let moved = ids.remove(at: source)
+            if source < target { target -= 1 }
+            ids.insert(moved, at: target)
+            for (position, id) in ids.enumerated() {
+                try db.execute(sql: "UPDATE projects SET position = ? WHERE id = ?", arguments: [position, id.description])
+            }
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+    public func moveWorkspace(_ workspaceID: WorkspaceID, before otherWorkspaceID: WorkspaceID?) async throws {
+        do { try await database.write { db in
+            guard let projectID = try String.fetchOne(
+                db,
+                sql: "SELECT project_id FROM workspaces WHERE id = ?",
+                arguments: [workspaceID.description]
+            ) else { return }
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT id FROM workspaces WHERE project_id = ? ORDER BY position, created_at, id",
+                arguments: [projectID]
+            )
+            var ids: [WorkspaceID] = try rows.map { try Self.domainID(row: $0, table: "workspaces", column: "id") }
+            guard let source = ids.firstIndex(of: workspaceID) else { return }
+            var target = ids.endIndex
+            if let otherWorkspaceID, let otherIndex = ids.firstIndex(of: otherWorkspaceID) {
+                target = otherIndex
+            }
+            let moved = ids.remove(at: source)
+            if source < target { target -= 1 }
+            ids.insert(moved, at: target)
+            for (position, id) in ids.enumerated() {
+                try db.execute(sql: "UPDATE workspaces SET position = ? WHERE id = ?", arguments: [position, id.description])
+            }
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
     public func insertProject(_ project: Project, rootWorkspace: Workspace) async throws {
         do { try await database.write { db in
-            try db.execute(sql: "INSERT INTO projects (id, host_id, name, repository_path, repository_identity) VALUES (?, ?, ?, ?, ?)", arguments: [project.id.description, project.hostID.description, project.name, project.rootPath, Self.normalizedPath(project.rootPath)])
-            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind) VALUES (?, ?, ?, ?, ?, ?, ?)", arguments: [rootWorkspace.id.description, rootWorkspace.projectID.description, rootWorkspace.name, rootWorkspace.path, Self.normalizedPath(rootWorkspace.path), rootWorkspace.branch, "main_checkout"])
+            let projectPosition = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM projects") ?? 0
+            try db.execute(sql: "INSERT INTO projects (id, host_id, name, repository_path, repository_identity, position) VALUES (?, ?, ?, ?, ?, ?)", arguments: [project.id.description, project.hostID.description, project.name, project.rootPath, Self.normalizedPath(project.rootPath), projectPosition])
+            let workspacePosition = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM workspaces WHERE project_id = ?", arguments: [rootWorkspace.projectID.description]) ?? 0
+            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", arguments: [rootWorkspace.id.description, rootWorkspace.projectID.description, rootWorkspace.name, rootWorkspace.path, Self.normalizedPath(rootWorkspace.path), rootWorkspace.branch, "main_checkout", workspacePosition])
         }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
     }
     public func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws {
         do { try await database.write { db in
-            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind) VALUES (?, ?, ?, ?, ?, ?, ?)", arguments: [workspace.id.description, workspace.projectID.description, workspace.name, workspace.path, Self.normalizedPath(workspace.path), workspace.branch, "worktree"])
+            let position = try Int.fetchOne(db, sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM workspaces WHERE project_id = ?", arguments: [workspace.projectID.description]) ?? 0
+            try db.execute(sql: "INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", arguments: [workspace.id.description, workspace.projectID.description, workspace.name, workspace.path, Self.normalizedPath(workspace.path), workspace.branch, "worktree", position])
             if let receipt { try db.execute(sql: "INSERT INTO request_receipts (request_id, command_kind, resource_id, completed_at) VALUES (?, ?, ?, ?)", arguments: [receipt.requestID.uuidString.lowercased(), receipt.commandKind, receipt.resourceID, receipt.completedAt]) }
         }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
     }
@@ -347,8 +395,9 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                 for project in state.projects {
                     try database.execute(
                         sql: """
-                        INSERT INTO projects (id, host_id, name, repository_path, repository_identity)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO projects (
+                            id, host_id, name, repository_path, repository_identity, position
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             project.id.description,
@@ -356,14 +405,16 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             project.name,
                             project.rootPath,
                             Self.normalizedPath(project.rootPath),
+                            project.order,
                         ]
                     )
                 }
                 for workspace in state.workspaces {
                     try database.execute(
                         sql: """
-                        INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO workspaces (
+                            id, project_id, name, path, normalized_path, branch, kind, position
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             workspace.id.description,
@@ -375,6 +426,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             workspace.path == state.projects.first(where: {
                                 $0.id == workspace.projectID
                             })?.rootPath ? "main_checkout" : "worktree",
+                            workspace.order,
                         ]
                     )
                 }
@@ -511,11 +563,15 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         skippedProjects += 1
                     } else {
                         projectID = ProjectID().description
+                        let projectPosition = try Int.fetchOne(
+                            database,
+                            sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM projects"
+                        ) ?? 0
                         try database.execute(
                             sql: """
                             INSERT INTO projects (
-                                id, host_id, name, repository_path, repository_identity
-                            ) VALUES (?, ?, ?, ?, ?)
+                                id, host_id, name, repository_path, repository_identity, position
+                            ) VALUES (?, ?, ?, ?, ?, ?)
                             """,
                             arguments: [
                                 projectID,
@@ -523,6 +579,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                                 candidate.name,
                                 candidate.repositoryPath,
                                 repositoryIdentity,
+                                projectPosition,
                             ]
                         )
                         importedProjects.append(projectID)
@@ -543,11 +600,16 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             continue
                         }
                         let workspaceID = WorkspaceID().description
+                        let workspacePosition = try Int.fetchOne(
+                            database,
+                            sql: "SELECT COALESCE(MAX(position) + 1, 0) FROM workspaces WHERE project_id = ?",
+                            arguments: [projectID]
+                        ) ?? 0
                         try database.execute(
                             sql: """
                             INSERT INTO workspaces (
-                                id, project_id, name, path, normalized_path, branch, kind
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                id, project_id, name, path, normalized_path, branch, kind, position
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             arguments: [
                                 workspaceID,
@@ -557,6 +619,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                                 normalizedPath,
                                 workspace.branch,
                                 workspace.kind,
+                                workspacePosition,
                             ]
                         )
                         importedWorkspaces.append(workspaceID)
@@ -945,6 +1008,31 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
             try database.alter(table: "terminal_sessions") { table in
                 table.add(column: "agent_session_id", .text)
             }
+        }
+        migrator.registerMigration("v4_sidebar_order") { database in
+            try database.alter(table: "projects") { table in
+                table.add(column: "position", .integer).notNull().defaults(to: 0)
+            }
+            try database.alter(table: "workspaces") { table in
+                table.add(column: "position", .integer).notNull().defaults(to: 0)
+            }
+            // Backfill legacy rows in creation order so existing installs
+            // keep their current sidebar appearance after the migration.
+            try database.execute(sql: """
+                UPDATE projects SET position = (
+                    SELECT COUNT(*) FROM projects AS earlier
+                    WHERE earlier.created_at < projects.created_at
+                       OR (earlier.created_at = projects.created_at AND earlier.id < projects.id)
+                )
+                """)
+            try database.execute(sql: """
+                UPDATE workspaces SET position = (
+                    SELECT COUNT(*) FROM workspaces AS earlier
+                    WHERE earlier.project_id = workspaces.project_id
+                      AND (earlier.created_at < workspaces.created_at
+                           OR (earlier.created_at = workspaces.created_at AND earlier.id < workspaces.id))
+                )
+                """)
         }
         return migrator
     }()

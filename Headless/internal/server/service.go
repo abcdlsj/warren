@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -215,10 +216,37 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 		}
 		state, revision = s.Store.SnapshotVersion()
 	}
-	sort.Slice(state.Projects, func(i, j int) bool { return state.Projects[i].Name < state.Projects[j].Name })
-	sort.Slice(state.Workspaces, func(i, j int) bool { return state.Workspaces[i].CreatedAt.Before(state.Workspaces[j].CreatedAt) })
+	sortProjects(state.Projects)
+	sortWorkspaces(state.Workspaces)
 	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].CreatedAt.Before(state.Sessions[j].CreatedAt) })
 	return state, revision
+}
+
+func sortProjects(projects []api.Project) {
+	sort.Slice(projects, func(i, j int) bool {
+		if projects[i].Order != projects[j].Order {
+			return projects[i].Order < projects[j].Order
+		}
+		if projects[i].Name != projects[j].Name {
+			return projects[i].Name < projects[j].Name
+		}
+		return projects[i].CreatedAt.Before(projects[j].CreatedAt)
+	})
+}
+
+func sortWorkspaces(workspaces []api.Workspace) {
+	sort.Slice(workspaces, func(i, j int) bool {
+		if workspaces[i].ProjectID != workspaces[j].ProjectID {
+			return workspaces[i].ProjectID < workspaces[j].ProjectID
+		}
+		if workspaces[i].Order != workspaces[j].Order {
+			return workspaces[i].Order < workspaces[j].Order
+		}
+		if workspaces[i].CreatedAt != workspaces[j].CreatedAt {
+			return workspaces[i].CreatedAt.Before(workspaces[j].CreatedAt)
+		}
+		return workspaces[i].ID < workspaces[j].ID
+	})
 }
 
 func (s *Service) runningSessions(ctx context.Context) func(string) bool {
@@ -256,11 +284,118 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 				return fmt.Errorf("project already exists: %s", resolved)
 			}
 		}
+		project.Order = len(state.Projects)
 		state.Projects = append(state.Projects, project)
+		workspace.Order = nextWorkspaceOrder(state.Workspaces, project.ID)
 		state.Workspaces = append(state.Workspaces, workspace)
 		return nil
 	})
 	return project, err
+}
+
+// MoveProject moves one project before another project (or to the end when
+// before is empty) and renumbers the stored sidebar order.
+func (s *Service) MoveProject(id, before string) error {
+	return s.Store.Update(func(state *api.State) error {
+		sortProjects(state.Projects)
+		index := -1
+		for i := range state.Projects {
+			if state.Projects[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("project not found: %s", id)
+		}
+		target := len(state.Projects)
+		if before != "" {
+			found := false
+			for i := range state.Projects {
+				if state.Projects[i].ID == before {
+					target = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("before project not found: %s", before)
+			}
+		}
+		project := state.Projects[index]
+		state.Projects = append(state.Projects[:index], state.Projects[index+1:]...)
+		if index < target {
+			target--
+		}
+		state.Projects = slices.Insert(state.Projects, target, project)
+		for i := range state.Projects {
+			state.Projects[i].Order = i
+		}
+		return nil
+	})
+}
+
+// MoveWorkspace moves one workspace before another workspace inside the same
+// project (or to the end when before is empty) and renumbers the stored
+// per-project sidebar order.
+func (s *Service) MoveWorkspace(id, before string) error {
+	return s.Store.Update(func(state *api.State) error {
+		sortWorkspaces(state.Workspaces)
+		index := -1
+		projectID := ""
+		for i := range state.Workspaces {
+			if state.Workspaces[i].ID == id {
+				index = i
+				projectID = state.Workspaces[i].ProjectID
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("workspace not found: %s", id)
+		}
+		var ids []string
+		for _, workspace := range state.Workspaces {
+			if workspace.ProjectID == projectID {
+				ids = append(ids, workspace.ID)
+			}
+		}
+		target := len(ids)
+		if before != "" {
+			found := false
+			for i, workspaceID := range ids {
+				if workspaceID == before {
+					target = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("before workspace not found: %s", before)
+			}
+		}
+		source := -1
+		for i, workspaceID := range ids {
+			if workspaceID == id {
+				source = i
+				break
+			}
+		}
+		ids = append(ids[:source], ids[source+1:]...)
+		if source < target {
+			target--
+		}
+		ids = slices.Insert(ids, target, id)
+		orders := make(map[string]int, len(ids))
+		for i, workspaceID := range ids {
+			orders[workspaceID] = i
+		}
+		for i := range state.Workspaces {
+			if state.Workspaces[i].ProjectID == projectID {
+				state.Workspaces[i].Order = orders[state.Workspaces[i].ID]
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Service) RemoveProject(id string, force bool) error {
@@ -302,6 +437,9 @@ func (s *Service) RemoveProject(id string, force bool) error {
 			return true
 		})
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return !workspaceIDs[session.WorkspaceID] })
+		for i := range value.Projects {
+			value.Projects[i].Order = i
+		}
 		return nil
 	})
 }
@@ -339,7 +477,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 							name = defaultValue(branch, "main")
 						}
 						workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "root", CreatedAt: time.Now().UTC()}
-						if err := s.Store.Update(func(value *api.State) error { value.Workspaces = append(value.Workspaces, workspace); return nil }); err != nil {
+						if err := s.Store.Update(func(value *api.State) error {
+							workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
+							value.Workspaces = append(value.Workspaces, workspace)
+							return nil
+						}); err != nil {
 							return api.Workspace{}, err
 						}
 						return workspace, nil
@@ -348,7 +490,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						name = filepath.Base(resolved)
 					}
 					workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
-					if err := s.Store.Update(func(value *api.State) error { value.Workspaces = append(value.Workspaces, workspace); return nil }); err != nil {
+					if err := s.Store.Update(func(value *api.State) error {
+						workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
+						value.Workspaces = append(value.Workspaces, workspace)
+						return nil
+					}); err != nil {
 						return api.Workspace{}, err
 					}
 					return workspace, nil
@@ -371,7 +517,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		return api.Workspace{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: path, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
-	if err := s.Store.Update(func(value *api.State) error { value.Workspaces = append(value.Workspaces, workspace); return nil }); err != nil {
+	if err := s.Store.Update(func(value *api.State) error {
+		workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
+		value.Workspaces = append(value.Workspaces, workspace)
+		return nil
+	}); err != nil {
 		_, _ = exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", path).CombinedOutput()
 		return api.Workspace{}, err
 	}
@@ -410,8 +560,16 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, force bool) er
 		}
 	}
 	return s.Store.Update(func(value *api.State) error {
+		projectID := workspace.ProjectID
 		value.Workspaces = filter(value.Workspaces, func(w api.Workspace) bool { return w.ID != id })
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return session.WorkspaceID != id })
+		order := 0
+		for i := range value.Workspaces {
+			if value.Workspaces[i].ProjectID == projectID {
+				value.Workspaces[i].Order = order
+				order++
+			}
+		}
 		return nil
 	})
 }
@@ -1110,6 +1268,15 @@ func samePath(left, right string) bool {
 func safeName(value string) string {
 	replacer := strings.NewReplacer("/", "-", " ", "-", "..", "-")
 	return strings.Trim(replacer.Replace(value), ".-")
+}
+func nextWorkspaceOrder(workspaces []api.Workspace, projectID string) int {
+	order := 0
+	for _, workspace := range workspaces {
+		if workspace.ProjectID == projectID {
+			order++
+		}
+	}
+	return order
 }
 func filter[T any](values []T, keep func(T) bool) []T {
 	result := make([]T, 0, len(values))

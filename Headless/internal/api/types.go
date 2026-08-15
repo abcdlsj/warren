@@ -16,6 +16,7 @@ type Project struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
+	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -26,6 +27,7 @@ type Workspace struct {
 	Path      string    `json:"path"`
 	Branch    string    `json:"branch,omitempty"`
 	Kind      string    `json:"kind"`
+	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 

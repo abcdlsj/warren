@@ -130,11 +130,17 @@ func resourceCommand(args []string) error {
 	case "project.remove", "project.delete":
 		method = "project.remove"
 		result = &map[string]any{}
+	case "project.move":
+		method = "project.move"
+		result = &map[string]any{}
 	case "workspace.create", "workspace.add":
 		method = "workspace.create"
 		result = &api.Workspace{}
 	case "workspace.remove", "workspace.delete":
 		method = "workspace.remove"
+		result = &map[string]any{}
+	case "workspace.move":
+		method = "workspace.move"
 		result = &map[string]any{}
 	case "session.create", "session.add":
 		method = "session.create"
@@ -430,8 +436,8 @@ Usage:
 
 Commands:
   endpoint list|add|use|remove|current
-  project list|add|remove
-  workspace list|create|remove       (worktree is an alias)
+  project list|add|remove|move
+  workspace list|create|remove|move  (worktree is an alias)
   session list|create|delete|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
@@ -439,7 +445,9 @@ Commands:
 Examples:
   warren endpoint add vps --url http://127.0.0.1:8789 --token TOKEN --use
   warren project add /srv/my-repo
+  warren project move PROJECT_ID --before OTHER_PROJECT_ID
   warren workspace create PROJECT_ID --branch release/feature
+  warren workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session attach SESSION_ID
 `)
