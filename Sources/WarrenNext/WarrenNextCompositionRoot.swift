@@ -596,34 +596,14 @@ private struct WarrenNextTerminalSurfaceView: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if activeSurface != nil {
-                if searchPresented {
-                    WarrenTerminalSearchBar(
-                        presented: $searchPresented,
-                        query: $searchQuery,
-                        fieldFocused: $searchFieldFocused,
-                        surface: activeSurface
-                    )
-                    .padding(WarrenSpacing.compact)
-                } else {
-                    Button {
-                        searchPresented = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
-                            .frame(width: 26, height: 26)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 7)
-                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                    }
-                    .help("Find in Terminal (⌘F)")
-                    .accessibilityLabel("Find in Terminal")
-                    .padding(WarrenSpacing.compact)
-                }
+            if searchPresented, activeSurface != nil {
+                WarrenTerminalSearchBar(
+                    presented: $searchPresented,
+                    query: $searchQuery,
+                    fieldFocused: $searchFieldFocused,
+                    surface: activeSurface
+                )
+                .padding(WarrenSpacing.compact)
             }
         }
         .onChange(of: searchPresented) { _, presented in

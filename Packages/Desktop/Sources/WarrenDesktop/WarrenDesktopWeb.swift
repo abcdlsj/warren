@@ -64,6 +64,7 @@ public struct WarrenDesktopWebPanel: View {
                         }
                         .buttonStyle(WarrenPrimaryButtonStyle())
                         .controlSize(.small)
+                        .font(.system(size: 11, weight: .medium))
                         .frame(
                             maxWidth: .infinity,
                             minHeight: WarrenLayoutMetrics.compactControlHeight
@@ -72,6 +73,7 @@ public struct WarrenDesktopWebPanel: View {
                     Button("Open") { onOpenURL(url) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .font(.system(size: 11, weight: .medium))
                         .frame(
                             maxWidth: .infinity,
                             minHeight: WarrenLayoutMetrics.compactControlHeight
@@ -79,6 +81,7 @@ public struct WarrenDesktopWebPanel: View {
                     Button("Copy") { onCopyURL(url) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .font(.system(size: 11, weight: .medium))
                         .frame(
                             maxWidth: .infinity,
                             minHeight: WarrenLayoutMetrics.compactControlHeight
