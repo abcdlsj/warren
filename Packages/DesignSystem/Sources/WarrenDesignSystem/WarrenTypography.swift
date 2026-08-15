@@ -8,6 +8,13 @@ public enum WarrenTypography {
     public static let navigationItem = Font.system(size: 13, weight: .regular)
     /// Secondary row metadata is Superset's `text-xs` tier.
     public static let navigationMeta = Font.system(size: 12, weight: .regular)
+    /// Light settings navigation tiers. Settings chrome uses the light text
+    /// family so the sidebar reads as calm metadata instead of competing with
+    /// terminal content.
+    public static let settingsNavigationItem = Font.system(size: 13, weight: .light)
+    public static let settingsNavigationValue = Font.system(size: 11, weight: .light)
+    public static let settingsGroupLabel = Font.system(size: 10, weight: .light)
+    public static let settingsScreenTitle = Font.system(size: 20, weight: .light)
     /// Superset group headings are `text-xs font-medium`.
     public static let groupHeading = Font.system(size: 12, weight: .medium)
     /// Superset shortcuts are `text-xs tracking-widest`; Warren keeps the

@@ -109,6 +109,8 @@ public enum WarrenSpacing {
     public static let medium: CGFloat = 12
     public static let standard: CGFloat = 16
     public static let large: CGFloat = 24
+    /// Extra-large spacing for calm, breathing settings layouts.
+    public static let xlarge: CGFloat = 32
 }
 
 /// Shared corner-radius tokens. `base` is the confirmed Superset radius

@@ -610,13 +610,13 @@ export function SettingsPage({
   const sections = useMemo(() => [
     {
       id: "font",
-      label: "Terminal font",
+      label: "Font",
       description: "Applied to every web terminal.",
       keywords: ["font", "family", "size", "typography"],
     },
     {
       id: "title",
-      label: "Terminal title",
+      label: "Title",
       description: "Build a title from live Session metadata.",
       keywords: ["title", "template", "placeholder", "preview"],
     },
@@ -682,7 +682,14 @@ export function SettingsPage({
               onClick={() => setActiveSection(section.id)}
             >
               {section.id === "font" ? terminalIcon : <TitleIcon />}
-              <span>{section.label}</span>
+              <span className="settings-nav-item-text">
+                <span className="settings-nav-item-title">{section.label}</span>
+                <span className="settings-nav-item-value">
+                  {section.id === "font"
+                    ? `${fontFamily} · ${fontSize}px`
+                    : titleTemplate}
+                </span>
+              </span>
             </button>
           ))}
           {!visibleSections.length && <div className="settings-nav-empty">No settings found</div>}
