@@ -10,7 +10,6 @@ import GhosttyTerminal
 public struct GhosttyManagedSurface: View {
     public let surface: GhosttySurface
     public let isActive: Bool
-    public let isSettled: Bool
     public let focusDriver: GhosttyFocusDriver
     public let viewportSize: CGSize?
     public let onFocused: () -> Void
@@ -21,7 +20,6 @@ public struct GhosttyManagedSurface: View {
     public init(
         surface: GhosttySurface,
         isActive: Bool,
-        isSettled: Bool = true,
         focusDriver: GhosttyFocusDriver,
         viewportSize: CGSize? = nil,
         onFocused: @escaping () -> Void = {},
@@ -29,7 +27,6 @@ public struct GhosttyManagedSurface: View {
     ) {
         self.surface = surface
         self.isActive = isActive
-        self.isSettled = isSettled
         self.focusDriver = focusDriver
         self.viewportSize = viewportSize
         self.onFocused = onFocused
@@ -48,7 +45,7 @@ public struct GhosttyManagedSurface: View {
                 GhosttyWindowProbe(
                     state: surface.state,
                     focusDriver: focusDriver,
-                    hidden: !(isActive && isSettled)
+                    hidden: !isActive
                 ) {
                     guard isActive else { return }
                     focusDriver.moveFocus(

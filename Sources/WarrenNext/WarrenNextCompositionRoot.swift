@@ -49,7 +49,6 @@ struct WarrenNextCompositionRoot: View {
             WarrenNextTerminalSurfaceView(
                 context: context,
                 surfaces: remoteModel.mountedSurfaces,
-                settledSessionIDs: remoteModel.settledSessionIDs,
                 maintenanceMessage: remoteModel.maintenanceMessage,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)
@@ -547,7 +546,6 @@ private struct WarrenNextSupersetImportView: View {
 private struct WarrenNextTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaces: [GhosttySurface]
-    let settledSessionIDs: Set<TerminalSessionID>
     let maintenanceMessage: String?
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
@@ -581,7 +579,6 @@ private struct WarrenNextTerminalSurfaceView: View {
                             GhosttyManagedSurface(
                                 surface: surface,
                                 isActive: isActive,
-                                isSettled: settledSessionIDs.contains(surface.id),
                                 focusDriver: focusDriver,
                                 viewportSize: proxy.size,
                                 onFocused: {

@@ -388,7 +388,6 @@ final class WarrenRemoteApplicationModel {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
     private(set) var mountedSurfaces: [GhosttySurface] = []
-    private(set) var settledSessionIDs: Set<TerminalSessionID> = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Set while the daemon has announced an operator-initiated maintenance
@@ -497,7 +496,6 @@ final class WarrenRemoteApplicationModel {
         attachGeneration &+= 1
         outputAnchors.removeAll()
         suppressFramedAnchorUpdates.removeAll()
-        settledSessionIDs.removeAll()
         resizeTask?.cancel()
         resizeTask = nil
         focusTask?.cancel()
@@ -510,7 +508,6 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
         }
         mountedSurfaces.removeAll()
-        settledSessionIDs.removeAll()
     }
 
     private func removeMountedSurface(sessionID: TerminalSessionID) {
@@ -519,7 +516,6 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
             return true
         }
-        settledSessionIDs.remove(sessionID)
     }
 
     private func clearMaintenance() {
@@ -1193,13 +1189,6 @@ final class WarrenRemoteApplicationModel {
             )
             mountedSurfaces.append(surface)
         }
-        surface.onSettled = { [weak self] in
-            self?.settledSessionIDs.insert(sessionID)
-        }
-        surface.needsSettledReflow = existingSurface == nil
-        // Reveal immediately; the one-time post-snapshot reflow runs while
-        // visible instead of holding the tab black.
-        settledSessionIDs.insert(sessionID)
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)
@@ -1245,18 +1234,6 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
-            if existingSurface != nil {
-                // A reused surface keeps its settled grid; no reflow is needed
-                // and revealing it must not look like a re-layout.
-                settledSessionIDs.insert(sessionID)
-            }
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(5))
-                guard let self,
-                      self.attachGeneration == generation,
-                      self.selectedSessionID == sessionID else { return }
-                self.settledSessionIDs.insert(sessionID)
-            }
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
