@@ -227,6 +227,41 @@ final class WarrenApplicationTests: XCTestCase {
         XCTAssertEqual(finalSnapshot.windowLayout.activeWorkspaceID, first.id)
     }
 
+    func testCreateWorkspaceDefaultsToWorktreeRootDirectory() async throws {
+        let repository = InMemoryHostStateRepository()
+        let worktrees = WorktreeManagerSpy()
+        let root = try temporaryFolder().appendingPathComponent(".warren/worktrees")
+        let service = WarrenApplicationService(
+            repository: repository,
+            runtime: RestorableRuntime(),
+            gitWorktreeManager: worktrees,
+            worktreeRootDirectory: root
+        )
+        try await service.start()
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let project = try await service.addProject(folder: folder)
+
+        _ = try await service.createWorkspace(
+            projectID: project.id,
+            request: WorkspaceCreationRequest(branch: "feature/default")
+        )
+
+        let calls = await worktrees.creations
+        XCTAssertEqual(calls.count, 1)
+        let worktreePath = try XCTUnwrap(calls.first?.worktreePath)
+        XCTAssertTrue(
+            worktreePath.hasPrefix(root.path + "/"),
+            "expected default worktree under \(root.path), got \(worktreePath)"
+        )
+    }
+
+    func testDefaultWorktreeRootDirectoryUsesWarrenWorktrees() {
+        let root = WarrenApplicationDefaults.worktreeRootDirectory()
+        XCTAssertEqual(root.lastPathComponent, "worktrees")
+        XCTAssertEqual(root.deletingLastPathComponent().lastPathComponent, ".warren")
+    }
+
     func testLocalGitWorktreeManagerCreatesRealWorktree() async throws {
         let repository = try temporaryFolder()
         let worktree = repository.deletingLastPathComponent()

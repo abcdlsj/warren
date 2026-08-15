@@ -97,6 +97,33 @@ struct WarrenDesktopSidebarRows: View {
         } message: {
             Text("The Git branch name and worktree path are unchanged.")
         }
+        .onChange(of: groups) { oldGroups, newGroups in
+            guard let projectID = selectedProjectID else { return }
+            let oldCount = workspaceCount(for: projectID, in: oldGroups)
+            let newCount = workspaceCount(for: projectID, in: newGroups)
+            guard newCount > oldCount else { return }
+            _ = withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                expandedProjectIDs.insert(projectID)
+            }
+        }
+    }
+
+    private var selectedProjectID: ProjectID? {
+        switch selection {
+        case .project(let projectID):
+            return projectID
+        case .workspace(let workspaceID):
+            return groups.first { $0.workspaces.contains { $0.id == workspaceID } }?.project.id
+        case nil:
+            return nil
+        }
+    }
+
+    private func workspaceCount(
+        for projectID: ProjectID,
+        in groups: [WarrenDesktopProjectGroup]
+    ) -> Int {
+        groups.first { $0.project.id == projectID }?.workspaces.count ?? 0
     }
 
     private func select(_ newSelection: WarrenDesktopSidebarSelection) {

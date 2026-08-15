@@ -440,6 +440,8 @@ Examples:
   warren endpoint add vps --url http://127.0.0.1:8789 --token TOKEN --use
   warren project add /srv/my-repo
   warren workspace create PROJECT_ID --branch release/feature
+    --path is optional; omit it to create under ~/.warren/worktrees/
+    (pass --path only when the worktree must live somewhere specific)
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session attach SESSION_ID
 `)

@@ -63,7 +63,13 @@ warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
 ```
 
-All commands support `--json`. `worktree` is an alias for `workspace`.
+All commands support `--json`. `worktree` is an alias for `workspace`. For
+`workspace create`, `--path` is optional: omit it and the daemon places the new
+worktree under `~/.warren/worktrees/<project>/<workspace>-<branch>`; pass
+`--path /custom/path` only when the worktree must live somewhere specific.
+`session create` starts a durable terminal in an existing workspace; the
+Desktop and Web clients see it as soon as the daemon broadcasts the updated
+roster.
 
 ## API Boundaries
 

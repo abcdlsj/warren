@@ -31,7 +31,7 @@ struct WarrenNextWorkspaceCreatorView: View {
                     }
                 }
 
-            Text("Worktree files are stored under ~/.warren.")
+            Text("Worktree files are stored under ~/.warren/worktrees.")
                 .font(WarrenTypography.badge)
                 .foregroundStyle(.secondary)
 

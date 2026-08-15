@@ -141,6 +141,7 @@ export default function App() {
   const pendingRequestsRef = useRef(new Map());
   const inputQueueRef = useRef(null);
   const navigationBeforeSettingsRef = useRef(null);
+  const autoFocusOnAttachRef = useRef(true);
   if (inputQueueRef.current === null) {
     inputQueueRef.current = new InputQueue({
       limit: pendingInputLimit,
@@ -198,7 +199,7 @@ export default function App() {
     if (flush) inputQueueRef.current.flush(sessionID);
     // Touch devices must not pop the software keyboard as a side effect of
     // attaching a session; the user focuses the terminal by tapping it.
-    if (!isCoarsePointer()) terminalRef.current?.focus();
+    if (autoFocusOnAttachRef.current && !isCoarsePointer()) terminalRef.current?.focus();
   }, []);
 
   const sendInput = useCallback(data => {
@@ -336,9 +337,10 @@ export default function App() {
     return true;
   }, [request]);
 
-  const attachSession = useCallback((sessionID, force = false) => {
+  const attachSession = useCallback((sessionID, force = false, autoFocus = true) => {
     if (!sessionID) return;
     const state = appStateRef.current;
+    autoFocusOnAttachRef.current = autoFocus;
     if (!force && sessionID === state.attachedSession) {
       // Clicking the tab of the already-attached session is an explicit entry
       // into that shell; claim focus immediately instead of waiting for an
@@ -452,8 +454,8 @@ export default function App() {
     }
 
     setConnectionStatus({ message: "Connected", online: true });
-    if (state.activeSession) attachSession(state.activeSession);
-    else if (nextTabs.length) attachSession(nextTabs[0].id);
+    if (state.activeSession) attachSession(state.activeSession, false, false);
+    else if (nextTabs.length) attachSession(nextTabs[0].id, false, false);
     else if (activeTabWasRemoved) request("session.detach");
   }, [attachSession, clearTerminalSearch, request]);
 
@@ -552,7 +554,7 @@ export default function App() {
         fitTerminal();
         terminalRef.current?.scrollToBottom();
         const terminal = terminalRef.current;
-        if (terminal && document.hasFocus() && !isCoarsePointer()) {
+        if (autoFocusOnAttachRef.current && terminal && document.hasFocus() && !isCoarsePointer()) {
           terminal.focus();
           if (focusedSessionRef.current !== message.session) requestSessionFocus(true);
         }

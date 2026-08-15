@@ -202,6 +202,77 @@ func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	}
 }
 
+func TestRosterBroadcastsCreatedWorktreeAndSession(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	repository := filepath.Join(directory, "repository")
+	if err := os.MkdirAll(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", repository, "init", "--quiet").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %s: %v", output, err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"-C", repository, "add", "README.md"},
+		{"-C", repository, "-c", "user.name=Warren Test", "-c", "user.email=warren@example.invalid", "commit", "-m", "fixture"},
+	} {
+		if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git setup: %s: %v", output, err)
+		}
+	}
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test-vps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &memoryRuntime{sessions: map[string][]byte{}}
+	service := &Service{Store: state, Runtime: runtime, WorktreeRoot: filepath.Join(directory, "worktrees")}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", slog.Default()).Handler())
+	defer httpServer.Close()
+
+	mutator := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer mutator.Close()
+	observer := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer observer.Close()
+	waitForRoster(t, observer, func(api.State) bool { return true })
+
+	project := requestResult[api.Project](t, mutator, "project.add", map[string]any{"path": repository})
+	workspace := requestResult[api.Workspace](t, mutator, "workspace.create", map[string]any{
+		"project": project.ID,
+		"branch":  "feature/live",
+	})
+	if workspace.Kind != "worktree" {
+		t.Fatalf("expected worktree workspace, got %#v", workspace)
+	}
+	relative, err := filepath.Rel(filepath.Clean(service.WorktreeRoot), filepath.Clean(workspace.Path))
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		t.Fatalf("worktree path %q is outside root %q", workspace.Path, service.WorktreeRoot)
+	}
+	waitForRoster(t, observer, func(state api.State) bool {
+		for _, value := range state.Workspaces {
+			if value.ID == workspace.ID {
+				return true
+			}
+		}
+		return false
+	})
+
+	session := requestResult[api.Session](t, mutator, "session.create", map[string]any{
+		"workspace": workspace.ID,
+		"kind":      "shell",
+	})
+	waitForRoster(t, observer, func(state api.State) bool {
+		for _, value := range state.Sessions {
+			if value.ID == session.ID {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestRejectsInvalidToken(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
@@ -411,6 +482,32 @@ func openAuthenticatedConnection(t *testing.T, serverURL, path string) *websocke
 		t.Fatalf("unexpected welcome: %#v", welcome)
 	}
 	return connection
+}
+
+func waitForRoster(t *testing.T, connection *websocket.Conn, matches func(api.State) bool) api.State {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	defer connection.SetReadDeadline(time.Time{})
+	for {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if kind != websocket.TextMessage {
+			continue
+		}
+		var message struct {
+			Type  string    `json:"t"`
+			State api.State `json:"state"`
+		}
+		if json.Unmarshal(data, &message) != nil || message.Type != "roster" {
+			continue
+		}
+		if matches(message.State) {
+			return message.State
+		}
+	}
 }
 
 func readBrowserMessage(t *testing.T, connection *websocket.Conn, messageType string) map[string]any {
