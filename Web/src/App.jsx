@@ -428,6 +428,7 @@ export default function App() {
       reanchorRequiredRef.current = false;
       requestAnimationFrame(() => {
         fitTerminal();
+        terminalRef.current?.scrollToBottom();
         const terminal = terminalRef.current;
         if (terminal && document.hasFocus()) {
           terminal.focus();
@@ -561,7 +562,14 @@ export default function App() {
       // DOM renderer.
     }
     const batcher = new OutputBatcher({
-      write: bytes => terminal.write(bytes),
+      write: bytes => {
+        const buffer = terminal.buffer.active;
+        const followsOutput = buffer.viewportY === buffer.baseY;
+        terminal.write(bytes);
+        // Keep a terminal that is already pinned to the bottom glued to new
+        // output; a user who scrolled up keeps their place.
+        if (followsOutput) terminal.scrollToBottom();
+      },
       onOverflow: () => {
         reanchorRequiredRef.current = true;
         connectionRef.current?.reset();

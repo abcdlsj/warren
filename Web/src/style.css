@@ -150,12 +150,14 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
   .topbar { padding-top:env(safe-area-inset-top); height:calc(44px + env(safe-area-inset-top)); }
   .menu-button { display:block; flex:0 0 auto; height:44px; }
   .tabs { height:44px; }
-  .tab { min-width:104px; height:44px; padding:0 10px; }
-  .new-session { height:44px; }
+  .tab { width:112px; min-width:112px; max-width:112px; flex:0 0 112px; height:44px; padding:0 10px; }
+  .new-session { width:44px; height:44px; font-size:18px; line-height:1; }
+  .topbar .chrome-button { width:44px; height:44px; }
   .chrome-spacer { display:none; }
+  .presetbar .preset { flex:1 1 0; min-width:86px; justify-content:center; }
   #terminal { inset:6px 4px; }
   .mobile-keys { display:flex; align-items:flex-start; gap:5px; padding:5px 7px calc(5px + env(safe-area-inset-bottom)); overflow-x:auto; border-top:1px solid var(--muted); background:var(--panel); }
-  .mobile-key { min-width:42px; height:31px; border:1px solid var(--ring); border-radius:5px; background:var(--muted); color:var(--fg); }
+  .mobile-key { width:48px; min-width:48px; flex:0 0 48px; height:31px; padding:0; display:grid; place-items:center; border:1px solid var(--ring); border-radius:5px; background:var(--muted); color:var(--fg); cursor:pointer; }
   .settings-page.open { flex-direction:column; }
   .settings-nav { width:auto; min-width:0; padding:calc(10px + env(safe-area-inset-top)) 12px 8px; overflow:visible; border-right:0; border-bottom:1px solid var(--muted); }
   .settings-nav-top { flex-direction:row; align-items:center; margin-bottom:10px; }

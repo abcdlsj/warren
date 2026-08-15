@@ -146,6 +146,14 @@ export function TopBar({
   onOpenMenu,
   onOpenSearch,
 }) {
+  const tabRefs = useRef(new Map());
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const node = tabRefs.current.get(activeSession);
+    node?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [activeSession, tabs]);
+
   return (
     <header className="topbar">
       <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
@@ -160,6 +168,10 @@ export function TopBar({
               className={`tab${active ? " active" : ""}`}
               key={session.id}
               onClick={() => onAttachSession(session.id)}
+              ref={node => {
+                if (node) tabRefs.current.set(session.id, node);
+                else tabRefs.current.delete(session.id);
+              }}
             >
               <ActivityDot activity={session.activity} />
               <span className="tab-title">{session.title}</span>
