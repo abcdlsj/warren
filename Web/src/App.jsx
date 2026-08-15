@@ -376,7 +376,8 @@ export default function App() {
       // into that shell; claim focus immediately instead of waiting for an
       // attach round-trip that will never arrive.
       refreshTerminal();
-      if (!isCoarsePointer()) terminalRef.current?.focus();
+      if (isCoarsePointer()) requestSessionFocus(true);
+      else terminalRef.current?.focus();
       return;
     }
     const changed = sessionID !== state.activeSession;
@@ -398,8 +399,14 @@ export default function App() {
       ? null
       : recoveryAnchorRef.current;
     const message = attachTerminalMessage(sessionID, terminalRef.current, anchor);
-    request(message.method, message.params, () => markAttachReady(sessionID));
-  }, [clearTerminalSearch, markAttachReady, refreshTerminal, request]);
+    request(message.method, message.params, () => {
+      markAttachReady(sessionID);
+      // Mobile viewers need the shared PTY geometry before the first tap so
+      // the shell reflows to the phone viewport. Claiming protocol focus here
+      // does not focus the textarea, so the soft keyboard stays closed.
+      if (isCoarsePointer()) requestSessionFocus(true);
+    });
+  }, [clearTerminalSearch, markAttachReady, refreshTerminal, request, requestSessionFocus]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
@@ -811,7 +818,12 @@ export default function App() {
     });
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const onTerminalFocus = () => requestSessionFocus(true);
-    const onTerminalBlur = () => requestSessionFocus(false);
+    const onTerminalBlur = () => {
+      // Touch devices keep the protocol focus after the keyboard closes so
+      // later layout changes (rotation, keyboard collapse) still reflow the
+      // shell while the user is just viewing.
+      if (!isCoarsePointer()) requestSessionFocus(false);
+    };
     const copySelectionOnMouseUp = event => {
       // Ghostty on macOS copies a completed selection to the clipboard; mirror
       // that behavior for web mouse users. Touch selection is left to the
@@ -825,7 +837,9 @@ export default function App() {
     terminal.element?.addEventListener("mouseup", copySelectionOnMouseUp);
     terminal.textarea?.addEventListener("focus", onTerminalFocus);
     terminal.textarea?.addEventListener("blur", onTerminalBlur);
-    const releaseWindowFocus = () => requestSessionFocus(false);
+    const releaseWindowFocus = () => {
+      if (!isCoarsePointer()) requestSessionFocus(false);
+    };
     const claimWindowFocus = () => {
       if (terminal.element?.contains(document.activeElement)) requestSessionFocus(true);
     };

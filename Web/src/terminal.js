@@ -11,7 +11,15 @@ export function attachTerminalMessage(session, terminal, anchor = null) {
   // Attaching subscribes to output only. The focused terminal claims the
   // shared PTY geometry through session.focus after it actually receives UI
   // focus, so a background browser cannot resize a desktop session.
+  const size = terminalSize(terminal);
   const params = { id: session, focused: false };
+  if (size) {
+    // A passive attach still carries the viewer's viewport size. The server
+    // resizes the shared runtime with it when nobody owns focus, which lets
+    // a mobile viewer reflow the shell before the first tap.
+    params.cols = size.cols;
+    params.rows = size.rows;
+  }
   if (anchor) {
     params.epoch = anchor.epoch;
     params.sequence = anchor.sequence;
