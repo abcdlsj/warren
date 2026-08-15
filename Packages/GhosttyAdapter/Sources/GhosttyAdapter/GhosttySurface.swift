@@ -81,6 +81,17 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             workingDirectory: workingDirectory
         )
         self.state = state
+
+        // A reanchor snapshot is fed in bounded background chunks. Ghostty
+        // requests a frame after each write, but a frame can land while the
+        // grid is only partially replayed and stay on screen until the next
+        // real resize. Once the queue has fully drained, request one final
+        // renderer-thread frame so the settled snapshot is presented.
+        outputWriter.setOnDrained { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.presentSettledOutput()
+            }
+        }
     }
 
     public func markRendered(epoch: UInt64, sequence: UInt64) {
@@ -118,6 +129,17 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// mid-update.
     public func refreshAfterReentry() {
         requestDisplayRefresh()
+    }
+
+    /// Presents the settled grid after the output queue drains.
+    ///
+    /// Renderer-thread refresh only: never pair this with an inline draw, or
+    /// an older queued frame can land after a newer present and roll part of
+    /// the pane backwards.
+    public func presentSettledOutput() {
+        state.controller.tick()
+        guard let raw = state.surface?.rawValue else { return }
+        ghostty_surface_refresh(raw)
     }
 
     public func apply(font: TerminalFontPreference) {
