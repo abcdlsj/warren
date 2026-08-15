@@ -40,6 +40,21 @@ notify_maintenance() {
         >/dev/null 2>&1 || true
 }
 
+force_terminate() {
+    local pattern="$1"
+    pkill -TERM -f "$pattern$" >/dev/null 2>&1 || true
+    for _ in {1..30}; do
+        pgrep -f "$pattern$" >/dev/null 2>&1 || return 0
+        sleep 0.1
+    done
+    pkill -KILL -f "$pattern$" >/dev/null 2>&1 || true
+    for _ in {1..30}; do
+        pgrep -f "$pattern$" >/dev/null 2>&1 || return 0
+        sleep 0.1
+    done
+    return 1
+}
+
 echo "Building Warren.app (release)..."
 bash "$repository_root/scripts/build-app.sh" release
 
@@ -58,25 +73,22 @@ if is_running; then
     done
 fi
 
+if is_running; then
+    force_terminate "$executable_path" || true
+    force_terminate "$installed_executable_path" || true
+fi
+
 if is_menubar_running; then
-    pkill -f "$menubar_executable_path$" >/dev/null 2>&1 || true
-    pkill -f "$installed_menubar_executable_path$" >/dev/null 2>&1 || true
-    for _ in {1..50}; do
-        is_menubar_running || break
-        sleep 0.1
-    done
+    force_terminate "$menubar_executable_path" || true
+    force_terminate "$installed_menubar_executable_path" || true
 fi
 
 # The daemon is deliberately independent during normal Desktop shutdown, but
 # an app update must replace its executable too. tmux sessions survive SIGTERM
 # and the new menu-bar process will start the freshly installed daemon.
 if is_daemon_running; then
-    pkill -f "$daemon_executable_path$" >/dev/null 2>&1 || true
-    pkill -f "$installed_daemon_executable_path$" >/dev/null 2>&1 || true
-    for _ in {1..50}; do
-        is_daemon_running || break
-        sleep 0.1
-    done
+    force_terminate "$daemon_executable_path" || true
+    force_terminate "$installed_daemon_executable_path" || true
 fi
 
 if is_running; then
