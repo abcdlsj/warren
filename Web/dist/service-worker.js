@@ -15,6 +15,6 @@ self.addEventListener("activate", event => {
 });
 self.addEventListener("fetch", event => {
   const pathname = new URL(event.request.url).pathname;
-  if (event.request.method !== "GET" || ["/ws", "/v1/ws", "/v1/client/connect"].includes(pathname)) return;
+  if (event.request.method !== "GET" || ["/v1/ws", "/v1/client/connect"].includes(pathname)) return;
   event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
 });

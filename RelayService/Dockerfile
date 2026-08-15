@@ -3,7 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY relayassets.go ./
-COPY Packages/WebRelay/Sources/WebRelay/Resources ./Packages/WebRelay/Sources/WebRelay/Resources
+COPY Web/dist ./Web/dist
 COPY RelayService ./RelayService
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/warren-relay ./RelayService/cmd/warren-relay
 

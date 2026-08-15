@@ -15,8 +15,11 @@ export class OutputBatcher {
     onOverflow = () => {},
   }) {
     this.write = write;
-    this.requestFrame = requestFrame;
-    this.cancelFrame = cancelFrame;
+    // Keep the injected frame callbacks behind wrappers: native
+    // `requestAnimationFrame` and `cancelAnimationFrame` reject calls with a
+    // non-Window receiver.
+    this.requestFrame = (...args) => requestFrame(...args);
+    this.cancelFrame = (...args) => cancelFrame(...args);
     this.maxPending = maxPending;
     this.isHidden = isHidden;
     this.onOverflow = onOverflow;

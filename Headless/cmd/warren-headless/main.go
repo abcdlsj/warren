@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/server"
 	"github.com/abcdlsj/warren/Headless/internal/store"
+	"github.com/abcdlsj/warren/Headless/internal/tunnel"
 )
 
 var version = "dev"
@@ -27,13 +29,15 @@ const tokenRepairInterval = time.Second
 
 func main() {
 	configDir := defaultConfigDirectory()
-	listen := flag.String("listen", env("WARREN_LISTEN", "127.0.0.1:8789"), "listen address (loopback is recommended)")
+	listen := flag.String("listen", env("WARREN_LISTEN", "0.0.0.0:8789"), "listen address (all interfaces by default for LAN access; token-protected, do not expose to the public internet)")
 	statePath := flag.String("state", env("WARREN_STATE", filepath.Join(configDir, "state.json")), "state file")
 	tokenPath := flag.String("token-file", env("WARREN_TOKEN_FILE", filepath.Join(configDir, "token")), "authentication token file")
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
+	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
+	tailscalePath := flag.String("tailscale-path", os.Getenv("WARREN_TAILSCALE_PATH"), "tailscale binary path")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
@@ -65,33 +69,35 @@ func main() {
 		stopService()
 		service.Shutdown()
 	}()
-	handler := server.NewHTTPServer(service, token, logger).Handler()
-	httpServer := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	httpHandler := server.NewHTTPServer(service, token, logger)
+	httpServer := &http.Server{Addr: *listen, Handler: httpHandler.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
 		fatal(err)
 	}
+	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
+	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath)
+	httpHandler.BuildVersion = version
+	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {
 		if err := httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			fatal(err)
 		}
 	}()
-	// The loopback Web Relay is part of the same daemon lifecycle. It shares
-	// the authenticated WebSocket protocol and tmux authority with /v1/ws.
-	webRelayServer := &http.Server{Addr: "127.0.0.1:8788", Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	go func() {
-		if err := webRelayServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("web relay stopped", "error", err)
-		}
-	}()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	_ = httpServer.Close()
-	_ = webRelayServer.Close()
 	stopService()
 	service.Shutdown()
+}
+
+func listenerPort(listener net.Listener) string {
+	if address, ok := listener.Addr().(*net.TCPAddr); ok {
+		return strconv.Itoa(address.Port)
+	}
+	return "8789"
 }
 
 func loadOrCreateToken(path string) (string, error) {

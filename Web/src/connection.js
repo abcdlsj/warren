@@ -6,7 +6,7 @@ export function reconnectDelay(attempt, random = Math.random) {
   return Math.round(base * (0.8 + random() * 0.4));
 }
 
-export class RelayConnection {
+export class WarrenConnection {
   constructor({
     url,
     token,

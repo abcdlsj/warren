@@ -170,9 +170,9 @@ SSH 只承担远端 daemon 引导和 loopback 端口转发。`warren ssh` 建立
 
 Tailscale、局域网、Cloudflare Tunnel 只提供网络可达性，不进入业务模型。中心 Relay Service 只提供 Host 注册、发现、配对、撤销、信令和 WebSocket Relay；Session 与进程仍由 Host 持有。
 
-WebRelay 默认只绑定 `127.0.0.1`。移动端访问和 PWA 安装使用用户显式启动的 Cloudflare Tunnel 或 Tailscale Serve HTTPS 地址；访问 URL 携带随机配对 token，WebSocket 握手后仍须认证。慢 Web Client 使用有界非阻塞发送队列，不能阻塞 macOS 主线程或 Host 输出。
+The local Web service and daemon share `8789` and listen on `0.0.0.0` by default so mobile devices on the same LAN can connect directly. Public access still uses an explicitly started Cloudflare Tunnel or Tailscale Serve HTTPS URL; the URL carries a random pairing token and the WebSocket handshake still requires authentication. Slow Web clients use a bounded non-blocking send queue and must never block the macOS main thread or Host output.
 
-Web/PWA 客户端使用 React + Vite，源码位于 `Web/`。React 负责组件树和客户端状态，xterm 负责终端绘制；`Packages/WebRelay/Sources/WebRelay/Resources` 只保存构建产物，由 Swift WebRelay 和 Go Relay Service 共同嵌入；不得直接维护单文件内嵌脚本副本。
+Web/PWA 客户端使用 React + Vite，源码位于 `Web/`。React 负责组件树和客户端状态，xterm 负责终端绘制；`Web/dist` 只保存构建产物，由 Go daemon 和 Go Relay Service 共同嵌入；不得直接维护单文件内嵌脚本副本。
 
 远端控制面是独立可部署进程。每台 Host 由管理员签发独立 credential，只向 Relay 建立出站 WSS；Relay 以 connection ID 多路复用 Web Client，不连接 macOS 入站端口。短期一次性 pairing code 换取绑定 Host 与 credential generation 的 HMAC access token；撤销或轮换 Host credential 必须立即断开 Host 并使旧 token 失效。Relay 持久化 credential hash、generation 和在线元数据，不保存 Project/Workspace/Session、Terminal 输出或用户输入。公网部署必须在 TLS 后、配置严格 Origin、强随机 Secret 和持久数据卷。
 

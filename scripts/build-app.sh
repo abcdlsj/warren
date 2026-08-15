@@ -29,8 +29,9 @@ swift build \
     --configuration "$configuration" \
     --product WarrenDaemonMenuBar
 
-go build -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
-go build -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
+build_version="$(bash "$repository_root/scripts/version.sh")"
+go build -ldflags "-X main.version=$build_version" -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
+go build -ldflags "-X main.version=$build_version" -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
 
 binary_directory="$(
     swift build \
@@ -55,7 +56,7 @@ install -m 644 "$repository_root/Assets/Brand/Warren.icns" "$staging_path/Conten
 cp -R \
     "$binary_directory/WarrenDesktop_WarrenDesktop.bundle" \
     "$staging_path/Contents/Resources/WarrenDesktop_WarrenDesktop.bundle"
-cp -R "$repository_root/Packages/WebRelay/Sources/WebRelay/Resources/." "$staging_path/Contents/Resources/"
+cp -R "$repository_root/Web/dist/." "$staging_path/Contents/Resources/"
 
 codesign --force --sign - "$staging_path"
 rm -rf "$app_path"

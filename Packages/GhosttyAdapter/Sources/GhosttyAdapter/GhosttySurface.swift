@@ -76,6 +76,14 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         inMemory.receive(payload)
     }
 
+    /// Requests an immediate Ghostty display tick. The first reanchor
+    /// snapshot can be written before the surface's display loop has painted
+    /// anything; an explicit tick renders it without waiting for the next
+    /// resize or keystroke.
+    public func requestDisplayRefresh() {
+        state.controller.tick()
+    }
+
     public func apply(font: TerminalFontPreference) {
         _ = state.controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
     }

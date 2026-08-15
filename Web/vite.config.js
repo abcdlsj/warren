@@ -1,15 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { fileURLToPath, URL } from "node:url";
 
 export default defineConfig({
   base: "/",
   plugins: [react()],
   build: {
-    outDir: fileURLToPath(new URL(
-      "../Packages/WebRelay/Sources/WebRelay/Resources",
-      import.meta.url,
-    )),
+    outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {

@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
+	"github.com/abcdlsj/warren/Headless/internal/tunnel"
 	"github.com/gorilla/websocket"
 )
 
@@ -32,10 +35,12 @@ const (
 )
 
 type HTTPServer struct {
-	Service  *Service
-	Token    string
-	Logger   *slog.Logger
-	upgrader websocket.Upgrader
+	Service      *Service
+	Token        string
+	Logger       *slog.Logger
+	Tunnels      *tunnel.Manager
+	BuildVersion string
+	upgrader     websocket.Upgrader
 }
 
 type rosterMessage struct {
@@ -52,21 +57,83 @@ func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPSer
 			ReadBufferSize: 256 * 1024, WriteBufferSize: 256 * 1024,
 			CheckOrigin: func(request *http.Request) bool {
 				origin := request.Header.Get("Origin")
-				return origin == "" || strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost")
+				return origin == "" || sameOrigin(request, origin)
 			},
 		},
 	}
+}
+
+// sameOrigin allows the Web UI served from any host/IP to open the WebSocket
+// (for example a phone reaching the daemon over LAN), while still rejecting
+// cross-site browser connections. Loopback prefixes are kept as a compatibility
+// fallback for local clients that connect through a proxy with a different Host.
+func sameOrigin(request *http.Request, origin string) bool {
+	if strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "http://localhost") ||
+		strings.HasPrefix(origin, "http://[::1]") {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return false
+	}
+	scheme := effectiveScheme(request)
+	if parsed.Scheme != scheme {
+		return false
+	}
+	originHost := parsed.Hostname()
+	originPort := parsed.Port()
+	if originPort == "" {
+		originPort = defaultPort(parsed.Scheme)
+	}
+	requestHost, requestPort := request.Host, ""
+	if host, port, err := net.SplitHostPort(request.Host); err == nil {
+		requestHost, requestPort = host, port
+	}
+	if requestPort == "" {
+		requestPort = defaultPort(scheme)
+	}
+	return strings.EqualFold(requestHost, originHost) && requestPort == originPort
+}
+
+// effectiveScheme returns the scheme the browser actually used, honoring TLS
+// termination by cloudflared or Tailscale Serve.
+func effectiveScheme(request *http.Request) string {
+	if forwarded := request.Header.Get("X-Forwarded-Proto"); forwarded != "" {
+		if fields := strings.Fields(forwarded); len(fields) > 0 {
+			if scheme := fields[0]; scheme == "http" || scheme == "https" {
+				return scheme
+			}
+		}
+	}
+	if request.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func defaultPort(scheme string) string {
+	if scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 func (s *HTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true, "version": api.Version})
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"ok":      true,
+			"version": api.Version,
+			"build":   s.BuildVersion,
+		})
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)
 	mux.HandleFunc("GET /v1/ws", s.handleWebSocket)
-	mux.HandleFunc("GET /ws", s.handleWebSocket)
+	mux.HandleFunc("GET /v1/tunnels", s.handleTunnels)
+	mux.HandleFunc("POST /v1/tunnels/start", s.handleTunnelStart)
+	mux.HandleFunc("POST /v1/tunnels/stop", s.handleTunnelStop)
 	mux.HandleFunc("GET /", s.handleWebAsset)
 	mux.HandleFunc("GET /service-worker.js", s.handleWebAsset)
 	mux.HandleFunc("GET /manifest.webmanifest", s.handleWebAsset)
@@ -142,13 +209,78 @@ func (s *HTTPServer) handleState(writer http.ResponseWriter, request *http.Reque
 	_ = json.NewEncoder(writer).Encode(s.Service.Roster(request.Context()))
 }
 
+func (s *HTTPServer) handleTunnels(writer http.ResponseWriter, request *http.Request) {
+	if !s.authorized(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")) {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.Tunnels == nil {
+		http.Error(writer, "tunnel manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(tunnelResponse(s.Tunnels.Status(), s.Token))
+}
+
+func (s *HTTPServer) handleTunnelStart(writer http.ResponseWriter, request *http.Request) {
+	s.handleTunnelControl(writer, request, true)
+}
+
+func (s *HTTPServer) handleTunnelStop(writer http.ResponseWriter, request *http.Request) {
+	s.handleTunnelControl(writer, request, false)
+}
+
+func (s *HTTPServer) handleTunnelControl(writer http.ResponseWriter, request *http.Request, start bool) {
+	if !s.authorized(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")) {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if s.Tunnels == nil {
+		http.Error(writer, "tunnel manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Kind string `json:"kind"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body) != nil {
+		http.Error(writer, "invalid request", http.StatusBadRequest)
+		return
+	}
+	var err error
+	if start {
+		_, err = s.Tunnels.Start(body.Kind)
+	} else {
+		err = s.Tunnels.Stop(body.Kind)
+	}
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(tunnelResponse(s.Tunnels.Status(), s.Token))
+}
+
+func tunnelResponse(status map[string]tunnel.Status, token string) map[string]any {
+	result := make(map[string]any, len(status))
+	for kind, value := range status {
+		item := map[string]any{"running": value.Running}
+		if value.URL != "" {
+			item["url"] = value.URL
+			item["web_url"] = value.URL + "#t=" + token
+		}
+		if value.Error != "" {
+			item["error"] = value.Error
+		}
+		result[kind] = item
+	}
+	return map[string]any{"tunnels": result}
+}
+
 func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
 	connection, err := s.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		return
 	}
-	// /ws remains as a URL compatibility alias for the browser. Both it and
-	// /v1/ws use the same authenticated request/response protocol.
 	peer := newWSPeer(s, connection)
 	defer peer.close()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))

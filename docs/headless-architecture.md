@@ -71,7 +71,7 @@ Local 与 Server 是两套独立 Host 资源树。切换 endpoint 只切换投�
 
 - spool 达到上限时执行 in-place 压缩（archive + truncate）并 bump epoch；
   所有客户端以 tmux 屏幕快照 reanchor，不做静默字节裁剪。
-- Headless Go's `/v1/ws` and `/ws` expose one request/response control protocol.
+- Headless Go's `/v1/ws` exposes one request/response control protocol.
   `session.attach` creates an output subscription only (and carries the
   `epoch/sequence` recovery anchor); a client sends `session.focus` with an
   optional `cols/rows` viewport after it gains UI focus. Host only lets the

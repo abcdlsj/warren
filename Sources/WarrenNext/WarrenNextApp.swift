@@ -59,15 +59,15 @@ struct WarrenNextApp: App {
             }
             CommandMenu("Web") {
                 Button("Copy Local Web URL") {
-                    post(WebRelayCommand.copyLocalURL)
+                    post(WebCommand.copyLocalURL)
                 }
                 Divider()
-                Button("Start Cloudflare Tunnel") { post(WebRelayCommand.startCloudflare) }
-                Button("Stop Cloudflare Tunnel") { post(WebRelayCommand.stopCloudflare) }
-                Button("Start Tailscale Serve") { post(WebRelayCommand.startTailscale) }
-                Button("Stop Tailscale Serve") { post(WebRelayCommand.stopTailscale) }
+                Button("Start Cloudflare Tunnel") { post(WebCommand.startCloudflare) }
+                Button("Stop Cloudflare Tunnel") { post(WebCommand.stopCloudflare) }
+                Button("Start Tailscale Serve") { post(WebCommand.startTailscale) }
+                Button("Stop Tailscale Serve") { post(WebCommand.stopTailscale) }
                 Divider()
-                Button("Copy Secure Web URL") { post(WebRelayCommand.copySecureURL) }
+                Button("Copy Secure Web URL") { post(WebCommand.copySecureURL) }
             }
         }
     }
@@ -77,13 +77,13 @@ struct WarrenNextApp: App {
     }
 }
 
-enum WebRelayCommand {
-    static let copyLocalURL = Notification.Name("WebRelay.copyLocalURL")
-    static let startCloudflare = Notification.Name("WebRelay.startCloudflare")
-    static let stopCloudflare = Notification.Name("WebRelay.stopCloudflare")
-    static let startTailscale = Notification.Name("WebRelay.startTailscaleServe")
-    static let stopTailscale = Notification.Name("WebRelay.stopTailscaleServe")
-    static let copySecureURL = Notification.Name("WebRelay.copySecureURL")
+enum WebCommand {
+    static let copyLocalURL = Notification.Name("Web.copyLocalURL")
+    static let startCloudflare = Notification.Name("Web.startCloudflare")
+    static let stopCloudflare = Notification.Name("Web.stopCloudflare")
+    static let startTailscale = Notification.Name("Web.startTailscaleServe")
+    static let stopTailscale = Notification.Name("Web.stopTailscaleServe")
+    static let copySecureURL = Notification.Name("Web.copySecureURL")
 }
 
 @MainActor

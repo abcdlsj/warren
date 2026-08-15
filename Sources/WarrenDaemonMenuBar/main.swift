@@ -30,6 +30,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private var daemonProcess: Process?
     private var pollTask: Task<Void, Never>?
     private var autoStartDisabled = false
+    private var buildVersion: String?
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
@@ -44,7 +45,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         } else {
             statusItem.button?.title = "W"
         }
-        statusItem.button?.toolTip = "Warren daemon"
+        statusItem.button?.toolTip = "Warren headless daemon"
         statusItem.menu = makeMenu()
         updateStatusItem()
         ensureDaemon()
@@ -71,7 +72,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        let status = NSMenuItem(title: "Daemon: Checking…", action: nil, keyEquivalent: "")
+        let status = NSMenuItem(title: "Headless: Checking…", action: nil, keyEquivalent: "")
         status.tag = 1
         status.isEnabled = false
         menu.addItem(status)
@@ -79,11 +80,15 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         endpoint.tag = 2
         endpoint.isEnabled = false
         menu.addItem(endpoint)
+        let version = NSMenuItem(title: "Version: —", action: nil, keyEquivalent: "")
+        version.tag = 3
+        version.isEnabled = false
+        menu.addItem(version)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "r"))
-        menu.addItem(NSMenuItem(title: "Stop Daemon", action: #selector(stopDaemonAction), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "Restart Headless", action: #selector(restartDaemon), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: "Stop Headless", action: #selector(stopDaemonAction), keyEquivalent: "s"))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Warren Daemon Menu Bar", action: #selector(quitMenuBar), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Warren Menu Bar", action: #selector(quitMenuBar), keyEquivalent: "q"))
         return menu
     }
 
@@ -104,7 +109,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             return
         }
         if await isDaemonHealthy() {
-            state = .running
+            await markRunning()
             return
         }
 
@@ -131,12 +136,32 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private func waitUntilHealthy() async {
         for _ in 0..<30 where !Task.isCancelled {
             if await isDaemonHealthy() {
-                state = .running
+                await markRunning()
                 return
             }
             try? await Task.sleep(for: .milliseconds(200))
         }
-        state = .failed("Daemon did not become ready")
+        state = .failed("Headless did not become ready")
+    }
+
+    private func markRunning() async {
+        state = .running
+        await refreshBuildVersion()
+    }
+
+    private func refreshBuildVersion() async {
+        var request = URLRequest(url: healthURL)
+        request.timeoutInterval = 1
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let build = object["build"] as? String, !build.isEmpty else { return }
+            buildVersion = build
+            updateStatusItem()
+        } catch {
+            return
+        }
     }
 
     private func startDaemonProcess() {
@@ -255,27 +280,34 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             button.title = " Warren !"
         }
         if button.image != nil { button.title = "" }
-        button.toolTip = switch state {
-        case .checking: "Warren daemon: Checking"
-        case .running: "Warren daemon: Running"
-        case .stopped: "Warren daemon: Stopped"
-        case .failed: "Warren daemon: Failed"
+        var toolTip = switch state {
+        case .checking: "Warren headless: Checking"
+        case .running: "Warren headless: Running"
+        case .stopped: "Warren headless: Stopped"
+        case .failed: "Warren headless: Failed"
         }
+        if let buildVersion {
+            toolTip += " · \(buildVersion)"
+        }
+        button.toolTip = toolTip
         if let status = statusItem.menu?.item(withTag: 1) {
             switch state {
-            case .checking: status.title = "Daemon: Checking…"
-            case .running: status.title = "Daemon: Running"
-            case .stopped: status.title = "Daemon: Stopped"
-            case .failed(let reason): status.title = "Daemon: \(reason)"
+            case .checking: status.title = "Headless: Checking…"
+            case .running: status.title = "Headless: Running"
+            case .stopped: status.title = "Headless: Stopped"
+            case .failed(let reason): status.title = "Headless: \(reason)"
             }
         }
         if let endpoint = statusItem.menu?.item(withTag: 2) {
             endpoint.title = switch state {
-            case .running: "Endpoint: 127.0.0.1:8789 · Web Relay: 8788"
+            case .running: "Endpoint: 127.0.0.1:8789 · Web: 8789"
             case .checking: "Endpoint: 127.0.0.1:8789 · Checking…"
             case .stopped: "Endpoint: 127.0.0.1:8789 · Offline"
             case .failed: "Endpoint: 127.0.0.1:8789 · Unavailable"
             }
+        }
+        if let version = statusItem.menu?.item(withTag: 3) {
+            version.title = "Version: \(buildVersion ?? "—")"
         }
     }
 }

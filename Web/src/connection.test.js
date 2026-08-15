@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { RelayConnection, reconnectDelay } from "./connection.js";
+import { WarrenConnection, reconnectDelay } from "./connection.js";
 
 class FakeSocket {
   static instances = [];
@@ -34,8 +34,8 @@ class FakeSocket {
 test("connection authenticates and forwards messages", () => {
   FakeSocket.instances = [];
   const messages = [];
-  const connection = new RelayConnection({
-    url: "ws://relay/ws",
+  const connection = new WarrenConnection({
+    url: "ws://relay/v1/ws",
     token: "secret",
     WebSocketClass: FakeSocket,
     onMessage: event => messages.push(event.data),
@@ -57,8 +57,8 @@ test("connection retries after a close and stop cancels retry", () => {
   FakeSocket.instances = [];
   const timers = [];
   const states = [];
-  const connection = new RelayConnection({
-    url: "ws://relay/ws",
+  const connection = new WarrenConnection({
+    url: "ws://relay/v1/ws",
     token: "secret",
     WebSocketClass: FakeSocket,
     onState: state => states.push(state),
@@ -86,8 +86,8 @@ test("connection retries after a close and stop cancels retry", () => {
 test("a stable authenticated connection resets backoff", () => {
   FakeSocket.instances = [];
   const timers = [];
-  const connection = new RelayConnection({
-    url: "ws://relay/ws",
+  const connection = new WarrenConnection({
+    url: "ws://relay/v1/ws",
     token: "secret",
     WebSocketClass: FakeSocket,
     setTimer: (callback, delay) => {
@@ -113,8 +113,8 @@ test("retry delay is bounded and jittered", () => {
 });
 
 test("send treats a throwing socket as a closed transport", () => {
-  const connection = new RelayConnection({
-    url: "ws://relay/ws",
+  const connection = new WarrenConnection({
+    url: "ws://relay/v1/ws",
     token: "secret",
     WebSocketClass: FakeSocket,
   });
