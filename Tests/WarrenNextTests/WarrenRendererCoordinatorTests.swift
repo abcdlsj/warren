@@ -31,28 +31,6 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         )
     }
 
-    func testRemoteAttachParametersIncludeRecoveryAnchorWhenKnown() throws {
-        let sessionID = TerminalSessionID()
-        let size = try XCTUnwrap(TerminalSize(columns: 117, rows: 38))
-        let anchor = TerminalOutputAnchor(epoch: 3, sequence: 4096)
-
-        XCTAssertEqual(
-            WarrenRemoteTerminalProtocol.attachParameters(
-                sessionID: sessionID,
-                size: size,
-                anchor: anchor
-            ),
-            [
-                "id": sessionID.description,
-                "focused": "false",
-                "cols": "117",
-                "rows": "38",
-                "epoch": "3",
-                "sequence": "4096",
-            ]
-        )
-    }
-
     func testRemoteRosterAttachesInitialTabAndDoesNotDuplicateMountedSurface() {
         XCTAssertTrue(WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: nil,

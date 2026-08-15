@@ -931,24 +931,12 @@ func intParam(values map[string]any, key string) int {
 }
 
 func anchorFromParams(values map[string]any) *output.Anchor {
-	epoch, hasEpoch := uint64Param(values, "epoch")
-	sequence, hasSequence := uint64Param(values, "sequence")
+	epoch, hasEpoch := values["epoch"].(float64)
+	sequence, hasSequence := values["sequence"].(float64)
 	if !hasEpoch || !hasSequence {
 		return nil
 	}
-	return &output.Anchor{Epoch: epoch, Sequence: sequence}
-}
-
-func uint64Param(values map[string]any, key string) (uint64, bool) {
-	switch value := values[key].(type) {
-	case float64:
-		return uint64(value), true
-	case string:
-		parsed, err := strconv.ParseUint(value, 10, 64)
-		return parsed, err == nil
-	default:
-		return 0, false
-	}
+	return &output.Anchor{Epoch: uint64(epoch), Sequence: uint64(sequence)}
 }
 
 func attachSizeFromParams(values map[string]any) (columns, rows int, specified bool, err error) {
