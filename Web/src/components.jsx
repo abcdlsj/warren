@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 import { terminalSearchSummary } from "./terminal.js";
 import { terminalTabTitle } from "./title.js";
+import { keyboardInset } from "./viewport.js";
 
 const activityLabels = {
   working: "Working",
@@ -555,20 +556,15 @@ export function MobileKeys({ onInput }) {
     const viewport = window.visualViewport;
     if (!bar || !viewport) return undefined;
 
-    const safeBottom = () => {
-      const raw = getComputedStyle(document.documentElement)
-        .getPropertyValue("--safe-bottom")
-        .trim();
-      const value = Number.parseFloat(raw);
-      return Number.isFinite(value) ? value : 0;
-    };
     const update = () => {
       // Cross-platform keyboard inset: Android resizes the layout viewport
       // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
-      // the visual viewport (covered == keyboard height). When the keyboard
-      // collapses, clamp back to the safe-area bottom so the bar sinks.
-      const covered = window.innerHeight - (viewport.height + viewport.offsetTop);
-      bar.style.bottom = `${covered > 2 ? covered : safeBottom()}px`;
+      // the visual viewport (covered == keyboard height). Once the keyboard
+      // collapses, clear the inline offset so CSS bottom:0 and the safe-area
+      // padding take over again.
+      const inset = keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop);
+      bar.style.bottom = inset > 0 ? `${inset}px` : "";
+      bar.classList.toggle("keyboard-open", inset > 0);
     };
     update();
     viewport.addEventListener("resize", update);
