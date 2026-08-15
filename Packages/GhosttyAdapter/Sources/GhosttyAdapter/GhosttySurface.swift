@@ -107,6 +107,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         state.controller.tick()
     }
 
+    /// Presents the current grid inline. `ghostty_surface_refresh` alone can
+    /// be a no-op when the pixel size is unchanged, which leaves a previously
+    /// hidden surface on a stale/black framebuffer when it becomes active
+    /// again without new output. A single inline draw forces the present.
+    public func presentNow() {
+        state.controller.tick()
+        guard let raw = state.surface?.rawValue else { return }
+        ghostty_surface_draw(raw)
+    }
+
     public func apply(font: TerminalFontPreference) {
         _ = state.controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
     }

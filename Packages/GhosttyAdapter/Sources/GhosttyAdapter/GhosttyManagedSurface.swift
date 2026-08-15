@@ -133,6 +133,11 @@ public struct GhosttyManagedSurface: View {
         DispatchQueue.main.async { [weak surface] in
             surface?.requestDisplayRefresh()
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak surface] in
+            // A hidden surface may be on a stale/black framebuffer after
+            // re-entry. Force one inline present once the view has settled.
+            surface?.presentNow()
+        }
     }
 }
 
