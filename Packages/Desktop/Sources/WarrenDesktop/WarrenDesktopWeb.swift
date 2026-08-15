@@ -64,13 +64,25 @@ public struct WarrenDesktopWebPanel: View {
                         }
                         .buttonStyle(WarrenPrimaryButtonStyle())
                         .controlSize(.small)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: WarrenLayoutMetrics.compactControlHeight
+                        )
                     }
                     Button("Open") { onOpenURL(url) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: WarrenLayoutMetrics.compactControlHeight
+                        )
                     Button("Copy") { onCopyURL(url) }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: WarrenLayoutMetrics.compactControlHeight
+                        )
                 }
             } else {
                 Text("Local Web is unavailable")

@@ -157,7 +157,7 @@ public struct WarrenPrimaryButtonStyle: ButtonStyle {
             configuration.label
                 .foregroundStyle(tokens.background)
                 .padding(.horizontal, WarrenSpacing.medium)
-                .frame(minHeight: 28)
+                .frame(minHeight: WarrenLayoutMetrics.compactControlHeight)
                 .background(state == .pressed ? tokens.foreground.opacity(0.82) : tokens.primary)
                 .clipShape(.rect(cornerRadius: WarrenRadius.small))
                 .overlay {

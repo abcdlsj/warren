@@ -27,6 +27,8 @@ public enum WarrenLayoutMetrics {
     /// The close control is a 20pt button inside a 28pt accessory column.
     public static let tabCloseButtonSize: CGFloat = 20
     public static let tabAccessoryColumnWidth: CGFloat = 28
+    /// Compact action controls (e.g. the Web panel's Stop/Open/Copy row).
+    public static let compactControlHeight: CGFloat = 28
     public static let paneHeaderHeight: CGFloat = 28
     public static let paneMinimumWidth: CGFloat = 260
     public static let paneMinimumHeight: CGFloat = 160

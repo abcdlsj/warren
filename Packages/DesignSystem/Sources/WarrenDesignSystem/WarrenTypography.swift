@@ -27,6 +27,10 @@ public enum WarrenTypography {
     /// Tab shell titles use the light text tier; the active tab separates
     /// itself with a brighter gray instead of a heavier weight.
     public static let tabShellTitle = Font.system(size: 12, weight: .light)
+    /// The terminal pane title uses the same light text tier as tab shell
+    /// titles so chrome reads as one family instead of competing with the
+    /// terminal content.
+    public static let paneShellTitle = Font.system(size: 12, weight: .light)
     public static let paneHeader = Font.system(size: 12, weight: .medium)
     public static let badge = Font.system(size: 10, weight: .medium)
     public static let activityChip = Font.system(size: 9, weight: .medium)

@@ -59,11 +59,13 @@ public struct GhosttyManagedSurface: View {
                 guard isActive else { return }
                 surfaceFocused = true
                 requestSelectionFocus()
+                requestImmediateDisplayRefresh()
             }
             .onChange(of: isActive, initial: true) { _, active in
                 surfaceFocused = active
                 if active {
                     requestSelectionFocus()
+                    requestImmediateDisplayRefresh()
                     focusDriver.refreshLayout(
                         of: surface.state,
                         canRefresh: { isActive },
@@ -111,6 +113,17 @@ public struct GhosttyManagedSurface: View {
             canFocus: { isActive },
             onFocused: onFocused
         )
+    }
+
+    private func requestImmediateDisplayRefresh() {
+        // Re-entering a shell (tab switch, settings dismissal) can recreate
+        // the AppKit view while the renderer is still settling. Nudge Ghostty
+        // immediately and once more after the runloop so the first frame does
+        // not wait for a resize or keystroke.
+        surface.requestDisplayRefresh()
+        DispatchQueue.main.async { [weak surface] in
+            surface?.requestDisplayRefresh()
+        }
     }
 }
 

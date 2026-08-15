@@ -153,7 +153,8 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
             if showsPaneHeader {
                 HStack(spacing: WarrenSpacing.compact) {
                     Text(displayTitle)
-                        .font(WarrenTypography.paneHeader)
+                        .font(WarrenTypography.paneShellTitle)
+                        .foregroundStyle(tokens.mutedForeground)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }

@@ -184,10 +184,28 @@ export default function App() {
     }
   }, []);
 
+  const refreshTerminal = useCallback(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || terminal.rows <= 0) return;
+    // Re-entering the shell after a page (settings/search) can leave the
+    // renderer with a stale frame; force one repaint so the terminal never
+    // waits for the next keystroke or click.
+    terminal.refresh(0, terminal.rows - 1);
+    terminal.scrollToBottom();
+  }, []);
+
   const scheduleTerminalFit = useCallback(() => {
     if (fitFrameRef.current !== null) return;
     fitFrameRef.current = requestAnimationFrame(fitTerminal);
   }, [fitTerminal]);
+
+  const returnFocusToTerminal = useCallback(() => {
+    requestAnimationFrame(() => {
+      scheduleTerminalFit();
+      refreshTerminal();
+      if (!isCoarsePointer()) focusTerminal();
+    });
+  }, [focusTerminal, refreshTerminal, scheduleTerminalFit]);
 
   const scheduleRemoteResize = useCallback(size => {
     pendingTerminalSizeRef.current = size;
@@ -234,7 +252,14 @@ export default function App() {
   const attachSession = useCallback((sessionID, force = false) => {
     if (!sessionID) return;
     const state = appStateRef.current;
-    if (!force && sessionID === state.attachedSession) return;
+    if (!force && sessionID === state.attachedSession) {
+      // Clicking the tab of the already-attached session is an explicit entry
+      // into that shell; claim focus immediately instead of waiting for an
+      // attach round-trip that will never arrive.
+      refreshTerminal();
+      if (!isCoarsePointer()) terminalRef.current?.focus();
+      return;
+    }
     const changed = sessionID !== state.activeSession;
     state.activeSession = sessionID;
     state.attachedSession = null;
@@ -254,7 +279,7 @@ export default function App() {
       : recoveryAnchorRef.current;
     const message = attachTerminalMessage(sessionID, terminalRef.current, anchor);
     request(message.method, message.params, () => markAttachReady(sessionID));
-  }, [markAttachReady, request]);
+  }, [markAttachReady, refreshTerminal, request]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
@@ -770,14 +795,19 @@ export default function App() {
       chooseWorkspace(restoredPosition.workspaceID, restoredPosition.sessionID);
     }
     setSettingsOpen(false);
-    scheduleTerminalFit();
-  }, [chooseWorkspace, scheduleTerminalFit]);
+    returnFocusToTerminal();
+  }, [chooseWorkspace, returnFocusToTerminal]);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    returnFocusToTerminal();
+  }, [returnFocusToTerminal]);
 
   useEffect(() => {
     const handleKeyDown = event => {
       const modifier = event.metaKey || event.ctrlKey;
       if (event.key === "Escape" && searchOpen) {
-        setSearchOpen(false);
+        closeSearch();
         return;
       }
       if (event.key === "Escape" && settingsOpen) {
@@ -795,12 +825,12 @@ export default function App() {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen, settingsOpen, openSettings, closeSettings]);
+  }, [searchOpen, settingsOpen, openSettings, closeSearch, closeSettings]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
-    setSearchOpen(false);
+    closeSearch();
     chooseWorkspace(workspaceID);
-  }, [chooseWorkspace]);
+  }, [chooseWorkspace, closeSearch]);
 
   const chooseSearchProject = useCallback(projectID => {
     const workspace = catalog.workspacesByProject.get(projectID)?.[0];
@@ -897,7 +927,7 @@ export default function App() {
         query={searchQuery}
         catalog={catalog}
         onQueryChange={setSearchQuery}
-        onClose={() => setSearchOpen(false)}
+        onClose={closeSearch}
         onChooseWorkspace={chooseSearchWorkspace}
         onChooseProject={chooseSearchProject}
       />

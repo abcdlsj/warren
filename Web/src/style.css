@@ -58,7 +58,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .presetbar { display:flex; align-items:center; gap:6px; min-width:0; padding:2px 8px; overflow-x:auto; border-bottom:1px solid var(--muted); background:var(--bg); }
 .preset { display:flex; align-items:center; gap:6px; height:20px; padding:0 6px; border:0; border-radius:5px; background:transparent; color:var(--sub); font-size:13px; font-weight:300; white-space:nowrap; cursor:pointer; }
 .preset img { width:14px; height:14px; flex:0 0 auto; object-fit:contain; opacity:.9; }
-.pane-title { display:flex; align-items:center; min-width:0; height:28px; padding:0 12px; border-bottom:1px solid var(--muted); background:rgba(234,232,230,.05); color:var(--fg); font-size:12px; font-weight:500; }
+.pane-title { display:flex; align-items:center; min-width:0; height:28px; padding:0 12px; border-bottom:1px solid var(--muted); background:rgba(234,232,230,.05); color:var(--sub); font-size:12px; font-weight:300; }
 .pane-title span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .terminal-shell { position:relative; min-width:0; min-height:0; background:var(--bg); }
 #terminal { position:absolute; inset:6px 5px 4px 8px; }
