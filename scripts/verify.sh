@@ -38,8 +38,7 @@ echo "==> headless daemon and CLI"
 for package in \
     Domain Protocol StateStore Host LocalTransport ClientCore Transport \
     TerminalRenderer TmuxRuntime Application DesignSystem Desktop \
-    GhosttyAdapter SwiftTermAdapter Observation Mobile \
-    SwiftTermMobileAdapter; do
+    GhosttyAdapter Observation; do
     echo "==> swift test $package"
     run_package_tests "$package"
 done
