@@ -136,6 +136,7 @@ export default function App() {
   const focusedSessionRef = useRef(null);
   const batcherRef = useRef(null);
   const recoveryAnchorRef = useRef(null);
+  const pendingStartAnchorRef = useRef(null);
   const reanchorRequiredRef = useRef(false);
   const snapshotPendingRef = useRef(false);
   const messageHandlerRef = useRef(() => {});
@@ -513,6 +514,12 @@ export default function App() {
             connectionRef.current?.reset();
             return;
           }
+          if (!batcherRef.current?.hasPending) {
+            // Remember the byte position before this batch. If the renderer
+            // cannot keep up and the batch is dropped, the reconnect can
+            // resume exactly here instead of re-serving the whole ring.
+            pendingStartAnchorRef.current = recoveryAnchorRef.current;
+          }
           recoveryAnchorRef.current = {
             epoch: decoded.header.epoch,
             sequence: current.sequence + decoded.header.payloadLength,
@@ -734,6 +741,7 @@ export default function App() {
       textarea.setAttribute("autocorrect", "off");
       textarea.setAttribute("autocapitalize", "off");
       textarea.setAttribute("spellcheck", "false");
+      textarea.setAttribute("autocomplete", "off");
     }
     // Mobile GPUs churn through WebGL contexts while the keyboard resizes
     // the terminal, which reads as flicker. The DOM renderer is steadier on
@@ -761,6 +769,13 @@ export default function App() {
       setTerminalSearchIndex(resultIndex);
       setTerminalSearchCount(resultCount);
     });
+    let overflowWhileHidden = false;
+    const rewindAndReset = () => {
+      const start = pendingStartAnchorRef.current;
+      if (start) recoveryAnchorRef.current = start;
+      else reanchorRequiredRef.current = true;
+      connectionRef.current?.reset();
+    };
     const batcher = new OutputBatcher({
       write: bytes => {
         const buffer = terminal.buffer.active;
@@ -770,9 +785,18 @@ export default function App() {
         // output; a user who scrolled up keeps their place.
         if (followsOutput) terminal.scrollToBottom();
       },
+      // Match the daemon's output ring retention so a dropped batch can
+      // always be replayed from its anchor instead of forcing a reanchor.
+      maxPending: 8 * 1024 * 1024,
       onOverflow: () => {
-        reanchorRequiredRef.current = true;
-        connectionRef.current?.reset();
+        // A hidden tab has no rAF ticks to drain the batcher. Reconnecting
+        // there just re-serves the retained tail and overflows again, which
+        // reads as a "Connecting…" loop; reset once when the tab is visible.
+        if (document.hidden) {
+          overflowWhileHidden = true;
+          return;
+        }
+        rewindAndReset();
       },
     });
     batcherRef.current = batcher;
@@ -807,9 +831,11 @@ export default function App() {
     const dataSubscription = terminal.onData(data => {
       const now = Date.now();
       const inCompositionWindow = isComposing || now - compositionEndTime < 150;
-      if ((inCompositionWindow || isTouch)
-        && data === lastSentData
-        && now - lastSentTime < 150) {
+      // Touch keyboards can echo one keystroke twice (keydown + input event);
+      // genuine fast repeats like `!!` or `&&` are typically slower than
+      // 40ms apart, so keep the duplicate window tiny outside composition.
+      const duplicateWindow = inCompositionWindow || !isTouch ? 150 : 40;
+      if (data === lastSentData && now - lastSentTime < duplicateWindow) {
         return;
       }
       lastSentData = data;
@@ -853,7 +879,12 @@ export default function App() {
     const resizeObserver = new ResizeObserver(() => scheduleTerminalFit());
     resizeObserver.observe(terminalHost);
     const onVisibilityChange = () => {
-      if (!document.hidden) batcherRef.current?.wake();
+      if (document.hidden) return;
+      batcherRef.current?.wake();
+      if (overflowWhileHidden) {
+        overflowWhileHidden = false;
+        rewindAndReset();
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 

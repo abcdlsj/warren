@@ -92,6 +92,10 @@ export class OutputBatcher {
     this.pendingBytes = 0;
   }
 
+  get hasPending() {
+    return this.pending.length > 0;
+  }
+
   dispose() {
     this.reset();
     this.write = () => {};
