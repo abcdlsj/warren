@@ -278,9 +278,10 @@ private actor WarrenRemoteWire {
                     ))
                 }
             } else if object["ok"] as? Bool == false {
-                return await eventBuffer.send(.disconnected(
-                    object["error"] as? String ?? "Remote connection rejected"
-                ))
+                // Responses without a matching request id (for example the
+                // daemon rejecting a binary input frame sent before attach)
+                // must not tear down a healthy connection. Ignore them the
+                // same way the Web client does.
             }
         } else if type == "welcome" {
             let version = object["version"] as? String ?? "unknown"
@@ -331,6 +332,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var focusedSessionID: TerminalSessionID?
     @ObservationIgnored private var pendingFocusSessionID: TerminalSessionID?
     @ObservationIgnored private var pendingFocusSize: TerminalSize?
+    @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var focusTask: Task<Void, Never>?
@@ -413,6 +415,7 @@ final class WarrenRemoteApplicationModel {
         focusedSessionID = nil
         pendingFocusSessionID = nil
         pendingFocusSize = nil
+        pendingInput.removeAll(keepingCapacity: true)
         attachGeneration &+= 1
         resizeTask?.cancel()
         resizeTask = nil
@@ -725,7 +728,15 @@ final class WarrenRemoteApplicationModel {
     }
 
     func sendInput(_ data: Data) async {
-        guard let wire else { return }
+        guard !data.isEmpty else { return }
+        // The Ghostty surface is mounted before `session.attach` completes.
+        // Keystrokes in that window must be buffered and replayed after the
+        // daemon grants control; sending them early makes the daemon reject
+        // the frame and the old disconnect path would reconnect in a loop.
+        guard attachedSessionID == selectedSessionID, let wire else {
+            pendingInput.append(data)
+            return
+        }
         await wire.sendInput(data)
     }
 
@@ -919,6 +930,7 @@ final class WarrenRemoteApplicationModel {
             focusedSessionID = nil
             pendingFocusSessionID = nil
             pendingFocusSize = nil
+            pendingInput.removeAll(keepingCapacity: true)
             mountedSurfaces.removeAll()
         }
         if navigation.selectedTabID == nil {
@@ -927,6 +939,7 @@ final class WarrenRemoteApplicationModel {
             focusedSessionID = nil
             pendingFocusSessionID = nil
             pendingFocusSize = nil
+            pendingInput.removeAll(keepingCapacity: true)
             mountedSurfaces.removeAll()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: previousTabID,
@@ -953,6 +966,9 @@ final class WarrenRemoteApplicationModel {
         // attach request; feeding that snapshot into an already-created surface
         // prevents the initial prompt from disappearing in the network race.
         guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
+        if sessionID != selectedSessionID {
+            pendingInput.removeAll(keepingCapacity: true)
+        }
         attachGeneration &+= 1
         let generation = attachGeneration
         attachedSessionID = nil
@@ -989,6 +1005,11 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
+            if !pendingInput.isEmpty {
+                let buffered = pendingInput
+                pendingInput.removeAll(keepingCapacity: true)
+                await wire.sendInput(buffered)
+            }
             if pendingFocusSessionID == sessionID {
                 let pendingSize = pendingFocusSize ?? size
                 pendingFocusSessionID = nil
