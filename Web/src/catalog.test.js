@@ -26,6 +26,29 @@ test("catalog indexes workspaces and open tabs", () => {
   }]);
 });
 
+test("catalog keeps agent binding fields on sessions", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    state: {
+      projects: [{ id: "project" }],
+      workspaces: [{ id: "workspace", project: "project" }],
+      sessions: [{
+        id: "session",
+        workspace: "workspace",
+        title: "Codex",
+        kind: "codex",
+        command: "codex",
+        lifecycle: "running",
+        agentSessionId: "thread-1",
+        transcriptPath: "/work/rollout.jsonl",
+      }],
+    },
+  }));
+  const session = catalog.sessions.get("session");
+  assert.equal(session.kind, "codex");
+  assert.equal(session.agentSessionId, "thread-1");
+  assert.equal(session.transcriptPath, "/work/rollout.jsonl");
+});
+
 test("custom session titles win over derived tab titles", () => {
   assert.equal(
     terminalTabTitle(

@@ -16,6 +16,8 @@ export function rosterFromMessage(message = {}) {
           kind: session.kind,
           lifecycle: session.lifecycle,
           process: session.command || "",
+          agentSessionId: session.agentSessionId || "",
+          transcriptPath: session.transcriptPath || "",
           pinned: session.pinned || false,
         })),
     };
