@@ -98,11 +98,17 @@ private struct WarrenHeadlessAcceptanceReport: Codable {
 
 @MainActor
 private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow!
+    private var window: NSWindow?
     private var daemonMenuBarProcess: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launchDaemonMenuBar()
+        presentMainWindowIfNeeded()
+        NSApp.mainMenu = Self.buildMainMenu(target: self)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func makeMainWindow() -> NSWindow {
         let root = WarrenNextCompositionRoot()
             .preferredColorScheme(.dark)
             .ignoresSafeArea()
@@ -110,7 +116,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         let hosting = NSHostingView(rootView: root)
         hosting.frame = NSRect(x: 0, y: 0, width: 1280, height: 800)
 
-        window = WarrenWindow(
+        let window = WarrenWindow(
             contentRect: NSRect(x: 100, y: 100, width: 1280, height: 800),
             styleMask: [.borderless, .resizable, .miniaturizable, .closable],
             backing: .buffered,
@@ -129,13 +135,53 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
             alpha: 1
         )
         window.contentView = hosting
+        // Keep the window reference valid if AppKit ever closes it while the
+        // process is still alive, so a later reopen can bring it back.
+        window.isReleasedWhenClosed = false
         window.center()
-        window.makeKeyAndOrderFront(nil)
-        window.makeKey()
-        window.orderFrontRegardless()
+        return window
+    }
 
-        NSApp.mainMenu = Self.buildMainMenu(target: self)
-        NSApp.activate(ignoringOtherApps: true)
+    /// Shows the main window, recreating it when a second launch activated an
+    /// existing instance whose window was already gone. This is the recovery
+    /// path for the single-instance lock: closing Warren must not leave a
+    /// windowless process that later launches can only activate.
+    private func presentMainWindowIfNeeded() {
+        if let window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            return
+        }
+        if window == nil {
+            window = makeMainWindow()
+        }
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeKey()
+        window?.orderFrontRegardless()
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        presentMainWindowIfNeeded()
+        return true
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        presentMainWindowIfNeeded()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Let AppKit finish the termination without hiding the window first.
+        // Ordering the window out before `.terminateNow` left a brief
+        // windowless-but-alive process that the single-instance lock would
+        // activate on relaunch instead of showing a fresh window.
+        return .terminateNow
     }
 
     private func launchDaemonMenuBar() {
@@ -179,15 +225,6 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("Unable to launch WarrenDaemonMenuBar: %@", error.localizedDescription)
         }
-    }
-
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
-    }
-
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        window?.orderOut(nil)
-        return .terminateNow
     }
 
     @objc private func postCommand(_ sender: NSMenuItem) {

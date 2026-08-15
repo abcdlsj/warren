@@ -63,6 +63,11 @@ final class WarrenSingleInstanceLock {
             if let bundleID, candidate.bundleIdentifier == bundleID { return true }
             return candidate.executableURL?.lastPathComponent == executableName
         }
-        application?.activate(options: [.activateAllWindows])
+        guard let application else { return }
+        // The existing instance restores its main window in
+        // `applicationDidBecomeActive`/`applicationShouldHandleReopen`, so
+        // activating it is enough even when it currently has no visible window.
+        application.unhide()
+        application.activate(options: [.activateAllWindows])
     }
 }
