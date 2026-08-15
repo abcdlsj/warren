@@ -17,7 +17,7 @@ go install github.com/abcdlsj/warren/Headless/cmd/warren@latest
 mise run build:headless
 ```
 
-`warren-headless` 默认只监听 `127.0.0.1:8789`。同一个端口同时提供 Web UI（`/`、静态资源）和控制协议（`/v1/ws`）。不要为了省一条 SSH 命令，把未启用 TLS 的端口直接暴露到公网。
+`warren-headless` listens on `0.0.0.0:8789` by default so phones and tablets on the same LAN can open the Web UI directly (for example `http://<host-LAN-IP>:8789/#t=<token>`). The same port serves the Web UI (`/`, static assets) and the control protocol (`/v1/ws`); every data endpoint requires token authentication except `/healthz` and static assets. The port has no TLS, so do not expose it to the public internet.
 
 ## 启动与连接
 
@@ -60,7 +60,7 @@ warren --endpoint my-vps session attach SESSION_ID
 
 The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
-Web UI 与 `/v1/ws` 共用 8789 端口；浏览器访问 `http://127.0.0.1:8789/#t=<token>`。隧道管理由 daemon 自身负责：`GET /v1/tunnels` 查询状态，`POST /v1/tunnels/start` 和 `POST /v1/tunnels/stop` 控制 cloudflared / tailscale / funnel，均需 Bearer token 鉴权。
+The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `http://<host-LAN-IP>:8789/#t=<token>`. Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
 
 ## 输出链路
 

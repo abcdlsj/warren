@@ -29,7 +29,7 @@ const tokenRepairInterval = time.Second
 
 func main() {
 	configDir := defaultConfigDirectory()
-	listen := flag.String("listen", env("WARREN_LISTEN", "127.0.0.1:8789"), "listen address (loopback is recommended)")
+	listen := flag.String("listen", env("WARREN_LISTEN", "0.0.0.0:8789"), "listen address (all interfaces by default for LAN access; token-protected, do not expose to the public internet)")
 	statePath := flag.String("state", env("WARREN_STATE", filepath.Join(configDir, "state.json")), "state file")
 	tokenPath := flag.String("token-file", env("WARREN_TOKEN_FILE", filepath.Join(configDir, "token")), "authentication token file")
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")

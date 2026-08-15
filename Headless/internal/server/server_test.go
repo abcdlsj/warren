@@ -535,6 +535,40 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestSameOriginAllowsLANAndForwardedHTTPS(t *testing.T) {
+	t.Parallel()
+	server := NewHTTPServer(&Service{}, "secret", slog.Default())
+	cases := []struct {
+		name   string
+		host   string
+		origin string
+		proto  string
+		want   bool
+	}{
+		{name: "LAN direct", host: "192.168.1.117:8789", origin: "http://192.168.1.117:8789", want: true},
+		{name: "LAN hostname", host: "mac-mini.local:8789", origin: "http://mac-mini.local:8789", want: true},
+		{name: "loopback", host: "127.0.0.1:8789", origin: "http://127.0.0.1:8789", want: true},
+		{name: "localhost", host: "localhost:8789", origin: "http://localhost:8789", want: true},
+		{name: "tailscale serve", host: "host.tail3d6e0.ts.net", origin: "https://host.tail3d6e0.ts.net", proto: "https", want: true},
+		{name: "cloudflared", host: "warren.example.com", origin: "https://warren.example.com", proto: "https", want: true},
+		{name: "cross-site origin", host: "192.168.1.117:8789", origin: "http://evil.example", want: false},
+		{name: "wrong scheme", host: "192.168.1.117:8789", origin: "https://192.168.1.117:8789", want: false},
+		{name: "different LAN host", host: "192.168.1.117:8789", origin: "http://192.168.1.118:8789", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest("GET", "http://"+tc.host+"/v1/ws", nil)
+			request.Header.Set("Origin", tc.origin)
+			if tc.proto != "" {
+				request.Header.Set("X-Forwarded-Proto", tc.proto)
+			}
+			if got := server.upgrader.CheckOrigin(request); got != tc.want {
+				t.Fatalf("CheckOrigin(host=%q origin=%q proto=%q) = %v, want %v", tc.host, tc.origin, tc.proto, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRosterUsesOneRuntimeListing(t *testing.T) {
 	state, _ := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
 	runtime := &listingRuntime{memoryRuntime: memoryRuntime{sessions: map[string][]byte{"running": {}}}}
