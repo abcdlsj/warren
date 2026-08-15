@@ -40,6 +40,7 @@ type HTTPServer struct {
 	Logger       *slog.Logger
 	Tunnels      *tunnel.Manager
 	BuildVersion string
+	CACertPath   string
 	upgrader     websocket.Upgrader
 }
 
@@ -141,7 +142,24 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("GET /preset-", s.handleWebAsset)
 	mux.HandleFunc("GET /icon", s.handleWebAsset)
 	mux.HandleFunc("GET /apple-touch-icon.png", s.handleWebAsset)
+	mux.HandleFunc("GET /tls/ca.pem", s.handleCACert)
 	return mux
+}
+
+func (s *HTTPServer) handleCACert(writer http.ResponseWriter, request *http.Request) {
+	if s.CACertPath == "" {
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	data, err := os.ReadFile(s.CACertPath)
+	if err != nil {
+		http.Error(writer, "not found", http.StatusNotFound)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	writer.Header().Set("Content-Disposition", `attachment; filename="warren-ca.crt"`)
+	writer.Header().Set("Cache-Control", "no-store")
+	_, _ = writer.Write(data)
 }
 
 func (s *HTTPServer) handleWebAsset(writer http.ResponseWriter, request *http.Request) {

@@ -27,6 +27,8 @@ type spoolRuntime struct {
 	pipeInstalls   map[string]int
 	resizes        []recordedResize
 	capturePadding int
+	captureHang    bool
+	pipeHang       bool
 }
 
 func newSpoolRuntime(t *testing.T) *spoolRuntime {
@@ -61,7 +63,14 @@ func (runtime *spoolRuntime) List(context.Context) (map[string]bool, error) {
 	return result, nil
 }
 
-func (runtime *spoolRuntime) Capture(_ context.Context, name string) ([]byte, error) {
+func (runtime *spoolRuntime) Capture(ctx context.Context, name string) ([]byte, error) {
+	runtime.mu.Lock()
+	hang := runtime.captureHang
+	runtime.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	data, err := os.ReadFile(runtime.SpoolPath(name))
 	if err != nil {
 		return nil, err
@@ -99,11 +108,15 @@ func (runtime *spoolRuntime) Kill(_ context.Context, name string) error {
 	return nil
 }
 
-func (runtime *spoolRuntime) EnsurePipe(_ context.Context, name string) error {
+func (runtime *spoolRuntime) EnsurePipe(ctx context.Context, name string) error {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	if !runtime.sessions[name] {
 		return os.ErrNotExist
+	}
+	if runtime.pipeHang {
+		<-ctx.Done()
+		return ctx.Err()
 	}
 	runtime.pipeInstalls[name]++
 	return nil
@@ -246,6 +259,127 @@ func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func TestAttachCaptureTimeoutReleasesLockAndResumesWatcher(t *testing.T) {
+	state := newStateWithSession(t, "session-capture-hang", "runtime-capture-hang")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-capture-hang", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 200 * time.Millisecond}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	runtime.mu.Lock()
+	runtime.captureHang = true
+	runtime.mu.Unlock()
+
+	attachBrowser(t, connection, "session-capture-hang", nil)
+	// The attach response is written before the snapshot; the timed-out
+	// capture then produces a second error response for the same request.
+	deadline := time.Now().Add(3 * time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	sawOK := false
+	for {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("attach did not fail within timeout: %v", err)
+		}
+		if kind != websocket.TextMessage {
+			continue
+		}
+		var message map[string]any
+		if err := json.Unmarshal(data, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message["t"] != "response" {
+			continue
+		}
+		if message["ok"] == true {
+			sawOK = true
+			continue
+		}
+		if sawOK {
+			break
+		}
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+
+	// The session must be unwedged: a fresh attach completes and live output
+	// flows again.
+	runtime.mu.Lock()
+	runtime.captureHang = false
+	runtime.mu.Unlock()
+
+	attachBrowser(t, connection, "session-capture-hang", nil)
+	attached := readBrowserMessage(t, connection, "attached")
+	if attached["reanchor"] != true {
+		t.Fatalf("recovery attach should reanchor, got %#v", attached)
+	}
+	readBrowserMessage(t, connection, "synced")
+
+	if err := runtime.Input(context.Background(), "runtime-capture-hang", []byte("post-unlock\r")); err != nil {
+		t.Fatal(err)
+	}
+	frame := readBinaryFrame(t, connection)
+	if !bytes.Contains(frame.Payload, []byte("post-unlock")) {
+		t.Fatalf("watcher did not resume after timed-out attach: %#v", frame)
+	}
+}
+
+func TestEnsurePipeTimeoutFailsAttachWithoutWedging(t *testing.T) {
+	state := newStateWithSession(t, "session-pipe-hang", "runtime-pipe-hang")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-pipe-hang", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 200 * time.Millisecond}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	runtime.mu.Lock()
+	runtime.pipeHang = true
+	runtime.mu.Unlock()
+
+	attachBrowser(t, connection, "session-pipe-hang", nil)
+	deadline := time.Now().Add(3 * time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	failed := false
+	for !failed {
+		kind, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("attach did not fail within timeout: %v", err)
+		}
+		if kind != websocket.TextMessage {
+			continue
+		}
+		var message map[string]any
+		if err := json.Unmarshal(data, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message["t"] == "response" && message["ok"] == false {
+			failed = true
+		}
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+
+	runtime.mu.Lock()
+	runtime.pipeHang = false
+	runtime.mu.Unlock()
+
+	attachBrowser(t, connection, "session-pipe-hang", nil)
+	attached := readBrowserMessage(t, connection, "attached")
+	if attached["reanchor"] != true {
+		t.Fatalf("recovery attach should reanchor, got %#v", attached)
+	}
+	readBrowserMessage(t, connection, "synced")
 }
 
 func waitForRingUpper(t *testing.T, service *Service, sessionID string, want uint64) {

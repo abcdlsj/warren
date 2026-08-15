@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/server"
 	"github.com/abcdlsj/warren/Headless/internal/store"
+	"github.com/abcdlsj/warren/Headless/internal/tlscert"
 	"github.com/abcdlsj/warren/Headless/internal/tunnel"
 )
 
@@ -30,6 +32,8 @@ const tokenRepairInterval = time.Second
 func main() {
 	configDir := defaultConfigDirectory()
 	listen := flag.String("listen", env("WARREN_LISTEN", "0.0.0.0:8789"), "listen address (all interfaces by default for LAN access; token-protected, do not expose to the public internet)")
+	lanHTTPS := flag.String("lan-https", env("WARREN_LAN_HTTPS", "0.0.0.0:8788"), "LAN HTTPS listen address (empty disables; local CA generated on first start)")
+	tlsDir := flag.String("tls-dir", env("WARREN_TLS_DIR", filepath.Join(configDir, "tls")), "directory for the local CA and server certificate")
 	statePath := flag.String("state", env("WARREN_STATE", filepath.Join(configDir, "state.json")), "state file")
 	tokenPath := flag.String("token-file", env("WARREN_TOKEN_FILE", filepath.Join(configDir, "token")), "authentication token file")
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
@@ -70,6 +74,23 @@ func main() {
 		service.Shutdown()
 	}()
 	httpHandler := server.NewHTTPServer(service, token, logger)
+	httpHandler.BuildVersion = version
+	var lanHTTPServer *http.Server
+	if *lanHTTPS != "" {
+		certStore := tlscert.NewStore(*tlsDir)
+		cert, err := certStore.ServerCertificate()
+		if err != nil {
+			fatal(err)
+		}
+		httpHandler.CACertPath = certStore.CAPEMPath()
+		lanHTTPServer = &http.Server{
+			Addr:              *lanHTTPS,
+			Handler:           httpHandler.Handler(),
+			TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}},
+			ReadHeaderTimeout: 10 * time.Second,
+			IdleTimeout:       90 * time.Second,
+		}
+	}
 	httpServer := &http.Server{Addr: *listen, Handler: httpHandler.Handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -77,7 +98,6 @@ func main() {
 	}
 	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
 	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath)
-	httpHandler.BuildVersion = version
 	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {
@@ -85,10 +105,31 @@ func main() {
 			fatal(err)
 		}
 	}()
+	if lanHTTPServer != nil {
+		lanListener, err := net.Listen("tcp", *lanHTTPS)
+		if err != nil {
+			fatal(err)
+		}
+		tlsListener := tls.NewListener(lanListener, lanHTTPServer.TLSConfig)
+		logger.Info(
+			"warren LAN HTTPS ready",
+			"listen", lanListener.Addr().String(),
+			"ca", httpHandler.CACertPath,
+			"ca_url", "http://127.0.0.1:"+listenerPort(listener)+"/tls/ca.pem",
+		)
+		go func() {
+			if err := lanHTTPServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+				fatal(err)
+			}
+		}()
+	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	_ = httpServer.Close()
+	if lanHTTPServer != nil {
+		_ = lanHTTPServer.Close()
+	}
 	stopService()
 	service.Shutdown()
 }

@@ -90,13 +90,6 @@ struct WarrenDesktopTabBar: View {
                     .frame(minWidth: WarrenSpacing.standard, maxWidth: .infinity)
                     .accessibilityHidden(true)
 
-                if tabs.isEmpty {
-                    Text("No tabs open")
-                        .font(WarrenTypography.body)
-                        .foregroundStyle(tokens.mutedForeground)
-                        .padding(.horizontal, WarrenSpacing.medium)
-                }
-
                 if chromeMode == .workspace {
                     WarrenDesktopWorkspaceTabTrailing(
                         isConnected: isConnected,
