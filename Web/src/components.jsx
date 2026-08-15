@@ -533,22 +533,28 @@ export function TerminalSearch({
 
 export function MobileKeys({ onInput }) {
   const barRef = useRef(null);
-  const keys = [
-    ["escape", "Esc", "\u001b"],
-    ["tab", "Tab", "\t"],
-    ["ctrlC", "Ctrl-C", "\u0003"],
-    ["ctrlD", "Ctrl-D", "\u0004"],
-    ["ctrlA", "Ctrl-A", "\u0001"],
-    ["ctrlE", "Ctrl-E", "\u0005"],
-    ["ctrlU", "Ctrl-U", "\u0015"],
-    ["ctrlK", "Ctrl-K", "\u000b"],
-    ["ctrlL", "Ctrl-L", "\u000c"],
-    ["up", "↑", "\u001b[A"],
-    ["down", "↓", "\u001b[B"],
-    ["left", "←", "\u001b[D"],
-    ["right", "→", "\u001b[C"],
-    ["home", "Home", "\u001b[H"],
-    ["end", "End", "\u001b[F"],
+  // Two balanced rows keep every row full: navigation/common keys on top,
+  // Ctrl chords below. Buttons stretch to share the row evenly.
+  const keyRows = [
+    [
+      ["escape", "Esc", "\u001b"],
+      ["tab", "Tab", "\t"],
+      ["home", "Home", "\u001b[H"],
+      ["end", "End", "\u001b[F"],
+      ["up", "↑", "\u001b[A"],
+      ["down", "↓", "\u001b[B"],
+      ["left", "←", "\u001b[D"],
+      ["right", "→", "\u001b[C"],
+    ],
+    [
+      ["ctrlC", "Ctrl-C", "\u0003"],
+      ["ctrlD", "Ctrl-D", "\u0004"],
+      ["ctrlA", "Ctrl-A", "\u0001"],
+      ["ctrlE", "Ctrl-E", "\u0005"],
+      ["ctrlU", "Ctrl-U", "\u0015"],
+      ["ctrlK", "Ctrl-K", "\u000b"],
+      ["ctrlL", "Ctrl-L", "\u000c"],
+    ],
   ];
 
   useEffect(() => {
@@ -605,8 +611,12 @@ export function MobileKeys({ onInput }) {
 
   return (
     <nav ref={barRef} className="mobile-keys" aria-label="Terminal keys">
-      {keys.map(([key, label, sequence]) => (
-        <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
+      {keyRows.map((row, rowIndex) => (
+        <div className="mobile-key-row" key={rowIndex}>
+          {row.map(([key, label, sequence]) => (
+            <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
+          ))}
+        </div>
       ))}
     </nav>
   );
