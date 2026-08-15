@@ -102,7 +102,8 @@ public enum WarrenDesktopNavigationReducer {
         case .restoreNavigation(let restoredState):
             return reconcile(restoredState, with: projection)
         case .addProject, .importSuperset, .requestNewWorkspace,
-             .renameProject, .renameWorkspace, .renameSession,
+             .renameProject, .renameWorkspace, .deleteProject, .deleteWorkspace,
+             .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
              .moveTab, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,

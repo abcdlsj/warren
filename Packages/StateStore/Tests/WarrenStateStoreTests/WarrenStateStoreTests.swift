@@ -84,6 +84,62 @@ final class WarrenStateStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: database.url.path))
     }
 
+    func testSQLiteDeleteWorkspaceRemovesSessionsAndReceipts() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        var state = try makeRecoverableState()
+        state.requestReceipts.append(
+            PersistedRequestReceipt(
+                requestID: UUID(),
+                commandKind: "create_workspace",
+                resourceID: state.workspaces[0].id.description,
+                completedAt: Date()
+            )
+        )
+        try await repository.save(state)
+        let workspaceID = state.workspaces[0].id
+        let sessionID = state.terminalSessions[0].id
+
+        try await repository.deleteWorkspace(workspaceID)
+
+        let loaded = try await repository.load()
+        XCTAssertFalse(loaded.workspaces.contains { $0.id == workspaceID })
+        XCTAssertFalse(loaded.terminalSessions.contains { $0.id == sessionID })
+        XCTAssertFalse(loaded.requestReceipts.contains {
+            $0.resourceID == workspaceID.description
+        })
+    }
+
+    func testSQLiteDeleteProjectRemovesWorkspacesSessionsAndReceipts() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        var state = try makeRecoverableState()
+        state.requestReceipts.append(
+            PersistedRequestReceipt(
+                requestID: UUID(),
+                commandKind: "create_workspace",
+                resourceID: state.workspaces[0].id.description,
+                completedAt: Date()
+            )
+        )
+        try await repository.save(state)
+        let projectID = state.projects[0].id
+        let workspaceID = state.workspaces[0].id
+        let sessionID = state.terminalSessions[0].id
+
+        try await repository.deleteProject(projectID)
+
+        let loaded = try await repository.load()
+        XCTAssertFalse(loaded.projects.contains { $0.id == projectID })
+        XCTAssertFalse(loaded.workspaces.contains { $0.id == workspaceID })
+        XCTAssertFalse(loaded.terminalSessions.contains { $0.id == sessionID })
+        XCTAssertFalse(loaded.requestReceipts.contains {
+            $0.resourceID == workspaceID.description
+        })
+    }
+
     func testSQLiteConstraintFailureRollsBackWholeSave() async throws {
         let database = try TemporaryStateDatabase()
         defer { try? database.cleanup() }

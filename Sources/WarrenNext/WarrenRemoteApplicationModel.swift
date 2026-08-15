@@ -824,6 +824,14 @@ final class WarrenRemoteApplicationModel {
             request("project.rename", params: ["id": id.description, "name": name])
         case .renameWorkspace(let id, let name):
             request("workspace.rename", params: ["id": id.description, "name": name])
+        case .deleteProject(let id):
+            request("project.remove", params: ["id": id.description, "force": "true"])
+        case .deleteWorkspace(let id, let removeLocalWorktree):
+            request("workspace.remove", params: [
+                "id": id.description,
+                "force": "true",
+                "remove_worktree": String(removeLocalWorktree),
+            ])
         case .renameSession(let id, let title):
             request("session.rename", params: ["id": id.description, "title": title])
         case .setProjectPinned(let id, let pinned):

@@ -658,7 +658,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		}
 		return p.writeResult(command.ID, value)
 	case "workspace.remove":
-		if err := p.server.Service.RemoveWorkspace(ctx, stringParam(params, "id"), boolParam(params, "force")); err != nil {
+		removeWorktree := true
+		if value, specified, err := optionalBoolParam(params, "remove_worktree"); err != nil {
+			return err
+		} else if specified {
+			removeWorktree = value
+		}
+		if err := p.server.Service.RemoveWorkspace(ctx, stringParam(params, "id"), RemoveWorkspaceOptions{
+			Force:          boolParam(params, "force"),
+			RemoveWorktree: removeWorktree,
+		}); err != nil {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"removed": true})

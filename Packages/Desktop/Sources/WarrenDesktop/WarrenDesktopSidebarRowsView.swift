@@ -17,6 +17,9 @@ struct WarrenDesktopSidebarRows: View {
     @State private var workspaceName = ""
     @State private var pendingRenameProject: Project?
     @State private var projectName = ""
+    @State private var pendingDeleteWorkspace: Workspace?
+    @State private var pendingDeleteProject: Project?
+    @State private var deleteWorkspaceRemoveWorktree = false
     @State private var dragSession = WarrenDesktopSidebarDragSession()
     @State private var dragFrames: [String: WarrenSidebarRowDragFrame] = [:]
     @State private var dragRestoreExpansions: Set<ProjectID> = []
@@ -53,108 +56,10 @@ struct WarrenDesktopSidebarRows: View {
             }
             if isCollapsed || !tree.projectsCollapsed {
                 ForEach(groups) { group in
-                    ZStack {
-                        WarrenDesktopProjectRow(
-                            project: group.project,
-                            workspaceCount: group.workspaces.count,
-                            isCollapsed: isCollapsed,
-                            isSelected: selection == .project(group.project.id),
-                            isExpanded: tree.expandedProjectIDs.contains(group.project.id),
-                            isPinned: group.project.pinned,
-                            onSelect: { select(.project(group.project.id)) },
-                            onToggleExpansion: { toggleProject(group.project.id) },
-                            onAddWorkspace: {
-                                onAction(.requestNewWorkspace(group.project.id))
-                            },
-                            onRename: {
-                                projectName = group.project.name
-                                pendingRenameProject = group.project
-                            },
-                            onTogglePin: {
-                                onAction(.setProjectPinned(
-                                    group.project.id,
-                                    !group.project.pinned
-                                ))
-                            }
-                        )
-                    }
-                    .background(GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: WarrenSidebarRowDragFramesKey.self,
-                            value: [
-                                group.project.id.description: WarrenSidebarRowDragFrame(
-                                    info: WarrenSidebarRowDragInfo(
-                                        id: group.project.id.description,
-                                        kind: .project(group.project.id),
-                                        name: group.project.name,
-                                        isLastOfList: group.project.id == groups.last?.project.id
-                                    ),
-                                    frame: proxy.frame(
-                                        in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
-                                    )
-                                ),
-                            ]
-                        )
-                    }
-                    )
-                    .opacity(dragSourceRowID == group.project.id.description ? 0.2 : 1)
-                    .animation(
-                        reduceMotion ? nil : .easeOut(duration: 0.12),
-                        value: dragSourceRowID
-                    )
+                    projectRow(for: group)
                     if isCollapsed || tree.expandedProjectIDs.contains(group.project.id) {
                         ForEach(group.workspaces) { workspace in
-                            ZStack {
-                                WarrenDesktopWorkspaceRow(
-                                    workspace: workspace,
-                                    semanticScope: "project-list",
-                                    activity: workspaceActivity(workspace.id),
-                                    isCollapsed: isCollapsed,
-                                    isSelected: selection == .workspace(workspace.id),
-                                    isPinned: workspace.pinned,
-                                    onSelect: { select(.workspace(workspace.id)) },
-                                    onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
-                                    onRename: {
-                                        workspaceName = workspace.name
-                                        pendingRename = workspace
-                                    },
-                                    onTogglePin: {
-                                        onAction(.setWorkspacePinned(
-                                            workspace.id,
-                                            !workspace.pinned
-                                        ))
-                                    }
-                                )
-                            }
-                            .id(workspace.id)
-                            .transition(.opacity)
-                            .background(GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: WarrenSidebarRowDragFramesKey.self,
-                                    value: [
-                                        workspace.id.description: WarrenSidebarRowDragFrame(
-                                            info: WarrenSidebarRowDragInfo(
-                                                id: workspace.id.description,
-                                                kind: .workspace(
-                                                    workspace.id,
-                                                    projectID: group.project.id
-                                                ),
-                                                name: workspace.name,
-                                                isLastOfList: workspace.id == group.workspaces.last?.id
-                                            ),
-                                            frame: proxy.frame(
-                                                in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
-                                            )
-                                        ),
-                                    ]
-                                )
-                            }
-                            )
-                            .opacity(dragSourceRowID == workspace.id.description ? 0.2 : 1)
-                            .animation(
-                                reduceMotion ? nil : .easeOut(duration: 0.12),
-                                value: dragSourceRowID
-                            )
+                            workspaceRow(workspace, in: group)
                         }
                     }
                 }
@@ -224,6 +129,35 @@ struct WarrenDesktopSidebarRows: View {
         } message: {
             Text("Only the sidebar label changes; the repository path stays the same.")
         }
+        .sheet(item: $pendingDeleteWorkspace) { workspace in
+            let project = groups.first {
+                $0.workspaces.contains { $0.id == workspace.id }
+            }?.project
+            WarrenDesktopDeleteWorkspaceConfirmation(
+                workspace: workspace,
+                project: project,
+                removeWorktree: $deleteWorkspaceRemoveWorktree,
+                onCancel: { pendingDeleteWorkspace = nil },
+                onConfirm: {
+                    onAction(.deleteWorkspace(
+                        workspace.id,
+                        removeLocalWorktree: deleteWorkspaceRemoveWorktree
+                    ))
+                    pendingDeleteWorkspace = nil
+                }
+            )
+        }
+        .sheet(item: $pendingDeleteProject) { project in
+            WarrenDesktopDeleteProjectConfirmation(
+                project: project,
+                workspaceCount: groups.first { $0.project.id == project.id }?.workspaces.count ?? 0,
+                onCancel: { pendingDeleteProject = nil },
+                onConfirm: {
+                    onAction(.deleteProject(project.id))
+                    pendingDeleteProject = nil
+                }
+            )
+        }
         .onChange(of: groups) { oldGroups, newGroups in
             guard let projectID = selectedProjectID else { return }
             let oldCount = workspaceCount(for: projectID, in: oldGroups)
@@ -276,6 +210,126 @@ struct WarrenDesktopSidebarRows: View {
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             tree.projectsCollapsed.toggle()
         }
+    }
+
+    @ViewBuilder
+    private func projectRow(
+        for group: WarrenDesktopProjectGroup
+    ) -> some View {
+        ZStack {
+            WarrenDesktopProjectRow(
+                project: group.project,
+                workspaceCount: group.workspaces.count,
+                isCollapsed: isCollapsed,
+                isSelected: selection == .project(group.project.id),
+                isExpanded: tree.expandedProjectIDs.contains(group.project.id),
+                isPinned: group.project.pinned,
+                onSelect: { select(.project(group.project.id)) },
+                onToggleExpansion: { toggleProject(group.project.id) },
+                onAddWorkspace: {
+                    onAction(.requestNewWorkspace(group.project.id))
+                },
+                onRename: {
+                    projectName = group.project.name
+                    pendingRenameProject = group.project
+                },
+                onTogglePin: {
+                    onAction(.setProjectPinned(
+                        group.project.id,
+                        !group.project.pinned
+                    ))
+                },
+                onDelete: {
+                    pendingDeleteProject = group.project
+                }
+            )
+        }
+        .background(GeometryReader { proxy in
+            Color.clear.preference(
+                key: WarrenSidebarRowDragFramesKey.self,
+                value: [
+                    group.project.id.description: WarrenSidebarRowDragFrame(
+                        info: WarrenSidebarRowDragInfo(
+                            id: group.project.id.description,
+                            kind: .project(group.project.id),
+                            name: group.project.name,
+                            isLastOfList: group.project.id == groups.last?.project.id
+                        ),
+                        frame: proxy.frame(
+                            in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                        )
+                    ),
+                ]
+            )
+        }
+        )
+        .opacity(dragSourceRowID == group.project.id.description ? 0.2 : 1)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.12),
+            value: dragSourceRowID
+        )
+    }
+
+    @ViewBuilder
+    private func workspaceRow(
+        _ workspace: Workspace,
+        in group: WarrenDesktopProjectGroup
+    ) -> some View {
+        ZStack {
+            WarrenDesktopWorkspaceRow(
+                workspace: workspace,
+                semanticScope: "project-list",
+                activity: workspaceActivity(workspace.id),
+                isCollapsed: isCollapsed,
+                isSelected: selection == .workspace(workspace.id),
+                isPinned: workspace.pinned,
+                onSelect: { select(.workspace(workspace.id)) },
+                onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
+                onRename: {
+                    workspaceName = workspace.name
+                    pendingRename = workspace
+                },
+                onTogglePin: {
+                    onAction(.setWorkspacePinned(
+                        workspace.id,
+                        !workspace.pinned
+                    ))
+                },
+                onDelete: {
+                    deleteWorkspaceRemoveWorktree = false
+                    pendingDeleteWorkspace = workspace
+                }
+            )
+        }
+        .id(workspace.id)
+        .transition(.opacity)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(
+                key: WarrenSidebarRowDragFramesKey.self,
+                value: [
+                    workspace.id.description: WarrenSidebarRowDragFrame(
+                        info: WarrenSidebarRowDragInfo(
+                            id: workspace.id.description,
+                            kind: .workspace(
+                                workspace.id,
+                                projectID: group.project.id
+                            ),
+                            name: workspace.name,
+                            isLastOfList: workspace.id == group.workspaces.last?.id
+                        ),
+                        frame: proxy.frame(
+                            in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                        )
+                    ),
+                ]
+            )
+        }
+        )
+        .opacity(dragSourceRowID == workspace.id.description ? 0.2 : 1)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.12),
+            value: dragSourceRowID
+        )
     }
 
     private func workspaceActivity(_ workspaceID: WorkspaceID) -> AgentActivityState? {
@@ -489,5 +543,79 @@ private struct WarrenDesktopSidebarSectionHeader: View {
         .padding(.leading, WarrenSpacing.standard)
         .padding(.trailing, WarrenSpacing.compact)
         .onHover { isHovered = $0 }
+    }
+}
+
+private struct WarrenDesktopDeleteWorkspaceConfirmation: View {
+    let workspace: Workspace
+    let project: Project?
+    @Binding var removeWorktree: Bool
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    private var isWorktree: Bool {
+        guard let project else { return true }
+        return URL(fileURLWithPath: workspace.path)
+            .standardizedFileURL.path
+            != URL(fileURLWithPath: project.rootPath)
+                .standardizedFileURL.path
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
+            Text("Delete Workspace?")
+                .font(WarrenTypography.navigationItem)
+
+            Text("“\(workspace.name)” and every session it owns will be removed from Warren.")
+                .font(WarrenTypography.body)
+                .foregroundStyle(.secondary)
+
+            if isWorktree {
+                Toggle("Also delete the local worktree directory", isOn: $removeWorktree)
+                    .toggleStyle(.checkbox)
+                    .font(WarrenTypography.body)
+                    .help("Leave unchecked to keep the Git worktree and branch on disk.")
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Delete", role: .destructive, action: onConfirm)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(WarrenSpacing.large)
+        .frame(width: 380)
+    }
+}
+
+private struct WarrenDesktopDeleteProjectConfirmation: View {
+    let project: Project
+    let workspaceCount: Int
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
+            Text("Delete Project?")
+                .font(WarrenTypography.navigationItem)
+
+            Text("“\(project.name)” and its \(workspaceCount) workspace(s) will be removed from Warren.")
+                .font(WarrenTypography.body)
+                .foregroundStyle(.secondary)
+
+            Text("Local Git worktree directories are kept on disk.")
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Delete", role: .destructive, action: onConfirm)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(WarrenSpacing.large)
+        .frame(width: 380)
     }
 }

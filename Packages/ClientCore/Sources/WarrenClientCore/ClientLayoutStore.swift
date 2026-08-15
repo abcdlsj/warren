@@ -333,6 +333,32 @@ public actor ClientLayoutStore {
         return removed
     }
 
+    /// Removes every Window/Workspace view that points at a deleted Workspace.
+    /// Tabs and Panes die with the view; Session deletion is a separate Host
+    /// responsibility handled by the ApplicationService.
+    public func removeWorkspaceView(
+        _ workspaceID: WorkspaceID,
+        in windowID: ClientWindowID
+    ) async throws {
+        var changed = false
+        for windowIndex in layout.windows.indices {
+            let window = layout.windows[windowIndex]
+            if window.activeWorkspaceID == workspaceID {
+                layout.windows[windowIndex].activeWorkspaceID = nil
+                changed = true
+            }
+            let previousCount = window.workspaceViews.count
+            layout.windows[windowIndex].workspaceViews.removeAll {
+                $0.workspaceID == workspaceID
+            }
+            if layout.windows[windowIndex].workspaceViews.count != previousCount {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        try await persist()
+    }
+
     public func setSidebarCollapsed(_ collapsed: Bool, in windowID: ClientWindowID) async throws {
         var window = ensureWindow(id: windowID)
         window.sidebarCollapsed = collapsed

@@ -275,7 +275,8 @@ final class WarrenNextApplicationModel {
                 await self.run { try await self.service.moveWorkspace(workspaceID, before: before) }
             }
         case .addProject, .importSuperset, .requestNewWorkspace,
-             .renameProject, .renameWorkspace, .renameSession,
+             .renameProject, .renameWorkspace, .deleteProject, .deleteWorkspace,
+             .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
              .moveTab,
              .requestNewSession, .launchSession,
@@ -345,6 +346,8 @@ final class WarrenNextApplicationModel {
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
         case .setWorkspacePinned(let workspaceID, _):
             return workspaceID
+        case .deleteWorkspace(let workspaceID, _):
+            return workspaceID
         case .closeTab(let tabID), .closeOtherTabs(let tabID), .moveTab(let tabID, _):
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
@@ -352,7 +355,7 @@ final class WarrenNextApplicationModel {
         case .renameWorkspace(let workspaceID, _):
             return workspaceID
         case .addProject, .importSuperset, .requestNewWorkspace,
-             .renameProject, .setProjectPinned,
+             .renameProject, .deleteProject, .setProjectPinned,
              .moveProject, .moveWorkspace,
              .selectProject, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
@@ -414,6 +417,17 @@ extension WarrenNextApplicationModel {
             await run { try await service.renameProject(projectID, name: name) }
         case .renameWorkspace(let workspaceID, let name):
             await run { try await service.renameWorkspace(workspaceID, name: name) }
+        case .deleteProject(let projectID):
+            await run {
+                try await service.deleteProject(projectID)
+            }
+        case .deleteWorkspace(let workspaceID, let removeLocalWorktree):
+            await run {
+                try await service.deleteWorkspace(
+                    workspaceID,
+                    removeLocalWorktree: removeLocalWorktree
+                )
+            }
         case .renameSession(let sessionID, let title):
             await run { try await service.renameSession(sessionID, title: title) }
         case .setProjectPinned(let projectID, let pinned):
@@ -666,6 +680,7 @@ private extension WarrenDesktopAction {
         case .closeTab, .closeOtherTabs, .closeAllTabs,
              .renameProject, .renameWorkspace, .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
+             .deleteProject, .deleteWorkspace,
              .openSession, .deleteSession, .launchSession, .moveProject, .moveWorkspace:
             true
         case .addProject, .importSuperset, .requestNewWorkspace,

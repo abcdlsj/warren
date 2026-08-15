@@ -406,6 +406,53 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
             if let receipt { try db.execute(sql: "INSERT INTO request_receipts (request_id, command_kind, resource_id, completed_at) VALUES (?, ?, ?, ?)", arguments: [receipt.requestID.uuidString.lowercased(), receipt.commandKind, receipt.resourceID, receipt.completedAt]) }
         }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
     }
+    public func deleteWorkspace(_ workspaceID: WorkspaceID) async throws {
+        do { try await database.write { db in
+            guard let projectID = try String.fetchOne(
+                db,
+                sql: "SELECT project_id FROM workspaces WHERE id = ?",
+                arguments: [workspaceID.description]
+            ) else { return }
+            try db.execute(sql: "DELETE FROM tabs WHERE workspace_id = ?", arguments: [workspaceID.description])
+            try db.execute(sql: "DELETE FROM workspace_views WHERE workspace_id = ?", arguments: [workspaceID.description])
+            try db.execute(sql: "UPDATE client_windows SET active_workspace_id = NULL WHERE active_workspace_id = ?", arguments: [workspaceID.description])
+            try db.execute(sql: "DELETE FROM runtime_bindings WHERE session_id IN (SELECT id FROM terminal_sessions WHERE workspace_id = ?)", arguments: [workspaceID.description])
+            try db.execute(sql: "DELETE FROM request_receipts WHERE resource_id = ? OR resource_id IN (SELECT id FROM terminal_sessions WHERE workspace_id = ?)", arguments: [workspaceID.description, workspaceID.description])
+            try db.execute(sql: "DELETE FROM terminal_sessions WHERE workspace_id = ?", arguments: [workspaceID.description])
+            try db.execute(sql: "DELETE FROM workspaces WHERE id = ?", arguments: [workspaceID.description])
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT id FROM workspaces WHERE project_id = ? ORDER BY position, created_at, id",
+                arguments: [projectID]
+            )
+            let ids: [WorkspaceID] = try rows.map { try Self.domainID(row: $0, table: "workspaces", column: "id") }
+            for (position, id) in ids.enumerated() {
+                try db.execute(sql: "UPDATE workspaces SET position = ? WHERE id = ?", arguments: [position, id.description])
+            }
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
+    public func deleteProject(_ projectID: ProjectID) async throws {
+        do { try await database.write { db in
+            guard try Bool.fetchOne(
+                db,
+                sql: "SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)",
+                arguments: [projectID.description]
+            ) == true else { return }
+            try db.execute(sql: "DELETE FROM tabs WHERE workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)", arguments: [projectID.description])
+            try db.execute(sql: "DELETE FROM workspace_views WHERE workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)", arguments: [projectID.description])
+            try db.execute(sql: "UPDATE client_windows SET active_workspace_id = NULL WHERE active_workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)", arguments: [projectID.description])
+            try db.execute(sql: "DELETE FROM runtime_bindings WHERE session_id IN (SELECT id FROM terminal_sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?))", arguments: [projectID.description])
+            try db.execute(sql: "DELETE FROM request_receipts WHERE resource_id IN (SELECT id FROM terminal_sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)) OR resource_id IN (SELECT id FROM workspaces WHERE project_id = ?)", arguments: [projectID.description, projectID.description])
+            try db.execute(sql: "DELETE FROM terminal_sessions WHERE workspace_id IN (SELECT id FROM workspaces WHERE project_id = ?)", arguments: [projectID.description])
+            try db.execute(sql: "DELETE FROM workspaces WHERE project_id = ?", arguments: [projectID.description])
+            try db.execute(sql: "DELETE FROM projects WHERE id = ?", arguments: [projectID.description])
+            let rows = try Row.fetchAll(db, sql: "SELECT id FROM projects ORDER BY position, created_at, id")
+            let ids: [ProjectID] = try rows.map { try Self.domainID(row: $0, table: "projects", column: "id") }
+            for (position, id) in ids.enumerated() {
+                try db.execute(sql: "UPDATE projects SET position = ? WHERE id = ?", arguments: [position, id.description])
+            }
+        }} catch { throw HostStateRepositoryError.databaseWriteFailed(path: databaseURL.path, reason: String(describing: error)) }
+    }
 
     public func upsertHost(_ host: WarrenDomain.Host) async throws {
         do { try await database.write { db in

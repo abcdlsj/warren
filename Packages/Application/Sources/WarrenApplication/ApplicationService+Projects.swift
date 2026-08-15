@@ -54,6 +54,112 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    /// Permanently removes one Workspace and every Session it owns.
+    ///
+    /// `removeLocalWorktree` only applies to worktree-backed workspaces; the
+    /// project's main checkout is never deleted. When false, the Git worktree
+    /// and its branch remain on disk and can be re-added later.
+    public func deleteWorkspace(
+        _ workspaceID: WorkspaceID,
+        removeLocalWorktree: Bool = false
+    ) async throws {
+        do {
+            try requireReady()
+            guard let workspace = state.workspaces.first(where: { $0.id == workspaceID }) else {
+                throw WarrenApplicationError.workspaceNotFound(workspaceID)
+            }
+            guard let project = state.projects.first(where: { $0.id == workspace.projectID }) else {
+                throw WarrenApplicationError.projectNotFound(workspace.projectID)
+            }
+            for sessionID in state.terminalSessions
+                .filter({ $0.workspaceID == workspaceID })
+                .map(\.id) {
+                try await deleteSession(sessionID: sessionID)
+            }
+
+            if removeLocalWorktree,
+               normalizeStoredPath(workspace.path) != normalizeStoredPath(project.rootPath) {
+                try await gitWorktreeManager.remove(GitWorktreeCreation(
+                    repositoryPath: project.rootPath,
+                    worktreePath: workspace.path,
+                    branch: workspace.branch ?? ""
+                ))
+            }
+
+            try await withPersistenceMutation {
+                try requireReady()
+                guard let index = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+                    throw WarrenApplicationError.workspaceNotFound(workspaceID)
+                }
+                try await repository.deleteWorkspace(workspaceID)
+                state.workspaces.remove(at: index)
+                state.requestReceipts.removeAll {
+                    $0.resourceID == workspaceID.description
+                }
+            }
+            try await layoutStore.removeWorkspaceView(workspaceID, in: windowID)
+            await publish()
+        } catch {
+            let appError = error.asApplicationError
+            report(appError, id: "workspace.\(workspaceID).delete")
+            await publish()
+            throw appError
+        }
+    }
+
+    /// Permanently removes one Project, its Workspaces, and every Session they
+    /// own. Worktree directories are only removed when explicitly requested.
+    public func deleteProject(
+        _ projectID: ProjectID,
+        removeLocalWorktrees: Bool = false
+    ) async throws {
+        do {
+            try requireReady()
+            guard let project = state.projects.first(where: { $0.id == projectID }) else {
+                throw WarrenApplicationError.projectNotFound(projectID)
+            }
+            let workspaces = state.workspaces.filter { $0.projectID == projectID }
+            for sessionID in state.terminalSessions
+                .filter({ session in workspaces.contains { $0.id == session.workspaceID } })
+                .map(\.id) {
+                try await deleteSession(sessionID: sessionID)
+            }
+
+            if removeLocalWorktrees {
+                for workspace in workspaces
+                    where normalizeStoredPath(workspace.path) != normalizeStoredPath(project.rootPath) {
+                    try await gitWorktreeManager.remove(GitWorktreeCreation(
+                        repositoryPath: project.rootPath,
+                        worktreePath: workspace.path,
+                        branch: workspace.branch ?? ""
+                    ))
+                }
+            }
+
+            try await withPersistenceMutation {
+                try requireReady()
+                guard let index = state.projects.firstIndex(where: { $0.id == projectID }) else {
+                    throw WarrenApplicationError.projectNotFound(projectID)
+                }
+                try await repository.deleteProject(projectID)
+                state.projects.remove(at: index)
+                state.workspaces.removeAll { $0.projectID == projectID }
+                state.requestReceipts.removeAll { receipt in
+                    workspaces.contains { $0.id.description == receipt.resourceID }
+                }
+            }
+            for workspace in workspaces {
+                try await layoutStore.removeWorkspaceView(workspace.id, in: windowID)
+            }
+            await publish()
+        } catch {
+            let appError = error.asApplicationError
+            report(appError, id: "project.\(projectID).delete")
+            await publish()
+            throw appError
+        }
+    }
+
     /// Moves one project before another in the Host-owned sidebar order.
     /// Passing a nil target moves the project to the end. The change is
     /// persisted on the Host so every client starts with the same order.

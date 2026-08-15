@@ -193,6 +193,12 @@ func resourceCommand(args []string) error {
 	case "workspace.remove", "workspace.delete":
 		method = "workspace.remove"
 		result = &map[string]any{}
+		// The interactive UI sends an explicit boolean. The CLI keeps the
+		// historical behavior unless the caller opts out with --keep-worktree.
+		if boolValue(params, "keep_worktree") {
+			params["remove_worktree"] = false
+		}
+		delete(params, "keep_worktree")
 	case "workspace.rename":
 		method = "workspace.rename"
 		result = &map[string]any{}
@@ -668,6 +674,8 @@ Examples:
   warren workspace create PROJECT_ID --branch release/feature
     --path is optional; omit it to create under ~/.warren/worktrees/
     (pass --path only when the worktree must live somewhere specific)
+  warren workspace remove WORKSPACE_ID --force
+    --keep-worktree keeps the local Git worktree on disk
   warren workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session attach SESSION_ID

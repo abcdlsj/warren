@@ -203,6 +203,66 @@ func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkspaceCanKeepLocalWorktree(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	repository := filepath.Join(directory, "repository")
+	if err := os.MkdirAll(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(arguments ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repository}, arguments...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s: %v", arguments, output, err)
+		}
+	}
+	runGit("init", "--quiet")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("warren\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "README.md")
+	runGit("commit", "--quiet", "-m", "init")
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		Store:        state,
+		Runtime:      &memoryRuntime{sessions: map[string][]byte{}},
+		WorktreeRoot: filepath.Join(directory, "worktrees"),
+	}
+	project, err := service.AddProject(repository, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace, err := service.CreateWorkspace(project.ID, "feature/keep-worktree", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace.Path); err != nil {
+		t.Fatalf("created worktree missing: %v", err)
+	}
+
+	if err := service.RemoveWorkspace(context.Background(), workspace.ID, RemoveWorkspaceOptions{
+		Force:          true,
+		RemoveWorktree: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace.Path); err != nil {
+		t.Fatalf("worktree should remain on disk: %v", err)
+	}
+	for _, value := range service.Store.Snapshot().Workspaces {
+		if value.ID == workspace.ID {
+			t.Fatalf("workspace %s should be removed", workspace.ID)
+		}
+	}
+}
+
 func TestMaintenanceBroadcastReachesAllPeers(t *testing.T) {
 	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test-host")
 	if err != nil {

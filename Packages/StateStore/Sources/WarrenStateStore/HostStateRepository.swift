@@ -21,6 +21,8 @@ public protocol HostStateRepository: Sendable {
     func updateSessionCursor(sessionID: TerminalSessionID, anchor: RecoveryAnchor) async throws
     func insertProject(_ project: Project, rootWorkspace: Workspace) async throws
     func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws
+    func deleteProject(_ projectID: ProjectID) async throws
+    func deleteWorkspace(_ workspaceID: WorkspaceID) async throws
     func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws
     func moveWorkspace(_ workspaceID: WorkspaceID, before otherWorkspaceID: WorkspaceID?) async throws
     func upsertHost(_ host: WarrenDomain.Host) async throws
@@ -69,6 +71,38 @@ public extension HostStateRepository {
     }
     func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws {
         var state = try await load(); state.workspaces.append(workspace); if let receipt { state.requestReceipts.append(receipt) }; try await save(state)
+    }
+    func deleteProject(_ projectID: ProjectID) async throws {
+        var state = try await load()
+        let workspaceIDs = Set(state.workspaces.filter { $0.projectID == projectID }.map(\.id))
+        let sessionIDs = Set(state.terminalSessions.filter { workspaceIDs.contains($0.workspaceID) }.map(\.id))
+        state.projects.removeAll { $0.id == projectID }
+        state.workspaces.removeAll { $0.projectID == projectID }
+        state.terminalSessions.removeAll { workspaceIDs.contains($0.workspaceID) }
+        state.requestReceipts.removeAll { receipt in
+            workspaceIDs.contains { $0.description == receipt.resourceID }
+                || sessionIDs.contains { $0.description == receipt.resourceID }
+        }
+        for index in state.projects.indices { state.projects[index].order = index }
+        try await save(state)
+    }
+    func deleteWorkspace(_ workspaceID: WorkspaceID) async throws {
+        var state = try await load()
+        guard let index = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        let projectID = state.workspaces[index].projectID
+        let sessionIDs = Set(state.terminalSessions.filter { $0.workspaceID == workspaceID }.map(\.id))
+        state.workspaces.remove(at: index)
+        state.terminalSessions.removeAll { $0.workspaceID == workspaceID }
+        state.requestReceipts.removeAll { receipt in
+            receipt.resourceID == workspaceID.description
+                || sessionIDs.contains { $0.description == receipt.resourceID }
+        }
+        var order = 0
+        for workspaceIndex in state.workspaces.indices where state.workspaces[workspaceIndex].projectID == projectID {
+            state.workspaces[workspaceIndex].order = order
+            order += 1
+        }
+        try await save(state)
     }
     func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws {
         var state = try await load()

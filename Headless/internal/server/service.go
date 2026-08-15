@@ -679,7 +679,15 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 	return workspace, nil
 }
 
-func (s *Service) RemoveWorkspace(ctx context.Context, id string, force bool) error {
+type RemoveWorkspaceOptions struct {
+	Force bool
+	// RemoveWorktree controls whether a Git worktree directory is removed
+	// together with its Warren workspace. It only applies to worktree-backed
+	// workspaces; main checkouts are never deleted from disk.
+	RemoveWorktree bool
+}
+
+func (s *Service) RemoveWorkspace(ctx context.Context, id string, options RemoveWorkspaceOptions) error {
 	state := s.Store.Snapshot()
 	var workspace *api.Workspace
 	for i := range state.Workspaces {
@@ -692,14 +700,14 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, force bool) er
 		return fmt.Errorf("workspace not found: %s", id)
 	}
 	for _, session := range state.Sessions {
-		if session.WorkspaceID == id && session.Lifecycle == "running" && !force {
+		if session.WorkspaceID == id && session.Lifecycle == "running" && !options.Force {
 			return errors.New("workspace has running sessions; use --force")
 		}
 	}
-	if force {
+	if options.Force {
 		_ = s.removeWorkspaceRuntime(ctx, state, id)
 	}
-	if workspace.Kind == "worktree" {
+	if workspace.Kind == "worktree" && options.RemoveWorktree {
 		var project api.Project
 		for _, value := range state.Projects {
 			if value.ID == workspace.ProjectID {
