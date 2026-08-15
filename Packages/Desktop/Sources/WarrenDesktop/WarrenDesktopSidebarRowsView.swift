@@ -18,10 +18,13 @@ struct WarrenDesktopSidebarRows: View {
     @State private var projectName = ""
     @State private var dragSource: WarrenDesktopSidebarDragSource?
     @State private var dragTargetID: String?
-    @State private var dragRestoreExpansions: Set<ProjectID> = []
+    @State private var rowFrames: [String: CGRect] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
+    private static let dragSpace = "warren.sidebar.drag"
+    private static let projectPrefix = "project."
+    private static let workspacePrefix = "workspace."
     private static let endMarker = "warren.sidebar.drag.end"
 
     var body: some View {
@@ -77,8 +80,16 @@ struct WarrenDesktopSidebarRows: View {
                         }
                     )
                     .simultaneousGesture(projectDragGesture(projectID: group.project.id))
-                    .onHover { hovering in
-                        updateDragTarget(.project, id: group.project.id.description, hovering: hovering)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: WarrenSidebarRowFramesKey.self,
+                                value: [
+                                    Self.projectKey(group.project.id):
+                                        proxy.frame(in: .named(Self.dragSpace))
+                                ]
+                            )
+                        }
                     }
                     .overlay {
                         dragTargetIndicator(.project, id: group.project.id.description)
@@ -108,13 +119,16 @@ struct WarrenDesktopSidebarRows: View {
                             .id(workspace.id)
                             .transition(.opacity)
                             .simultaneousGesture(workspaceDragGesture(workspace: workspace))
-                            .onHover { hovering in
-                                updateDragTarget(
-                                    .workspace,
-                                    id: workspace.id.description,
-                                    projectID: workspace.projectID,
-                                    hovering: hovering
-                                )
+                            .background {
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: WarrenSidebarRowFramesKey.self,
+                                        value: [
+                                            Self.workspaceKey(workspace.id):
+                                                proxy.frame(in: .named(Self.dragSpace))
+                                        ]
+                                    )
+                                }
                             }
                             .overlay {
                                 dragTargetIndicator(.workspace, id: workspace.id.description)
@@ -122,15 +136,19 @@ struct WarrenDesktopSidebarRows: View {
                         }
                         if dragSource?.kind == .workspace,
                            dragSource?.projectID == group.project.id {
-                            dragEndSlot(.workspace, projectID: group.project.id)
+                            dragEndSlot()
                         }
                     }
                 }
                 .transition(.opacity)
                 if dragSource?.kind == .project {
-                    dragEndSlot(.project)
+                    dragEndSlot()
                 }
             }
+        }
+        .coordinateSpace(name: Self.dragSpace)
+        .onPreferenceChange(WarrenSidebarRowFramesKey.self) { frames in
+            rowFrames = frames
         }
         .onChange(of: selection) { _, newSelection in
             guard case .workspace(let workspaceID)? = newSelection,
@@ -229,9 +247,10 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func projectDragGesture(projectID: ProjectID) -> some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { _ in
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.dragSpace))
+            .onChanged { value in
                 beginDrag(.project, id: projectID.description, projectID: nil)
+                updateDragTarget(.project, at: value.location)
             }
             .onEnded { _ in
                 finishDrag(.project)
@@ -239,13 +258,14 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func workspaceDragGesture(workspace: Workspace) -> some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { _ in
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.dragSpace))
+            .onChanged { value in
                 beginDrag(
                     .workspace,
                     id: workspace.id.description,
                     projectID: workspace.projectID
                 )
+                updateDragTarget(.workspace, at: value.location)
             }
             .onEnded { _ in
                 finishDrag(.workspace)
@@ -265,27 +285,13 @@ struct WarrenDesktopSidebarRows: View {
             projectID: projectID
         )
         dragTargetID = nil
-        dragRestoreExpansions = tree.expandedProjectIDs
-        if kind == .project {
-            // Project reordering shows the whole project list: collapse every
-            // project while dragging, then restore the previous expansion set.
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                tree.expandedProjectIDs = []
-            }
-        }
     }
 
     private func finishDrag(_ kind: WarrenDesktopSidebarDragKind) {
         guard let source = dragSource, source.kind == kind else { return }
         defer {
-            if source.kind == .project {
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                    tree.expandedProjectIDs = dragRestoreExpansions
-                }
-            }
             dragSource = nil
             dragTargetID = nil
-            dragRestoreExpansions = []
         }
         guard let target = dragTargetID else { return }
         switch kind {
@@ -310,20 +316,32 @@ struct WarrenDesktopSidebarRows: View {
 
     private func updateDragTarget(
         _ kind: WarrenDesktopSidebarDragKind,
-        id: String,
-        projectID: ProjectID? = nil,
-        hovering: Bool
+        at location: CGPoint
     ) {
         guard let source = dragSource, source.kind == kind else { return }
-        if kind == .workspace, let projectID, source.projectID != projectID {
-            return
+        let targetKey: String?
+        switch kind {
+        case .project:
+            targetKey = rowFrames
+                .filter { $0.key.hasPrefix(Self.projectPrefix) }
+                .first { $0.value.contains(location) }?
+                .key
+        case .workspace:
+            targetKey = rowFrames
+                .filter { key, _ in
+                    if key == Self.endMarker { return true }
+                    return Self.projectID(
+                        forWorkspaceKey: key,
+                        in: groups
+                    ) == source.projectID
+                }
+                .first { $0.value.contains(location) }?
+                .key
         }
+        let target = targetKey.flatMap(Self.dragID(fromKey:))
+        guard target != dragTargetID else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-            if hovering {
-                dragTargetID = id
-            } else if dragTargetID == id {
-                dragTargetID = nil
-            }
+            dragTargetID = target
         }
     }
 
@@ -342,10 +360,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     @ViewBuilder
-    private func dragEndSlot(
-        _ kind: WarrenDesktopSidebarDragKind,
-        projectID: ProjectID? = nil
-    ) -> some View {
+    private func dragEndSlot() -> some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         Color.clear
             .frame(height: WarrenSpacing.standard)
@@ -357,14 +372,62 @@ struct WarrenDesktopSidebarRows: View {
                         .padding(.horizontal, WarrenSpacing.compact)
                 }
             }
-            .onHover { hovering in
-                guard let source = dragSource, source.kind == kind,
-                      kind != .workspace || source.projectID == projectID else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                    dragTargetID = hovering ? Self.endMarker : nil
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: WarrenSidebarRowFramesKey.self,
+                        value: [
+                            Self.endMarker:
+                                proxy.frame(in: .named(Self.dragSpace))
+                        ]
+                    )
                 }
             }
             .padding(.horizontal, WarrenSpacing.compact)
+    }
+
+    private static func projectKey(_ projectID: ProjectID) -> String {
+        projectPrefix + projectID.description
+    }
+
+    private static func workspaceKey(_ workspaceID: WorkspaceID) -> String {
+        workspacePrefix + workspaceID.description
+    }
+
+    private static func dragID(fromKey key: String) -> String? {
+        if key == endMarker { return endMarker }
+        if key.hasPrefix(projectPrefix) {
+            return String(key.dropFirst(projectPrefix.count))
+        }
+        if key.hasPrefix(workspacePrefix) {
+            return String(key.dropFirst(workspacePrefix.count))
+        }
+        return nil
+    }
+
+    private static func projectID(
+        forWorkspaceKey key: String,
+        in groups: [WarrenDesktopProjectGroup]
+    ) -> ProjectID? {
+        guard key.hasPrefix(workspacePrefix),
+              let workspaceID = WorkspaceID(
+                uuidString: String(key.dropFirst(workspacePrefix.count))
+              )
+        else { return nil }
+        return groups.first {
+            $0.workspaces.contains { $0.id == workspaceID }
+        }?.project.id
+    }
+}
+
+private struct WarrenSidebarRowFramesKey: PreferenceKey {
+    static let defaultValue: [String: CGRect] = [:]
+
+    static func reduce(
+        value: inout [String: CGRect],
+        nextValue: () -> [String: CGRect]
+    ) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
