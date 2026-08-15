@@ -1197,6 +1197,7 @@ final class WarrenRemoteApplicationModel {
         surface.onSettled = { [weak self] in
             self?.settledSessionIDs.insert(sessionID)
         }
+        surface.needsSettledReflow = true
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)

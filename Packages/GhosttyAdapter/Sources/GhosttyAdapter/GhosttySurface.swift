@@ -32,6 +32,10 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// and the surface has reflowed into a settled grid. Consumers keep the
     /// view hidden until this fires so the BCE-clearing reflow is invisible.
     public var onSettled: (@MainActor () -> Void)?
+    /// True while a reanchor attach is waiting to be revealed. Output drain
+    /// only schedules a settled reflow in this window; steady-state output
+    /// must never trigger reflow.
+    public var needsSettledReflow = false
 
     public init(
         id: TerminalSessionID,
@@ -89,7 +93,8 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 
         outputWriter.setOnDrained { [weak self] in
             Task { @MainActor [weak self] in
-                self?.scheduleSettledReflow()
+                guard let self, self.needsSettledReflow else { return }
+                self.scheduleSettledReflow()
             }
         }
     }
@@ -144,6 +149,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// Re-runs the settled reflow for a reused surface after a tail/exact
     /// attach that may not produce any output frames.
     public func requestSettledReflow() {
+        guard needsSettledReflow else { return }
         scheduleSettledReflow()
     }
 
@@ -155,6 +161,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     private func performSettledReflow() {
         guard let raw = state.surface?.rawValue,
               let size = state.surfaceSize else {
+            needsSettledReflow = false
             onSettled?()
             return
         }
@@ -163,12 +170,14 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self,
                   let raw = self.state.surface?.rawValue else {
+                self?.needsSettledReflow = false
                 self?.onSettled?()
                 return
             }
             ghostty_surface_set_size(raw, size.widthPixels, size.heightPixels)
             self.state.controller.tick()
             ghostty_surface_refresh(raw)
+            self.needsSettledReflow = false
             self.onSettled?()
         }
     }
