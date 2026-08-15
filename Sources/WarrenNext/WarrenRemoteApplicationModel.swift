@@ -164,6 +164,8 @@ enum WarrenRemoteTerminalProtocol {
 
 private actor WarrenRemoteWire {
     private static let outputChunkBytes = 128 * 1024
+    private static let connectTimeout: Duration = .seconds(10)
+    private static let requestTimeout: Duration = .seconds(15)
     private let configuration: WarrenRemoteEndpointConfiguration
     private var task: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
@@ -185,13 +187,28 @@ private actor WarrenRemoteWire {
         components.path = "/v1/ws"
         guard let url = components.url else { throw URLError(.badURL) }
         let socket = URLSession.shared.webSocketTask(with: url)
+        let token = configuration.token
         task = socket
         socket.resume()
-        try await socket.send(.string(Self.json([
-            "t": "auth",
-            "token": configuration.token,
-            "version": "1.0",
-        ])))
+        // A daemon that accepts TCP but never completes the WebSocket
+        // handshake or answers auth would otherwise hang the desktop on a
+        // "Connecting…" spinner forever. Bound the handshake so the
+        // connection loop can tear this wire down and retry or fail visibly.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await socket.send(.string(Self.json([
+                    "t": "auth",
+                    "token": token,
+                    "version": "1.0",
+                ])))
+            }
+            group.addTask {
+                try await Task.sleep(for: Self.connectTimeout)
+                throw URLError(.timedOut)
+            }
+            try await group.next()
+            group.cancelAll()
+        }
         receiveTask = Task { [weak self] in await self?.receiveLoop(socket) }
     }
 
@@ -219,6 +236,13 @@ private actor WarrenRemoteWire {
             Task {
                 do { try await task.send(.string(text)) }
                 catch { self.failRequest(id, error: error) }
+            }
+            // A daemon can accept the WebSocket and then stall on a request
+            // (for example a wedged attach). Fail the request instead of
+            // leaving the terminal pane on its "Connecting…" spinner forever.
+            Task {
+                try? await Task.sleep(for: Self.requestTimeout)
+                self.failRequest(id, error: URLError(.timedOut))
             }
         }
     }
@@ -250,6 +274,11 @@ private actor WarrenRemoteWire {
     }
 
     private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
+        // Every exit path ends the event stream so the connection loop's
+        // `for await` can never stay suspended after a switch or a dropped
+        // socket. `finish` is idempotent; the normal disconnect path calls it
+        // again through `close()`.
+        defer { eventBuffer.finish() }
         do {
             while !Task.isCancelled {
                 switch try await socket.receive() {
