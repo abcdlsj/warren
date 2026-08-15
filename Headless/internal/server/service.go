@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
-	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
 
@@ -60,8 +60,8 @@ type outputSession struct {
 	sessionID         string
 	runtimeName       string
 	ring              *output.Ring
-	watcher           *runtime.SpoolWatcher
-	responder         *queryResponder
+	watcher           *ghostline.SpoolWatcher
+	responder         *ghostline.QueryResponder
 	persistedSequence uint64
 	reanchorRequired  bool
 }
@@ -849,7 +849,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapter()
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring, responder: newQueryResponder()}
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring, responder: ghostline.NewQueryResponder()}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -871,11 +871,11 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	outputSession := &outputSession{
 		sessionID:         session.ID,
 		runtimeName:       session.Runtime,
-		responder:         newQueryResponder(),
+		responder:         ghostline.NewQueryResponder(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}
-	watcher, err := runtime.NewSpoolWatcher(
+	watcher, err := ghostline.NewSpoolWatcher(
 		adapter.SpoolPath(session.Runtime),
 		spoolOffset,
 		func(data []byte) { s.recordOutput(session.ID, data) },
@@ -1101,7 +1101,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// Rendering those bytes as ordinary output avoids the screen reset and
 	// full replay that otherwise flashes black on every reattach.
 	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
-		if recoverer, ok := s.Runtime.(runtime.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
+		if recoverer, ok := s.Runtime.(ghostline.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
 			adapter := s.outputAdapter()
 			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
 			if sizeErr == nil && anchor.Sequence <= uint64(size) {

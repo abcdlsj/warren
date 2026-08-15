@@ -98,8 +98,11 @@ Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.w
 
 ## PTY Runtime (experimental)
 
-`warren-headless --runtime pty` replaces tmux with one pseudo-terminal per
-session owned directly by the daemon. The output pipeline is unchanged: raw
+`warren-headless --runtime pty` replaces tmux with the
+[ghostline](https://github.com/abcdlsj/ghostline) runtime: one
+pseudo-terminal per session owned by the daemon, with a server-side
+libghostty-vt emulator rendering screen snapshots (visible grid + scrollback,
+SGR preserved) at the client's size. The output pipeline is unchanged: raw
 PTY bytes are appended to the same spool files, so recovery anchors and
 reanchor behave identically, and clients still render with their own terminal
 emulator. Input is written to the PTY verbatim, so there is no tmux
@@ -111,6 +114,5 @@ Known limits of the spike:
 - A daemon restart closes the PTY master and ends its sessions. tmux sessions
   survive a daemon restart because tmux owns them; adopting existing PTY
   children is not implemented yet.
-- `Capture` replays the raw spool bytes instead of a server-rendered screen
-  snapshot, so a reanchor after spool compaction can only recover the bytes
-  written after the last truncation.
+- Building `warren-headless` with the PTY runtime requires the local
+  `ghostline` checkout (see its README for the libghostty-vt build steps).

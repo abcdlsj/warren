@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/server"
 	"github.com/abcdlsj/warren/Headless/internal/store"
@@ -73,7 +74,7 @@ func main() {
 		}
 		runtimeAdapter = tmuxAdapter
 	case "pty":
-		runtimeAdapter = runtime.NewPTY(*outputDir)
+		runtimeAdapter = ghostline.NewPTY(*outputDir)
 	default:
 		fatal(fmt.Errorf("unknown runtime %q (supported: tmux, pty)", *runtimeMode))
 	}
