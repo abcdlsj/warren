@@ -1,17 +1,17 @@
 # Warren Headless
 
-Warren Headless 在远端主机持有 Project、Workspace、Git worktree、Terminal Session 和 tmux runtime。Desktop 与 CLI 都是客户端；客户端断开不会结束 Session。
+Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, and tmux runtimes on a remote host. Both the Desktop and the CLI are clients; a client disconnecting never ends a Session.
 
-## 安装
+## Installation
 
-远端主机需要 Go 1.25、Git 和 tmux。
+A remote host needs Go 1.25, Git, and tmux.
 
 ```sh
 go install github.com/abcdlsj/warren/Headless/cmd/warren-headless@latest
 go install github.com/abcdlsj/warren/Headless/cmd/warren@latest
 ```
 
-也可以在仓库中构建当前版本：
+Or build the current revision from the repository:
 
 ```sh
 mise run build:headless
@@ -19,28 +19,28 @@ mise run build:headless
 
 `warren-headless` listens on `0.0.0.0:8789` by default so phones and tablets on the same LAN can open the Web UI directly. It also serves the same UI over HTTPS on `0.0.0.0:8788` (see "LAN HTTPS" below). The HTTP port has no TLS, so do not expose it to the public internet.
 
-## 启动与连接
+## Start and Connect
 
-远端直接启动：
+Start it directly on the remote host:
 
 ```sh
 warren-headless
 ```
 
-默认文件：
+Default files:
 
-- 状态：`~/.warren/state.json`
-- token：`~/.warren/token`
-- tmux socket：`warren-headless`
-- worktree：`~/.warren/worktrees/`
+- State: `~/.warren/state.json`
+- Token: `~/.warren/token`
+- tmux socket: `warren-headless`
+- Worktrees: `~/.warren/worktrees/`
 
-本地可用 SSH 完成远端启动、token 获取、endpoint 保存和端口转发：
+From your Mac, `warren ssh` starts the remote daemon, fetches the token, saves the endpoint, and sets up port forwarding:
 
 ```sh
 warren ssh user@vps
 ```
 
-保持该进程运行。Desktop 会从 `~/.warren/config.json` 读取 endpoint，并在右上角显示 `Local` 和服务器选项。
+Keep that process running. The Desktop reads the endpoint from `~/.warren/config.json` and shows `Local` plus server options in the top-right corner.
 
 ## LAN HTTPS
 
@@ -63,19 +63,14 @@ warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
 ```
 
-命令支持 `--json`。`worktree` 是 `workspace` 的别名。
+All commands support `--json`. `worktree` is an alias for `workspace`.
 
-## API 边界
+## API Boundaries
 
 The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
 The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
 
-## 输出链路
+## Output Pipeline
 
-每个 Session 的原始 PTY 字节通过 `tmux pipe-pane -o -O` 写入独立 append-only
-spool（默认 `~/.warren/output/<runtime>.out`）。Host 的 SpoolWatcher 按持久化
-offset 持续读取，先写入有界 OutputRing，再以 DENB binary frame
-（`sessionID/epoch/sequence/payloadLength`）广播给客户端。断线重连时客户端携带
-最后确认的 Recovery Anchor；Anchor 在 Ring 内精确补发，被淘汰时发送 tmux
-屏幕快照并 reanchor。每个客户端拥有独立 outbound 队列，慢客户端只会断开自己。
+Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default) via `tmux pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring, or sends a tmux screen snapshot and reanchors once it has been evicted. Every client has its own outbound queue; a slow client only disconnects itself.

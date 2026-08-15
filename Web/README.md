@@ -1,28 +1,28 @@
 # Warren Web
 
-响应式 Web/PWA 客户端使用 React + Vite。React 组件源码位于 `Web/src/`，生产构建产物写入 `Web/dist/`，供 Go daemon 和 Go Relay Service 共同嵌入。
+The responsive Web/PWA client uses React + Vite. React component source lives in `Web/src/`, and production build output is written to `Web/dist/`, which is embedded by both the Go daemon and the Go Relay Service.
 
-## 开发
+## Development
 
 ```sh
 npm --prefix Web install
 mise run web:dev
 ```
 
-Vite 开发服务器只负责前端资源，React 负责 UI 组件树和客户端状态；xterm 通过组件 ref 挂载到终端节点。若需连接本地 Warren WebSocket，可继续使用 daemon 的 8789 端口，或为 Vite 配置临时反向代理。
+The Vite dev server only serves frontend assets; React owns the UI component tree and client state, and xterm mounts onto the terminal node through a component ref. To connect to a local Warren WebSocket, keep using the daemon's 8789 port, or configure a temporary reverse proxy for Vite.
 
-## 构建和验证
+## Build and Verify
 
 ```sh
 mise run web:build
 mise run verify:web
 ```
 
-不要直接编辑 `Web/dist/`。该目录是 Vite 构建产物，会在下一次构建时清空并重新生成。
+Do not edit `Web/dist/` directly. It is Vite build output and is cleared and regenerated on every build.
 
-运行时参数通过 `index.html` 的 meta 占位符注入：
+Runtime parameters are injected through meta placeholders in `index.html`:
 
-- `__WARREN_INJECTED_PARAMS__`：本地 Web 的 host 和 token 参数。
-- `__WARREN_RELAY_HOST_ID__`：中心 Relay 的目标 Host ID。
+- `__WARREN_INJECTED_PARAMS__`: local Web host and token parameters.
+- `__WARREN_RELAY_HOST_ID__`: target Host ID for the central Relay.
 
-SSH、WebSocket 协议和 Host 资源模型不属于 Vite 项目；它们仍由 Go 服务端维护。
+SSH, the WebSocket protocol, and the Host resource model do not belong to the Vite project; they are maintained by the Go server side.

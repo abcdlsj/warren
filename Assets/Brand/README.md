@@ -1,39 +1,37 @@
-# Warren 徽标
+# Warren Brand
 
-## 核心概念
+## Core Concept
 
-徽标把字母 `W`、兔群地穴和终端光标合并为一个像素标记。
+The logo combines the letter `W`, a rabbit-warren burrow, and a terminal cursor in one pixel mark.
 
-- 两个高位笔画像兔耳，也构成 `W` 的起笔和收笔。
-- 下方分叉像相连的地穴，呼应 Warren 的名称和 Workspace 组织方式。
-- 琥珀色方块既是地穴中的灯，也是终端光标。
+- The two raised strokes read as rabbit ears and form the opening and closing strokes of the `W`.
+- The forked shape below suggests connected burrows, echoing the name Warren and how Workspaces are organized.
+- The amber square is both a light inside the burrow and a terminal cursor.
 
-## 响应式源文件
+## Responsive Source Files
 
-- `warren-app-icon.svg`：64 px 及以上使用的 1024 × 1024 主源文件。
-- `warren-app-icon-32.svg`：原生 32 × 32 紧凑版本。保留一层深度，移除内侧明暗面。
-- `warren-app-icon-16.svg`：原生 16 × 16 微型版本。只保留底板、`W` 和光标。
-- `warren-app-icon.png`：1024 × 1024 预览和通用位图。
-- `Warren.icns`：macOS app icon。
+- `warren-app-icon.svg`: 1024 × 1024 master source used at 64 px and above.
+- `warren-app-icon-32.svg`: native 32 × 32 compact version. Keeps one depth layer and removes inner light/shadow faces.
+- `warren-app-icon-16.svg`: native 16 × 16 miniature version. Keeps only the base plate, the `W`, and the cursor.
+- `warren-app-icon.png`: 1024 × 1024 preview and general bitmap.
+- `Warren.icns`: macOS app icon.
 
-不得把主 SVG 直接缩放到 16 px。主图采用 32 px 构造网格，缩放到 16 px
-会产生半像素边缘。修改任一源文件后运行：
+Do not scale the master SVG down to 16 px directly. The master artwork uses a 32 px construction grid, so scaling to 16 px produces half-pixel edges. After modifying any source file, run:
 
 ```sh
 mise run brand:assets
 mise run web:build
 ```
 
-第一条命令生成 macOS iconset、ICNS、Web favicon 和 PWA PNG；第二条命令把
-`Web/public/` 构建到 `Web/dist/`。派生文件不得手工修改。
+The first command generates the macOS iconset, ICNS, Web favicons, and PWA PNGs; the second builds `Web/public/` into `Web/dist/`. Derived files must not be edited by hand.
 
-## 颜色
+## Colors
 
-| 用途 | 色值 |
+| Use | Value |
 | --- | --- |
-| 主背景 | `#1c1918` |
-| 深阴影 | `#0f0d0c` |
-| 主图形 | `#eae8e6` |
-| 光标 | `#f59e0b` |
+| Main background | `#1c1918` |
+| Deep shadow | `#0f0d0c` |
+| Main mark | `#eae8e6` |
+| Cursor | `#f59e0b` |
 
-不要添加渐变、圆角描边或抗锯齿笔画。图形必须对齐 32 px 构造网格，缩小时才会保持清楚。
+Do not add gradients, rounded strokes, or anti-aliased strokes. The artwork must stay aligned to the 32 px construction grid so it remains crisp at small sizes.
