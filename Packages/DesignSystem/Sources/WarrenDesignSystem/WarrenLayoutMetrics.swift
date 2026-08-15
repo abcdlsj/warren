@@ -17,11 +17,15 @@ public enum WarrenLayoutMetrics {
     public static let workspaceBarProjectWidth: CGFloat = 160
     public static let workspaceBarWorkspaceWidth: CGFloat = 240
     public static let topBarHeight: CGFloat = 48
-    public static let tabBarHeight: CGFloat = 40
+    /// Slightly more compact than Superset's 40pt row; keeps the same dense
+    /// workspace chrome while giving content a little more vertical room.
+    public static let tabBarHeight: CGFloat = 36
     /// Superset's pinned command preset row is `h-8`; Warren keeps the bar
     /// slightly flatter so the command row reads as chrome, not a toolbar.
     public static let presetBarHeight: CGFloat = 28
-    public static let tabWidth: CGFloat = 160
+    /// A touch narrower than Superset's 160pt tab; titles still fit while more
+    /// tabs stay visible before overflow kicks in.
+    public static let tabWidth: CGFloat = 150
     /// Superset keeps the add-tab affordance in a fixed `w-10` slot.
     public static let tabAddButtonSlotWidth: CGFloat = 40
     /// The close control is a 20pt button inside a 28pt accessory column.
