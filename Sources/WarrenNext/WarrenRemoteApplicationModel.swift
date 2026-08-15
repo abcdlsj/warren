@@ -1172,7 +1172,6 @@ final class WarrenRemoteApplicationModel {
         guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
             return
         }
-        settledSessionIDs.remove(sessionID)
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
@@ -1198,6 +1197,9 @@ final class WarrenRemoteApplicationModel {
             self?.settledSessionIDs.insert(sessionID)
         }
         surface.needsSettledReflow = existingSurface == nil
+        // Reveal immediately; the one-time post-snapshot reflow runs while
+        // visible instead of holding the tab black.
+        settledSessionIDs.insert(sessionID)
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)
@@ -1218,19 +1220,6 @@ final class WarrenRemoteApplicationModel {
         guard generation == attachGeneration,
               selectedSessionID == sessionID,
               mountedSurfaces.first === surface else { return }
-        if existingSurface == nil {
-            // Reflow the empty surface before replaying the full snapshot.
-            // Ghostty's BCE corruption is avoided up front, so the surface can
-            // be revealed immediately when the snapshot arrives instead of
-            // hiding again for a post-replay reflow.
-            surface.requestSettledReflow()
-            for _ in 0..<100 where !settledSessionIDs.contains(sessionID) {
-                guard generation == attachGeneration,
-                      selectedSessionID == sessionID else { return }
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-            settledSessionIDs.insert(sessionID)
-        }
         do {
             initialRefreshPending = true
             appendDiagnostic(
