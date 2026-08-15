@@ -376,21 +376,23 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x48]))
         try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x35, 0x7E]))
         try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x31, 0x3B, 0x32, 0x41]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x0D]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x0A]))
         try await runtime.write(sessionID: sessionID, data: Data("hello".utf8))
 
         let calls = await executor.calls
         let sentKeys = calls
             .filter { $0.arguments.first == "send-keys" }
             .compactMap(\.arguments.last)
-        XCTAssertEqual(sentKeys, ["Up", "Down", "Home", "PageUp", "S-Up"])
+        XCTAssertEqual(sentKeys, ["Up", "Down", "Home", "PageUp", "S-Up", "Enter"])
         XCTAssertEqual(
             calls.filter { $0.arguments.first == "load-buffer" }.count,
-            1,
+            2,
             "Ordinary text should still use the binary-safe paste path"
         )
         XCTAssertEqual(
             calls.filter { $0.arguments.first == "paste-buffer" }.count,
-            1
+            2
         )
         await runtime.shutdown()
     }

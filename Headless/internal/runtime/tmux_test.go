@@ -57,7 +57,6 @@ func TestTmuxKeyNameMapsTerminalSequences(t *testing.T) {
 		"\x1b[Z":    "BTab",
 		"\x1b[11~":  "F1",
 		"\r":        "Enter",
-		"\n":        "Enter",
 		"\t":        "Tab",
 		"\x7f":      "BSpace",
 	}
@@ -67,7 +66,7 @@ func TestTmuxKeyNameMapsTerminalSequences(t *testing.T) {
 			t.Fatalf("tmuxKeyName(%q) = (%q, %v), want (%q, true)", input, got, ok, want)
 		}
 	}
-	for _, input := range []string{"hello", "\x1b[99~", "\x1b[1;9A", "abc\x1b[A"} {
+	for _, input := range []string{"hello", "\n", "\x1b[99~", "\x1b[1;9A", "abc\x1b[A"} {
 		if got, ok := tmuxKeyName([]byte(input)); ok {
 			t.Fatalf("tmuxKeyName(%q) = (%q, true), want false", input, got)
 		}

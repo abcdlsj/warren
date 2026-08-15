@@ -451,7 +451,7 @@ public actor TmuxRuntime: TerminalRuntime {
         if bytes == [0x1B] {
             return "Escape"
         }
-        if bytes == [0x0D] || bytes == [0x0A] {
+        if bytes == [0x0D] {
             return "Enter"
         }
         if bytes == [0x09] {

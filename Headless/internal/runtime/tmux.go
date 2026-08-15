@@ -444,7 +444,7 @@ func tmuxKeyName(data []byte) (string, bool) {
 	switch string(data) {
 	case "\x1b":
 		return "Escape", true
-	case "\r", "\n":
+	case "\r":
 		return "Enter", true
 	case "\t":
 		return "Tab", true
