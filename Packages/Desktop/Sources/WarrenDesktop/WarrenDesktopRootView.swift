@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import os
 import WarrenClientCore
@@ -103,11 +104,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             )
         })
         ZStack(alignment: .topLeading) {
-            if settingsPresented {
-                WarrenDesktopSettingsView(onBack: closeSettings)
-                    .transition(.opacity)
-            } else {
-                HStack(spacing: 0) {
+            HStack(spacing: 0) {
                 WarrenDesktopSidebar(
                     projection: projection,
                     sidebarState: $sidebarState,
@@ -148,6 +145,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onSettings: {
                             commandPalettePresented = false
                             navigationBeforeSettings = navigation
+                            // Settings overlays a still-mounted shell so its
+                            // Ghostty grid survives the trip; drop keyboard
+                            // ownership so keystrokes go to Settings instead
+                            // of the hidden terminal.
+                            NSApp.keyWindow?.makeFirstResponder(nil)
                             settingsPresented = true
                         },
                         onWeb: { webPresented.toggle() },
@@ -205,9 +207,15 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(settingsPresented ? 0 : 1)
+            .allowsHitTesting(!settingsPresented)
+            .accessibilityHidden(settingsPresented)
 
+            if settingsPresented {
+                WarrenDesktopSettingsView(onBack: closeSettings)
+                    .transition(.opacity)
+            }
         }
         .frame(
             minWidth: WarrenLayoutMetrics.sidebarExpandedWidth
@@ -388,6 +396,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         if let previousNavigation {
             dispatch(.restoreNavigation(previousNavigation))
         }
+        NotificationCenter.default.post(name: WarrenDesktopCommand.settingsDismissed, object: nil)
     }
 
     private func toggleSidebar() {

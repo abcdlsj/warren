@@ -636,6 +636,27 @@ private struct WarrenNextTerminalSurfaceView: View {
             searchQuery = ""
             searchPresented = false
         }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: WarrenDesktopCommand.settingsDismissed
+            )
+        ) { _ in
+            guard let surface = activeSurface else { return }
+            focusDriver.moveFocus(
+                to: surface.state,
+                replacingCurrentResponder: true,
+                canFocus: { true },
+                onFocused: {
+                    onFocused(
+                        surface.id,
+                        surface.state.surfaceSize.flatMap {
+                            TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
+                        }
+                    )
+                }
+            )
+            surface.forceDisplayRefresh()
+        }
     }
 }
 
