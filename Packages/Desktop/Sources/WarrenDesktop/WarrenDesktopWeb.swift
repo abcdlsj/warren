@@ -81,8 +81,10 @@ public struct WarrenDesktopWebPanel: View {
         .padding(WarrenSpacing.medium)
         .frame(width: 300, alignment: .leading)
         .background(tokens.chromeSurface)
-        .overlay(RoundedRectangle(cornerRadius: WarrenRadius.medium).stroke(tokens.border))
+        .overlay(
+            RoundedRectangle(cornerRadius: WarrenRadius.medium)
+                .stroke(tokens.border.opacity(0.55), lineWidth: WarrenSpacing.hairline)
+        )
         .clipShape(.rect(cornerRadius: WarrenRadius.medium))
-        .shadow(radius: 12, y: 4)
     }
 }
