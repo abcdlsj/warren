@@ -117,7 +117,7 @@ func resourceCommand(args []string) error {
 		case "workspace":
 			return printValue(state.Workspaces)
 		case "session":
-			return printValue(state.Sessions)
+			return printValue(sessionRows(state))
 		}
 	}
 	params := parseFlags(args[2:])
@@ -420,6 +420,45 @@ func durationValue(value map[string]any, key string, fallback time.Duration) tim
 	}
 	return fallback
 }
+
+// SessionRow joins a session with its workspace and project so the CLI can
+// display context the roster already carries. The embedded Session keeps the
+// JSON payload backward compatible while adding the resolved names/paths.
+type SessionRow struct {
+	api.Session
+	ProjectID     string `json:"projectId,omitempty"`
+	ProjectName   string `json:"projectName,omitempty"`
+	WorkspaceName string `json:"workspaceName,omitempty"`
+	Branch        string `json:"branch,omitempty"`
+	Path          string `json:"path,omitempty"`
+}
+
+func sessionRows(state api.State) []SessionRow {
+	workspaces := make(map[string]api.Workspace, len(state.Workspaces))
+	for _, workspace := range state.Workspaces {
+		workspaces[workspace.ID] = workspace
+	}
+	projects := make(map[string]api.Project, len(state.Projects))
+	for _, project := range state.Projects {
+		projects[project.ID] = project
+	}
+	rows := make([]SessionRow, 0, len(state.Sessions))
+	for _, session := range state.Sessions {
+		row := SessionRow{Session: session}
+		if workspace, ok := workspaces[session.WorkspaceID]; ok {
+			row.WorkspaceName = workspace.Name
+			row.Branch = workspace.Branch
+			row.Path = workspace.Path
+			if project, ok := projects[workspace.ProjectID]; ok {
+				row.ProjectID = project.ID
+				row.ProjectName = project.Name
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
 func printValue(value any) error {
 	if outputJSON {
 		data, err := json.MarshalIndent(value, "", "  ")
@@ -438,9 +477,18 @@ func printValue(value any) error {
 		for _, item := range items {
 			fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Name, item.Branch, item.Path)
 		}
-	case []api.Session:
+	case []SessionRow:
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%s\n", item.ID, item.Title, item.Kind, item.Lifecycle)
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				item.ID,
+				displayValue(item.ProjectName),
+				displayValue(item.WorkspaceName),
+				displayValue(item.Branch),
+				item.Title,
+				item.Kind,
+				displayValue(item.Command),
+				item.Lifecycle,
+			)
 		}
 	default:
 		data, _ := json.MarshalIndent(value, "", "  ")
@@ -448,6 +496,14 @@ func printValue(value any) error {
 	}
 	return nil
 }
+
+func displayValue(value string) string {
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
