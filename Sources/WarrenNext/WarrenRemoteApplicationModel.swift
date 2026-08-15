@@ -108,8 +108,15 @@ private struct RemoteRoster: Decodable, Sendable {
 private enum RemoteWireEvent: Sendable {
     case roster(RemoteRoster)
     case output(Data)
+    case framedOutput(sessionID: TerminalSessionID, epoch: UInt64, sequence: UInt64, payload: Data)
+    case anchor(sessionID: TerminalSessionID, epoch: UInt64, sequence: UInt64, reanchor: Bool)
     case maintenance(message: String?)
     case disconnected(String)
+}
+
+struct TerminalOutputAnchor: Equatable, Sendable {
+    let epoch: UInt64
+    let sequence: UInt64
 }
 
 /// Parameters shared by the desktop attach path and its protocol tests. The
@@ -118,7 +125,8 @@ private enum RemoteWireEvent: Sendable {
 enum WarrenRemoteTerminalProtocol {
     static func attachParameters(
         sessionID: TerminalSessionID,
-        size: TerminalSize?
+        size: TerminalSize?,
+        anchor: TerminalOutputAnchor? = nil
     ) -> [String: String] {
         // Attach subscribes to output only and must not claim focus. The
         // viewport is still sent so a daemon with no focus owner can resize
@@ -129,6 +137,10 @@ enum WarrenRemoteTerminalProtocol {
         if let size {
             params["cols"] = String(size.columns)
             params["rows"] = String(size.rows)
+        }
+        if let anchor {
+            params["epoch"] = String(anchor.epoch)
+            params["sequence"] = String(anchor.sequence)
         }
         return params
     }
@@ -249,6 +261,10 @@ private actor WarrenRemoteWire {
     }
 
     private func emitOutput(_ data: Data) async -> Bool {
+        let bytes = [UInt8](data)
+        if let frame = try? WarrenWireCodec().decodeOutputFrame(bytes) {
+            return await emitChunks(frame)
+        }
         switch WarrenOutputDecoder.decode(data) {
         case .payload(let payload):
             return await emitChunks(payload)
@@ -262,6 +278,25 @@ private actor WarrenRemoteWire {
                 "The daemon sent an undecodable terminal frame; reconnecting."
             ))
         }
+    }
+
+    private func emitChunks(_ frame: WarrenDecodedOutputFrame) async -> Bool {
+        let payload = frame.payload
+        var offset = 0
+        while offset < payload.count {
+            let end = min(offset + Self.outputChunkBytes, payload.count)
+            let chunk = offset == 0 && end == payload.count
+                ? payload
+                : Data(payload[offset..<end])
+            guard await eventBuffer.send(.framedOutput(
+                sessionID: frame.header.sessionID,
+                epoch: frame.header.epoch,
+                sequence: frame.header.sequence + UInt64(offset),
+                payload: chunk
+            )) else { return false }
+            offset = end
+        }
+        return true
     }
 
     private func emitChunks(_ data: Data) async -> Bool {
@@ -314,6 +349,19 @@ private actor WarrenRemoteWire {
             return await eventBuffer.send(.roster(roster))
         } else if type == "maintenance" {
             return await eventBuffer.send(.maintenance(message: object["message"] as? String))
+        } else if type == "attached" || type == "synced" {
+            guard let sessionIDString = object["session"] as? String,
+                  let sessionID = TerminalSessionID(uuidString: sessionIDString),
+                  let epoch = (object["epoch"] as? NSNumber)?.uint64Value,
+                  let sequence = (object["sequence"] as? NSNumber)?.uint64Value else {
+                return true
+            }
+            return await eventBuffer.send(.anchor(
+                sessionID: sessionID,
+                epoch: epoch,
+                sequence: sequence,
+                reanchor: type == "attached"
+            ))
         } else if type == "error" {
             return await eventBuffer.send(.disconnected(
                 object["error"] as? String ?? "Remote authentication failed"
@@ -363,6 +411,8 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
+    @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
+    @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
 
     init() {
         self.navigation = WarrenDesktopNavigationPersistence.restore()
@@ -444,6 +494,8 @@ final class WarrenRemoteApplicationModel {
         pendingInput.removeAll(keepingCapacity: true)
         initialRefreshPending = false
         attachGeneration &+= 1
+        outputAnchors.removeAll()
+        suppressFramedAnchorUpdates.removeAll()
         resizeTask?.cancel()
         resizeTask = nil
         focusTask?.cancel()
@@ -897,6 +949,45 @@ final class WarrenRemoteApplicationModel {
             }
         case .output(let data):
             await feedOutput(data)
+        case .framedOutput(let sessionID, let epoch, let sequence, let payload):
+            if !suppressFramedAnchorUpdates.contains(sessionID) {
+                let endSequence = sequence + UInt64(payload.count)
+                if let current = outputAnchors[sessionID] {
+                    if epoch > current.epoch
+                        || (epoch == current.epoch && endSequence > current.sequence) {
+                        outputAnchors[sessionID] = TerminalOutputAnchor(
+                            epoch: epoch,
+                            sequence: endSequence
+                        )
+                    }
+                } else {
+                    outputAnchors[sessionID] = TerminalOutputAnchor(
+                        epoch: epoch,
+                        sequence: endSequence
+                    )
+                }
+            }
+            await feedOutput(payload)
+        case .anchor(let sessionID, let epoch, let sequence, let reanchor):
+            if reanchor {
+                suppressFramedAnchorUpdates.insert(sessionID)
+            } else {
+                suppressFramedAnchorUpdates.remove(sessionID)
+            }
+            if let current = outputAnchors[sessionID] {
+                if epoch > current.epoch
+                    || (epoch == current.epoch && sequence > current.sequence) {
+                    outputAnchors[sessionID] = TerminalOutputAnchor(
+                        epoch: epoch,
+                        sequence: sequence
+                    )
+                }
+            } else {
+                outputAnchors[sessionID] = TerminalOutputAnchor(
+                    epoch: epoch,
+                    sequence: sequence
+                )
+            }
         case .disconnected:
             // The connection loop observes this event before consume and
             // drives the reconnect; it is unreachable here.
@@ -1068,7 +1159,8 @@ final class WarrenRemoteApplicationModel {
                 "session.attach",
                 params: WarrenRemoteTerminalProtocol.attachParameters(
                     sessionID: sessionID,
-                    size: size
+                    size: size,
+                    anchor: outputAnchors[sessionID]
                 )
             )
             guard generation == attachGeneration,

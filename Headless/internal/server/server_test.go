@@ -456,6 +456,20 @@ func TestBrowserAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	assertResizePrecedesCapture(t, runtime, 101, 33)
 }
 
+func TestAnchorFromParamsAcceptsDesktopStrings(t *testing.T) {
+	anchor := anchorFromParams(map[string]any{
+		"epoch": "7", "sequence": "99",
+	})
+	if anchor == nil || anchor.Epoch != 7 || anchor.Sequence != 99 {
+		t.Fatalf("anchorFromParams(strings) = %#v, want epoch=7 sequence=99", anchor)
+	}
+	if anchor := anchorFromParams(map[string]any{
+		"epoch": "not-a-number", "sequence": 1,
+	}); anchor != nil {
+		t.Fatalf("invalid anchor unexpectedly parsed: %#v", anchor)
+	}
+}
+
 func TestDesktopAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	state, session := testSession(t)
 	runtime := &recordingRuntime{
