@@ -193,33 +193,12 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
 
     var body: some View {
         HStack(spacing: WarrenSpacing.xs) {
-            Menu {
-                ForEach(endpointOptions) { endpoint in
-                    Button {
-                        onSelectEndpoint(endpoint.id)
-                    } label: {
-                        if endpoint.id == selectedEndpointID {
-                            Label(endpoint.label, systemImage: "checkmark")
-                        } else {
-                            Text(endpoint.label)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(isConnected ? Color.green : Color.orange)
-                        .frame(width: 6, height: 6)
-                    Text(endpointOptions.first(where: { $0.id == selectedEndpointID })?.label ?? "Server")
-                        .font(WarrenTypography.navigationMeta)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 26)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityLabel("Execution server")
+            WarrenDesktopEndpointControl(
+                isConnected: isConnected,
+                endpoints: endpointOptions,
+                selectedID: selectedEndpointID,
+                onSelect: onSelectEndpoint
+            )
 
             WarrenDesktopChromeButton(
                 systemImage: "gearshape",
@@ -251,5 +230,133 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
         .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace actions")
+    }
+}
+
+private struct WarrenDesktopEndpointControl: View {
+    let isConnected: Bool
+    let endpoints: [WarrenDesktopEndpointOption]
+    let selectedID: String
+    let onSelect: (String) -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var isFocused: Bool
+    @State private var isPresented = false
+    @State private var dismissTask: Task<Void, Never>?
+
+    private var selectedEndpoint: WarrenDesktopEndpointOption? {
+        endpoints.first { $0.id == selectedID }
+    }
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        Button(action: toggle) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "server.rack")
+                    .font(.system(size: 13, weight: .medium))
+                    .accessibilityHidden(true)
+                Circle()
+                    .fill(isConnected ? Color.green : Color.orange)
+                    .frame(width: 7, height: 7)
+                    .offset(x: 3, y: -3)
+                    .accessibilityHidden(true)
+            }
+        }
+        .buttonStyle(WarrenChromeButtonStyle(isFocused: isFocused))
+        .frame(width: 28, height: 28)
+        .contentShape(.rect)
+        .focused($isFocused)
+        .foregroundStyle(tokens.mutedForeground)
+        .accessibilityLabel("Execution server: \(selectedEndpoint?.label ?? "Server")")
+        .accessibilityHint(isConnected ? "Connected. Click for details." : "Disconnected. Click for details.")
+        .onHover { hovering in
+            if hovering {
+                show()
+            }
+        }
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            popoverContent(tokens: tokens)
+        }
+        .onDisappear {
+            dismissTask?.cancel()
+        }
+    }
+
+    @ViewBuilder
+    private func popoverContent(tokens: WarrenColorTokens) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: WarrenSpacing.compact) {
+                Circle()
+                    .fill(isConnected ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(selectedEndpoint?.label ?? "Server")
+                    .font(WarrenTypography.navigationMeta)
+                    .foregroundStyle(tokens.foreground)
+                Spacer()
+                Text(isConnected ? "Connected" : "Disconnected")
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.mutedForeground)
+            }
+            .padding(.bottom, WarrenSpacing.compact)
+
+            Rectangle()
+                .fill(tokens.border)
+                .frame(height: WarrenSpacing.hairline)
+                .padding(.bottom, WarrenSpacing.small)
+
+            ForEach(endpoints) { endpoint in
+                Button {
+                    onSelect(endpoint.id)
+                    dismissTask?.cancel()
+                    dismissTask = nil
+                    isPresented = false
+                } label: {
+                    HStack(spacing: WarrenSpacing.compact) {
+                        Image(systemName: endpoint.id == selectedID ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(
+                                endpoint.id == selectedID
+                                    ? tokens.highlight
+                                    : tokens.mutedForeground
+                            )
+                        Text(endpoint.label)
+                            .font(WarrenTypography.navigationMeta)
+                            .foregroundStyle(tokens.foreground)
+                        Spacer()
+                        if endpoint.isLocal {
+                            Text("Local")
+                                .font(WarrenTypography.supporting)
+                                .foregroundStyle(tokens.mutedForeground)
+                        }
+                    }
+                    .padding(.vertical, WarrenSpacing.xs)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(WarrenSpacing.medium)
+        .frame(width: 220)
+    }
+
+    private func toggle() {
+        if isPresented {
+            dismissTask?.cancel()
+            dismissTask = nil
+            isPresented = false
+        } else {
+            show()
+        }
+    }
+
+    private func show() {
+        dismissTask?.cancel()
+        isPresented = true
+        dismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.15)) {
+                isPresented = false
+            }
+        }
     }
 }

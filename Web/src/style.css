@@ -53,6 +53,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .tabs.fade-left.fade-right { mask-image:linear-gradient(to right, transparent 0, black 36px, black calc(100% - 36px), transparent 100%); -webkit-mask-image:linear-gradient(to right, transparent 0, black 36px, black calc(100% - 36px), transparent 100%); }
 .tabs-chevron { position:absolute; top:50%; transform:translateY(-50%); z-index:2; display:grid; place-items:center; width:22px; height:22px; padding:0; border:1px solid var(--ring); border-radius:50%; background:var(--panel); color:var(--fg); font-size:16px; line-height:1; cursor:pointer; }
 .tabs-chevron:hover { background:var(--muted); }
+.tabs-chevron:disabled { opacity:.35; cursor:default; }
 .tabs-chevron-left { left:4px; }
 .tabs-chevron-right { right:4px; }
 .tab { display:flex; align-items:center; gap:7px; min-width:112px; max-width:190px; height:40px; padding:0 12px; border:0; border-right:1px solid var(--muted); background:rgba(42,40,39,.2); color:var(--sub); cursor:pointer; }

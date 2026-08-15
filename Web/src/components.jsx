@@ -151,6 +151,7 @@ export function TopBar({
 }) {
   const tabRefs = useRef(new Map());
   const tabsRef = useRef(null);
+  const [hasOverflow, setHasOverflow] = useState(false);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
@@ -158,6 +159,7 @@ export function TopBar({
     const el = tabsRef.current;
     if (!el) return;
     const maxScrollLeft = el.scrollWidth - el.clientWidth;
+    setHasOverflow(maxScrollLeft > 1);
     setCanScrollLeft(el.scrollLeft > 1);
     setCanScrollRight(el.scrollLeft < maxScrollLeft - 1);
   }, []);
@@ -194,11 +196,12 @@ export function TopBar({
     <header className="topbar">
       <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
       <div className="tabs-wrap">
-        {canScrollLeft && (
+        {hasOverflow && (
           <button
             type="button"
             className="tabs-chevron tabs-chevron-left"
             aria-label="Earlier tabs"
+            disabled={!canScrollLeft}
             onClick={() => scrollTabs("left")}
           >
             ‹
@@ -230,11 +233,12 @@ export function TopBar({
             );
           })}
         </div>
-        {canScrollRight && (
+        {hasOverflow && (
           <button
             type="button"
             className="tabs-chevron tabs-chevron-right"
             aria-label="More tabs"
+            disabled={!canScrollRight}
             onClick={() => scrollTabs("right")}
           >
             ›
