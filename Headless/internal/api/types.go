@@ -33,6 +33,15 @@ type Workspace struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// WorkspaceCreateResult reports a created workspace together with side effects
+// the caller needs to know: whether the Warren record was created and whether
+// a Git worktree was actually created on disk.
+type WorkspaceCreateResult struct {
+	Workspace
+	Created     bool `json:"created"`
+	GitWorktree bool `json:"gitWorktree"`
+}
+
 type Session struct {
 	ID          string     `json:"id"`
 	WorkspaceID string     `json:"workspace"`

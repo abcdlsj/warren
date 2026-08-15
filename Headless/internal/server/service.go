@@ -595,7 +595,7 @@ func (s *Service) SetSessionPinned(id string, pinned bool) error {
 	})
 }
 
-func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Workspace, error) {
+func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.WorkspaceCreateResult, error) {
 	state := s.Store.Snapshot()
 	var project *api.Project
 	for i := range state.Projects {
@@ -605,16 +605,17 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		}
 	}
 	if project == nil {
-		return api.Workspace{}, fmt.Errorf("project not found: %s", projectID)
+		return api.WorkspaceCreateResult{}, fmt.Errorf("project not found: %s", projectID)
 	}
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
-		return api.Workspace{}, errors.New("branch is required")
+		return api.WorkspaceCreateResult{}, errors.New("branch is required")
 	}
 	id := store.NewID()
 	if name == "" {
 		name = branch
 	}
+	gitCreated := false
 	if path != "" {
 		if resolved, err := filepath.Abs(expandHome(path)); err == nil {
 			if info, statErr := os.Stat(resolved); statErr == nil && info.IsDir() {
@@ -633,9 +634,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 							value.Workspaces = append(value.Workspaces, workspace)
 							return nil
 						}); err != nil {
-							return api.Workspace{}, err
+							return api.WorkspaceCreateResult{}, err
 						}
-						return workspace, nil
+						return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 					}
 					if name == "" {
 						name = filepath.Base(resolved)
@@ -646,9 +647,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						value.Workspaces = append(value.Workspaces, workspace)
 						return nil
 					}); err != nil {
-						return api.Workspace{}, err
+						return api.WorkspaceCreateResult{}, err
 					}
-					return workspace, nil
+					return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 				}
 			}
 		}
@@ -658,15 +659,16 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 	}
 	path, _ = filepath.Abs(expandHome(path))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return api.Workspace{}, err
+		return api.WorkspaceCreateResult{}, err
 	}
 	args := []string{"-C", project.Path, "worktree", "add", path, branch}
 	if exec.Command("git", "-C", project.Path, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() != nil {
 		args = []string{"-C", project.Path, "worktree", "add", "-b", branch, path}
 	}
 	if output, err := exec.Command("git", args...).CombinedOutput(); err != nil {
-		return api.Workspace{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
+		return api.WorkspaceCreateResult{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
+	gitCreated = true
 	workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: path, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
 	if err := s.Store.Update(func(value *api.State) error {
 		workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
@@ -674,9 +676,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		return nil
 	}); err != nil {
 		_, _ = exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", path).CombinedOutput()
-		return api.Workspace{}, err
+		return api.WorkspaceCreateResult{}, err
 	}
-	return workspace, nil
+	return api.WorkspaceCreateResult{Workspace: workspace, Created: true, GitWorktree: gitCreated}, nil
 }
 
 type RemoveWorkspaceOptions struct {

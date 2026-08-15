@@ -65,13 +65,23 @@ warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
 ```
 
-All commands support `--json`. `worktree` is an alias for `workspace`. For
-`workspace create`, `--path` is optional: omit it and the daemon places the new
-worktree under `~/.warren/worktrees/<project>/<workspace>-<branch>`; pass
-`--path /custom/path` only when the worktree must live somewhere specific.
-`session create` starts a durable terminal in an existing workspace; the
-Desktop and Web clients see it as soon as the daemon broadcasts the updated
-roster.
+All commands support `--json`. `worktree` is an alias for `workspace`; help
+and error messages keep the command name you typed instead of rewriting it to
+the canonical name. `warren help`, `warren --help`, and
+`warren <command> --help` print help and exit 0. Missing or invalid arguments
+print the relevant usage and exit 2; server errors use exit code 1.
+
+Commands default to aligned, human-readable tables. Pass `--json` for stable,
+machine-readable JSON output. `workspace create` reports `created` and
+`gitWorktree` in its result, so scripts know whether a Git worktree was really
+created and where it landed.
+
+For `workspace create`, `--branch` is required and `--path` is optional: omit
+`--path` and the daemon places the new worktree under
+`~/.warren/worktrees/<project>/<workspace>-<branch>`; pass `--path /custom/path`
+only when the worktree must live somewhere specific. `session create` starts a
+durable terminal in an existing workspace; the Desktop and Web clients see it
+as soon as the daemon broadcasts the updated roster.
 
 On macOS, `mise run install` also initializes a `local` endpoint pointing at
 `http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the

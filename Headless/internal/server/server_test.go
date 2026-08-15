@@ -361,12 +361,18 @@ func TestRosterBroadcastsCreatedWorktreeAndSession(t *testing.T) {
 	waitForRoster(t, observer, func(api.State) bool { return true })
 
 	project := requestResult[api.Project](t, mutator, "project.add", map[string]any{"path": repository})
-	workspace := requestResult[api.Workspace](t, mutator, "workspace.create", map[string]any{
+	workspace := requestResult[api.WorkspaceCreateResult](t, mutator, "workspace.create", map[string]any{
 		"project": project.ID,
 		"branch":  "feature/live",
 	})
 	if workspace.Kind != "worktree" {
 		t.Fatalf("expected worktree workspace, got %#v", workspace)
+	}
+	if !workspace.Created {
+		t.Fatal("workspace.create result should report created=true")
+	}
+	if !workspace.GitWorktree {
+		t.Fatal("workspace.create result should report gitWorktree=true")
 	}
 	relative, err := filepath.Rel(filepath.Clean(service.WorktreeRoot), filepath.Clean(workspace.Path))
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {

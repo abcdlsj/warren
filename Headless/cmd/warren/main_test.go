@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,4 +187,95 @@ func TestHoistGlobalFlagsMovesFlagsFromAnyPosition(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunHelpExitsSuccessfully(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"help"},
+		{"-h"},
+		{"--help"},
+		{"workspace", "--help"},
+		{"workspace", "-h"},
+		{"worktree", "--help"},
+		{"worktree", "-h"},
+		{"project", "--help"},
+		{"session", "--help"},
+	} {
+		if err := run(arguments); err != nil {
+			t.Errorf("run(%v) = %v, want nil", arguments, err)
+		}
+	}
+}
+
+func TestRunResourceHelpDoesNotConnect(t *testing.T) {
+	// These commands must not reach connect(); validation and help happen
+	// before any server dial, so they succeed even without an endpoint.
+	for _, arguments := range [][]string{
+		{"workspace", "create", "--help"},
+		{"worktree", "create", "--help"},
+		{"session", "attach", "--help"},
+	} {
+		if err := run(arguments); err != nil {
+			t.Errorf("run(%v) = %v, want nil", arguments, err)
+		}
+	}
+}
+
+func TestRunMissingArgumentsReturnUsageError(t *testing.T) {
+	tests := []struct {
+		arguments []string
+		message   string
+		usage     string
+	}{
+		{[]string{"workspace", "create"}, "missing PROJECT_ID", "warren workspace create PROJECT_ID"},
+		{[]string{"worktree", "create"}, "missing PROJECT_ID", "warren worktree create PROJECT_ID"},
+		{[]string{"worktree", "create", "PROJECT_ID"}, "missing --branch BRANCH", "warren worktree create PROJECT_ID"},
+		{[]string{"workspace"}, "workspace command is required", "warren workspace list"},
+		{[]string{"session", "send"}, "missing SESSION_ID", "warren session send SESSION_ID"},
+		{[]string{"endpoint", "add"}, "missing ENDPOINT_NAME", "warren endpoint add NAME"},
+		{[]string{"ssh"}, "missing SSH_TARGET", "warren ssh USER@HOST"},
+	}
+	for _, test := range tests {
+		err := run(test.arguments)
+		var usageErr *usageError
+		if !errors.As(err, &usageErr) {
+			t.Errorf("run(%v) error = %v, want *usageError", test.arguments, err)
+			continue
+		}
+		if usageErr.message != test.message {
+			t.Errorf("run(%v) message = %q, want %q", test.arguments, usageErr.message, test.message)
+		}
+		if !contains(usageErr.text, test.usage) {
+			t.Errorf("run(%v) usage = %q, want it to contain %q", test.arguments, usageErr.text, test.usage)
+		}
+	}
+}
+
+func TestRunUnsupportedActionUsesAliasInError(t *testing.T) {
+	err := run([]string{"worktree", "bogus"})
+	var usageErr *usageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("error = %v, want *usageError", err)
+	}
+	if usageErr.message != "unsupported command: worktree bogus" {
+		t.Errorf("message = %q, want %q", usageErr.message, "unsupported command: worktree bogus")
+	}
+	if !contains(usageErr.text, "warren worktree list") {
+		t.Errorf("usage should use the typed alias, got %q", usageErr.text)
+	}
+}
+
+func TestRunUnknownCommandReturnsUsageError(t *testing.T) {
+	err := run([]string{"nope"})
+	var usageErr *usageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("error = %v, want *usageError", err)
+	}
+	if usageErr.message != "unknown command \"nope\"; run 'warren help'" {
+		t.Errorf("message = %q", usageErr.message)
+	}
+}
+
+func contains(text, substring string) bool {
+	return strings.Contains(text, substring)
 }

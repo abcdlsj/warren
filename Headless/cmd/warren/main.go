@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -29,9 +30,29 @@ var configPath string
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var usageErr *usageError
+		if errors.As(err, &usageErr) {
+			fmt.Fprintln(os.Stderr, "warren:", usageErr.message)
+			if usageErr.text != "" {
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprint(os.Stderr, usageErr.text)
+			}
+			os.Exit(2)
+		}
 		fmt.Fprintln(os.Stderr, "warren:", err)
 		os.Exit(1)
 	}
+}
+
+type usageError struct {
+	message string
+	text    string
+}
+
+func (e *usageError) Error() string { return e.message }
+
+func newUsageError(message, text string) error {
+	return &usageError{message: message, text: text}
 }
 
 func run(arguments []string) error {
@@ -44,7 +65,11 @@ func run(arguments []string) error {
 	global.StringVar(&configPath, "config", config.DefaultPath(), "config path")
 	arguments = hoistGlobalFlags(arguments)
 	if err := global.Parse(arguments); err != nil {
-		return err
+		if errors.Is(err, flag.ErrHelp) {
+			usage()
+			return nil
+		}
+		return newUsageError(err.Error(), usageText())
 	}
 	args := global.Args()
 	if len(args) == 0 {
@@ -67,7 +92,7 @@ func run(arguments []string) error {
 		usage()
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q; run 'warren help'", args[0])
+		return newUsageError(fmt.Sprintf("unknown command %q; run 'warren help'", args[0]), usageText())
 	}
 }
 
@@ -119,6 +144,84 @@ func splitFlag(item string) (name, value string, hasValue bool) {
 	return trimmed, "", false
 }
 
+func canonicalResource(name string) string {
+	if name == "worktree" {
+		return "workspace"
+	}
+	return name
+}
+
+func isHelpArgument(argument string) bool {
+	return argument == "-h" || argument == "--help"
+}
+
+var resourceActions = map[string]map[string]bool{
+	"project": {
+		"list": true, "add": true, "remove": true, "delete": true,
+		"rename": true, "pin": true, "move": true,
+	},
+	"workspace": {
+		"list": true, "create": true, "add": true, "remove": true, "delete": true,
+		"rename": true, "pin": true, "move": true,
+	},
+	"session": {
+		"list": true, "create": true, "add": true, "remove": true, "delete": true,
+		"kill": true, "rename": true, "pin": true, "send": true, "read": true,
+		"attach": true,
+	},
+}
+
+func knownResourceAction(resource, action string) bool {
+	return resourceActions[resource][action]
+}
+
+func requiredPositionals(resource, action string) []string {
+	switch resource + "." + action {
+	case "project.add":
+		return []string{"PATH"}
+	case "project.remove", "project.delete", "project.rename", "project.pin", "project.move":
+		return []string{"PROJECT_ID"}
+	case "workspace.create", "workspace.add":
+		return []string{"PROJECT_ID"}
+	case "workspace.remove", "workspace.delete", "workspace.rename", "workspace.pin", "workspace.move":
+		return []string{"WORKSPACE_ID"}
+	case "session.create", "session.add":
+		return []string{"WORKSPACE_ID"}
+	case "session.remove", "session.delete", "session.kill", "session.rename", "session.pin",
+		"session.send", "session.read", "session.attach":
+		return []string{"SESSION_ID"}
+	}
+	return nil
+}
+
+func missingPositional(params map[string]any, labels []string) string {
+	items := positionals(params)
+	for index, label := range labels {
+		if len(items) <= index || strings.TrimSpace(items[index]) == "" {
+			return label
+		}
+	}
+	return ""
+}
+
+func missingRequiredFlag(resource, action string, params map[string]any) string {
+	switch resource + "." + action {
+	case "project.rename", "workspace.rename":
+		if stringValue(params, "name") == "" {
+			return "--name NAME"
+		}
+	case "session.rename":
+		if stringValue(params, "title") == "" {
+			return "--title TITLE"
+		}
+	case "workspace.create", "workspace.add":
+		if stringValue(params, "branch") == "" {
+			return "--branch BRANCH"
+		}
+	}
+	return ""
+}
+
 func connect() (context.Context, *client.Client, error) {
 	dialContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -142,14 +245,30 @@ func connect() (context.Context, *client.Client, error) {
 }
 
 func resourceCommand(args []string) error {
-	resource := args[0]
-	if resource == "worktree" {
-		resource = "workspace"
-	}
+	commandName := args[0]
+	resource := canonicalResource(commandName)
 	if len(args) < 2 {
-		return fmt.Errorf("%s command is required", resource)
+		return newUsageError(fmt.Sprintf("%s command is required", commandName), resourceUsageText(commandName))
+	}
+	if isHelpArgument(args[1]) {
+		fmt.Print(resourceUsageText(commandName))
+		return nil
 	}
 	action := args[1]
+	if !knownResourceAction(resource, action) {
+		return newUsageError(fmt.Sprintf("unsupported command: %s %s", commandName, action), resourceUsageText(commandName))
+	}
+	params := parseFlags(args[2:])
+	if boolValue(params, "help") || boolValue(params, "h") {
+		fmt.Print(actionUsageText(commandName, action))
+		return nil
+	}
+	if label := missingPositional(params, requiredPositionals(resource, action)); label != "" {
+		return newUsageError("missing "+label, actionUsageText(commandName, action))
+	}
+	if label := missingRequiredFlag(resource, action, params); label != "" {
+		return newUsageError("missing "+label, actionUsageText(commandName, action))
+	}
 	ctx, c, err := connect()
 	if err != nil {
 		return err
@@ -169,7 +288,6 @@ func resourceCommand(args []string) error {
 			return printValue(sessionRows(state))
 		}
 	}
-	params := parseFlags(args[2:])
 	method := ""
 	var result any
 	switch resource + "." + action {
@@ -184,12 +302,13 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 	case "project.pin":
 		method = "project.pin"
+		result = &map[string]any{}
 	case "project.move":
 		method = "project.move"
 		result = &map[string]any{}
 	case "workspace.create", "workspace.add":
 		method = "workspace.create"
-		result = &api.Workspace{}
+		result = &api.WorkspaceCreateResult{}
 	case "workspace.remove", "workspace.delete":
 		method = "workspace.remove"
 		result = &map[string]any{}
@@ -204,6 +323,7 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 	case "workspace.pin":
 		method = "workspace.pin"
+		result = &map[string]any{}
 	case "workspace.move":
 		method = "workspace.move"
 		result = &map[string]any{}
@@ -235,8 +355,7 @@ func resourceCommand(args []string) error {
 		if err := c.Input(ctx, []byte(text)); err != nil {
 			return err
 		}
-		fmt.Println("sent")
-		return nil
+		return printValue(map[string]any{"sent": true})
 	case "session.read", "session.attach":
 		return sessionRead(ctx, c, params, action == "attach")
 	default:
@@ -285,57 +404,73 @@ func endpointCommand(args []string) error {
 		return err
 	}
 	if len(args) == 0 || args[0] == "list" {
-		for index, name := range settings.Names() {
-			value := settings.Endpoints[name]
-			marker := " "
-			if name == settings.Current {
-				marker = "*"
-			}
-			if outputJSON {
-				continue
-			}
-			if index == 0 {
-				fmt.Printf("%s %-16s %s\t%s\n", " ", "NAME", "URL", "SSH")
-			}
-			fmt.Printf("%s %-16s %s\t%s\n", marker, name, value.URL, displayValue(value.SSH))
-		}
 		if outputJSON {
 			return printValue(settings)
 		}
+		rows := make([][]string, 0, len(settings.Endpoints))
+		for _, name := range settings.Names() {
+			value := settings.Endpoints[name]
+			marker := ""
+			if name == settings.Current {
+				marker = "*"
+			}
+			rows = append(rows, []string{marker, name, value.URL, displayValue(value.SSH)})
+		}
+		printTable([]string{"CURRENT", "NAME", "URL", "SSH"}, rows...)
+		return nil
+	}
+	if isHelpArgument(args[0]) || (len(args) >= 2 && isHelpArgument(args[1])) {
+		fmt.Print(endpointUsageText())
 		return nil
 	}
 	switch args[0] {
 	case "add":
 		flags := parseFlags(args[1:])
+		if boolValue(flags, "help") || boolValue(flags, "h") {
+			fmt.Print(endpointUsageText())
+			return nil
+		}
+		if label := missingPositional(flags, []string{"ENDPOINT_NAME"}); label != "" {
+			return newUsageError("missing "+label, endpointUsageText())
+		}
 		name := positional(flags, 0, "endpoint name")
 		url := stringValue(flags, "url")
 		token := stringValue(flags, "token")
 		if url == "" || token == "" {
-			return errors.New("--url and --token are required")
+			return newUsageError("--url and --token are required", endpointUsageText())
 		}
 		settings.Endpoints[name] = config.Endpoint{Name: name, URL: url, Token: token, SSH: stringValue(flags, "ssh")}
 		if settings.Current == "" || boolValue(flags, "use") {
 			settings.Current = name
 		}
-		return config.Save(configPath, settings)
+		if err := config.Save(configPath, settings); err != nil {
+			return err
+		}
+		return printValue(map[string]any{"added": true, "name": name})
 	case "use":
 		if len(args) < 2 {
-			return errors.New("endpoint name is required")
+			return newUsageError("missing ENDPOINT_NAME", endpointUsageText())
 		}
 		if _, ok := settings.Endpoints[args[1]]; !ok {
 			return fmt.Errorf("endpoint not found: %s", args[1])
 		}
 		settings.Current = args[1]
-		return config.Save(configPath, settings)
+		if err := config.Save(configPath, settings); err != nil {
+			return err
+		}
+		return printValue(map[string]any{"current": args[1]})
 	case "remove":
 		if len(args) < 2 {
-			return errors.New("endpoint name is required")
+			return newUsageError("missing ENDPOINT_NAME", endpointUsageText())
 		}
 		delete(settings.Endpoints, args[1])
 		if settings.Current == args[1] {
 			settings.Current = ""
 		}
-		return config.Save(configPath, settings)
+		if err := config.Save(configPath, settings); err != nil {
+			return err
+		}
+		return printValue(map[string]any{"removed": true, "name": args[1]})
 	case "current":
 		value, err := settings.Resolve("")
 		if err != nil {
@@ -343,12 +478,23 @@ func endpointCommand(args []string) error {
 		}
 		return printValue(value)
 	default:
-		return fmt.Errorf("unknown endpoint command: %s", args[0])
+		return newUsageError(fmt.Sprintf("unknown endpoint command: %s", args[0]), endpointUsageText())
 	}
 }
 
 func sshCommand(args []string) error {
+	if len(args) >= 1 && isHelpArgument(args[0]) {
+		fmt.Print(sshUsageText())
+		return nil
+	}
 	flags := parseFlags(args)
+	if boolValue(flags, "help") || boolValue(flags, "h") {
+		fmt.Print(sshUsageText())
+		return nil
+	}
+	if label := missingPositional(flags, []string{"SSH_TARGET"}); label != "" {
+		return newUsageError("missing "+label, sshUsageText())
+	}
 	target := positional(flags, 0, "SSH target")
 	localPort := stringValueDefault(flags, "local-port", "8789")
 	remotePort := stringValueDefault(flags, "remote-port", "8789")
@@ -435,17 +581,12 @@ func normalizedParams(values map[string]any, resource, action string) map[string
 	return result
 }
 func positionals(value map[string]any) []string { result, _ := value["_"].([]string); return result }
-func positional(value map[string]any, index int, label string) string {
+func positional(value map[string]any, index int, _ string) string {
 	items := positionals(value)
 	if len(items) <= index {
-		panicUsage(label + " is required")
+		return ""
 	}
 	return items[index]
-}
-func panicUsage(message string) string {
-	fmt.Fprintln(os.Stderr, "warren:", message)
-	os.Exit(2)
-	return ""
 }
 func stringValue(value map[string]any, key string) string {
 	result, _ := value[key].(string)
@@ -577,53 +718,228 @@ func printValue(value any) error {
 	}
 	switch items := value.(type) {
 	case []ProjectRow:
-		fmt.Println("ID\tNAME\tPATH\tWORKSPACES\tPINNED\tCREATED")
+		rows := make([][]string, 0, len(items))
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%d\t%s\t%s\n",
-				item.ID,
-				item.Name,
-				item.Path,
-				item.Workspaces,
-				displayBool(item.Pinned),
-				formatTime(item.CreatedAt),
-			)
+			rows = append(rows, projectRowCells(item))
 		}
+		printTable([]string{"ID", "NAME", "PATH", "WORKSPACES", "PINNED", "CREATED"}, rows...)
 	case []WorkspaceRow:
-		fmt.Println("ID\tPROJECT\tNAME\tBRANCH\tPATH\tKIND\tSESSIONS\tPINNED\tCREATED")
+		rows := make([][]string, 0, len(items))
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
-				item.ID,
-				displayValue(item.ProjectName),
-				item.Name,
-				displayValue(item.Branch),
-				item.Path,
-				item.Kind,
-				item.Sessions,
-				displayBool(item.Pinned),
-				formatTime(item.CreatedAt),
-			)
+			rows = append(rows, workspaceRowCells(item))
 		}
+		printTable([]string{"ID", "PROJECT", "NAME", "BRANCH", "PATH", "KIND", "SESSIONS", "PINNED", "CREATED"}, rows...)
 	case []SessionRow:
-		fmt.Println("ID\tPROJECT\tWORKSPACE\tBRANCH\tTITLE\tKIND\tCOMMAND\tLIFECYCLE\tPINNED\tCREATED")
+		rows := make([][]string, 0, len(items))
 		for _, item := range items {
-			fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-				item.ID,
-				displayValue(item.ProjectName),
-				displayValue(item.WorkspaceName),
-				displayValue(item.Branch),
-				item.Title,
-				item.Kind,
-				displayValue(item.Command),
-				item.Lifecycle,
-				displayBool(item.Pinned),
-				formatTime(item.CreatedAt),
-			)
+			rows = append(rows, sessionRowCells(item))
 		}
+		printTable([]string{"ID", "PROJECT", "WORKSPACE", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "PINNED", "CREATED"}, rows...)
+	case api.WorkspaceCreateResult:
+		printKVTable(workspaceCreateResultPairs(items))
+	case *api.WorkspaceCreateResult:
+		printKVTable(workspaceCreateResultPairs(*items))
+	case api.Workspace:
+		printKVTable(workspaceCreateResultPairs(api.WorkspaceCreateResult{Workspace: items, Created: true}))
+	case *api.Workspace:
+		printKVTable(workspaceCreateResultPairs(api.WorkspaceCreateResult{Workspace: *items, Created: true}))
+	case api.Project:
+		printKVTable(projectPairs(items))
+	case *api.Project:
+		printKVTable(projectPairs(*items))
+	case api.Session:
+		printKVTable(sessionPairs(items))
+	case *api.Session:
+		printKVTable(sessionPairs(*items))
+	case config.Endpoint:
+		printKVTable([][2]string{
+			{"NAME", items.Name},
+			{"URL", items.URL},
+			{"SSH", displayValue(items.SSH)},
+		})
+	case *config.Endpoint:
+		printKVTable([][2]string{
+			{"NAME", items.Name},
+			{"URL", items.URL},
+			{"SSH", displayValue(items.SSH)},
+		})
+	case map[string]bool:
+		printKVTable(boolMapPairs(items))
+	case *map[string]bool:
+		printKVTable(boolMapPairs(*items))
+	case map[string]any:
+		printKVTable(anyMapPairs(items))
+	case *map[string]any:
+		printKVTable(anyMapPairs(*items))
 	default:
 		data, _ := json.MarshalIndent(value, "", "  ")
 		fmt.Println(string(data))
 	}
 	return nil
+}
+
+func projectRowCells(item ProjectRow) []string {
+	return []string{
+		item.ID,
+		item.Name,
+		item.Path,
+		strconv.Itoa(item.Workspaces),
+		displayBool(item.Pinned),
+		formatTime(item.CreatedAt),
+	}
+}
+
+func workspaceRowCells(item WorkspaceRow) []string {
+	return []string{
+		item.ID,
+		displayValue(item.ProjectName),
+		item.Name,
+		displayValue(item.Branch),
+		item.Path,
+		item.Kind,
+		strconv.Itoa(item.Sessions),
+		displayBool(item.Pinned),
+		formatTime(item.CreatedAt),
+	}
+}
+
+func sessionRowCells(item SessionRow) []string {
+	return []string{
+		item.ID,
+		displayValue(item.ProjectName),
+		displayValue(item.WorkspaceName),
+		displayValue(item.Branch),
+		item.Title,
+		item.Kind,
+		displayValue(item.Command),
+		item.Lifecycle,
+		displayBool(item.Pinned),
+		formatTime(item.CreatedAt),
+	}
+}
+
+func workspaceCreateResultPairs(value api.WorkspaceCreateResult) [][2]string {
+	return [][2]string{
+		{"ID", value.ID},
+		{"PROJECT", value.ProjectID},
+		{"NAME", value.Name},
+		{"BRANCH", displayValue(value.Branch)},
+		{"PATH", value.Path},
+		{"KIND", value.Kind},
+		{"PINNED", displayBool(value.Pinned)},
+		{"CREATED AT", formatTime(value.CreatedAt)},
+		{"CREATED", displayBool(value.Created)},
+		{"GIT WORKTREE", displayBool(value.GitWorktree)},
+	}
+}
+
+func projectPairs(value api.Project) [][2]string {
+	return [][2]string{
+		{"ID", value.ID},
+		{"NAME", value.Name},
+		{"PATH", value.Path},
+		{"PINNED", displayBool(value.Pinned)},
+		{"CREATED AT", formatTime(value.CreatedAt)},
+	}
+}
+
+func sessionPairs(value api.Session) [][2]string {
+	return [][2]string{
+		{"ID", value.ID},
+		{"WORKSPACE", value.WorkspaceID},
+		{"TITLE", value.Title},
+		{"KIND", value.Kind},
+		{"COMMAND", displayValue(value.Command)},
+		{"RUNTIME", value.Runtime},
+		{"LIFECYCLE", value.Lifecycle},
+		{"PINNED", displayBool(value.Pinned)},
+		{"CREATED AT", formatTime(value.CreatedAt)},
+	}
+}
+
+func boolMapPairs(value map[string]bool) [][2]string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([][2]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, [2]string{strings.ToUpper(key), displayBool(value[key])})
+	}
+	return pairs
+}
+
+func anyMapPairs(value map[string]any) [][2]string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	pairs := make([][2]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, [2]string{strings.ToUpper(key), displayAny(value[key])})
+	}
+	return pairs
+}
+
+func displayAny(value any) string {
+	switch item := value.(type) {
+	case bool:
+		return displayBool(item)
+	case string:
+		return displayValue(item)
+	case float64:
+		return strconv.FormatFloat(item, 'f', -1, 64)
+	default:
+		data, _ := json.Marshal(item)
+		return string(data)
+	}
+}
+
+func printTable(headers []string, rows ...[]string) {
+	widths := make([]int, len(headers))
+	for index, header := range headers {
+		widths[index] = len(header)
+	}
+	for _, row := range rows {
+		for index, cell := range row {
+			if index < len(widths) && len(cell) > widths[index] {
+				widths[index] = len(cell)
+			}
+		}
+	}
+	printTableRow(headers, widths)
+	for _, row := range rows {
+		printTableRow(row, widths)
+	}
+}
+
+func printTableRow(cells []string, widths []int) {
+	var line strings.Builder
+	for index, cell := range cells {
+		if index > 0 {
+			line.WriteString("  ")
+		}
+		if index < len(widths) {
+			fmt.Fprintf(&line, "%-*s", widths[index], cell)
+		} else {
+			line.WriteString(cell)
+		}
+	}
+	fmt.Println(strings.TrimRight(line.String(), " "))
+}
+
+func printKVTable(pairs [][2]string) {
+	width := 0
+	for _, pair := range pairs {
+		if len(pair[0]) > width {
+			width = len(pair[0])
+		}
+	}
+	for _, pair := range pairs {
+		fmt.Printf("%-*s  %s\n", width, pair[0], pair[1])
+	}
 }
 
 func displayValue(value string) string {
@@ -653,19 +969,30 @@ func env(key, fallback string) string {
 	}
 	return fallback
 }
-func usage() {
-	fmt.Print(`Warren CLI
+
+func usage() { fmt.Print(usageText()) }
+
+func usageText() string {
+	return `Warren CLI
 
 Usage:
-  warren [--endpoint NAME | --server URL --token TOKEN] <command>
+  warren [--endpoint NAME | --server URL --token TOKEN] [--json] <command>
 
 Commands:
   endpoint list|add|use|remove|current
   project list|add|remove|rename|pin|move
-  workspace list|create|remove|rename|pin|move  (worktree is an alias)
+  workspace list|create|remove|rename|pin|move  (alias: worktree)
   session list|create|delete|rename|pin|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
+
+Global flags:
+  --json                            machine-readable JSON output
+  --endpoint NAME                   endpoint name from the local config
+  --server URL --token TOKEN        connect directly to a server
+  --config PATH                     config file (default ~/.warren/config.json)
+
+Run 'warren <command> --help' for command-specific help.
 
 Examples:
   warren endpoint add vps --url http://127.0.0.1:8789 --token TOKEN --use
@@ -679,5 +1006,106 @@ Examples:
   warren workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session attach SESSION_ID
-`)
+`
+}
+
+func resourceUsageText(commandName string) string {
+	aliasNote := ""
+	switch commandName {
+	case "worktree":
+		aliasNote = "\nworktree is an alias for workspace; use either name.\n"
+	case "workspace":
+		aliasNote = "\nworkspace has alias: worktree.\n"
+	}
+	switch canonicalResource(commandName) {
+	case "project":
+		return `Usage:
+  warren project list
+  warren project add PATH [--name NAME]
+  warren project remove PROJECT_ID [--force]
+  warren project rename PROJECT_ID --name NAME
+  warren project pin PROJECT_ID --pinned BOOL
+  warren project move PROJECT_ID [--before OTHER_PROJECT_ID]
+`
+	case "workspace":
+		return fmt.Sprintf(`Usage:
+  warren %s list
+  warren %s create PROJECT_ID --branch BRANCH [--name NAME] [--path PATH]
+  warren %s remove WORKSPACE_ID [--force] [--keep-worktree]
+  warren %s rename WORKSPACE_ID --name NAME
+  warren %s pin WORKSPACE_ID --pinned BOOL
+  warren %s move WORKSPACE_ID [--before OTHER_WORKSPACE_ID]
+%s`, commandName, commandName, commandName, commandName, commandName, commandName, aliasNote)
+	case "session":
+		return `Usage:
+  warren session list
+  warren session create WORKSPACE_ID [--kind KIND] [--command CMD] [--title TITLE]
+  warren session remove SESSION_ID [--force]
+  warren session rename SESSION_ID --title TITLE
+  warren session pin SESSION_ID --pinned BOOL
+  warren session send SESSION_ID [TEXT...]
+  warren session read SESSION_ID [--timeout DURATION] [--contains TEXT]
+  warren session attach SESSION_ID
+`
+	}
+	return ""
+}
+
+func actionUsageText(commandName, action string) string {
+	name := commandName
+	switch canonicalResource(commandName) + "." + action {
+	case "project.list", "workspace.list", "session.list":
+		return fmt.Sprintf("Usage:\n  warren %s %s\n", name, action)
+	case "project.add":
+		return fmt.Sprintf("Usage:\n  warren %s add PATH [--name NAME]\n", name)
+	case "project.remove", "project.delete":
+		return fmt.Sprintf("Usage:\n  warren %s remove PROJECT_ID [--force]\n", name)
+	case "project.rename":
+		return fmt.Sprintf("Usage:\n  warren %s rename PROJECT_ID --name NAME\n", name)
+	case "project.pin":
+		return fmt.Sprintf("Usage:\n  warren %s pin PROJECT_ID --pinned BOOL\n", name)
+	case "project.move":
+		return fmt.Sprintf("Usage:\n  warren %s move PROJECT_ID [--before OTHER_PROJECT_ID]\n", name)
+	case "workspace.create", "workspace.add":
+		return fmt.Sprintf("Usage:\n  warren %s create PROJECT_ID --branch BRANCH [--name NAME] [--path PATH]\n", name)
+	case "workspace.remove", "workspace.delete":
+		return fmt.Sprintf("Usage:\n  warren %s remove WORKSPACE_ID [--force] [--keep-worktree]\n", name)
+	case "workspace.rename":
+		return fmt.Sprintf("Usage:\n  warren %s rename WORKSPACE_ID --name NAME\n", name)
+	case "workspace.pin":
+		return fmt.Sprintf("Usage:\n  warren %s pin WORKSPACE_ID --pinned BOOL\n", name)
+	case "workspace.move":
+		return fmt.Sprintf("Usage:\n  warren %s move WORKSPACE_ID [--before OTHER_WORKSPACE_ID]\n", name)
+	case "session.create", "session.add":
+		return fmt.Sprintf("Usage:\n  warren %s create WORKSPACE_ID [--kind KIND] [--command CMD] [--title TITLE]\n", name)
+	case "session.remove", "session.delete", "session.kill":
+		return fmt.Sprintf("Usage:\n  warren %s remove SESSION_ID [--force]\n", name)
+	case "session.rename":
+		return fmt.Sprintf("Usage:\n  warren %s rename SESSION_ID --title TITLE\n", name)
+	case "session.pin":
+		return fmt.Sprintf("Usage:\n  warren %s pin SESSION_ID --pinned BOOL\n", name)
+	case "session.send":
+		return fmt.Sprintf("Usage:\n  warren %s send SESSION_ID [TEXT...]\n", name)
+	case "session.read":
+		return fmt.Sprintf("Usage:\n  warren %s read SESSION_ID [--timeout DURATION] [--contains TEXT]\n", name)
+	case "session.attach":
+		return fmt.Sprintf("Usage:\n  warren %s attach SESSION_ID\n", name)
+	}
+	return resourceUsageText(commandName)
+}
+
+func endpointUsageText() string {
+	return `Usage:
+  warren endpoint list
+  warren endpoint add NAME --url URL --token TOKEN [--ssh SSH] [--use]
+  warren endpoint use NAME
+  warren endpoint remove NAME
+  warren endpoint current
+`
+}
+
+func sshUsageText() string {
+	return `Usage:
+  warren ssh USER@HOST [--local-port PORT] [--remote-port PORT] [--name NAME]
+`
 }
