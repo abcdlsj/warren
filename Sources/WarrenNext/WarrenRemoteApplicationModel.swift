@@ -333,6 +333,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var pendingFocusSessionID: TerminalSessionID?
     @ObservationIgnored private var pendingFocusSize: TerminalSize?
     @ObservationIgnored private var pendingInput = Data()
+    @ObservationIgnored private var initialRefreshPending = false
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var focusTask: Task<Void, Never>?
@@ -416,6 +417,7 @@ final class WarrenRemoteApplicationModel {
         pendingFocusSessionID = nil
         pendingFocusSize = nil
         pendingInput.removeAll(keepingCapacity: true)
+        initialRefreshPending = false
         attachGeneration &+= 1
         resizeTask?.cancel()
         resizeTask = nil
@@ -856,6 +858,13 @@ final class WarrenRemoteApplicationModel {
             surface.receive(offset == 0 && end == data.count
                 ? data
                 : Data(data[offset..<end]))
+            if offset == 0, initialRefreshPending {
+                // The attach snapshot is fed before Ghostty's display loop
+                // necessarily paints; nudge one tick so the old shell appears
+                // immediately instead of after the first resize or keystroke.
+                initialRefreshPending = false
+                Task { @MainActor [weak surface] in surface?.requestDisplayRefresh() }
+            }
             offset = end
             guard offset < data.count else { return }
             do {
@@ -995,6 +1004,7 @@ final class WarrenRemoteApplicationModel {
               selectedSessionID == sessionID,
               mountedSurfaces.first === surface else { return }
         do {
+            initialRefreshPending = true
             _ = try await wire.request(
                 "session.attach",
                 params: WarrenRemoteTerminalProtocol.attachParameters(
