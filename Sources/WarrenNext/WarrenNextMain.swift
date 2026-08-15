@@ -3,6 +3,15 @@ import SwiftUI
 import WarrenDesktop
 import WarrenDomain
 
+enum WebCommand {
+    static let copyLocalURL = Notification.Name("Web.copyLocalURL")
+    static let startCloudflare = Notification.Name("Web.startCloudflare")
+    static let stopCloudflare = Notification.Name("Web.stopCloudflare")
+    static let startTailscale = Notification.Name("Web.startTailscaleServe")
+    static let stopTailscale = Notification.Name("Web.stopTailscaleServe")
+    static let copySecureURL = Notification.Name("Web.copySecureURL")
+}
+
 /// AppKit bootstrap for the macOS app.
 ///
 /// A SwiftUI `WindowGroup` always reserves a system titlebar strip even with
