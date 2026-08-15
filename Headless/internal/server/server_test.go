@@ -474,6 +474,24 @@ func TestDesktopAttachResizesBeforeFirstSnapshot(t *testing.T) {
 	assertResizePrecedesCapture(t, runtime, 88, 27)
 }
 
+func TestPassiveAttachResizesBeforeSnapshotWhenNoFocusOwner(t *testing.T) {
+	state, session := testSession(t)
+	runtime := &recordingRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{session.Runtime: []byte("prompt")}},
+		captureSeen:   make(chan struct{}),
+	}
+	httpServer := httptest.NewServer(NewHTTPServer(&Service{Store: state, Runtime: runtime}, "secret", slog.Default()).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	_ = requestResultBeforeBinary[api.Session](t, connection, "session.attach", map[string]any{
+		"id": session.ID, "focused": false, "cols": "88", "rows": "27",
+	})
+	waitForCapture(t, runtime.captureSeen)
+	assertResizePrecedesCapture(t, runtime, 88, 27)
+}
+
 func TestOnlyFocusedPeerCanResizeSharedRuntime(t *testing.T) {
 	state, session := testSession(t)
 	runtime := &recordingRuntime{

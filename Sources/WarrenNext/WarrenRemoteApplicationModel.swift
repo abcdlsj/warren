@@ -118,11 +118,19 @@ private enum RemoteWireEvent: Sendable {
 enum WarrenRemoteTerminalProtocol {
     static func attachParameters(
         sessionID: TerminalSessionID,
-        size _: TerminalSize?
+        size: TerminalSize?
     ) -> [String: String] {
-        // Attach subscribes to output only. PTY geometry is controlled by the
-        // endpoint that actually owns UI focus via session.focus.
-        return ["id": sessionID.description, "focused": "false"]
+        // Attach subscribes to output only and must not claim focus. The
+        // viewport is still sent so a daemon with no focus owner can resize
+        // the shared runtime before its reanchor snapshot: without this, the
+        // snapshot is captured at the session's last width and soft-wrapped
+        // history replays into Ghostty at the wrong wrap points.
+        var params = ["id": sessionID.description, "focused": "false"]
+        if let size {
+            params["cols"] = String(size.columns)
+            params["rows"] = String(size.rows)
+        }
+        return params
     }
 
     static func shouldAttach(

@@ -743,6 +743,19 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 				return err
 			}
 		}
+		// A passive attach (focused=false) still carries the client's viewport
+		// size. When nobody owns focus, resize the shared runtime before the
+		// reanchor snapshot so soft-wrapped history is captured at the same
+		// width Ghostty will replay it. If another endpoint owns focus, leave
+		// the runtime alone and let that endpoint's focus handoff resize later.
+		if specified && focusSpecified && !focused && !p.server.Service.hasFocusedPeer(session.ID) {
+			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+				lock.Unlock()
+				resume()
+				p.detach()
+				return err
+			}
+		}
 		if err := p.writeResult(command.ID, session); err != nil {
 			lock.Unlock()
 			resume()

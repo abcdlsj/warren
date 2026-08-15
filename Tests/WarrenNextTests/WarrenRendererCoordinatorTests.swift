@@ -7,7 +7,7 @@ import WarrenHost
 @testable import WarrenNext
 
 final class WarrenRendererCoordinatorTests: XCTestCase {
-    func testRemoteAttachParametersDoNotClaimFocus() throws {
+    func testRemoteAttachParametersCarryViewportWithoutClaimingFocus() throws {
         let sessionID = TerminalSessionID()
         let size = try XCTUnwrap(TerminalSize(columns: 117, rows: 38))
 
@@ -16,6 +16,8 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
             [
                 "id": sessionID.description,
                 "focused": "false",
+                "cols": "117",
+                "rows": "38",
             ]
         )
     }
