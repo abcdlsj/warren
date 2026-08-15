@@ -410,6 +410,16 @@ func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error
 	lock := t.sessionLock(runtimeName)
 	lock.Lock()
 	defer lock.Unlock()
+	// Pasting raw escape sequences through paste-buffer does not behave like
+	// a real key press (less/git log ignores pasted CSI arrow bytes). Route
+	// recognized terminal keys through tmux send-keys so shells and pagers
+	// see the same key the user actually pressed.
+	if key, ok := tmuxKeyName(data); ok {
+		if output, err := t.command(ctx, "send-keys", "-t", runtimeName+":0.0", key).CombinedOutput(); err != nil {
+			return fmt.Errorf("send tmux key: %s: %w", strings.TrimSpace(string(output)), err)
+		}
+		return nil
+	}
 	// Every write uses a unique tmux buffer so concurrent inputs can never
 	// cross. paste-buffer -d deletes the buffer on success; a failed write is
 	// cleaned up below and never touches another input.
@@ -424,6 +434,148 @@ func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error
 		return fmt.Errorf("send tmux input: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	return nil
+}
+
+// tmuxKeyName maps terminal byte sequences that must reach tmux as key
+// presses instead of pasted text. Exact single-key sequences (arrows, editing
+// keys, and common CSI/SS3 forms) return tmux's key name; everything else
+// returns ok=false and continues through the binary-safe paste path.
+func tmuxKeyName(data []byte) (string, bool) {
+	switch string(data) {
+	case "\x1b":
+		return "Escape", true
+	case "\r", "\n":
+		return "Enter", true
+	case "\t":
+		return "Tab", true
+	case "\x7f":
+		return "BSpace", true
+	case "\x1bOA", "\x1b[A":
+		return "Up", true
+	case "\x1bOB", "\x1b[B":
+		return "Down", true
+	case "\x1bOC", "\x1b[C":
+		return "Right", true
+	case "\x1bOD", "\x1b[D":
+		return "Left", true
+	case "\x1bOH", "\x1b[H":
+		return "Home", true
+	case "\x1bOF", "\x1b[F":
+		return "End", true
+	case "\x1b[Z":
+		return "BTab", true
+	}
+	if len(data) < 4 || data[0] != 0x1b || data[1] != '[' {
+		return "", false
+	}
+
+	text := string(data)
+	final := text[len(text)-1]
+	params := strings.Split(text[2:len(text)-1], ";")
+	if final == '~' {
+		if len(params) != 1 {
+			return "", false
+		}
+		code, err := strconv.Atoi(params[0])
+		if err != nil {
+			return "", false
+		}
+		switch code {
+		case 1, 7:
+			return "Home", true
+		case 2:
+			return "IC", true
+		case 3:
+			return "DC", true
+		case 4, 8:
+			return "End", true
+		case 5:
+			return "PageUp", true
+		case 6:
+			return "PageDown", true
+		case 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 23, 24:
+			return fmt.Sprintf("F%d", functionKeyNumber(code)), true
+		default:
+			return "", false
+		}
+	}
+
+	base := ""
+	switch final {
+	case 'A':
+		base = "Up"
+	case 'B':
+		base = "Down"
+	case 'C':
+		base = "Right"
+	case 'D':
+		base = "Left"
+	case 'H':
+		base = "Home"
+	case 'F':
+		base = "End"
+	case 'Z':
+		base = "BTab"
+	default:
+		return "", false
+	}
+	if len(params) == 1 && params[0] == "" {
+		return base, true
+	}
+	if len(params) != 2 {
+		return "", false
+	}
+	prefix := ""
+	switch params[1] {
+	case "2":
+		prefix = "S-"
+	case "3":
+		prefix = "M-"
+	case "4":
+		prefix = "M-S-"
+	case "5":
+		prefix = "C-"
+	case "6":
+		prefix = "C-S-"
+	case "7":
+		prefix = "C-M-"
+	case "8":
+		prefix = "C-M-S-"
+	default:
+		return "", false
+	}
+	return prefix + base, true
+}
+
+func functionKeyNumber(code int) int {
+	switch code {
+	case 11:
+		return 1
+	case 12:
+		return 2
+	case 13:
+		return 3
+	case 14:
+		return 4
+	case 15:
+		return 5
+	case 17:
+		return 6
+	case 18:
+		return 7
+	case 19:
+		return 8
+	case 20:
+		return 9
+	case 21:
+		return 10
+	case 23:
+		return 11
+	case 24:
+		return 12
+	default:
+		return 0
+	}
 }
 
 func (t *Tmux) Resize(ctx context.Context, runtimeName string, columns, rows int) error {

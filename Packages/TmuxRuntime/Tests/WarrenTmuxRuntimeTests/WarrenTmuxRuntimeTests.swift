@@ -357,6 +357,44 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         XCTAssertNil(noUnexpectedEvent)
     }
 
+    func testArrowAndEditingKeySequencesUseTmuxSendKeysInsteadOfPaste() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 10_000_000
+        )
+        _ = try await runtime.create(
+            sessionID: sessionID,
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+
+        try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x41]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x42]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x48]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x35, 0x7E]))
+        try await runtime.write(sessionID: sessionID, data: Data([0x1B, 0x5B, 0x31, 0x3B, 0x32, 0x41]))
+        try await runtime.write(sessionID: sessionID, data: Data("hello".utf8))
+
+        let calls = await executor.calls
+        let sentKeys = calls
+            .filter { $0.arguments.first == "send-keys" }
+            .compactMap(\.arguments.last)
+        XCTAssertEqual(sentKeys, ["Up", "Down", "Home", "PageUp", "S-Up"])
+        XCTAssertEqual(
+            calls.filter { $0.arguments.first == "load-buffer" }.count,
+            1,
+            "Ordinary text should still use the binary-safe paste path"
+        )
+        XCTAssertEqual(
+            calls.filter { $0.arguments.first == "paste-buffer" }.count,
+            1
+        )
+        await runtime.shutdown()
+    }
+
     func testConcurrentWritesStayOrderedAndUseIndependentBuffers() async throws {
         let executor = YieldingTmuxExecutor(blockFirstLoad: true)
         let outputDirectory = try temporaryDirectory()

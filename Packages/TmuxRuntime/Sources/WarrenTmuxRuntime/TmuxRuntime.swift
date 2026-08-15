@@ -253,6 +253,18 @@ public actor TmuxRuntime: TerminalRuntime {
                 recovery: "Adopt a live runtime descriptor first."
             )
         }
+        // Pasting raw escape sequences through tmux's paste-buffer does not
+        // behave like a real key press (for example less/git log ignores
+        // pasted CSI arrow bytes). Route recognized terminal keys through
+        // tmux send-keys so shells and pagers see the same key the user
+        // actually pressed.
+        if let keyName = Self.tmuxKeyName(for: data) {
+            try await requireSuccess(
+                ["send-keys", "-t", managed.paneTarget, keyName],
+                recovery: "Ensure the tmux pane is alive, then retry the key operation."
+            )
+            return
+        }
         let bufferName = "\(managed.inputBufferName)-\(UUID().uuidString.lowercased())"
         do {
             try await requireSuccess(
@@ -428,6 +440,99 @@ public actor TmuxRuntime: TerminalRuntime {
         case .left: "Left"
         case .right: "Right"
         }
+    }
+
+    /// Maps terminal byte sequences that must reach tmux as key presses
+    /// instead of pasted text. Exact single-key sequences (arrows, editing
+    /// keys, and common CSI/SS3 forms) return tmux's key name; everything
+    /// else returns nil and continues through the binary-safe paste path.
+    private static func tmuxKeyName(for data: Data) -> String? {
+        let bytes = [UInt8](data)
+        if bytes == [0x1B] {
+            return "Escape"
+        }
+        if bytes == [0x0D] || bytes == [0x0A] {
+            return "Enter"
+        }
+        if bytes == [0x09] {
+            return "Tab"
+        }
+        if bytes == [0x7F] {
+            return "BSpace"
+        }
+        if bytes == [0x1B, 0x4F, 0x41] || bytes == [0x1B, 0x5B, 0x41] {
+            return "Up"
+        }
+        if bytes == [0x1B, 0x4F, 0x42] || bytes == [0x1B, 0x5B, 0x42] {
+            return "Down"
+        }
+        if bytes == [0x1B, 0x4F, 0x43] || bytes == [0x1B, 0x5B, 0x43] {
+            return "Right"
+        }
+        if bytes == [0x1B, 0x4F, 0x44] || bytes == [0x1B, 0x5B, 0x44] {
+            return "Left"
+        }
+        if bytes == [0x1B, 0x4F, 0x48] || bytes == [0x1B, 0x5B, 0x48] {
+            return "Home"
+        }
+        if bytes == [0x1B, 0x4F, 0x46] || bytes == [0x1B, 0x5B, 0x46] {
+            return "End"
+        }
+        guard bytes.count >= 4, bytes[0] == 0x1B else { return nil }
+        guard bytes[1] == 0x5B else { return nil }
+
+        let text = String(decoding: bytes, as: UTF8.self)
+        guard text.hasPrefix("\u{1B}["), let final = text.last else { return nil }
+        let params = text.dropFirst(2).dropLast().split(separator: ";").map(String.init)
+        if final == "~" {
+            guard params.count == 1, let code = Int(params[0]) else { return nil }
+            switch code {
+            case 1, 7: return "Home"
+            case 2: return "IC"
+            case 3: return "DC"
+            case 4, 8: return "End"
+            case 5: return "PageUp"
+            case 6: return "PageDown"
+            case 11: return "F1"
+            case 12: return "F2"
+            case 13: return "F3"
+            case 14: return "F4"
+            case 15: return "F5"
+            case 17: return "F6"
+            case 18: return "F7"
+            case 19: return "F8"
+            case 20: return "F9"
+            case 21: return "F10"
+            case 23: return "F11"
+            case 24: return "F12"
+            default: return nil
+            }
+        }
+
+        let base: String
+        switch final {
+        case "A": base = "Up"
+        case "B": base = "Down"
+        case "C": base = "Right"
+        case "D": base = "Left"
+        case "H": base = "Home"
+        case "F": base = "End"
+        case "Z": base = "BTab"
+        default: return nil
+        }
+        guard let modifier = params.last else { return base }
+        let prefix: String?
+        switch modifier {
+        case "2": prefix = "S-"
+        case "3": prefix = "M-"
+        case "4": prefix = "M-S-"
+        case "5": prefix = "C-"
+        case "6": prefix = "C-S-"
+        case "7": prefix = "C-M-"
+        case "8": prefix = "C-M-S-"
+        default: prefix = nil
+        }
+        return prefix.map { $0 + base }
     }
 
 }
