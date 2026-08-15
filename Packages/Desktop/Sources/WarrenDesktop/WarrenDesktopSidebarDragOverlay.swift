@@ -203,7 +203,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         let item = NSDraggingItem(
             pasteboardWriter: NSString(string: Self.payload(for: row.info))
         )
-        item.setDraggingFrame(row.frame, contents: Self.dragImage(for: row.info))
+        item.setDraggingFrame(row.frame, contents: snapshotRow(row.frame))
         currentPayload = Self.payload(for: row.info)
         escapePressed = false
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -418,32 +418,18 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         }
     }
 
-    private static func dragImage(for info: WarrenSidebarRowDragInfo) -> NSImage {
-        let height: CGFloat = 28
-        let font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        let text = info.name as NSString
-        let textWidth = ceil(text.size(withAttributes: [.font: font]).width)
-        let width = max(160, textWidth + 36)
-        return NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
-            let path = NSBezierPath(
-                roundedRect: rect.insetBy(dx: 1, dy: 1),
-                xRadius: 6,
-                yRadius: 6
-            )
-            NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
-            path.fill()
-            NSColor.controlAccentColor.setStroke()
-            path.lineWidth = 1
-            path.stroke()
-            let textSize = text.size(withAttributes: [.font: font])
-            text.draw(
-                at: NSPoint(x: 12, y: (height - textSize.height) / 2),
-                withAttributes: [
-                    .font: font,
-                    .foregroundColor: NSColor.labelColor,
-                ]
-            )
-            return true
+    /// Captures the row exactly as it is rendered on screen, so the drag
+    /// preview matches the sidebar UI instead of showing a synthetic chip.
+    private func snapshotRow(_ rowFrame: NSRect) -> NSImage? {
+        guard let contentView = window?.contentView else { return nil }
+        let windowRect = convert(rowFrame, to: nil)
+        let viewRect = contentView.convert(windowRect, from: nil)
+        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: viewRect) else {
+            return nil
         }
+        contentView.cacheDisplay(in: viewRect, to: rep)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
     }
 }
