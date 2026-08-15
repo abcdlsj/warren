@@ -38,8 +38,9 @@ func main() {
 	statePath := flag.String("state", env("WARREN_STATE", filepath.Join(configDir, "state.json")), "state file")
 	tokenPath := flag.String("token-file", env("WARREN_TOKEN_FILE", filepath.Join(configDir, "token")), "authentication token file")
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
+	// tmux-socket is only consulted by the deprecated tmux fallback runtime.
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
-	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", "tmux"), "runtime backend: tmux or pty (experimental)")
+	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", "ghostline"), "runtime backend: ghostline (default) or tmux (deprecated fallback for environments without libghostty-vt; not maintained)")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
@@ -65,6 +66,10 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	// ghostline is the default runtime: server-side PTY sessions with
+	// libghostty-vt snapshots. tmux is kept only as a minimal fallback for
+	// environments that cannot run ghostline and is no longer maintained;
+	// prefer ghostline and do not extend the tmux path.
 	var runtimeAdapter server.Runtime
 	switch *runtimeMode {
 	case "tmux":
@@ -73,10 +78,10 @@ func main() {
 			fatal(err)
 		}
 		runtimeAdapter = tmuxAdapter
-	case "pty":
+	case "ghostline", "pty": // "pty" is the historical alias for ghostline.
 		runtimeAdapter = ghostline.NewPTY(*outputDir)
 	default:
-		fatal(fmt.Errorf("unknown runtime %q (supported: tmux, pty)", *runtimeMode))
+		fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
 	}
 	service := &server.Service{Store: state, Runtime: runtimeAdapter, WorktreeRoot: *worktreeRoot}
 	serviceContext, stopService := context.WithCancel(context.Background())

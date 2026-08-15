@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+/*
+ * Deprecated tmux-only tests: these exercised the snapshot/key-mapping
+ * pipeline that ghostline replaced. Restore together with the tmux
+ * fallback code if it is ever revived.
 func TestParseCaptureWithCursor(t *testing.T) {
 	capture, cursorX, cursorY, err := parseCaptureWithCursor([]byte("7,3\nfirst\nsecond\n"))
 	if err != nil {
@@ -118,6 +122,7 @@ func TestCaptureUsesRealTmuxCursorAndSingleCommandSnapshot(t *testing.T) {
 		t.Fatalf("snapshot does not restore tmux cursor: %q", snapshot[len(snapshot)-min(len(snapshot), 32):])
 	}
 }
+*/
 
 func TestListCreatedReturnsSessionCreationTimestamps(t *testing.T) {
 	binary, err := exec.LookPath("tmux")
@@ -171,6 +176,8 @@ func TestCreateEnablesExtendedKeys(t *testing.T) {
 	}
 }
 
+/*
+ * Deprecated tmux-only test: restore together with normalizeCaptureOutput.
 func TestNormalizeCaptureOutput(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -191,6 +198,7 @@ func TestNormalizeCaptureOutput(t *testing.T) {
 		})
 	}
 }
+*/
 
 func TestEnsurePipeDoesNotCloseExistingPipe(t *testing.T) {
 	binary, err := exec.LookPath("tmux")

@@ -4,9 +4,11 @@ Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, an
 
 ## Installation
 
-A remote host needs Go 1.25 and Git. The default runtime uses tmux; an
-experimental tmux-free PTY runtime (`--runtime pty`) needs neither tmux nor
-any other terminal multiplexer.
+A remote host needs Go 1.25 and Git. The default runtime is
+[ghostline](https://github.com/abcdlsj/ghostline): server-side PTY sessions
+with libghostty-vt snapshots, needing neither tmux nor any other terminal
+multiplexer. `--runtime tmux` remains as a deprecated fallback for
+environments that cannot run ghostline and is not maintained.
 
 ```sh
 go install github.com/abcdlsj/warren/Headless/cmd/warren-headless@latest
@@ -96,9 +98,9 @@ script calls this endpoint before replacing the daemon binary.
 
 Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default) via `tmux pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring, or sends a tmux screen snapshot and reanchors once it has been evicted. Every client has its own outbound queue; a slow client only disconnects itself.
 
-## PTY Runtime (experimental)
+## Runtime
 
-`warren-headless --runtime pty` replaces tmux with the
+`warren-headless` defaults to the
 [ghostline](https://github.com/abcdlsj/ghostline) runtime: one
 pseudo-terminal per session owned by the daemon, with a server-side
 libghostty-vt emulator rendering screen snapshots (visible grid + scrollback,
@@ -109,7 +111,10 @@ emulator. Input is written to the PTY verbatim, so there is no tmux
 paste-vs-key translation and kitty-protocol keys (for example Shift+Enter)
 reach the application unchanged.
 
-Known limits of the spike:
+The tmux adapter (`--runtime tmux`) is kept only as a minimal fallback for
+environments that cannot run ghostline and is no longer maintained.
+
+Known limits:
 
 - A daemon restart closes the PTY master and ends its sessions. tmux sessions
   survive a daemon restart because tmux owns them; adopting existing PTY
