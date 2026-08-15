@@ -16,7 +16,7 @@ struct WarrenDesktopTrafficLights: View {
                 targetWindow?.miniaturize(nil)
             }
             trafficLight(color: .green) {
-                targetWindow?.performZoom(nil)
+                targetWindow?.toggleFullScreen(nil)
             }
         }
         .padding(.leading, 16)
@@ -46,6 +46,8 @@ struct WarrenDesktopTrafficLights: View {
                 }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(color == .red ? "Close" : color == .yellow ? "Minimize" : "Zoom")
+        .accessibilityLabel(
+            color == .red ? "Close" : color == .yellow ? "Minimize" : "Full Screen"
+        )
     }
 }

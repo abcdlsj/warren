@@ -109,6 +109,10 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         )
         window.minSize = NSSize(width: 640, height: 420)
         window.isMovableByWindowBackground = false
+        // A borderless window is not full-screen-capable by default. Opt it
+        // back into Spaces full-screen mode so the traffic-light toggle and
+        // the ⌃⌘F menu item both work.
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.backgroundColor = NSColor(
             srgbRed: 21 / 255,
             green: 17 / 255,
@@ -180,6 +184,10 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
     @objc private func postCommand(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? String else { return }
         NotificationCenter.default.post(name: Notification.Name(rawValue), object: nil)
+    }
+
+    @objc private func toggleFullScreen(_ sender: NSMenuItem) {
+        window?.toggleFullScreen(nil)
     }
 
     @objc private func selectTabNumber(_ sender: NSMenuItem) {
@@ -306,6 +314,18 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         sidebarItem.target = target
         sidebarItem.representedObject = WarrenDesktopCommand.toggleSidebar.rawValue
         sessionMenuItem.submenu = sessionMenu
+
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+        let viewMenu = NSMenu(title: "View")
+        let fullScreenItem = viewMenu.addItem(
+            withTitle: "Toggle Full Screen",
+            action: #selector(WarrenNextAppDelegate.toggleFullScreen(_:)),
+            keyEquivalent: "f"
+        )
+        fullScreenItem.target = target
+        fullScreenItem.keyEquivalentModifierMask = [.command, .control]
+        viewMenuItem.submenu = viewMenu
 
         let webMenuItem = NSMenuItem()
         mainMenu.addItem(webMenuItem)
