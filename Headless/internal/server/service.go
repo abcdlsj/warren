@@ -1086,6 +1086,46 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 		return peer.enqueueSynced(session.ID, recovery.Epoch, recovery.Upper)
 	}
 
+	// Spool recovery: when the ring evicted the client's anchor, the PTY
+	// runtime can still serve the exact tail from its append-only spool.
+	// Rendering those bytes as ordinary output avoids the screen reset and
+	// full replay that otherwise flashes black on every reattach.
+	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
+		if recoverer, ok := s.Runtime.(runtime.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
+			adapter := s.outputAdapter()
+			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
+			if sizeErr == nil && anchor.Sequence <= uint64(size) {
+				data, recoverErr := recoverer.Recover(ctx, session.Runtime, int64(anchor.Sequence), size)
+				if recoverErr == nil && len(data) > 0 {
+					if err := outputSession.watcher.SkipTo(size); err != nil {
+						return err
+					}
+					upper := uint64(size)
+					outputSession.mu.Lock()
+					outputSession.ring.Reset(recovery.Epoch, upper)
+					outputSession.persistedSequence = upper
+					outputSession.reanchorRequired = false
+					outputSession.mu.Unlock()
+					if err := peer.enqueueAttached(session.ID, recovery.Epoch, uint64(anchor.Sequence), false); err != nil {
+						return err
+					}
+					sequence := uint64(anchor.Sequence)
+					for _, chunk := range output.SplitPayload(data) {
+						encoded, encodeErr := output.EncodeOutput(session.ID, recovery.Epoch, sequence, chunk)
+						if encodeErr != nil {
+							return encodeErr
+						}
+						if !peer.enqueueBinary(encoded) {
+							return errors.New("outbound queue overflow during spool recovery")
+						}
+						sequence += uint64(len(chunk))
+					}
+					return peer.enqueueSynced(session.ID, recovery.Epoch, upper)
+				}
+			}
+		}
+	}
+
 	// Reanchor: capture the real tmux screen and replay it as a snapshot
 	// reset. Snapshot frames reuse the current upper sequence; clients do not
 	// advance their anchor until the synced marker arrives.

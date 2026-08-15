@@ -63,6 +63,47 @@ func TestPTYInputReachesChild(t *testing.T) {
 	waitSpoolContains(t, runtimeAdapter, "warren_test_input", "pty-input-ok")
 }
 
+func TestPTYChildHasStableColorEnvironment(t *testing.T) {
+	runtimeAdapter := newTestPTY(t)
+	ctx := context.Background()
+	if err := runtimeAdapter.Create(ctx, "warren_test_env", t.TempDir(), "sh"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := runtimeAdapter.Input(ctx, "warren_test_env", []byte("echo TERM=$TERM COLORTERM=$COLORTERM\r")); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	waitSpoolContains(t, runtimeAdapter, "warren_test_env", "TERM=xterm-256color COLORTERM=truecolor")
+}
+
+func TestPTYRecoverReadsSpoolRange(t *testing.T) {
+	runtimeAdapter := newTestPTY(t)
+	ctx := context.Background()
+	if err := runtimeAdapter.Create(ctx, "warren_test_recover", t.TempDir(), "sh"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	waitSpoolContains(t, runtimeAdapter, "warren_test_recover", "$")
+	info, err := os.Stat(runtimeAdapter.SpoolPath("warren_test_recover"))
+	if err != nil {
+		t.Fatalf("Stat spool: %v", err)
+	}
+	offset := info.Size()
+	if err := runtimeAdapter.Input(ctx, "warren_test_recover", []byte("echo recover-tail-ok\r")); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	waitSpoolContains(t, runtimeAdapter, "warren_test_recover", "recover-tail-ok")
+	info, err = os.Stat(runtimeAdapter.SpoolPath("warren_test_recover"))
+	if err != nil {
+		t.Fatalf("Stat spool: %v", err)
+	}
+	data, err := runtimeAdapter.Recover(ctx, "warren_test_recover", offset, info.Size())
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if !bytes.Contains(data, []byte("recover-tail-ok")) {
+		t.Fatalf("recovered bytes missing new output: %q", data)
+	}
+}
+
 func TestPTYResize(t *testing.T) {
 	runtimeAdapter := newTestPTY(t)
 	ctx := context.Background()

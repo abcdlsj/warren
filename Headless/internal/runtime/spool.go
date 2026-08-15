@@ -1,11 +1,20 @@
 package runtime
 
 import (
+	"context"
 	"io"
 	"os"
 	"sync"
 	"time"
 )
+
+// SpoolRecoverer reads a contiguous byte range from a session's append-only
+// spool. PTY implements it so Host can recover from the spool even after the
+// in-memory ring evicted the client's anchor, avoiding a full screen reset
+// and replay.
+type SpoolRecoverer interface {
+	Recover(context.Context, string, int64, int64) ([]byte, error)
+}
 
 // SpoolWatcher reads an append-only spool from a persisted byte offset,
 // draining to EOF whenever the file grows. It is the Go counterpart of the

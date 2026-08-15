@@ -118,7 +118,23 @@ func ptyCommand(directory, command string) *exec.Cmd {
 		cmd = exec.Command("sh", "-lc", command)
 	}
 	cmd.Dir = directory
+	// tmux forces a known TERM on its panes; a bare daemon may otherwise
+	// inherit an empty TERM and programs (git diff, ls, TUIs) would suppress
+	// colors. Pin the same 256-color environment for every child so the
+	// rendered output is stable regardless of how the daemon was launched.
+	cmd.Env = ptyEnvironment()
 	return cmd
+}
+
+func ptyEnvironment() []string {
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, item := range os.Environ() {
+		if strings.HasPrefix(item, "TERM=") || strings.HasPrefix(item, "COLORTERM=") {
+			continue
+		}
+		env = append(env, item)
+	}
+	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
 }
 
 // copyOutput drains the PTY master into the append-only spool, then reaps
@@ -188,6 +204,45 @@ func (p *PTY) Capture(_ context.Context, runtimeName string) ([]byte, error) {
 	result = append(result, "\x1b[3J\x1b[2J\x1b[H"...)
 	result = append(result, data...)
 	return result, nil
+}
+
+// Recover returns the spool bytes in [offset, end), the raw PTY output a
+// client still needs after its anchor. Host prefers this over a full reanchor
+// snapshot whenever the spool still covers the anchor, so switching back to a
+// retained surface renders the missing tail without clearing the screen.
+func (p *PTY) Recover(_ context.Context, runtimeName string, offset, end int64) ([]byte, error) {
+	if p.session(runtimeName) == nil {
+		return nil, fmt.Errorf("pty session not found: %s", runtimeName)
+	}
+	file, err := os.Open(p.SpoolPath(runtimeName))
+	if err != nil {
+		return nil, fmt.Errorf("open output spool: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > info.Size() {
+		return nil, fmt.Errorf("spool offset %d beyond size %d", offset, info.Size())
+	}
+	if end > info.Size() {
+		end = info.Size()
+	}
+	if end < offset {
+		end = offset
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+	data := make([]byte, end-offset)
+	if _, err := io.ReadFull(file, data); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (p *PTY) Kill(_ context.Context, runtimeName string) error {
