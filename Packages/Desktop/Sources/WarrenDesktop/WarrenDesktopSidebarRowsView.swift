@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WarrenDesignSystem
 import WarrenDomain
@@ -278,7 +279,8 @@ struct WarrenDesktopSidebarRows: View {
         projectID: ProjectID?
     ) {
         guard dragSource == nil,
-              !isCollapsed else { return }
+              !isCollapsed,
+              NSEvent.modifierFlags.contains(.command) else { return }
         dragSource = WarrenDesktopSidebarDragSource(
             kind: kind,
             id: id,
