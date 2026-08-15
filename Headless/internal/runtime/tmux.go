@@ -313,7 +313,7 @@ func (t *Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) 
 	// cursor coordinate belong to a different screen than the captured cells.
 	output, err := t.command(ctx,
 		"display-message", "-p", "-t", target, "#{cursor_x},#{cursor_y}", ";",
-		"capture-pane", "-p", "-e", "-J", "-S", "-", "-t", target,
+		"capture-pane", "-p", "-e", "-S", "-", "-t", target,
 	).Output()
 	if err != nil {
 		return nil, err
@@ -350,6 +350,13 @@ func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
 		return nil
 	}
 	output = trimCaptureFinalLineEnding(output)
+	// Ghostty's BCE handling corrupts soft-wrapped colored history when a
+	// snapshot line ends with an active background color: the color bleeds
+	// past later SGR resets after the line scrolls. Rewrite every physical row
+	// to reset SGR at its boundaries and re-assert the carried style at the
+	// start of the next row, so no color is ever active while a new row is
+	// created by scrolling.
+	output = rewriteSGRRows(output)
 	// capture-pane emits LF-only lines. A terminal interprets LF as a line
 	// feed without returning to column zero, which makes every subsequent
 	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
@@ -363,6 +370,209 @@ func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
 	result = append(result, []byte("\x1b[3J\x1b[2J\x1b[H")...)
 	result = append(result, normalized...)
 	result = append(result, []byte(fmt.Sprintf("\x1b[%d;%dH", cursorY+1, cursorX+1))...)
+	return result
+}
+
+type sgrColor struct {
+	rgb   bool
+	index uint8
+	r     uint8
+	g     uint8
+	b     uint8
+}
+
+type sgrState struct {
+	flags map[int]bool
+	fg    *sgrColor
+	bg    *sgrColor
+}
+
+func newSGRState() *sgrState {
+	return &sgrState{flags: map[int]bool{}}
+}
+
+func (s *sgrState) reset() {
+	s.flags = map[int]bool{}
+	s.fg = nil
+	s.bg = nil
+}
+
+func (s *sgrState) apply(params string) {
+	if params == "" {
+		s.reset()
+		return
+	}
+	parts := strings.Split(params, ";")
+	for i := 0; i < len(parts); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			continue
+		}
+		switch {
+		case n == 0:
+			s.reset()
+		case n == 1:
+			s.flags[1] = true
+		case n == 2:
+			s.flags[1] = false
+			s.flags[2] = true
+		case n == 3:
+			s.flags[3] = true
+		case n == 4:
+			s.flags[4] = true
+		case n == 5:
+			s.flags[5] = true
+		case n == 7:
+			s.flags[7] = true
+		case n == 8:
+			s.flags[8] = true
+		case n == 9:
+			s.flags[9] = true
+		case n == 21:
+			s.flags[21] = true
+		case n == 22:
+			s.flags[1] = false
+			s.flags[2] = false
+		case n == 23:
+			s.flags[3] = false
+		case n == 24:
+			s.flags[4] = false
+			s.flags[21] = false
+		case n == 25:
+			s.flags[5] = false
+		case n == 27:
+			s.flags[7] = false
+		case n == 28:
+			s.flags[8] = false
+		case n == 29:
+			s.flags[9] = false
+		case n >= 30 && n <= 37:
+			s.fg = &sgrColor{index: uint8(n - 30)}
+		case n == 38:
+			if i+1 < len(parts) {
+				mode, modeErr := strconv.Atoi(parts[i+1])
+				if modeErr != nil {
+					continue
+				}
+				i++
+				if mode == 5 && i+1 < len(parts) {
+					value, _ := strconv.Atoi(parts[i+1])
+					s.fg = &sgrColor{index: uint8(value)}
+					i++
+				} else if mode == 2 && i+3 < len(parts) {
+					r, _ := strconv.Atoi(parts[i+1])
+					g, _ := strconv.Atoi(parts[i+2])
+					b, _ := strconv.Atoi(parts[i+3])
+					s.fg = &sgrColor{rgb: true, r: uint8(r), g: uint8(g), b: uint8(b)}
+					i += 3
+				}
+			}
+		case n == 39:
+			s.fg = nil
+		case n >= 40 && n <= 47:
+			s.bg = &sgrColor{index: uint8(n - 40)}
+		case n == 48:
+			if i+1 < len(parts) {
+				mode, modeErr := strconv.Atoi(parts[i+1])
+				if modeErr != nil {
+					continue
+				}
+				i++
+				if mode == 5 && i+1 < len(parts) {
+					value, _ := strconv.Atoi(parts[i+1])
+					s.bg = &sgrColor{index: uint8(value)}
+					i++
+				} else if mode == 2 && i+3 < len(parts) {
+					r, _ := strconv.Atoi(parts[i+1])
+					g, _ := strconv.Atoi(parts[i+2])
+					b, _ := strconv.Atoi(parts[i+3])
+					s.bg = &sgrColor{rgb: true, r: uint8(r), g: uint8(g), b: uint8(b)}
+					i += 3
+				}
+			}
+		case n == 49:
+			s.bg = nil
+		case n >= 90 && n <= 97:
+			s.fg = &sgrColor{index: uint8(n - 90 + 8)}
+		case n >= 100 && n <= 107:
+			s.bg = &sgrColor{index: uint8(n - 100 + 8)}
+		}
+	}
+}
+
+func (s *sgrState) canonical() []byte {
+	if len(s.flags) == 0 && s.fg == nil && s.bg == nil {
+		return nil
+	}
+	var parts []string
+	for flag := 1; flag <= 21; flag++ {
+		if s.flags[flag] {
+			parts = append(parts, strconv.Itoa(flag))
+		}
+	}
+	if s.fg != nil {
+		if s.fg.rgb {
+			parts = append(parts, "38", "2",
+				strconv.Itoa(int(s.fg.r)),
+				strconv.Itoa(int(s.fg.g)),
+				strconv.Itoa(int(s.fg.b)))
+		} else if s.fg.index < 8 {
+			parts = append(parts, strconv.Itoa(30+int(s.fg.index)))
+		} else {
+			parts = append(parts, strconv.Itoa(90+int(s.fg.index)-8))
+		}
+	}
+	if s.bg != nil {
+		if s.bg.rgb {
+			parts = append(parts, "48", "2",
+				strconv.Itoa(int(s.bg.r)),
+				strconv.Itoa(int(s.bg.g)),
+				strconv.Itoa(int(s.bg.b)))
+		} else if s.bg.index < 8 {
+			parts = append(parts, strconv.Itoa(40+int(s.bg.index)))
+		} else {
+			parts = append(parts, strconv.Itoa(100+int(s.bg.index)-8))
+		}
+	}
+	return []byte("\x1b[" + strings.Join(parts, ";") + "m")
+}
+
+func rewriteSGRRows(output []byte) []byte {
+	if len(output) == 0 {
+		return nil
+	}
+	if output[len(output)-1] == '\n' {
+		output = output[:len(output)-1]
+		if len(output) > 0 && output[len(output)-1] == '\r' {
+			output = output[:len(output)-1]
+		}
+	}
+	rows := bytes.Split(output, []byte{'\n'})
+	state := newSGRState()
+	result := make([]byte, 0, len(output)+len(rows)*8)
+	for _, row := range rows {
+		result = append(result, "\x1b[0m"...)
+		if canonical := state.canonical(); canonical != nil {
+			result = append(result, canonical...)
+		}
+		for i := 0; i < len(row); {
+			if row[i] == 0x1b && i+1 < len(row) && row[i+1] == '[' {
+				end := i + 2
+				for end < len(row) && row[end] != 'm' {
+					end++
+				}
+				if end < len(row) && row[end] == 'm' {
+					state.apply(string(row[i+2 : end]))
+					result = append(result, row[i:end+1]...)
+					i = end + 1
+					continue
+				}
+			}
+			result = append(result, row[i])
+			i++
+		}
+		result = append(result, "\x1b[0m\n"...)
+	}
 	return result
 }
 

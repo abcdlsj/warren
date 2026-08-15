@@ -33,7 +33,7 @@ func TestParseCaptureWithCursor(t *testing.T) {
 
 func TestRenderCaptureSnapshotRestoresCursorAndDoesNotAddFinalRow(t *testing.T) {
 	got := renderCaptureSnapshot([]byte("prompt\noutput\n"), 4, 2)
-	want := []byte("\x1b[3J\x1b[2J\x1b[Hprompt\r\noutput\x1b[3;5H")
+	want := []byte("\x1b[3J\x1b[2J\x1b[H\x1b[0mprompt\x1b[0m\r\n\x1b[0moutput\x1b[0m\r\n\x1b[3;5H")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("renderCaptureSnapshot() = %q, want %q", got, want)
 	}
@@ -41,9 +41,21 @@ func TestRenderCaptureSnapshotRestoresCursorAndDoesNotAddFinalRow(t *testing.T) 
 
 func TestRenderCaptureSnapshotPreservesEmptyRowsAndCRLF(t *testing.T) {
 	got := renderCaptureSnapshot([]byte("prompt\r\n\r\n"), 0, 1)
-	want := []byte("\x1b[3J\x1b[2J\x1b[Hprompt\r\n\x1b[2;1H")
+	want := []byte("\x1b[3J\x1b[2J\x1b[H\x1b[0mprompt\x1b[0m\r\n\x1b[2;1H")
 	if !bytes.Equal(got, want) {
 		t.Fatalf("renderCaptureSnapshot() = %q, want %q", got, want)
+	}
+}
+
+func TestRewriteSGRRowsReassertsCarriedStyleAtRowStart(t *testing.T) {
+	input := []byte("\x1b[41mred\x1b[43myellow\nblue\x1b[49mrest\n")
+	got := rewriteSGRRows(input)
+	want := []byte(
+		"\x1b[0m\x1b[41mred\x1b[43myellow\x1b[0m\n" +
+			"\x1b[0m\x1b[43mblue\x1b[49mrest\x1b[0m\n",
+	)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("rewriteSGRRows() = %q, want %q", got, want)
 	}
 }
 
