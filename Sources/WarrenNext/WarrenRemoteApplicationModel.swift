@@ -965,6 +965,10 @@ final class WarrenRemoteApplicationModel {
         case .output(let data):
             await feedOutput(data)
         case .framedOutput(let sessionID, let epoch, let sequence, let payload):
+            NSLog(
+                "Warren framedOutput session=%@ epoch=\(epoch) seq=\(sequence) bytes=\(payload.count)",
+                sessionID.description
+            )
             if !suppressFramedAnchorUpdates.contains(sessionID) {
                 let endSequence = sequence + UInt64(payload.count)
                 if let current = outputAnchors[sessionID] {
@@ -984,6 +988,10 @@ final class WarrenRemoteApplicationModel {
             }
             await feedOutput(payload)
         case .anchor(let sessionID, let epoch, let sequence, let reanchor):
+            NSLog(
+                "Warren anchor session=%@ epoch=\(epoch) seq=\(sequence) reanchor=\(reanchor ? 1 : 0)",
+                sessionID.description
+            )
             if reanchor {
                 suppressFramedAnchorUpdates.insert(sessionID)
             } else {
@@ -1185,6 +1193,13 @@ final class WarrenRemoteApplicationModel {
               mountedSurfaces.first === surface else { return }
         do {
             initialRefreshPending = true
+            NSLog(
+                "Warren attach session=%@ existing=%d anchor=%@ size=%@",
+                sessionID.description,
+                existingSurface == nil ? 0 : 1,
+                outputAnchors[sessionID].map { "\($0.epoch):\($0.sequence)" } ?? "nil",
+                size.map { "\($0.columns)x\($0.rows)" } ?? "nil"
+            )
             _ = try await wire.request(
                 "session.attach",
                 params: WarrenRemoteTerminalProtocol.attachParameters(
