@@ -7,11 +7,14 @@ struct WarrenDesktopTabItem: View {
     let tab: ClientTab
     let displayTitle: String
     let isSelected: Bool
+    let isPinned: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCloseOthers: () -> Void
     let onCloseAll: () -> Void
     let onMoveBefore: (String) -> Void
+    let onRename: () -> Void
+    let onTogglePin: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -33,6 +36,12 @@ struct WarrenDesktopTabItem: View {
                     if tab.sessionID == nil {
                         ProgressView()
                             .controlSize(.mini)
+                            .accessibilityHidden(true)
+                    }
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(tokens.mutedForeground)
                             .accessibilityHidden(true)
                     }
                     Text(displayTitle)
@@ -132,6 +141,8 @@ struct WarrenDesktopTabItem: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             if tab.sessionID != nil {
+                Button(isPinned ? "Unpin Session" : "Pin Session", action: onTogglePin)
+                Button("Rename Session", action: onRename)
                 Button("Close Tab", action: onClose)
                 Button("Close Other Tabs", action: onCloseOthers)
                 Button("Close All Tabs", action: onCloseAll)

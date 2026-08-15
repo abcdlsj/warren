@@ -77,6 +77,12 @@ The control interface is `/v1/ws`: authenticate with the token first, then use r
 
 The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
 
+Operators can announce a planned restart with `POST /v1/maintenance` (Bearer
+token required). The daemon broadcasts a `{"t":"maintenance","state":"starting","message":...}`
+control message to every connected client, which then shows an "Updating"
+state instead of treating the disconnect as a connection failure. The install
+script calls this endpoint before replacing the daemon binary.
+
 ## Output Pipeline
 
 Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default) via `tmux pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring, or sends a tmux screen snapshot and reanchors once it has been evicted. Every client has its own outbound queue; a slow client only disconnects itself.

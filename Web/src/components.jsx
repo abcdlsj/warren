@@ -35,6 +35,12 @@ const folderIcon = (
   </svg>
 );
 
+const pinIcon = (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <path d="M15 3v6l2 2v2h-4v7l-1 1-1-1v-7H7v-2l2-2V3h6z" />
+  </svg>
+);
+
 export function ActivityDot({ activity }) {
   const label = activityLabels[activity];
   if (!label) return null;
@@ -53,6 +59,8 @@ export function Sidebar({
   onOpenWorkspace,
   onNewSession,
   onOpenSettings,
+  onProjectContextMenu,
+  onWorkspaceContextMenu,
 }) {
   return (
     <aside className="sidebar" aria-label="Projects and workspaces">
@@ -71,7 +79,10 @@ export function Sidebar({
           const open = expandedProjects.has(project.id);
           return (
             <section className={`project${open ? " open" : ""}`} key={project.id}>
-              <div className="project-toggle">
+              <div
+                className="project-toggle"
+                onContextMenu={event => onProjectContextMenu(event, project)}
+              >
                 <button
                   type="button"
                   className="project-toggle-main"
@@ -79,6 +90,7 @@ export function Sidebar({
                   onClick={() => onToggleProject(project.id)}
                 >
                   <span className="branch">{project.name}</span>
+                  {project.pinned && <span className="pin-icon" title="Pinned">{pinIcon}</span>}
                   <span className="project-count">({workspaces.length})</span>
                 </button>
                 {workspaces[0] && (
@@ -112,8 +124,10 @@ export function Sidebar({
                     key={workspace.id}
                     onClick={() => onChooseWorkspace(workspace.id)}
                     onDoubleClick={() => onOpenWorkspace(workspace.id)}
+                    onContextMenu={event => onWorkspaceContextMenu(event, workspace)}
                   >
                     <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />
+                    {workspace.pinned && <span className="pin-icon" title="Pinned">{pinIcon}</span>}
                     <span className="branch">{workspace.branch || workspace.name || "Workspace"}</span>
                   </button>
                 ))}
@@ -148,6 +162,7 @@ export function TopBar({
   onNewSession,
   onOpenMenu,
   onOpenSearch,
+  onTabContextMenu,
 }) {
   const tabRefs = useRef(new Map());
   const tabsRef = useRef(null);
@@ -222,12 +237,14 @@ export function TopBar({
                 className={`tab${active ? " active" : ""}`}
                 key={session.id}
                 onClick={() => onAttachSession(session.id)}
+                onContextMenu={event => onTabContextMenu(event, session)}
                 ref={node => {
                   if (node) tabRefs.current.set(session.id, node);
                   else tabRefs.current.delete(session.id);
                 }}
               >
                 <ActivityDot activity={session.activity} />
+                {session.pinned && <span className="pin-icon" title="Pinned">{pinIcon}</span>}
                 <span className="tab-title">{terminalTabTitle(session, workspace)}</span>
               </button>
             );
@@ -251,6 +268,52 @@ export function TopBar({
         <SearchIcon />
       </button>
     </header>
+  );
+}
+
+export function ContextMenu({ menu, onClose }) {
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!menu) return undefined;
+    const handlePointerDown = event => {
+      if (!menuRef.current?.contains(event.target)) onClose();
+    };
+    const handleKeyDown = event => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("blur", onClose);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+  return (
+    <div
+      ref={menuRef}
+      className="context-menu"
+      role="menu"
+      style={{ left: menu.x, top: menu.y }}
+    >
+      {menu.items.map((item, index) => (
+        <button
+          type="button"
+          role="menuitem"
+          key={index}
+          onClick={() => {
+            onClose();
+            item.action();
+          }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

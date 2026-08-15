@@ -23,8 +23,26 @@ is_daemon_running() {
         || pgrep -f "$installed_daemon_executable_path$" >/dev/null 2>&1
 }
 
+notify_maintenance() {
+    local token_file="$HOME/.warren/token"
+    [[ -r "$token_file" ]] || return 0
+    local token
+    token="$(tr -d '[:space:]' < "$token_file")"
+    [[ -n "$token" ]] || return 0
+    curl -fsS -m 2 -X POST "http://127.0.0.1:8789/v1/maintenance" \
+        -H "Authorization: Bearer $token" \
+        -H "Content-Type: application/json" \
+        -d '{"message":"Installing a new Warren build; the daemon will restart."}' \
+        >/dev/null 2>&1 || true
+}
+
 echo "Building Warren.app (release)..."
 bash "$repository_root/scripts/build-app.sh" release
+
+# Tell connected Desktop/Web clients the daemon is about to restart so they
+# show an update state instead of a misleading connection error. Best-effort:
+# old daemons without the endpoint simply restart without the notice.
+notify_maintenance
 
 if is_running; then
     osascript -e 'tell application id "com.abcdlsj.warren" to quit' >/dev/null 2>&1 || true

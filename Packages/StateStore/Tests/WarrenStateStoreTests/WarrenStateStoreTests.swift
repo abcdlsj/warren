@@ -70,7 +70,11 @@ final class WarrenStateStoreTests: XCTestCase {
         let database = try TemporaryStateDatabase()
         defer { try? database.cleanup() }
         let repository = try SQLiteHostStateRepository(databaseURL: database.url)
-        let state = try makeRecoverableState()
+        var state = try makeRecoverableState()
+        state.projects[0].pinned = true
+        state.workspaces[0].pinned = true
+        state.terminalSessions[0].customTitle = "My Custom Session"
+        state.terminalSessions[0].pinned = true
 
         try await repository.save(state)
         let loaded = try await repository.load()

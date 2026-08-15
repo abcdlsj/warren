@@ -12,9 +12,11 @@ export function rosterFromMessage(message = {}) {
           session: session.id,
           workspace: session.workspace,
           title: session.title,
+          customTitle: session.customTitle,
           kind: session.kind,
           lifecycle: session.lifecycle,
           process: session.command || "",
+          pinned: session.pinned || false,
         })),
     };
   }
@@ -30,16 +32,19 @@ export function buildCatalog(roster = rosterFromMessage()) {
   const sessions = new Map();
   const tabsByWorkspace = new Map();
   const workspacesByProject = new Map();
+  const projects = [...roster.projects].sort(pinnedFirst);
+  const workspaces = [...roster.workspaces].sort(pinnedFirst);
+  const tabs = [...roster.tabs].sort(pinnedFirst);
 
-  for (const tab of roster.tabs) {
+  for (const tab of tabs) {
     sessions.set(tab.session, { ...tab, id: tab.session });
     append(tabsByWorkspace, tab.workspace, tab);
   }
-  for (const workspace of roster.workspaces) {
+  for (const workspace of workspaces) {
     append(workspacesByProject, workspace.project, workspace);
   }
 
-  return { ...roster, sessions, tabsByWorkspace, workspacesByProject };
+  return { ...roster, projects, workspaces, sessions, tabsByWorkspace, workspacesByProject };
 }
 
 export function workspaceTabs(catalog, workspaceID) {
@@ -52,11 +57,15 @@ export function workspaceTabs(catalog, workspaceID) {
       title: tab.title || session.title,
       kind: tab.kind || session.kind,
     }];
-  });
+  }).sort(pinnedFirst);
 }
 
 function append(map, key, value) {
   const values = map.get(key) || [];
   values.push(value);
   map.set(key, values);
+}
+
+function pinnedFirst(left, right) {
+  return Number(Boolean(right.pinned)) - Number(Boolean(left.pinned));
 }

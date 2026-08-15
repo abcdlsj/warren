@@ -13,11 +13,13 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
     case projectPathInvalid(String)
     case projectAlreadyExists(String)
     case projectNotFound(ProjectID)
+    case projectNameInvalid
     case projectWorkspaceMissing(ProjectID)
     case workspaceNotFound(WorkspaceID)
     case workspacePathAlreadyExists(String)
     case workspaceBranchInvalid(String)
     case workspaceNameInvalid
+    case sessionTitleInvalid
     case gitWorktree(String)
     case sessionNotFound(TerminalSessionID)
     case attachmentNotFound(TerminalAttachmentID)
@@ -42,6 +44,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Project already exists: \(path)."
         case .projectNotFound:
             return "Target project not found."
+        case .projectNameInvalid:
+            return "Project name cannot be empty."
         case .projectWorkspaceMissing:
             return "Project has no root workspace."
         case .workspaceNotFound:
@@ -52,6 +56,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Invalid workspace branch: \(branch)."
         case .workspaceNameInvalid:
             return "Workspace name cannot be empty."
+        case .sessionTitleInvalid:
+            return "Session title cannot be empty."
         case let .gitWorktree(reason):
             return "Git worktree operation failed: \(reason)"
         case .sessionNotFound:
@@ -83,6 +89,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Select an existing, readable folder."
         case .projectAlreadyExists:
             return "Select the existing project from the sidebar."
+        case .projectNameInvalid:
+            return "Enter a short display name for the project."
         case .projectNotFound, .projectWorkspaceMissing:
             return "Refresh the window and select an existing project."
         case .workspaceNotFound:
@@ -93,6 +101,8 @@ public enum WarrenApplicationError: Error, Hashable, Sendable, LocalizedError {
             return "Use a valid Git branch name without spaces or revision syntax."
         case .workspaceNameInvalid:
             return "Enter a short display name for the workspace."
+        case .sessionTitleInvalid:
+            return "Enter a short display title for the session."
         case .gitWorktree:
             return "Check the branch name, destination path, and Git repository state, then retry."
         case .sessionNotFound, .attachmentNotFound, .tabNotFound:

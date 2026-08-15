@@ -31,6 +31,8 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .workspace-row.active { background:var(--fill-selected); color:rgba(234,232,230,.9); }
 .branch { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
 .workspace-row .branch { font-size:13px; font-weight:400; }
+.pin-icon { display:inline-flex; width:10px; height:10px; flex:0 0 auto; color:var(--sub); }
+.pin-icon svg { width:100%; height:100%; }
 .activity { position:relative; display:inline-flex; width:8px; height:8px; flex:0 0 auto; border-radius:50%; background:var(--sub); }
 .activity::before { content:""; position:absolute; inset:0; border-radius:inherit; background:inherit; }
 .activity.pulse::before { animation:ping 1.25s cubic-bezier(0,0,.2,1) infinite; }
@@ -153,6 +155,9 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .search-kind { margin-left:auto; flex:0 0 auto; }
 .search-empty { padding:28px; color:var(--sub); text-align:center; font-size:13px; }
 @keyframes search-in { from { opacity:0; transform:translateY(-4px) scale(.98); } to { opacity:1; transform:none; } }
+.context-menu { position:fixed; z-index:60; min-width:170px; padding:5px; border:1px solid var(--muted); border-radius:8px; background:var(--panel); box-shadow:0 10px 40px rgba(0,0,0,.45); }
+.context-menu button { display:block; width:100%; height:30px; padding:0 10px; border:0; border-radius:5px; background:transparent; color:var(--fg); text-align:left; cursor:pointer; font-size:13px; }
+.context-menu button:hover { background:var(--fill-selected); color:var(--fg); }
 .terminal-loading { display:flex; align-items:center; gap:8px; }
 .spinner { width:14px; height:14px; border:2px solid var(--ring); border-top-color:var(--fg); border-radius:50%; animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }

@@ -159,9 +159,9 @@ The macOS Client uses in-process composition for Local and a versioned WebSocket
 
 SSH only bootstraps the remote daemon and forwards a loopback port. Once `warren ssh` establishes reachability, Desktop and CLI continue over the same WebSocket API; Git, tmux, and resource semantics must not be encoded into the SSH transport.
 
-Tailscale, LAN, and Cloudflare Tunnel only provide network reachability; they are not part of the business model. The central Relay Service only provides Host registration, discovery, pairing, revocation, signaling, and WebSocket relay; Sessions and processes remain owned by the Host.
+Tailscale, LAN, Cloudflare Tunnel, and gnar only provide network reachability; they are not part of the business model. The central Relay Service only provides Host registration, discovery, pairing, revocation, signaling, and WebSocket relay; Sessions and processes remain owned by the Host.
 
-The daemon serves the Web UI over HTTP on `0.0.0.0:8789` (Desktop and CLI keep using the loopback address) and over HTTPS on `0.0.0.0:8788` for LAN devices; the HTTPS listener uses a locally generated CA so phones only need to trust it once. Public access still uses an explicitly started Cloudflare Tunnel or Tailscale Serve HTTPS URL; the URL carries a random pairing token and the WebSocket handshake still requires authentication. Slow Web clients use a bounded non-blocking send queue and must never block the macOS main thread or Host output.
+The daemon serves the Web UI over HTTP on `0.0.0.0:8789` (Desktop and CLI keep using the loopback address) and over HTTPS on `0.0.0.0:8788` for LAN devices; the HTTPS listener uses a locally generated CA so phones only need to trust it once. Public access still uses an explicitly started Cloudflare Tunnel, Tailscale Serve, or gnar HTTPS URL; the URL carries a random pairing token and the WebSocket handshake still requires authentication. Slow Web clients use a bounded non-blocking send queue and must never block the macOS main thread or Host output.
 
 The Web/PWA client uses React + Vite, with source in `Web/`. React owns the component tree and client state; xterm owns terminal rendering. `Web/dist` contains build output only and is embedded by both the Go daemon and the Go Relay Service; do not maintain single-file inline copies of the script.
 

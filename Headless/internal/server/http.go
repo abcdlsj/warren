@@ -42,6 +42,9 @@ type HTTPServer struct {
 	BuildVersion string
 	CACertPath   string
 	upgrader     websocket.Upgrader
+
+	peersMu sync.Mutex
+	peers   map[*wsPeer]struct{}
 }
 
 type rosterMessage struct {
@@ -54,6 +57,7 @@ func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPSer
 		Service: service,
 		Token:   token,
 		Logger:  logger,
+		peers:   make(map[*wsPeer]struct{}),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize: 256 * 1024, WriteBufferSize: 256 * 1024,
 			CheckOrigin: func(request *http.Request) bool {
@@ -132,6 +136,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)
 	mux.HandleFunc("GET /v1/ws", s.handleWebSocket)
+	mux.HandleFunc("POST /v1/maintenance", s.handleMaintenance)
 	mux.HandleFunc("GET /v1/tunnels", s.handleTunnels)
 	mux.HandleFunc("POST /v1/tunnels/start", s.handleTunnelStart)
 	mux.HandleFunc("POST /v1/tunnels/stop", s.handleTunnelStop)
@@ -300,13 +305,17 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 		return
 	}
 	peer := newWSPeer(s, connection)
-	defer peer.close()
+	defer func() {
+		s.unregisterPeer(peer)
+		peer.close()
+	}()
 	_ = connection.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var envelope api.Envelope
 	if err := connection.ReadJSON(&envelope); err != nil || envelope.Type != "auth" || !s.authorized(envelope.Token) {
 		_ = peer.writeJSON(api.Response{Type: "error", OK: false, Error: "unauthorized"})
 		return
 	}
+	s.registerPeer(peer)
 	if envelope.Version != "" && !compatibleProtocolVersion(envelope.Version, api.Version) {
 		_ = peer.writeJSON(api.Response{Type: "error", OK: false, Error: fmt.Sprintf(
 			"incompatible protocol version: client=%s server=%s", envelope.Version, api.Version,
@@ -340,6 +349,70 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 			_ = peer.writeError(command.ID, err)
 		}
 	}
+}
+
+// registerPeer tracks an authenticated WebSocket client so server-initiated
+// control messages (for example a maintenance announcement) can reach every
+// client, attached or not.
+func (s *HTTPServer) registerPeer(peer *wsPeer) {
+	s.peersMu.Lock()
+	s.peers[peer] = struct{}{}
+	s.peersMu.Unlock()
+}
+
+func (s *HTTPServer) unregisterPeer(peer *wsPeer) {
+	s.peersMu.Lock()
+	delete(s.peers, peer)
+	s.peersMu.Unlock()
+}
+
+// handleMaintenance announces an operator-initiated maintenance window to all
+// connected clients. The daemon is expected to restart shortly after; clients
+// use the notice to show an update state instead of treating the disconnect as
+// a connection failure.
+func (s *HTTPServer) handleMaintenance(writer http.ResponseWriter, request *http.Request) {
+	if !s.authorized(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")) {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
+		http.Error(writer, "invalid request", http.StatusBadRequest)
+		return
+	}
+	s.broadcastMaintenance(body.Message)
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(map[string]any{
+		"announced": true,
+		"peers":     s.peerCount(),
+	})
+}
+
+func (s *HTTPServer) broadcastMaintenance(message string) {
+	payload, _ := json.Marshal(map[string]any{
+		"t":       "maintenance",
+		"state":   "starting",
+		"message": message,
+	})
+	s.peersMu.Lock()
+	peers := make([]*wsPeer, 0, len(s.peers))
+	for peer := range s.peers {
+		peers = append(peers, peer)
+	}
+	s.peersMu.Unlock()
+	for _, peer := range peers {
+		// A full queue tears the peer down; the client reconnects once the
+		// daemon returns and misses only the maintenance banner.
+		_ = peer.enqueue(outboundMessage{kind: websocket.TextMessage, data: payload})
+	}
+}
+
+func (s *HTTPServer) peerCount() int {
+	s.peersMu.Lock()
+	defer s.peersMu.Unlock()
+	return len(s.peers)
 }
 
 func compatibleProtocolVersion(client, server string) bool {
@@ -563,6 +636,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"removed": true})
+	case "project.rename":
+		if err := p.server.Service.RenameProject(stringParam(params, "id"), stringParam(params, "name")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"renamed": true})
+	case "project.pin":
+		if err := p.server.Service.SetProjectPinned(stringParam(params, "id"), boolParam(params, "pinned")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
 	case "workspace.create":
 		value, err := p.server.Service.CreateWorkspace(stringParam(params, "project"), stringParam(params, "branch"), stringParam(params, "name"), stringParam(params, "path"))
 		if err != nil {
@@ -574,6 +657,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"removed": true})
+	case "workspace.rename":
+		if err := p.server.Service.RenameWorkspace(stringParam(params, "id"), stringParam(params, "name")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"renamed": true})
+	case "workspace.pin":
+		if err := p.server.Service.SetWorkspacePinned(stringParam(params, "id"), boolParam(params, "pinned")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
 	case "session.create":
 		value, err := p.server.Service.CreateSession(ctx, stringParam(params, "workspace"), stringParam(params, "command"), stringParam(params, "kind"), stringParam(params, "title"))
 		if err != nil {
@@ -589,6 +682,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			p.detach()
 		}
 		return p.writeResult(command.ID, map[string]bool{"deleted": true})
+	case "session.rename":
+		if err := p.server.Service.RenameSession(stringParam(params, "id"), stringParam(params, "title")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"renamed": true})
+	case "session.pin":
+		if err := p.server.Service.SetSessionPinned(stringParam(params, "id"), boolParam(params, "pinned")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
 	case "session.attach":
 		id := stringParam(params, "id")
 		session, ok := p.server.Service.Session(id)
@@ -762,7 +865,17 @@ func stringParam(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return strings.TrimSpace(value)
 }
-func boolParam(values map[string]any, key string) bool { value, _ := values[key].(bool); return value }
+func boolParam(values map[string]any, key string) bool {
+	switch value := values[key].(type) {
+	case bool:
+		return value
+	case string:
+		parsed, err := strconv.ParseBool(value)
+		return err == nil && parsed
+	default:
+		return false
+	}
+}
 
 func optionalBoolParam(values map[string]any, key string) (value, specified bool, err error) {
 	raw, specified := values[key]

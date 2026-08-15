@@ -201,7 +201,12 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
     }
 
     private var displayTitle: String {
-        titleTemplate.render(TerminalDisplayTitleContext(
+        if let customTitle = session?.customTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty {
+            return customTitle
+        }
+        return titleTemplate.render(TerminalDisplayTitleContext(
             session: session?.title ?? tab.title,
             command: session?.runtimeProcess ?? tab.kind.displayName,
             directory: session?.workingDirectory.isEmpty == false

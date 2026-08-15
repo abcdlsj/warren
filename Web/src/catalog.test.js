@@ -26,6 +26,37 @@ test("catalog indexes workspaces and open tabs", () => {
   }]);
 });
 
+test("custom session titles win over derived tab titles", () => {
+  assert.equal(
+    terminalTabTitle(
+      { title: "Codex", customTitle: "My Agent", process: "codex", directory: "/work/warren" },
+      {},
+    ),
+    "My Agent",
+  );
+});
+
+test("catalog keeps pinned workspaces and sessions first", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    projects: [
+      { id: "project-b", name: "B", pinned: false },
+      { id: "project-a", name: "A", pinned: true },
+    ],
+    workspaces: [
+      { id: "workspace-b", project: "project-a", name: "B" },
+      { id: "workspace-a", project: "project-a", name: "A", pinned: true },
+    ],
+    tabs: [
+      { id: "tab-b", session: "session-b", workspace: "workspace-a", title: "B" },
+      { id: "tab-a", session: "session-a", workspace: "workspace-a", title: "A", pinned: true },
+    ],
+  }));
+
+  assert.equal(catalog.projects[0].id, "project-a");
+  assert.equal(catalog.workspaces[0].id, "workspace-a");
+  assert.equal(workspaceTabs(catalog, "workspace-a")[0].id, "session-a");
+});
+
 test("terminal title removes empty separators", () => {
   assert.equal(
     renderTerminalTitle("{command} — {directoryName}", { title: "Session" }),

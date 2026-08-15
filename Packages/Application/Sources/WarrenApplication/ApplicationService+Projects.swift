@@ -40,6 +40,44 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    public func renameProject(_ projectID: ProjectID, name: String) async throws {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { throw WarrenApplicationError.projectNameInvalid }
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.projects.firstIndex(where: { $0.id == projectID }) else {
+                throw WarrenApplicationError.projectNotFound(projectID)
+            }
+            try await repository.updateProjectName(projectID, name: value)
+            state.projects[index].name = value
+        }
+        await publish()
+    }
+
+    public func setProjectPinned(_ projectID: ProjectID, pinned: Bool) async throws {
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.projects.firstIndex(where: { $0.id == projectID }) else {
+                throw WarrenApplicationError.projectNotFound(projectID)
+            }
+            try await repository.setProjectPinned(projectID, pinned: pinned)
+            state.projects[index].pinned = pinned
+        }
+        await publish()
+    }
+
+    public func setWorkspacePinned(_ workspaceID: WorkspaceID, pinned: Bool) async throws {
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else {
+                throw WarrenApplicationError.workspaceNotFound(workspaceID)
+            }
+            try await repository.setWorkspacePinned(workspaceID, pinned: pinned)
+            state.workspaces[index].pinned = pinned
+        }
+        await publish()
+    }
+
     /// Creates a new Git worktree and only then publishes it as a Workspace.
     /// If persistence fails, the adapter removes the just-created worktree so
     /// Git and Warren cannot disagree about ownership.

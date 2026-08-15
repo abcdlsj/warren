@@ -59,21 +59,29 @@ enum WarrenEndpointCatalog {
 
 private struct RemoteRoster: Decodable, Sendable {
     struct Host: Decodable, Sendable { let id: String; let name: String }
-    struct Project: Decodable, Sendable { let id: String; let name: String; let path: String }
+    struct Project: Decodable, Sendable {
+        let id: String
+        let name: String
+        let path: String
+        let pinned: Bool?
+    }
     struct Workspace: Decodable, Sendable {
         let id: String
         let project: String
         let name: String
         let path: String
         let branch: String?
+        let pinned: Bool?
     }
     struct Session: Decodable, Sendable {
         let id: String
         let workspace: String
         let title: String
+        let customTitle: String?
         let kind: String
         let command: String?
         let lifecycle: String
+        let pinned: Bool?
     }
 
     let host: Host
@@ -100,6 +108,7 @@ private struct RemoteRoster: Decodable, Sendable {
 private enum RemoteWireEvent: Sendable {
     case roster(RemoteRoster)
     case output(Data)
+    case maintenance(message: String?)
     case disconnected(String)
 }
 
@@ -295,6 +304,8 @@ private actor WarrenRemoteWire {
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   let roster = try? JSONDecoder().decode(RemoteRoster.self, from: encoded) {
             return await eventBuffer.send(.roster(roster))
+        } else if type == "maintenance" {
+            return await eventBuffer.send(.maintenance(message: object["message"] as? String))
         } else if type == "error" {
             return await eventBuffer.send(.disconnected(
                 object["error"] as? String ?? "Remote authentication failed"
@@ -323,6 +334,10 @@ final class WarrenRemoteApplicationModel {
     private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
+    /// Set while the daemon has announced an operator-initiated maintenance
+    /// window (for example an app install that restarts the daemon). Clients
+    /// show an update state instead of treating the disconnect as a failure.
+    private(set) var maintenanceMessage: String?
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
     @ObservationIgnored private var endpointConfiguration: WarrenRemoteEndpointConfiguration?
@@ -339,6 +354,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var focusTask: Task<Void, Never>?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
+    @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
 
     init() {
         self.navigation = WarrenDesktopNavigationPersistence.restore()
@@ -363,6 +379,7 @@ final class WarrenRemoteApplicationModel {
         eventTask?.cancel()
         eventTask = nil
         endpointConfiguration = nil
+        clearMaintenance()
         if let wire { Task { await wire.close() } }
         wire = nil
         currentRoster = nil
@@ -393,7 +410,7 @@ final class WarrenRemoteApplicationModel {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                if attempt == 0 {
+                if attempt == 0, maintenanceMessage == nil {
                     present(error)
                 }
             }
@@ -424,6 +441,12 @@ final class WarrenRemoteApplicationModel {
         focusTask?.cancel()
         focusTask = nil
         mountedSurfaces.removeAll()
+    }
+
+    private func clearMaintenance() {
+        maintenanceResetTask?.cancel()
+        maintenanceResetTask = nil
+        maintenanceMessage = nil
     }
 
     /// Exponential backoff matching the Web client: 500ms doubling to 30s.
@@ -496,8 +519,12 @@ final class WarrenRemoteApplicationModel {
             surface.apply(font: preference)
         }
     }
-    func startWebFromUI() {}
-    func stopWeb() {}
+    func startWebFromUI() {
+        controlTunnel(.start, kind: "gnar")
+    }
+    func stopWeb() {
+        controlTunnel(.stop, kind: "gnar")
+    }
     func openWebURL(_ url: URL) { NSWorkspace.shared.open(url) }
     func copyWebURL(_ url: URL) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(url.absoluteString, forType: .string) }
     func copyLocalWebURL() {
@@ -520,7 +547,7 @@ final class WarrenRemoteApplicationModel {
             await refreshTunnelStatus()
             guard let url = webStatus.secureURL else {
                 present(NSError(domain: "WarrenRemote", code: 8, userInfo: [
-                    NSLocalizedDescriptionKey: "Secure Web access is not ready. Start Cloudflare Tunnel or Tailscale Serve first.",
+                    NSLocalizedDescriptionKey: "Public Web sharing is not ready. Share it from the Web panel or start gnar first.",
                 ]))
                 return
             }
@@ -718,11 +745,18 @@ final class WarrenRemoteApplicationModel {
                 NSLocalizedDescriptionKey: "Remote projects must use remote paths. "
                     + "Run `warren --endpoint <server> project add /path`.",
             ]))
-        case .renameWorkspace:
-            present(NSError(domain: "WarrenRemote", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Remote workspace renaming is not available yet; "
-                    + "continue managing it from the CLI.",
-            ]))
+        case .renameProject(let id, let name):
+            request("project.rename", params: ["id": id.description, "name": name])
+        case .renameWorkspace(let id, let name):
+            request("workspace.rename", params: ["id": id.description, "name": name])
+        case .renameSession(let id, let title):
+            request("session.rename", params: ["id": id.description, "title": title])
+        case .setProjectPinned(let id, let pinned):
+            request("project.pin", params: ["id": id.description, "pinned": String(pinned)])
+        case .setWorkspacePinned(let id, let pinned):
+            request("workspace.pin", params: ["id": id.description, "pinned": String(pinned)])
+        case .setSessionPinned(let id, let pinned):
+            request("session.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .importSuperset, .requestNewWorkspace, .requestNewSession, .moveTab,
              .toggleInspector, .toggleSidebar:
             break
@@ -834,6 +868,17 @@ final class WarrenRemoteApplicationModel {
         case .roster(let roster):
             currentRoster = roster
             apply(roster)
+        case .maintenance(let message):
+            maintenanceMessage = message?.isEmpty == false ? message : "Warren is updating"
+            maintenanceResetTask?.cancel()
+            // Safety net for an announcement without a restart: the banner
+            // clears on the next roster once the daemon is back, and after a
+            // bounded timeout so an aborted update cannot linger forever.
+            maintenanceResetTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                self?.clearMaintenance()
+            }
         case .output(let data):
             await feedOutput(data)
         case .disconnected:
@@ -858,16 +903,30 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func apply(_ roster: RemoteRoster) {
+        clearMaintenance()
         guard let hostID = HostID(uuidString: roster.host.id) else { return }
         let host = WarrenDomain.Host(id: hostID, name: roster.host.name)
         let projects = roster.projects.compactMap { value -> Project? in
             guard let id = ProjectID(uuidString: value.id) else { return nil }
-            return Project(id: id, hostID: hostID, name: value.name, rootPath: value.path)
+            return Project(
+                id: id,
+                hostID: hostID,
+                name: value.name,
+                rootPath: value.path,
+                pinned: value.pinned ?? false
+            )
         }
         let workspaces = roster.workspaces.compactMap { value -> Workspace? in
             guard let id = WorkspaceID(uuidString: value.id),
                   let projectID = ProjectID(uuidString: value.project) else { return nil }
-            return Workspace(id: id, projectID: projectID, name: value.name, path: value.path, branch: value.branch)
+            return Workspace(
+                id: id,
+                projectID: projectID,
+                name: value.name,
+                path: value.path,
+                branch: value.branch,
+                pinned: value.pinned ?? false
+            )
         }
         let workspacePaths = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0.path) })
         let remoteSessions = roster.sessions.compactMap { value -> (RemoteRoster.Session, TerminalSessionID, WorkspaceID)? in
@@ -881,6 +940,8 @@ final class WarrenRemoteApplicationModel {
                 workspaceID: workspaceID,
                 tabID: Self.tabID(id),
                 title: value.title,
+                customTitle: value.customTitle,
+                pinned: value.pinned ?? false,
                 kind: TerminalSessionKind(rawValue: value.kind) ?? .custom,
                 state: value.lifecycle == "running" ? .attached : .exited,
                 runtimeProcess: value.command ?? "",

@@ -1,6 +1,7 @@
 import SwiftUI
 import WarrenClientCore
 import WarrenDesignSystem
+import WarrenDomain
 
 private struct WarrenTabViewportWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
@@ -15,6 +16,7 @@ private struct WarrenTabViewportWidthKey: PreferenceKey {
 struct WarrenDesktopTabBar: View {
     let tabs: [ClientTab]
     let tabTitles: [String: String]
+    let pinnedSessionIDs: Set<TerminalSessionID>
     let selectedTabID: String?
     let chromeMode: WarrenDesktopChromeMode
     let isSidebarCollapsed: Bool
@@ -37,9 +39,13 @@ struct WarrenDesktopTabBar: View {
     let onCloseTab: (String) -> Void
     let onCloseOtherTabs: (String) -> Void
     let onCloseAllTabs: () -> Void
+    let onRenameSession: (TerminalSessionID, String) -> Void
+    let onToggleSessionPin: (TerminalSessionID, Bool) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var hasTabOverflow = false
+    @State private var pendingRenameSessionID: TerminalSessionID?
+    @State private var sessionRenameTitle = ""
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -64,11 +70,24 @@ struct WarrenDesktopTabBar: View {
                                 tab: tab,
                                 displayTitle: tabTitles[tab.id] ?? tab.title,
                                 isSelected: selectedTabID == tab.id,
+                                isPinned: tab.sessionID.map(pinnedSessionIDs.contains) ?? false,
                                 onSelect: { onSelectTab(tab.id) },
                                 onClose: { onCloseTab(tab.id) },
                                 onCloseOthers: { onCloseOtherTabs(tab.id) },
                                 onCloseAll: onCloseAllTabs,
-                                onMoveBefore: { sourceID in onMoveTab(sourceID, tab.id) }
+                                onMoveBefore: { sourceID in onMoveTab(sourceID, tab.id) },
+                                onRename: {
+                                    guard let sessionID = tab.sessionID else { return }
+                                    sessionRenameTitle = tabTitles[tab.id] ?? tab.title
+                                    pendingRenameSessionID = sessionID
+                                },
+                                onTogglePin: {
+                                    guard let sessionID = tab.sessionID else { return }
+                                    onToggleSessionPin(
+                                        sessionID,
+                                        !pinnedSessionIDs.contains(sessionID)
+                                    )
+                                }
                             )
                         }
 
@@ -163,6 +182,20 @@ struct WarrenDesktopTabBar: View {
             .frame(height: WarrenLayoutMetrics.tabBarHeight)
         }
         .frame(height: WarrenLayoutMetrics.tabBarHeight)
+        .alert("Rename Session", isPresented: Binding(
+            get: { pendingRenameSessionID != nil },
+            set: { if !$0 { pendingRenameSessionID = nil } }
+        )) {
+            TextField("Session title", text: $sessionRenameTitle)
+            Button("Rename") {
+                guard let sessionID = pendingRenameSessionID else { return }
+                pendingRenameSessionID = nil
+                onRenameSession(sessionID, sessionRenameTitle)
+            }
+            Button("Cancel", role: .cancel) { pendingRenameSessionID = nil }
+        } message: {
+            Text("Custom titles are stored on the Host and shared by every client.")
+        }
         .overlay(alignment: .bottom) {
             WarrenDesktopChromeDivider()
         }

@@ -12,7 +12,12 @@ public protocol HostStateRepository: Sendable {
     func markSessionEnded(sessionID: TerminalSessionID, endedAt: Date) async throws
     func insertSession(_ session: PersistedTerminalSession, receipt: PersistedRequestReceipt?) async throws
     func deleteSession(_ sessionID: TerminalSessionID) async throws
+    func updateProjectName(_ projectID: ProjectID, name: String) async throws
     func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws
+    func updateSessionTitle(_ sessionID: TerminalSessionID, title: String) async throws
+    func setProjectPinned(_ projectID: ProjectID, pinned: Bool) async throws
+    func setWorkspacePinned(_ workspaceID: WorkspaceID, pinned: Bool) async throws
+    func setSessionPinned(_ sessionID: TerminalSessionID, pinned: Bool) async throws
     func updateSessionCursor(sessionID: TerminalSessionID, anchor: RecoveryAnchor) async throws
     func insertProject(_ project: Project, rootWorkspace: Workspace) async throws
     func insertWorkspace(_ workspace: Workspace, receipt: PersistedRequestReceipt?) async throws
@@ -41,6 +46,21 @@ public extension HostStateRepository {
     }
     func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws {
         var state = try await load(); guard let i = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }; state.workspaces[i].name = name; try await save(state)
+    }
+    func updateProjectName(_ projectID: ProjectID, name: String) async throws {
+        var state = try await load(); guard let i = state.projects.firstIndex(where: { $0.id == projectID }) else { return }; state.projects[i].name = name; try await save(state)
+    }
+    func updateSessionTitle(_ sessionID: TerminalSessionID, title: String) async throws {
+        var state = try await load(); guard let i = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }; state.terminalSessions[i].customTitle = title; try await save(state)
+    }
+    func setProjectPinned(_ projectID: ProjectID, pinned: Bool) async throws {
+        var state = try await load(); guard let i = state.projects.firstIndex(where: { $0.id == projectID }) else { return }; state.projects[i].pinned = pinned; try await save(state)
+    }
+    func setWorkspacePinned(_ workspaceID: WorkspaceID, pinned: Bool) async throws {
+        var state = try await load(); guard let i = state.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }; state.workspaces[i].pinned = pinned; try await save(state)
+    }
+    func setSessionPinned(_ sessionID: TerminalSessionID, pinned: Bool) async throws {
+        var state = try await load(); guard let i = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else { return }; state.terminalSessions[i].pinned = pinned; try await save(state)
     }
     func insertProject(_ project: Project, rootWorkspace: Workspace) async throws {
         var state = try await load(); state.projects.append(project); state.workspaces.append(rootWorkspace); try await save(state)

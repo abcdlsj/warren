@@ -14,6 +14,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
     public var kind: TerminalSessionKind
     public var agentSessionID: String?
     public var title: String?
+    public var customTitle: String?
+    public var pinned: Bool
     public var lifecycle: TerminalSessionLifecycle
     public var endedAt: Date?
 
@@ -28,6 +30,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         kind: TerminalSessionKind = .shell,
         agentSessionID: String? = nil,
         title: String? = nil,
+        customTitle: String? = nil,
+        pinned: Bool = false,
         lifecycle: TerminalSessionLifecycle = .running,
         endedAt: Date? = nil
     ) {
@@ -41,6 +45,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         self.kind = kind
         self.agentSessionID = agentSessionID
         self.title = title
+        self.customTitle = customTitle
+        self.pinned = pinned
         self.lifecycle = lifecycle
         self.endedAt = endedAt
     }
@@ -67,6 +73,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         case kind
         case agentSessionID
         case title
+        case customTitle
+        case pinned
         case lifecycle
         case endedAt
     }
@@ -99,6 +107,8 @@ public struct PersistedTerminalSession: Identifiable, Codable, Hashable, Sendabl
         ) ?? .shell
         agentSessionID = try container.decodeIfPresent(String.self, forKey: .agentSessionID)
         title = try container.decodeIfPresent(String.self, forKey: .title)
+        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         lifecycle = try container.decodeIfPresent(
             TerminalSessionLifecycle.self,
             forKey: .lifecycle

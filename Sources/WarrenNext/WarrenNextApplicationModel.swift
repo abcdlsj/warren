@@ -117,6 +117,8 @@ final class WarrenNextApplicationModel {
                     workspaceID: session.workspaceID,
                     tabID: session.tabID,
                     title: session.title,
+                    customTitle: session.customTitle,
+                    pinned: session.pinned,
                     kind: session.kind,
                     state: Self.desktopSessionState(
                         for: session.connectionState,
@@ -262,7 +264,10 @@ final class WarrenNextApplicationModel {
         case .selectProject, .selectWorkspace, .selectTab, .openSession, .deleteSession,
              .restoreNavigation:
             reconcileSurfaces(with: snapshot)
-        case .addProject, .importSuperset, .requestNewWorkspace, .renameWorkspace, .moveTab,
+        case .addProject, .importSuperset, .requestNewWorkspace,
+             .renameProject, .renameWorkspace, .renameSession,
+             .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
+             .moveTab,
              .requestNewSession, .launchSession,
              .closeTab, .closeOtherTabs, .closeAllTabs,
              .toggleInspector, .toggleSidebar:
@@ -279,10 +284,15 @@ final class WarrenNextApplicationModel {
             enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
                 await self?.ensureDefaultShellTab(in: workspaceID)
             }
-        } else if action.requiresHostSideEffect,
-                  let workspaceID = workspaceID(for: action) {
-            enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
-                await self?.performSerial(action)
+        } else if action.requiresHostSideEffect {
+            if let workspaceID = workspaceID(for: action) {
+                enqueueWorkspaceAction(workspaceID: workspaceID) { [weak self] in
+                    await self?.performSerial(action)
+                }
+            } else {
+                Task { @MainActor [weak self] in
+                    await self?.performSerial(action)
+                }
             }
         }
     }
@@ -321,6 +331,10 @@ final class WarrenNextApplicationModel {
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
         case .deleteSession(let sessionID):
             return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
+        case .renameSession(let sessionID, _), .setSessionPinned(let sessionID, _):
+            return desktopProjection.sessions.first { $0.id == sessionID }?.workspaceID
+        case .setWorkspacePinned(let workspaceID, _):
+            return workspaceID
         case .closeTab(let tabID), .closeOtherTabs(let tabID), .moveTab(let tabID, _):
             return workspaceID(forTabID: tabID)
         case .closeAllTabs:
@@ -328,6 +342,7 @@ final class WarrenNextApplicationModel {
         case .renameWorkspace(let workspaceID, _):
             return workspaceID
         case .addProject, .importSuperset, .requestNewWorkspace,
+             .renameProject, .setProjectPinned,
              .selectProject, .selectTab, .restoreNavigation,
              .toggleInspector, .toggleSidebar:
             return nil
@@ -384,8 +399,18 @@ extension WarrenNextApplicationModel {
                 self.presentedIssue = nil
                 self.refreshDesktopProjection()
             }
+        case .renameProject(let projectID, let name):
+            await run { try await service.renameProject(projectID, name: name) }
         case .renameWorkspace(let workspaceID, let name):
             await run { try await service.renameWorkspace(workspaceID, name: name) }
+        case .renameSession(let sessionID, let title):
+            await run { try await service.renameSession(sessionID, title: title) }
+        case .setProjectPinned(let projectID, let pinned):
+            await run { try await service.setProjectPinned(projectID, pinned: pinned) }
+        case .setWorkspacePinned(let workspaceID, let pinned):
+            await run { try await service.setWorkspacePinned(workspaceID, pinned: pinned) }
+        case .setSessionPinned(let sessionID, let pinned):
+            await run { try await service.setSessionPinned(sessionID, pinned: pinned) }
         case .launchSession(let workspaceID, let request):
             do {
                 let tabID = try await service.addTab(
@@ -514,6 +539,8 @@ extension WarrenNextApplicationModel {
                 && left.workspaceID == right.workspaceID
                 && left.tabID == right.tabID
                 && left.title == right.title
+                && left.customTitle == right.customTitle
+                && left.pinned == right.pinned
                 && left.kind == right.kind
                 && left.lifecycle == right.lifecycle
                 && left.connectionState == right.connectionState
@@ -624,7 +651,9 @@ extension WarrenNextApplicationModel {
 private extension WarrenDesktopAction {
     var requiresHostSideEffect: Bool {
         switch self {
-        case .closeTab, .closeOtherTabs, .closeAllTabs, .renameWorkspace,
+        case .closeTab, .closeOtherTabs, .closeAllTabs,
+             .renameProject, .renameWorkspace, .renameSession,
+             .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
              .openSession, .deleteSession, .launchSession:
             true
         case .addProject, .importSuperset, .requestNewWorkspace,

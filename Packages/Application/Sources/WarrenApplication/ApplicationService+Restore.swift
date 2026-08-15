@@ -84,6 +84,7 @@ extension WarrenApplicationService {
                 descriptor: nil,
                 terminalSize: persisted.terminalSize,
                 title: persisted.title,
+                customTitle: persisted.customTitle,
                 kind: persisted.kind
             )
             return
@@ -97,6 +98,7 @@ extension WarrenApplicationService {
                 descriptor: persistedDescriptor,
                 terminalSize: persisted.terminalSize,
                 title: persisted.title,
+                customTitle: persisted.customTitle,
                 kind: persisted.kind
             )
             _ = try await coordinator.adoptSession(

@@ -21,12 +21,12 @@ func TestParseCloudflaredURL(t *testing.T) {
 
 func TestParseTailscaleURL(t *testing.T) {
 	serveJSON := []byte(`{"TCP":{"443":{"HTTPS":true}},"Web":{"host.tail3d6e0.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8789"}}}}}`)
-	if got := parseTailscaleURL(serveJSON, "Web"); got != "https://host.tail3d6e0.ts.net/" {
+	if got := parseTailscaleURL(serveJSON); got != "https://host.tail3d6e0.ts.net/" {
 		t.Fatalf("parseTailscaleURL = %q", got)
 	}
-	funnelJSON := []byte(`{"TCP":{"443":{"HTTPS":true}},"Funnel":{"host.tail3d6e0.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8789"}}}}}`)
-	if got := parseTailscaleURL(funnelJSON, "Funnel"); got != "https://host.tail3d6e0.ts.net/" {
-		t.Fatalf("parseFunnelURL = %q", got)
+	noWeb := []byte(`{"TCP":{"443":{"HTTPS":true}}}`)
+	if got := parseTailscaleURL(noWeb); got != "" {
+		t.Fatalf("unexpected URL %q", got)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestManagerStartAndStopCloudflaredWithFakeBinary(t *testing.T) {
 printf 'https://fake-%s.trycloudflare.com\n' "$(date +%s)"
 sleep 30
 `)
-	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", binary, "")
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", binary, "", "")
 	manager.pollInterval = 10 * time.Millisecond
 	manager.pollAttempts = 10
 
@@ -77,19 +77,12 @@ case "$1" in
     fi
     exit 0
     ;;
-  funnel)
-    if [ "$2" = "status" ]; then
-      printf '%s\n' '{"Funnel":{"host.tail3d6e0.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8789"}}}}}'
-      exit 0
-    fi
-    exit 0
-    ;;
   *)
     exit 0
     ;;
 esac
 `)
-	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", "", binary)
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", "", binary, "")
 	manager.pollInterval = 10 * time.Millisecond
 	manager.pollAttempts = 10
 
@@ -106,16 +99,72 @@ esac
 	if _, ok := manager.Status()[KindTailscale]; ok {
 		t.Fatal("tailscale state remained after stop")
 	}
+}
 
-	status, err = manager.Start(KindFunnel)
+func TestManagerStartAndStopGnarWithFakeBinary(t *testing.T) {
+	binary := writeScript(t, `#!/bin/sh
+printf '%s\n' '{"type":"tunnel_ready","public_url":"https://warren-host.gnar.example.com","target":"http://127.0.0.1:8789","account":null,"reserved":false}'
+sleep 30
+`)
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", "", "", binary)
+
+	status, err := manager.Start(KindGnar)
 	if err != nil {
-		t.Fatalf("start funnel: %v", err)
+		t.Fatalf("start gnar: %v", err)
 	}
-	if status.URL != "https://host.tail3d6e0.ts.net/" {
-		t.Fatalf("funnel URL = %q", status.URL)
+	if !status.Running {
+		t.Fatal("gnar is not running after start")
 	}
-	if err := manager.Stop(KindFunnel); err != nil {
-		t.Fatalf("stop funnel: %v", err)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current := manager.Status()[KindGnar]
+		if current.URL != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	current := manager.Status()[KindGnar]
+	if current.URL != "https://warren-host.gnar.example.com" {
+		t.Fatalf("gnar URL = %q", current.URL)
+	}
+	if err := manager.Stop(KindGnar); err != nil {
+		t.Fatalf("stop gnar: %v", err)
+	}
+	if _, ok := manager.Status()[KindGnar]; ok {
+		t.Fatal("gnar state remained after stop")
+	}
+}
+
+func TestGnarKeepsTheReportedErrorAfterExit(t *testing.T) {
+	binary := writeScript(t, `#!/bin/sh
+printf '%s\n' '{"type":"error","message":"no edge server is available; run gnar login first"}'
+exit 1
+`)
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", "", "", binary)
+
+	status, err := manager.Start(KindGnar)
+	if err != nil {
+		t.Fatalf("start gnar: %v", err)
+	}
+	if !status.Running {
+		t.Fatal("gnar should start before reporting an error")
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		current := manager.Status()[KindGnar]
+		if current.Error != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	current := manager.Status()[KindGnar]
+	if current.Error == "" {
+		t.Fatal("gnar error was never surfaced")
+	}
+	if current.Running {
+		t.Fatal("gnar should not be running after exit")
 	}
 }
 

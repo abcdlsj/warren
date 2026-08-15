@@ -90,6 +90,7 @@ public enum WarrenPreferenceKey {
     public static let terminalTitleTemplate = "terminal.titleTemplate"
     public static let terminalFontFamily = "terminal.fontFamily"
     public static let terminalFontSize = "terminal.fontSize"
+    public static let gnarSharingEnabled = "web.gnarSharingEnabled"
 }
 
 /// User-facing terminal typography shared by renderer adapters.

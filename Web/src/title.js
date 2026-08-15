@@ -27,7 +27,7 @@ const kindLabels = {
 export function renderTerminalTitle(template, session = {}, workspace = {}, host = {}) {
   const directory = session.directory || workspace.path || "";
   const values = {
-    session: session.title || "Session",
+    session: session.customTitle || session.title || "Session",
     command: session.process || session.kind || "shell",
     directory,
     directoryName: directoryName(directory),
@@ -52,6 +52,8 @@ export function renderTerminalTitle(template, session = {}, workspace = {}, host
  * directory, while a real process is shown as "command — directory".
  */
 export function terminalTabTitle(session = {}, workspace = {}) {
+  const customTitle = String(session.customTitle || "").trim();
+  if (customTitle) return customTitle;
   const dirName = directoryName(session.directory || workspace.path || "");
   const process = String(session.process || "").trim();
   const command = process && !shellProcessNames.has(process)

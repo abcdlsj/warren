@@ -39,6 +39,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
     public let workspaceID: WorkspaceID
     public let tabID: String?
     public let title: String
+    public let customTitle: String?
+    public let pinned: Bool
     public let kind: TerminalSessionKind
     public let state: WarrenDesktopSessionState
     public let activity: AgentActivityState?
@@ -50,6 +52,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         workspaceID: WorkspaceID,
         tabID: String? = nil,
         title: String,
+        customTitle: String? = nil,
+        pinned: Bool = false,
         kind: TerminalSessionKind = .shell,
         state: WarrenDesktopSessionState = .attached,
         activity: AgentActivityState? = nil,
@@ -60,6 +64,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         self.workspaceID = workspaceID
         self.tabID = tabID
         self.title = title
+        self.customTitle = customTitle
+        self.pinned = pinned
         self.kind = kind
         self.state = state
         self.activity = activity
@@ -197,10 +203,20 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         inspector: WarrenDesktopInspectorContent? = nil,
         connectionState: WarrenDesktopConnectionState = .attached
     ) {
+        let pinnedBySessionID = Dictionary(
+            uniqueKeysWithValues: sessions.map { ($0.id, $0.pinned) }
+        )
         self.host = host
-        self.groups = groups
-        self.sessions = sessions
-        self.tabs = tabs
+        self.groups = Self.pinnedFirst(groups) { $0.project.pinned }.map { group in
+            WarrenDesktopProjectGroup(
+                project: group.project,
+                workspaces: Self.pinnedFirst(group.workspaces) { $0.pinned }
+            )
+        }
+        self.sessions = Self.pinnedFirst(sessions) { $0.pinned }
+        self.tabs = Self.pinnedFirst(tabs) { tab in
+            tab.sessionID.flatMap { pinnedBySessionID[$0] } ?? false
+        }
         self.sessionWorkspaceIDs = sessionWorkspaceIDs
         let resolvedTabWorkspaceIDs = tabWorkspaceIDs.merging(
             Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
@@ -271,10 +287,10 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         connectionState: WarrenDesktopConnectionState = .attached
     ) {
         var workspacesByProjectID: [ProjectID: [Workspace]] = [:]
-        for workspace in workspaces {
+        for workspace in Self.pinnedFirst(workspaces, isPinned: \.pinned) {
             workspacesByProjectID[workspace.projectID, default: []].append(workspace)
         }
-        let groups = projects.map { project in
+        let groups = Self.pinnedFirst(projects, isPinned: \.pinned).map { project in
             WarrenDesktopProjectGroup(
                 project: project,
                 workspaces: workspacesByProjectID[project.id] ?? []
@@ -290,6 +306,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
             inspector: inspector,
             connectionState: connectionState
         )
+    }
+
+    private static func pinnedFirst<Value>(
+        _ values: [Value],
+        isPinned: (Value) -> Bool
+    ) -> [Value] {
+        values.filter { isPinned($0) } + values.filter { !isPinned($0) }
     }
 
     public static func empty(host: WarrenDomain.Host) -> Self {
@@ -531,7 +554,12 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case addProject
     case importSuperset
     case requestNewWorkspace(ProjectID)
+    case renameProject(ProjectID, String)
     case renameWorkspace(WorkspaceID, String)
+    case renameSession(TerminalSessionID, String)
+    case setProjectPinned(ProjectID, Bool)
+    case setWorkspacePinned(WorkspaceID, Bool)
+    case setSessionPinned(TerminalSessionID, Bool)
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
     case openSession(TerminalSessionID)

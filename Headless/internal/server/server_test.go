@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -202,6 +203,67 @@ func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	}
 }
 
+func TestMaintenanceBroadcastReachesAllPeers(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: &memoryRuntime{sessions: map[string][]byte{}}}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	first := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer first.Close()
+	second := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer second.Close()
+
+	unauthorized, err := http.NewRequest(
+		http.MethodPost,
+		httpServer.URL+"/v1/maintenance",
+		strings.NewReader(`{"message":"updating"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := httpServer.Client().Do(unauthorized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthorized maintenance status = %d, want 401", response.StatusCode)
+	}
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		httpServer.URL+"/v1/maintenance",
+		strings.NewReader(`{"message":"Installing a new Warren build"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set("Content-Type", "application/json")
+	response, err = httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("maintenance status = %d, want 200", response.StatusCode)
+	}
+
+	for index, connection := range []*websocket.Conn{first, second} {
+		message := readBrowserMessage(t, connection, "maintenance")
+		if message["state"] != "starting" {
+			t.Fatalf("peer %d maintenance state = %#v, want starting", index, message["state"])
+		}
+		if message["message"] != "Installing a new Warren build" {
+			t.Fatalf("peer %d maintenance message = %#v", index, message["message"])
+		}
+	}
+}
+
 func TestRosterBroadcastsCreatedWorktreeAndSession(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
@@ -292,6 +354,54 @@ func TestRejectsInvalidToken(t *testing.T) {
 	}
 	if response.Error != "unauthorized" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestRenameAndPinResources(t *testing.T) {
+	t.Parallel()
+	state, session := testSession(t)
+	httpServer := httptest.NewServer(NewHTTPServer(
+		&Service{Store: state, Runtime: &memoryRuntime{sessions: map[string][]byte{}}},
+		"secret",
+		slog.Default(),
+	).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	initial := requestResult[api.State](t, connection, "roster", nil)
+	projectID := initial.Projects[0].ID
+	workspaceID := initial.Workspaces[0].ID
+
+	requestResult[map[string]bool](t, connection, "project.rename", map[string]any{
+		"id": projectID, "name": "Renamed Project",
+	})
+	requestResult[map[string]bool](t, connection, "workspace.rename", map[string]any{
+		"id": workspaceID, "name": "Renamed Workspace",
+	})
+	requestResult[map[string]bool](t, connection, "session.rename", map[string]any{
+		"id": session.ID, "title": "My Custom Session",
+	})
+	requestResult[map[string]bool](t, connection, "project.pin", map[string]any{
+		"id": projectID, "pinned": true,
+	})
+	requestResult[map[string]bool](t, connection, "workspace.pin", map[string]any{
+		"id": workspaceID, "pinned": true,
+	})
+	requestResult[map[string]bool](t, connection, "session.pin", map[string]any{
+		"id": session.ID, "pinned": true,
+	})
+
+	updated := requestResult[api.State](t, connection, "roster", nil)
+	if updated.Projects[0].Name != "Renamed Project" || !updated.Projects[0].Pinned {
+		t.Fatalf("project rename/pin not reflected: %#v", updated.Projects[0])
+	}
+	if updated.Workspaces[0].Name != "Renamed Workspace" || !updated.Workspaces[0].Pinned {
+		t.Fatalf("workspace rename/pin not reflected: %#v", updated.Workspaces[0])
+	}
+	if updated.Sessions[0].CustomTitle != "My Custom Session" || !updated.Sessions[0].Pinned {
+		t.Fatalf("session rename/pin not reflected: %#v", updated.Sessions[0])
 	}
 }
 

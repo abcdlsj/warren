@@ -12,9 +12,11 @@ struct WarrenDesktopWorkspaceRow: View {
     let activity: AgentActivityState?
     let isCollapsed: Bool
     let isSelected: Bool
+    let isPinned: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
     let onRename: () -> Void
+    let onTogglePin: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isFocused: Bool
@@ -56,7 +58,10 @@ struct WarrenDesktopWorkspaceRow: View {
         )
         .focused($isFocused)
         .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
-        .contextMenu { Button("Rename Workspace", action: onRename) }
+        .contextMenu {
+            Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
+            Button("Rename Workspace", action: onRename)
+        }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
     }
@@ -81,6 +86,13 @@ struct WarrenDesktopWorkspaceRow: View {
 
                 if let activity {
                     WarrenDesktopActivityIndicator(activity: activity)
+                }
+
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(tokens.mutedForeground)
+                        .accessibilityHidden(true)
                 }
 
                 Spacer(minLength: 0)
@@ -108,7 +120,10 @@ struct WarrenDesktopWorkspaceRow: View {
         .padding(.trailing, WarrenSpacing.compact)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
-        .contextMenu { Button("Rename Workspace", action: onRename) }
+        .contextMenu {
+            Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
+            Button("Rename Workspace", action: onRename)
+        }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
     }

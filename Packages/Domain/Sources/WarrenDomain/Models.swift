@@ -15,17 +15,20 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
     public let hostID: HostID
     public var name: String
     public var rootPath: String
+    public var pinned: Bool
 
     public init(
         id: ProjectID = ProjectID(),
         hostID: HostID,
         name: String,
-        rootPath: String
+        rootPath: String,
+        pinned: Bool = false
     ) {
         self.id = id
         self.hostID = hostID
         self.name = name
         self.rootPath = rootPath
+        self.pinned = pinned
     }
 }
 
@@ -35,19 +38,22 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
     public var name: String
     public var path: String
     public var branch: String?
+    public var pinned: Bool
 
     public init(
         id: WorkspaceID = WorkspaceID(),
         projectID: ProjectID,
         name: String,
         path: String,
-        branch: String? = nil
+        branch: String? = nil,
+        pinned: Bool = false
     ) {
         self.id = id
         self.projectID = projectID
         self.name = name
         self.path = path
         self.branch = branch
+        self.pinned = pinned
     }
 }
 

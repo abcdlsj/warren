@@ -13,9 +13,12 @@ struct WarrenDesktopProjectRow: View {
     let isCollapsed: Bool
     let isSelected: Bool
     let isExpanded: Bool
+    let isPinned: Bool
     let onSelect: () -> Void
     let onToggleExpansion: () -> Void
     let onAddWorkspace: () -> Void
+    let onRename: () -> Void
+    let onTogglePin: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -56,6 +59,10 @@ struct WarrenDesktopProjectRow: View {
             action: onSelect
         )
         .focused($isFocused)
+        .contextMenu {
+            Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
+            Button("Rename Project", action: onRename)
+        }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
     }
@@ -83,6 +90,13 @@ struct WarrenDesktopProjectRow: View {
                         .lineLimit(1)
                         .opacity(isHovered || isToggleFocused || forceHover ? 1 : 0)
                         .accessibilityHidden(true)
+
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(tokens.mutedForeground)
+                            .accessibilityHidden(true)
+                    }
 
                     Spacer(minLength: 0)
                 }
@@ -164,6 +178,10 @@ struct WarrenDesktopProjectRow: View {
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
         .onHover { isHovered = $0 }
+        .contextMenu {
+            Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
+            Button("Rename Project", action: onRename)
+        }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
     }

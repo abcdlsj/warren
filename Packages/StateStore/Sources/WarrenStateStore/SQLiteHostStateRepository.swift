@@ -64,26 +64,28 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
 
                 let projects = try Row.fetchAll(
                     database,
-                    sql: "SELECT id, host_id, name, repository_path FROM projects ORDER BY created_at, id"
+                    sql: "SELECT id, host_id, name, repository_path, pinned FROM projects ORDER BY created_at, id"
                 ).map { row in
                     Project(
                         id: try Self.domainID(row: row, table: "projects", column: "id"),
                         hostID: try Self.domainID(row: row, table: "projects", column: "host_id"),
                         name: row["name"],
-                        rootPath: row["repository_path"]
+                        rootPath: row["repository_path"],
+                        pinned: row["pinned"]
                     )
                 }
 
                 let workspaces = try Row.fetchAll(
                     database,
-                    sql: "SELECT id, project_id, name, path, branch FROM workspaces ORDER BY created_at, id"
+                    sql: "SELECT id, project_id, name, path, branch, pinned FROM workspaces ORDER BY created_at, id"
                 ).map { row in
                     Workspace(
                         id: try Self.domainID(row: row, table: "workspaces", column: "id"),
                         projectID: try Self.domainID(row: row, table: "workspaces", column: "project_id"),
                         name: row["name"],
                         path: row["path"],
-                        branch: row["branch"]
+                        branch: row["branch"],
+                        pinned: row["pinned"]
                     )
                 }
 
@@ -92,7 +94,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                     sql: """
                     SELECT s.id, s.workspace_id, s.epoch, s.sequence,
                            s.working_directory, s.columns, s.rows, s.kind,
-                           s.title, s.agent_session_id, s.lifecycle, s.ended_at,
+                           s.title, s.custom_title, s.pinned, s.agent_session_id,
+                           s.lifecycle, s.ended_at,
                            r.adapter, r.runtime_identifier, r.metadata_json
                     FROM terminal_sessions s
                     LEFT JOIN runtime_bindings r ON r.session_id = s.id
@@ -186,6 +189,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         kind: kind,
                         agentSessionID: row["agent_session_id"],
                         title: row["title"],
+                        customTitle: row["custom_title"],
+                        pinned: row["pinned"],
                         lifecycle: lifecycle,
                         endedAt: row["ended_at"]
                     )
@@ -280,9 +285,27 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         do {
             try await database.write { db in
                 try db.execute(sql: """
-                    INSERT INTO terminal_sessions (id, workspace_id, epoch, sequence, working_directory, columns, rows, kind, title, agent_session_id, lifecycle, ended_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, arguments: [session.id.description, session.workspaceID.description, String(session.epoch), String(session.sequence), session.workingDirectory, session.terminalSize.columns, session.terminalSize.rows, session.kind.rawValue, session.title, session.agentSessionID, session.lifecycle.rawValue, session.endedAt])
+                    INSERT INTO terminal_sessions (
+                        id, workspace_id, epoch, sequence, working_directory,
+                        columns, rows, kind, title, custom_title, pinned,
+                        agent_session_id, lifecycle, ended_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [
+                        session.id.description,
+                        session.workspaceID.description,
+                        String(session.epoch),
+                        String(session.sequence),
+                        session.workingDirectory,
+                        session.terminalSize.columns,
+                        session.terminalSize.rows,
+                        session.kind.rawValue,
+                        session.title,
+                        session.customTitle,
+                        session.pinned,
+                        session.agentSessionID,
+                        session.lifecycle.rawValue,
+                        session.endedAt,
+                    ])
                 if let descriptor = session.runtimeAdoptionDescriptor {
                     let metadata = String(decoding: try JSONEncoder().encode(descriptor.metadata), as: UTF8.self)
                     try db.execute(sql: "INSERT INTO runtime_bindings (session_id, adapter, runtime_identifier, metadata_json) VALUES (?, ?, ?, ?)", arguments: [session.id.description, descriptor.runtime, descriptor.identifier, metadata])
@@ -307,6 +330,21 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
 
     public func updateWorkspaceName(_ workspaceID: WorkspaceID, name: String) async throws {
         try await database.write { db in try db.execute(sql: "UPDATE workspaces SET name = ? WHERE id = ?", arguments: [name, workspaceID.description]) }
+    }
+    public func updateProjectName(_ projectID: ProjectID, name: String) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE projects SET name = ? WHERE id = ?", arguments: [name, projectID.description]) }
+    }
+    public func updateSessionTitle(_ sessionID: TerminalSessionID, title: String) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE terminal_sessions SET custom_title = ? WHERE id = ?", arguments: [title, sessionID.description]) }
+    }
+    public func setProjectPinned(_ projectID: ProjectID, pinned: Bool) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE projects SET pinned = ? WHERE id = ?", arguments: [pinned, projectID.description]) }
+    }
+    public func setWorkspacePinned(_ workspaceID: WorkspaceID, pinned: Bool) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE workspaces SET pinned = ? WHERE id = ?", arguments: [pinned, workspaceID.description]) }
+    }
+    public func setSessionPinned(_ sessionID: TerminalSessionID, pinned: Bool) async throws {
+        try await database.write { db in try db.execute(sql: "UPDATE terminal_sessions SET pinned = ? WHERE id = ?", arguments: [pinned, sessionID.description]) }
     }
     public func insertProject(_ project: Project, rootWorkspace: Workspace) async throws {
         do { try await database.write { db in
@@ -347,8 +385,9 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                 for project in state.projects {
                     try database.execute(
                         sql: """
-                        INSERT INTO projects (id, host_id, name, repository_path, repository_identity)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO projects (
+                            id, host_id, name, repository_path, repository_identity, pinned
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             project.id.description,
@@ -356,14 +395,16 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             project.name,
                             project.rootPath,
                             Self.normalizedPath(project.rootPath),
+                            project.pinned,
                         ]
                     )
                 }
                 for workspace in state.workspaces {
                     try database.execute(
                         sql: """
-                        INSERT INTO workspaces (id, project_id, name, path, normalized_path, branch, kind)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO workspaces (
+                            id, project_id, name, path, normalized_path, branch, kind, pinned
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             workspace.id.description,
@@ -375,6 +416,7 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             workspace.path == state.projects.first(where: {
                                 $0.id == workspace.projectID
                             })?.rootPath ? "main_checkout" : "worktree",
+                            workspace.pinned,
                         ]
                     )
                 }
@@ -383,8 +425,9 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                         sql: """
                         INSERT INTO terminal_sessions (
                             id, workspace_id, epoch, sequence, working_directory,
-                            columns, rows, kind, title, agent_session_id, lifecycle, ended_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            columns, rows, kind, title, custom_title, pinned,
+                            agent_session_id, lifecycle, ended_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         arguments: [
                             session.id.description,
@@ -396,6 +439,8 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
                             session.terminalSize.rows,
                             session.kind.rawValue,
                             session.title,
+                            session.customTitle,
+                            session.pinned,
                             session.agentSessionID,
                             session.lifecycle.rawValue,
                             session.endedAt,
@@ -944,6 +989,18 @@ public actor SQLiteHostStateRepository: HostStateRepository, SupersetImportCommi
         migrator.registerMigration("v3_agent_session_metadata") { database in
             try database.alter(table: "terminal_sessions") { table in
                 table.add(column: "agent_session_id", .text)
+            }
+        }
+        migrator.registerMigration("v4_resource_pinning") { database in
+            try database.alter(table: "projects") { table in
+                table.add(column: "pinned", .boolean).notNull().defaults(to: false)
+            }
+            try database.alter(table: "workspaces") { table in
+                table.add(column: "pinned", .boolean).notNull().defaults(to: false)
+            }
+            try database.alter(table: "terminal_sessions") { table in
+                table.add(column: "custom_title", .text)
+                table.add(column: "pinned", .boolean).notNull().defaults(to: false)
             }
         }
         return migrator

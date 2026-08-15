@@ -20,6 +20,7 @@ public actor WarrenApplicationService {
         let store: ClientSessionStore
         var attachmentID: TerminalAttachmentID?
         var title: String
+        var customTitle: String?
         var kind: TerminalSessionKind
     }
 

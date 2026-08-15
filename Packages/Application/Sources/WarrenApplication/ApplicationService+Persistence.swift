@@ -194,6 +194,9 @@ extension WarrenApplicationService {
             let lifecycle = state.terminalSessions.first {
                 $0.id == connection.session.id
             }?.lifecycle ?? .running
+            let pinned = state.terminalSessions.first {
+                $0.id == connection.session.id
+            }?.pinned ?? false
 
             let output: WarrenApplicationOutputSnapshot?
             if let cached = outputSnapshotCache[connection.session.id],
@@ -216,6 +219,8 @@ extension WarrenApplicationService {
                     workspaceID: connection.workspaceID,
                     tabID: tabIDsBySessionID[connection.session.id],
                     title: connection.title,
+                    customTitle: connection.customTitle,
+                    pinned: pinned,
                     kind: connection.kind,
                     lifecycle: lifecycle,
                     connectionState: connectionState,
@@ -249,6 +254,8 @@ extension WarrenApplicationService {
                 title: persisted.title?.isEmpty == false
                     ? persisted.title!
                     : (persisted.kind == .shell ? "Terminal" : persisted.kind.displayName),
+                customTitle: persisted.customTitle,
+                pinned: persisted.pinned,
                 kind: persisted.kind,
                 lifecycle: persisted.lifecycle,
                 connectionState: .disconnected,

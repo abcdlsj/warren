@@ -70,6 +70,9 @@ extension WarrenApplicationService {
                     workspace: workspace,
                     descriptor: persisted.runtimeAdoptionDescriptor!,
                     title: resolvedTitle,
+                    customTitle: title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? title!.trimmingCharacters(in: .whitespacesAndNewlines)
+                        : nil,
                     kind: kind
                 )
                 return binding.session
@@ -233,6 +236,36 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    public func renameSession(_ sessionID: TerminalSessionID, title: String) async throws {
+        let value = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { throw WarrenApplicationError.sessionTitleInvalid }
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
+                throw WarrenApplicationError.sessionNotFound(sessionID)
+            }
+            try await repository.updateSessionTitle(sessionID, title: value)
+            state.terminalSessions[index].customTitle = value
+            if var connection = connections[sessionID] {
+                connection.customTitle = value
+                connections[sessionID] = connection
+            }
+        }
+        await publish()
+    }
+
+    public func setSessionPinned(_ sessionID: TerminalSessionID, pinned: Bool) async throws {
+        try await withPersistenceMutation {
+            try requireReady()
+            guard let index = state.terminalSessions.firstIndex(where: { $0.id == sessionID }) else {
+                throw WarrenApplicationError.sessionNotFound(sessionID)
+            }
+            try await repository.setSessionPinned(sessionID, pinned: pinned)
+            state.terminalSessions[index].pinned = pinned
+        }
+        await publish()
+    }
+
     public func closeTab(tabID: String, workspaceID: WorkspaceID) async throws {
         guard let tab = await layoutStore.window(id: windowID)
             .workspaceView(for: workspaceID)?.tabs.first(where: { $0.id == tabID }),
@@ -379,6 +412,7 @@ extension WarrenApplicationService {
         descriptor: RuntimeAdoptionDescriptor?,
         terminalSize: TerminalSize = TerminalSessionCoordinator.defaultTerminalSize,
         title: String? = nil,
+        customTitle: String? = nil,
         kind: TerminalSessionKind = .shell
     ) {
         guard connections[session.id] == nil else { return }
@@ -390,6 +424,7 @@ extension WarrenApplicationService {
             store: ClientSessionStore(host: host, sessionID: session.id, clientID: clientID),
             attachmentID: nil,
             title: title?.isEmpty == false ? title! : (workspace.name.isEmpty ? "Terminal" : workspace.name),
+            customTitle: customTitle,
             kind: kind
         )
     }

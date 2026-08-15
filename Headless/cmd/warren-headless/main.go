@@ -42,6 +42,7 @@ func main() {
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
 	tailscalePath := flag.String("tailscale-path", os.Getenv("WARREN_TAILSCALE_PATH"), "tailscale binary path")
+	gnarPath := flag.String("gnar-path", os.Getenv("WARREN_GNAR_PATH"), "gnar binary path")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
@@ -97,7 +98,7 @@ func main() {
 		fatal(err)
 	}
 	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
-	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath)
+	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath, *gnarPath)
 	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {

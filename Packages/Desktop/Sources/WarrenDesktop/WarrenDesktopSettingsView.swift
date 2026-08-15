@@ -14,11 +14,14 @@ struct WarrenDesktopSettingsView: View {
     private var fontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
     private var fontSize = TerminalFontPreference.defaultSize
+    @AppStorage(WarrenPreferenceKey.gnarSharingEnabled)
+    private var gnarSharingEnabled = true
     @Environment(\.colorScheme) private var colorScheme
 
     private enum SettingsSection: String, CaseIterable, Identifiable {
         case terminalFont = "Terminal font"
         case terminalTitle = "Terminal title"
+        case webSharing = "Web sharing"
 
         var id: String { rawValue }
 
@@ -26,6 +29,7 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: "terminal"
             case .terminalTitle: "textformat"
+            case .webSharing: "globe"
             }
         }
 
@@ -33,6 +37,7 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: "Applied to every terminal surface."
             case .terminalTitle: "Build a title from live Session metadata."
+            case .webSharing: "Publish the Web UI to the public internet."
             }
         }
 
@@ -40,6 +45,14 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: [rawValue, detail, "font", "family", "size", "typography"]
             case .terminalTitle: [rawValue, detail, "title", "template", "placeholder", "preview"]
+            case .webSharing: [rawValue, detail, "gnar", "share", "public", "tunnel", "internet"]
+            }
+        }
+
+        var isTerminalSection: Bool {
+            switch self {
+            case .terminalFont, .terminalTitle: true
+            case .webSharing: false
             }
         }
     }
@@ -125,15 +138,13 @@ struct WarrenDesktopSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
-                    Text("TERMINAL")
-                        .font(WarrenTypography.sectionLabel)
-                        .tracking(1.0)
-                        .foregroundStyle(tokens.mutedForeground)
-                        .padding(.horizontal, WarrenSpacing.standard)
-                        .padding(.top, WarrenSpacing.standard)
-                        .padding(.bottom, WarrenSpacing.xs)
+                    groupLabel("TERMINAL", tokens: tokens)
+                    ForEach(visibleSections.filter(\.isTerminalSection)) { section in
+                        navigationItem(section, tokens: tokens)
+                    }
 
-                    ForEach(visibleSections) { section in
+                    groupLabel("WEB", tokens: tokens)
+                    ForEach(visibleSections.filter { !$0.isTerminalSection }) { section in
                         navigationItem(section, tokens: tokens)
                     }
 
@@ -150,6 +161,16 @@ struct WarrenDesktopSettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(tokens.sidebarSurface)
+    }
+
+    private func groupLabel(_ title: String, tokens: WarrenColorTokens) -> some View {
+        Text(title)
+            .font(WarrenTypography.sectionLabel)
+            .tracking(1.0)
+            .foregroundStyle(tokens.mutedForeground)
+            .padding(.horizontal, WarrenSpacing.standard)
+            .padding(.top, WarrenSpacing.standard)
+            .padding(.bottom, WarrenSpacing.xs)
     }
 
     private func searchField(tokens: WarrenColorTokens) -> some View {
@@ -226,6 +247,8 @@ struct WarrenDesktopSettingsView: View {
                     terminalFontSection(tokens: tokens)
                 case .terminalTitle:
                     terminalTitleSection(tokens: tokens)
+                case .webSharing:
+                    webSharingSection(tokens: tokens)
                 }
 
                 Button("Restore Terminal Defaults") {
@@ -303,6 +326,21 @@ struct WarrenDesktopSettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    private func webSharingSection(tokens: WarrenColorTokens) -> some View {
+        settingsSection("Web sharing", section: .webSharing, tokens: tokens) {
+            Toggle("Share with gnar", isOn: $gnarSharingEnabled)
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("settings.web-sharing.gnar-enabled")
+            Text(
+                "Publishes this Mac's Web UI through the gnar tunnel installed "
+                    + "and signed in on this Mac. Run `gnar login --edge <url>` first."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

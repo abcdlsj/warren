@@ -303,6 +303,96 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testTabTitlePrefersCustomSessionTitle() {
+        let workspaceID = WorkspaceID()
+        let sessionID = TerminalSessionID()
+        let tab = ClientTab(
+            id: "tab-4",
+            title: "Shell",
+            sessionID: sessionID,
+            kind: .shell
+        )
+        let session = WarrenDesktopSession(
+            id: sessionID,
+            workspaceID: workspaceID,
+            title: "Shell",
+            customTitle: "My Agent",
+            kind: .shell,
+            runtimeProcess: "zsh",
+            workingDirectory: "/Users/me/Workspace/warren"
+        )
+        let workspace = Workspace(
+            projectID: ProjectID(),
+            name: "warren",
+            path: "/Users/me/Workspace/warren"
+        )
+
+        XCTAssertEqual(
+            WarrenDesktopTabTitle.displayTitle(
+                tab: tab,
+                session: session,
+                workspace: workspace
+            ),
+            "My Agent"
+        )
+    }
+
+    func testProjectionKeepsPinnedProjectsWorkspacesAndSessionsFirst() {
+        let host = WarrenDomain.Host(name: "Pinned Host")
+        let pinnedProject = Project(hostID: host.id, name: "Pinned", rootPath: "/tmp/pinned")
+        let regularProject = Project(hostID: host.id, name: "Regular", rootPath: "/tmp/regular")
+        let pinnedWorkspace = Workspace(
+            projectID: pinnedProject.id,
+            name: "Pinned Worktree",
+            path: "/tmp/pinned-worktree",
+            pinned: true
+        )
+        let regularWorkspace = Workspace(
+            projectID: pinnedProject.id,
+            name: "Regular Worktree",
+            path: "/tmp/regular-worktree"
+        )
+        let pinnedSessionID = TerminalSessionID()
+        let regularSessionID = TerminalSessionID()
+        let pinnedSession = WarrenDesktopSession(
+            id: pinnedSessionID,
+            workspaceID: pinnedWorkspace.id,
+            title: "Pinned",
+            pinned: true
+        )
+        let regularSession = WarrenDesktopSession(
+            id: regularSessionID,
+            workspaceID: pinnedWorkspace.id,
+            title: "Regular"
+        )
+        let pinnedTab = ClientTab(
+            id: "pinned-tab",
+            title: "Pinned",
+            sessionID: pinnedSessionID
+        )
+        let regularTab = ClientTab(
+            id: "regular-tab",
+            title: "Regular",
+            sessionID: regularSessionID
+        )
+
+        let projection = WarrenDesktopProjection(
+            host: host,
+            projects: [regularProject, pinnedProject],
+            workspaces: [regularWorkspace, pinnedWorkspace],
+            sessions: [regularSession, pinnedSession],
+            tabs: [regularTab, pinnedTab],
+            sessionWorkspaceIDs: [
+                pinnedSessionID: pinnedWorkspace.id,
+                regularSessionID: pinnedWorkspace.id,
+            ]
+        )
+
+        XCTAssertEqual(projection.groups.first?.project.id, pinnedProject.id)
+        XCTAssertEqual(projection.groups.first?.workspaces.first?.id, pinnedWorkspace.id)
+        XCTAssertEqual(projection.tabs.first?.id, pinnedTab.id)
+    }
+
     func testPresetIconCacheLoadsHitsAndMissesOnlyOnce() {
         var loads: [String] = []
         let expected = NSImage(size: NSSize(width: 12, height: 12))

@@ -43,6 +43,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
     private var terminalFontSize = TerminalFontPreference.defaultSize
+    @AppStorage(WarrenPreferenceKey.gnarSharingEnabled)
+    private var gnarSharingEnabled = true
     @Environment(\.warrenSemanticRecorder) private var semanticRecorder
 
     private struct Presentation {
@@ -103,6 +105,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 )
             )
         })
+        let pinnedSessionIDs = Set(
+            projection.sessions.filter(\.pinned).map(\.id)
+        )
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 WarrenDesktopSidebar(
@@ -130,6 +135,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     WarrenDesktopTabBar(
                         tabs: presentation.tabs,
                         tabTitles: tabTitles,
+                        pinnedSessionIDs: pinnedSessionIDs,
                         selectedTabID: navigation.selectedTabID,
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,
@@ -165,7 +171,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         },
                         onCloseTab: { dispatch(.closeTab($0)) },
                         onCloseOtherTabs: { dispatch(.closeOtherTabs($0)) },
-                        onCloseAllTabs: { dispatch(.closeAllTabs) }
+                        onCloseAllTabs: { dispatch(.closeAllTabs) },
+                        onRenameSession: { sessionID, title in
+                            dispatch(.renameSession(sessionID, title))
+                        },
+                        onToggleSessionPin: { sessionID, pinned in
+                            dispatch(.setSessionPinned(sessionID, pinned))
+                        }
                     )
                     WarrenDesktopPresetBar(
                         workspace: presentation.workspace,
@@ -314,6 +326,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             if webPresented && !settingsPresented {
                 WarrenDesktopWebPanel(
                     status: webStatus,
+                    canShare: gnarSharingEnabled,
                     onStart: {
                         onWebStart()
                         refreshWebDismissal()

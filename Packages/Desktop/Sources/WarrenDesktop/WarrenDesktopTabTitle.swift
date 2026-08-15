@@ -17,6 +17,11 @@ enum WarrenDesktopTabTitle {
         session: WarrenDesktopSession?,
         workspace: Workspace?
     ) -> String {
+        if let customTitle = session?.customTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty {
+            return customTitle
+        }
         let directory = directoryName(tab: tab, session: session, workspace: workspace)
         let command = resolvedCommand(tab: tab, session: session)
         if command.isEmpty {

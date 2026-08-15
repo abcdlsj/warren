@@ -271,9 +271,24 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 		}
 		state, revision = s.Store.SnapshotVersion()
 	}
-	sort.Slice(state.Projects, func(i, j int) bool { return state.Projects[i].Name < state.Projects[j].Name })
-	sort.Slice(state.Workspaces, func(i, j int) bool { return state.Workspaces[i].CreatedAt.Before(state.Workspaces[j].CreatedAt) })
-	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].CreatedAt.Before(state.Sessions[j].CreatedAt) })
+	sort.Slice(state.Projects, func(i, j int) bool {
+		if state.Projects[i].Pinned != state.Projects[j].Pinned {
+			return state.Projects[i].Pinned
+		}
+		return state.Projects[i].Name < state.Projects[j].Name
+	})
+	sort.Slice(state.Workspaces, func(i, j int) bool {
+		if state.Workspaces[i].Pinned != state.Workspaces[j].Pinned {
+			return state.Workspaces[i].Pinned
+		}
+		return state.Workspaces[i].CreatedAt.Before(state.Workspaces[j].CreatedAt)
+	})
+	sort.Slice(state.Sessions, func(i, j int) bool {
+		if state.Sessions[i].Pinned != state.Sessions[j].Pinned {
+			return state.Sessions[i].Pinned
+		}
+		return state.Sessions[i].CreatedAt.Before(state.Sessions[j].CreatedAt)
+	})
 	return state, revision
 }
 
@@ -359,6 +374,90 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		})
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return !workspaceIDs[session.WorkspaceID] })
 		return nil
+	})
+}
+
+func (s *Service) RenameProject(id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("project name cannot be empty")
+	}
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Projects {
+			if state.Projects[index].ID == id {
+				state.Projects[index].Name = name
+				return nil
+			}
+		}
+		return fmt.Errorf("project not found: %s", id)
+	})
+}
+
+func (s *Service) RenameWorkspace(id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("workspace name cannot be empty")
+	}
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Workspaces {
+			if state.Workspaces[index].ID == id {
+				state.Workspaces[index].Name = name
+				return nil
+			}
+		}
+		return fmt.Errorf("workspace not found: %s", id)
+	})
+}
+
+func (s *Service) RenameSession(id, title string) error {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return errors.New("session title cannot be empty")
+	}
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Sessions {
+			if state.Sessions[index].ID == id {
+				state.Sessions[index].CustomTitle = title
+				return nil
+			}
+		}
+		return fmt.Errorf("session not found: %s", id)
+	})
+}
+
+func (s *Service) SetProjectPinned(id string, pinned bool) error {
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Projects {
+			if state.Projects[index].ID == id {
+				state.Projects[index].Pinned = pinned
+				return nil
+			}
+		}
+		return fmt.Errorf("project not found: %s", id)
+	})
+}
+
+func (s *Service) SetWorkspacePinned(id string, pinned bool) error {
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Workspaces {
+			if state.Workspaces[index].ID == id {
+				state.Workspaces[index].Pinned = pinned
+				return nil
+			}
+		}
+		return fmt.Errorf("workspace not found: %s", id)
+	})
+}
+
+func (s *Service) SetSessionPinned(id string, pinned bool) error {
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.Sessions {
+			if state.Sessions[index].ID == id {
+				state.Sessions[index].Pinned = pinned
+				return nil
+			}
+		}
+		return fmt.Errorf("session not found: %s", id)
 	})
 }
 
@@ -489,7 +588,10 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	if kind == "" {
 		kind = "shell"
 	}
-	if title == "" {
+	customTitle := strings.TrimSpace(title)
+	if customTitle != "" {
+		title = customTitle
+	} else {
 		title = map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
 	}
 	if title == "" {
@@ -498,7 +600,7 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	if err := s.Runtime.Create(ctx, runtimeName, workspace.Path, command); err != nil {
 		return api.Session{}, err
 	}
-	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, Kind: kind, Command: command, Runtime: runtimeName, Lifecycle: "running", CreatedAt: time.Now().UTC()}
+	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, CustomTitle: customTitle, Kind: kind, Command: command, Runtime: runtimeName, Lifecycle: "running", CreatedAt: time.Now().UTC()}
 	if err := s.Store.Update(func(value *api.State) error { value.Sessions = append(value.Sessions, session); return nil }); err != nil {
 		_ = s.Runtime.Kill(ctx, runtimeName)
 		return api.Session{}, err

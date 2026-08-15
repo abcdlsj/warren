@@ -49,6 +49,7 @@ struct WarrenNextCompositionRoot: View {
             WarrenNextTerminalSurfaceView(
                 context: context,
                 surfaces: remoteModel.mountedSurfaces,
+                maintenanceMessage: remoteModel.maintenanceMessage,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)
                 },
@@ -545,6 +546,7 @@ private struct WarrenNextSupersetImportView: View {
 private struct WarrenNextTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaces: [GhosttySurface]
+    let maintenanceMessage: String?
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
     @Binding var searchPresented: Bool
@@ -562,7 +564,9 @@ private struct WarrenNextTerminalSurfaceView: View {
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Connecting \(context.tab.title)…")
+                    Text(maintenanceMessage == nil
+                        ? "Connecting \(context.tab.title)…"
+                        : "Updating Warren…")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -620,6 +624,22 @@ private struct WarrenNextTerminalSurfaceView: View {
                     surface: activeSurface
                 )
                 .padding(WarrenSpacing.compact)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let maintenanceMessage {
+                HStack(spacing: WarrenSpacing.small) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Updating Warren…")
+                        .font(WarrenTypography.supporting)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, WarrenSpacing.standard)
+                .padding(.vertical, WarrenSpacing.small)
+                .background(Color.black.opacity(0.55), in: Capsule())
+                .padding(.top, WarrenSpacing.small)
+                .help(maintenanceMessage)
             }
         }
         .onChange(of: searchPresented) { _, presented in

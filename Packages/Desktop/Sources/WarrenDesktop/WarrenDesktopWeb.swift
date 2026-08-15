@@ -18,6 +18,7 @@ public struct WarrenDesktopWebStatus: Hashable, Sendable {
 
 public struct WarrenDesktopWebPanel: View {
     public let status: WarrenDesktopWebStatus
+    public let canShare: Bool
     public let onStart: () -> Void
     public let onStop: () -> Void
     public let onOpenURL: (URL) -> Void
@@ -25,12 +26,14 @@ public struct WarrenDesktopWebPanel: View {
 
     public init(
         status: WarrenDesktopWebStatus,
+        canShare: Bool = true,
         onStart: @escaping () -> Void,
         onStop: @escaping () -> Void,
         onOpenURL: @escaping (URL) -> Void,
         onCopyURL: @escaping (URL) -> Void
     ) {
         self.status = status
+        self.canShare = canShare
         self.onStart = onStart
         self.onStop = onStop
         self.onOpenURL = onOpenURL
@@ -58,18 +61,35 @@ public struct WarrenDesktopWebPanel: View {
                     .foregroundStyle(tokens.mutedForeground)
                     .lineLimit(1)
                 HStack(spacing: WarrenSpacing.compact) {
-                    if status.canControl {
-                        WarrenDesktopWebActionButton(
-                            title: status.isRunning ? "Stop" : "Start"
-                        ) {
-                            status.isRunning ? onStop() : onStart()
-                        }
-                    }
                     WarrenDesktopWebActionButton(title: "Open") {
                         onOpenURL(url)
                     }
                     WarrenDesktopWebActionButton(title: "Copy") {
                         onCopyURL(url)
+                    }
+                }
+                if canShare && status.canControl {
+                    WarrenDesktopChromeDivider()
+                    if let secureURL = status.secureURL {
+                        Text(secureURL.absoluteString)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(tokens.mutedForeground)
+                            .lineLimit(1)
+                        HStack(spacing: WarrenSpacing.compact) {
+                            WarrenDesktopWebActionButton(title: "Open") {
+                                onOpenURL(secureURL)
+                            }
+                            WarrenDesktopWebActionButton(title: "Copy") {
+                                onCopyURL(secureURL)
+                            }
+                            WarrenDesktopWebActionButton(title: "Stop Sharing") {
+                                onStop()
+                            }
+                        }
+                    } else {
+                        WarrenDesktopWebActionButton(title: "Share") {
+                            onStart()
+                        }
                     }
                 }
             } else {

@@ -16,6 +16,7 @@ type Project struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
+	Pinned    bool      `json:"pinned,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -26,6 +27,7 @@ type Workspace struct {
 	Path      string    `json:"path"`
 	Branch    string    `json:"branch,omitempty"`
 	Kind      string    `json:"kind"`
+	Pinned    bool      `json:"pinned,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -33,12 +35,14 @@ type Session struct {
 	ID          string     `json:"id"`
 	WorkspaceID string     `json:"workspace"`
 	Title       string     `json:"title"`
+	CustomTitle string     `json:"customTitle,omitempty"`
 	Kind        string     `json:"kind"`
 	Command     string     `json:"command,omitempty"`
 	Runtime     string     `json:"runtime"`
 	Lifecycle   string     `json:"lifecycle"`
 	Epoch       uint64     `json:"epoch,omitempty"`
 	Sequence    uint64     `json:"sequence,omitempty"`
+	Pinned      bool       `json:"pinned,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	EndedAt     *time.Time `json:"endedAt,omitempty"`
 }

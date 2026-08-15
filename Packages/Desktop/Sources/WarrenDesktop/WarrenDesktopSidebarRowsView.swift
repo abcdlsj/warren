@@ -17,6 +17,8 @@ struct WarrenDesktopSidebarRows: View {
     @State private var projectsCollapsed = false
     @State private var pendingRename: Workspace?
     @State private var workspaceName = ""
+    @State private var pendingRenameProject: Project?
+    @State private var projectName = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -54,10 +56,21 @@ struct WarrenDesktopSidebarRows: View {
                         isCollapsed: isCollapsed,
                         isSelected: selection == .project(group.project.id),
                         isExpanded: expandedProjectIDs.contains(group.project.id),
+                        isPinned: group.project.pinned,
                         onSelect: { select(.project(group.project.id)) },
                         onToggleExpansion: { toggleProject(group.project.id) },
                         onAddWorkspace: {
                             onAction(.requestNewWorkspace(group.project.id))
+                        },
+                        onRename: {
+                            projectName = group.project.name
+                            pendingRenameProject = group.project
+                        },
+                        onTogglePin: {
+                            onAction(.setProjectPinned(
+                                group.project.id,
+                                !group.project.pinned
+                            ))
                         }
                     )
                     if isCollapsed || expandedProjectIDs.contains(group.project.id) {
@@ -68,11 +81,18 @@ struct WarrenDesktopSidebarRows: View {
                                 activity: workspaceActivity(workspace.id),
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .workspace(workspace.id),
+                                isPinned: workspace.pinned,
                                 onSelect: { select(.workspace(workspace.id)) },
                                 onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
                                 onRename: {
                                     workspaceName = workspace.name
                                     pendingRename = workspace
+                                },
+                                onTogglePin: {
+                                    onAction(.setWorkspacePinned(
+                                        workspace.id,
+                                        !workspace.pinned
+                                    ))
                                 }
                             )
                             .id(workspace.id)
@@ -96,6 +116,20 @@ struct WarrenDesktopSidebarRows: View {
             Button("Cancel", role: .cancel) { pendingRename = nil }
         } message: {
             Text("The Git branch name and worktree path are unchanged.")
+        }
+        .alert("Rename Project", isPresented: Binding(
+            get: { pendingRenameProject != nil },
+            set: { if !$0 { pendingRenameProject = nil } }
+        )) {
+            TextField("Project name", text: $projectName)
+            Button("Rename") {
+                guard let project = pendingRenameProject else { return }
+                pendingRenameProject = nil
+                onAction(.renameProject(project.id, projectName))
+            }
+            Button("Cancel", role: .cancel) { pendingRenameProject = nil }
+        } message: {
+            Text("Only the sidebar label changes; the repository path stays the same.")
         }
         .onChange(of: groups) { oldGroups, newGroups in
             guard let projectID = selectedProjectID else { return }

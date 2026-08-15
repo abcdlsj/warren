@@ -130,17 +130,35 @@ func resourceCommand(args []string) error {
 	case "project.remove", "project.delete":
 		method = "project.remove"
 		result = &map[string]any{}
+	case "project.rename":
+		method = "project.rename"
+		result = &map[string]any{}
+	case "project.pin":
+		method = "project.pin"
+		result = &map[string]any{}
 	case "workspace.create", "workspace.add":
 		method = "workspace.create"
 		result = &api.Workspace{}
 	case "workspace.remove", "workspace.delete":
 		method = "workspace.remove"
 		result = &map[string]any{}
+	case "workspace.rename":
+		method = "workspace.rename"
+		result = &map[string]any{}
+	case "workspace.pin":
+		method = "workspace.pin"
+		result = &map[string]any{}
 	case "session.create", "session.add":
 		method = "session.create"
 		result = &api.Session{}
 	case "session.remove", "session.delete", "session.kill":
 		method = "session.delete"
+		result = &map[string]any{}
+	case "session.rename":
+		method = "session.rename"
+		result = &map[string]any{}
+	case "session.pin":
+		method = "session.pin"
 		result = &map[string]any{}
 	case "session.send":
 		id := positional(params, 0, "session id")
@@ -377,7 +395,17 @@ func stringValueDefault(value map[string]any, key, fallback string) string {
 	}
 	return fallback
 }
-func boolValue(value map[string]any, key string) bool { result, _ := value[key].(bool); return result }
+func boolValue(value map[string]any, key string) bool {
+	switch result := value[key].(type) {
+	case bool:
+		return result
+	case string:
+		parsed, err := strconv.ParseBool(result)
+		return err == nil && parsed
+	default:
+		return false
+	}
+}
 func durationValue(value map[string]any, key string, fallback time.Duration) time.Duration {
 	result, err := time.ParseDuration(stringValue(value, key))
 	if err == nil {
@@ -430,9 +458,9 @@ Usage:
 
 Commands:
   endpoint list|add|use|remove|current
-  project list|add|remove
-  workspace list|create|remove       (worktree is an alias)
-  session list|create|delete|send|read|attach
+  project list|add|remove|rename|pin
+  workspace list|create|remove|rename|pin   (worktree is an alias)
+  session list|create|delete|rename|pin|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
 

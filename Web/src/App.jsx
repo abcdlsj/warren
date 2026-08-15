@@ -27,6 +27,7 @@ import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
 import {
   EmptyTerminal,
+  ContextMenu,
   MobileKeys,
   PresetBar,
   SearchPanel,
@@ -119,6 +120,7 @@ export default function App() {
   const [terminalSearchIndex, setTerminalSearchIndex] = useState(-1);
   const [terminalSearchCount, setTerminalSearchCount] = useState(0);
   const [terminalSearchFocusNonce, setTerminalSearchFocusNonce] = useState(0);
+  const [contextMenu, setContextMenu] = useState(null);
 
   const connectionRef = useRef(null);
   const terminalHostRef = useRef(null);
@@ -623,6 +625,9 @@ export default function App() {
       setEmptyOverride({ loading: false, message: message.message || "Session error" });
       if (message.message === "unauthorized") connectionRef.current?.stop();
       break;
+    case "maintenance":
+      setConnectionStatus({ message: message.message || "Updating Warren…", online: false });
+      break;
     default:
       break;
     }
@@ -895,6 +900,77 @@ export default function App() {
     });
   }, []);
 
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const showContextMenu = useCallback((event, items) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY, items });
+  }, []);
+
+  const renameProject = useCallback(project => {
+    const value = window.prompt("Rename project", project.name || "");
+    if (value?.trim()) {
+      request("project.rename", { id: project.id, name: value.trim() });
+    }
+  }, [request]);
+
+  const renameWorkspace = useCallback(workspace => {
+    const value = window.prompt("Rename workspace", workspace.name || "");
+    if (value?.trim()) {
+      request("workspace.rename", { id: workspace.id, name: value.trim() });
+    }
+  }, [request]);
+
+  const renameSession = useCallback(session => {
+    const current = session.customTitle || session.title || "";
+    const value = window.prompt("Rename session", current);
+    if (value?.trim()) {
+      request("session.rename", { id: session.id, title: value.trim() });
+    }
+  }, [request]);
+
+  const toggleProjectPin = useCallback(project => {
+    request("project.pin", { id: project.id, pinned: !project.pinned });
+  }, [request]);
+
+  const toggleWorkspacePin = useCallback(workspace => {
+    request("workspace.pin", { id: workspace.id, pinned: !workspace.pinned });
+  }, [request]);
+
+  const toggleSessionPin = useCallback(session => {
+    request("session.pin", { id: session.id, pinned: !session.pinned });
+  }, [request]);
+
+  const projectContextMenu = useCallback((event, project) => {
+    showContextMenu(event, [
+      {
+        label: project.pinned ? "Unpin project" : "Pin project",
+        action: () => toggleProjectPin(project),
+      },
+      { label: "Rename project", action: () => renameProject(project) },
+    ]);
+  }, [renameProject, showContextMenu, toggleProjectPin]);
+
+  const workspaceContextMenu = useCallback((event, workspace) => {
+    showContextMenu(event, [
+      {
+        label: workspace.pinned ? "Unpin workspace" : "Pin workspace",
+        action: () => toggleWorkspacePin(workspace),
+      },
+      { label: "Rename workspace", action: () => renameWorkspace(workspace) },
+    ]);
+  }, [renameWorkspace, showContextMenu, toggleWorkspacePin]);
+
+  const sessionContextMenu = useCallback((event, session) => {
+    showContextMenu(event, [
+      {
+        label: session.pinned ? "Unpin session" : "Pin session",
+        action: () => toggleSessionPin(session),
+      },
+      { label: "Rename session", action: () => renameSession(session) },
+    ]);
+  }, [renameSession, showContextMenu, toggleSessionPin]);
+
   const openSettings = useCallback(() => {
     navigationBeforeSettingsRef.current = captureNavigationPosition(appStateRef.current);
     setSearchOpen(false);
@@ -1002,6 +1078,8 @@ export default function App() {
           onOpenWorkspace={openWorkspace}
           onNewSession={() => createSession("shell")}
           onOpenSettings={openSettings}
+          onProjectContextMenu={projectContextMenu}
+          onWorkspaceContextMenu={workspaceContextMenu}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
         <main className="main">
@@ -1013,6 +1091,7 @@ export default function App() {
             onNewSession={() => createSession("shell")}
             onOpenMenu={() => setDrawerOpen(true)}
             onOpenSearch={() => setSearchOpen(true)}
+            onTabContextMenu={sessionContextMenu}
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title"><span>{paneTitle}</span></div>
@@ -1072,6 +1151,7 @@ export default function App() {
         onChooseWorkspace={chooseSearchWorkspace}
         onChooseProject={chooseSearchProject}
       />
+      <ContextMenu menu={contextMenu} onClose={closeContextMenu} />
     </>
   );
 }

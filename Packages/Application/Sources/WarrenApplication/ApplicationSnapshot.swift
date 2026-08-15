@@ -69,6 +69,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
     public let workspaceID: WorkspaceID
     public let tabID: String?
     public let title: String
+    public let customTitle: String?
+    public let pinned: Bool
     public let kind: TerminalSessionKind
     public let lifecycle: TerminalSessionLifecycle
     public let connectionState: WarrenApplicationConnectionState
@@ -88,6 +90,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         workspaceID: WorkspaceID,
         tabID: String? = nil,
         title: String,
+        customTitle: String? = nil,
+        pinned: Bool = false,
         kind: TerminalSessionKind = .shell,
         lifecycle: TerminalSessionLifecycle = .running,
         connectionState: WarrenApplicationConnectionState,
@@ -106,6 +110,8 @@ public struct WarrenApplicationSession: Identifiable, Hashable, Sendable {
         self.workspaceID = workspaceID
         self.tabID = tabID
         self.title = title
+        self.customTitle = customTitle
+        self.pinned = pinned
         self.kind = kind
         self.lifecycle = lifecycle
         self.connectionState = connectionState

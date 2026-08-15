@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ import (
 const (
 	KindCloudflared = "cloudflared"
 	KindTailscale   = "tailscale"
-	KindFunnel      = "funnel"
+	KindGnar        = "gnar"
 )
 
 // Status is the runtime projection of one tunnel. URL is empty until the
@@ -30,7 +31,7 @@ type Status struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// Manager owns the reachability adapters (cloudflared, Tailscale Serve/Funnel)
+// Manager owns the reachability adapters (cloudflared, Tailscale Serve, gnar)
 // that expose the loopback Web server. Each kind maps to at most one adapter;
 // start is idempotent and stop tears down the running adapter.
 type Manager struct {
@@ -38,6 +39,7 @@ type Manager struct {
 	target          string
 	cloudflaredPath string
 	tailscalePath   string
+	gnarPath        string
 	pollInterval    time.Duration
 	pollAttempts    int
 
@@ -46,10 +48,12 @@ type Manager struct {
 }
 
 type state struct {
-	kind    string
-	cmd     *exec.Cmd
-	url     string
-	stopped bool
+	kind     string
+	cmd      *exec.Cmd
+	url      string
+	err      string
+	stopped  bool
+	scanDone chan struct{}
 }
 
 func NewManager(
@@ -57,12 +61,14 @@ func NewManager(
 	target string,
 	cloudflaredPath string,
 	tailscalePath string,
+	gnarPath string,
 ) *Manager {
 	return &Manager{
 		logger:          logger,
 		target:          target,
 		cloudflaredPath: cloudflaredPath,
 		tailscalePath:   tailscalePath,
+		gnarPath:        gnarPath,
 		pollInterval:    250 * time.Millisecond,
 		pollAttempts:    40,
 		states:          make(map[string]*state),
@@ -74,9 +80,9 @@ func (m *Manager) Start(kind string) (Status, error) {
 	case KindCloudflared:
 		return m.startCloudflared()
 	case KindTailscale:
-		return m.startTailscale(false)
-	case KindFunnel:
-		return m.startTailscale(true)
+		return m.startTailscale()
+	case KindGnar:
+		return m.startGnar()
 	default:
 		return Status{}, fmt.Errorf("unknown tunnel kind %q", kind)
 	}
@@ -87,9 +93,9 @@ func (m *Manager) Stop(kind string) error {
 	case KindCloudflared:
 		return m.stopCloudflared()
 	case KindTailscale:
-		return m.stopTailscale(false)
-	case KindFunnel:
-		return m.stopTailscale(true)
+		return m.stopTailscale()
+	case KindGnar:
+		return m.stopGnar()
 	default:
 		return fmt.Errorf("unknown tunnel kind %q", kind)
 	}
@@ -99,9 +105,9 @@ func (m *Manager) Status() map[string]Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	result := make(map[string]Status, len(m.states))
-	for _, kind := range []string{KindCloudflared, KindTailscale, KindFunnel} {
+	for _, kind := range []string{KindCloudflared, KindTailscale, KindGnar} {
 		if st := m.states[kind]; st != nil {
-			result[kind] = Status{Running: !st.stopped, URL: st.url}
+			result[kind] = Status{Running: !st.stopped, URL: st.url, Error: st.err}
 		}
 	}
 	return result
@@ -181,9 +187,18 @@ func (m *Manager) stopCloudflared() error {
 
 func (m *Manager) wait(st *state) {
 	_ = st.cmd.Wait()
+	if st.scanDone != nil {
+		<-st.scanDone
+	}
 	m.mu.Lock()
 	if m.states[st.kind] == st {
-		delete(m.states, st.kind)
+		if st.err == "" {
+			delete(m.states, st.kind)
+		} else {
+			// Keep the failed state so callers can see why the adapter exited.
+			st.stopped = true
+			st.url = ""
+		}
 	}
 	m.mu.Unlock()
 }
@@ -201,11 +216,8 @@ func (m *Manager) waitForStop(kind string, timeout time.Duration) {
 	}
 }
 
-func (m *Manager) startTailscale(funnel bool) (Status, error) {
+func (m *Manager) startTailscale() (Status, error) {
 	kind := KindTailscale
-	if funnel {
-		kind = KindFunnel
-	}
 	m.mu.Lock()
 	if st := m.states[kind]; st != nil && !st.stopped {
 		status := Status{Running: true, URL: st.url}
@@ -225,7 +237,7 @@ func (m *Manager) startTailscale(funnel bool) (Status, error) {
 		m.mu.Unlock()
 		return Status{}, err
 	}
-	command := exec.Command(path, serveArguments(funnel, port)...)
+	command := exec.Command(path, "serve", "--bg", port)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		m.mu.Unlock()
@@ -236,16 +248,10 @@ func (m *Manager) startTailscale(funnel bool) (Status, error) {
 	m.mu.Unlock()
 
 	for attempt := 0; attempt < m.pollAttempts; attempt++ {
-		statusCommand := exec.Command(path, statusArguments(funnel)...)
+		statusCommand := exec.Command(path, "serve", "status", "--json")
 		statusOutput, err := statusCommand.Output()
 		if err == nil {
-			var candidate string
-			if funnel {
-				candidate = parseTailscaleURL(statusOutput, "Funnel")
-			} else {
-				candidate = parseTailscaleURL(statusOutput, "Web")
-			}
-			if candidate != "" {
+			if candidate := parseTailscaleURL(statusOutput); candidate != "" {
 				m.mu.Lock()
 				st.url = candidate
 				m.mu.Unlock()
@@ -258,11 +264,8 @@ func (m *Manager) startTailscale(funnel bool) (Status, error) {
 	return m.Status()[kind], nil
 }
 
-func (m *Manager) stopTailscale(funnel bool) error {
+func (m *Manager) stopTailscale() error {
 	kind := KindTailscale
-	if funnel {
-		kind = KindFunnel
-	}
 	m.mu.Lock()
 	st := m.states[kind]
 	if st != nil {
@@ -277,7 +280,7 @@ func (m *Manager) stopTailscale(funnel bool) error {
 		path = findExecutable(tailscaleCandidates)
 	}
 	if path != "" {
-		command := exec.Command(path, stopArguments(funnel)...)
+		command := exec.Command(path, "serve", "--https=443", "off")
 		if output, err := command.CombinedOutput(); err != nil {
 			m.logger.Warn("stop tailscale", "kind", kind, "error", err, "output", strings.TrimSpace(string(output)))
 		}
@@ -287,6 +290,104 @@ func (m *Manager) stopTailscale(funnel bool) error {
 		delete(m.states, kind)
 	}
 	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) startGnar() (Status, error) {
+	m.mu.Lock()
+	if st := m.states[KindGnar]; st != nil && !st.stopped {
+		status := Status{Running: true, URL: st.url, Error: st.err}
+		m.mu.Unlock()
+		return status, nil
+	}
+	path := m.gnarPath
+	if path == "" {
+		path = findExecutable(gnarCandidates())
+	}
+	if path == "" {
+		m.mu.Unlock()
+		return Status{}, errors.New("gnar binary not found; install it or set WARREN_GNAR_PATH")
+	}
+	args := append([]string{m.target, "--no-tui", "--json"}, gnarNameArgs()...)
+	command := exec.Command(path, args...)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		m.mu.Unlock()
+		return Status{}, err
+	}
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		m.mu.Unlock()
+		return Status{}, err
+	}
+	if err := command.Start(); err != nil {
+		m.mu.Unlock()
+		return Status{}, err
+	}
+	st := &state{kind: KindGnar, cmd: command, scanDone: make(chan struct{})}
+	m.states[KindGnar] = st
+	m.mu.Unlock()
+
+	go m.scanGnar(st, io.MultiReader(stdout, stderr))
+	go m.wait(st)
+	return m.Status()[KindGnar], nil
+}
+
+func (m *Manager) scanGnar(st *state, reader io.Reader) {
+	defer close(st.scanDone)
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var event struct {
+			Type      string `json:"type"`
+			PublicURL string `json:"public_url"`
+			Message   string `json:"message"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			continue
+		}
+		m.mu.Lock()
+		if m.states[st.kind] == st {
+			switch event.Type {
+			case "tunnel_ready":
+				if event.PublicURL != "" {
+					st.url = event.PublicURL
+				}
+			case "error":
+				st.err = event.Message
+			}
+		}
+		m.mu.Unlock()
+		switch event.Type {
+		case "tunnel_ready":
+			if event.PublicURL != "" {
+				m.logger.Info("tunnel ready", "kind", st.kind, "url", event.PublicURL)
+			}
+		case "error":
+			m.logger.Warn("gnar tunnel error", "kind", st.kind, "error", event.Message)
+		}
+	}
+}
+
+func (m *Manager) stopGnar() error {
+	m.mu.Lock()
+	st := m.states[KindGnar]
+	if st != nil {
+		st.stopped = true
+	}
+	m.mu.Unlock()
+	if st == nil {
+		return nil
+	}
+	if st.cmd != nil && st.cmd.Process != nil {
+		_ = st.cmd.Process.Kill()
+	}
+	m.mu.Lock()
+	if m.states[KindGnar] == st {
+		delete(m.states, KindGnar)
+	}
+	m.mu.Unlock()
+	m.waitForStop(KindGnar, 2*time.Second)
 	return nil
 }
 
@@ -302,6 +403,37 @@ var (
 	}
 	cloudflaredURLPattern = regexp.MustCompile(`https://[a-zA-Z0-9-]+\.trycloudflare\.com`)
 )
+
+func gnarCandidates() []string {
+	candidates := []string{"/opt/homebrew/bin/gnar", "/usr/local/bin/gnar", "/usr/bin/gnar"}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append([]string{filepath.Join(home, ".local", "bin", "gnar")}, candidates...)
+	}
+	return candidates
+}
+
+func gnarNameArgs() []string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil
+	}
+	var name strings.Builder
+	for _, character := range strings.ToLower(hostname) {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			name.WriteRune(character)
+		} else if name.Len() > 0 && !strings.HasSuffix(name.String(), "-") {
+			name.WriteByte('-')
+		}
+	}
+	normalized := strings.Trim(name.String(), "-")
+	if normalized == "" {
+		return nil
+	}
+	if len(normalized) > 32 {
+		normalized = strings.TrimRight(normalized[:32], "-")
+	}
+	return []string{"--name", "warren-" + normalized}
+}
 
 func findExecutable(candidates []string) string {
 	for _, candidate := range candidates {
@@ -320,37 +452,16 @@ func targetPort(target string) (string, error) {
 	return parsed.Port(), nil
 }
 
-func serveArguments(funnel bool, port string) []string {
-	if funnel {
-		return []string{"funnel", "--bg", "--yes", port}
-	}
-	return []string{"serve", "--bg", port}
-}
-
-func statusArguments(funnel bool) []string {
-	if funnel {
-		return []string{"funnel", "status", "--json"}
-	}
-	return []string{"serve", "status", "--json"}
-}
-
-func stopArguments(funnel bool) []string {
-	if funnel {
-		return []string{"funnel", "reset"}
-	}
-	return []string{"serve", "--https=443", "off"}
-}
-
 func parseCloudflaredURL(line string) string {
 	return cloudflaredURLPattern.FindString(line)
 }
 
-func parseTailscaleURL(data []byte, key string) string {
+func parseTailscaleURL(data []byte) string {
 	var object map[string]any
 	if json.Unmarshal(data, &object) != nil {
 		return ""
 	}
-	section, ok := object[key].(map[string]any)
+	section, ok := object["Web"].(map[string]any)
 	if !ok {
 		return ""
 	}
