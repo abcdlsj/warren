@@ -17,6 +17,7 @@ type Project struct {
 	Name      string    `json:"name"`
 	Path      string    `json:"path"`
 	Pinned    bool      `json:"pinned,omitempty"`
+	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -28,6 +29,7 @@ type Workspace struct {
 	Branch    string    `json:"branch,omitempty"`
 	Kind      string    `json:"kind"`
 	Pinned    bool      `json:"pinned,omitempty"`
+	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 

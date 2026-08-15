@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import GRDB
 @testable import WarrenStateStore
 import WarrenClientCore
 import WarrenDomain
@@ -293,6 +294,124 @@ final class WarrenStateStoreTests: XCTestCase {
         XCTAssertEqual(session.epoch, 3)
         XCTAssertEqual(session.sequence, 12)
         XCTAssertEqual(session.terminalSize.columns, 120)
+    }
+
+    func testLegacyProjectAndWorkspaceJSONDefaultOrderToZero() throws {
+        let projectJSON = """
+        {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "hostID": "22222222-2222-4222-8222-222222222222",
+          "name": "warren",
+          "rootPath": "/tmp/warren"
+        }
+        """
+        let project = try JSONDecoder().decode(Project.self, from: Data(projectJSON.utf8))
+        XCTAssertEqual(project.order, 0)
+
+        let workspaceJSON = """
+        {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "projectID": "11111111-1111-4111-8111-111111111111",
+          "name": "main",
+          "path": "/tmp/warren",
+          "branch": "main"
+        }
+        """
+        let workspace = try JSONDecoder().decode(Workspace.self, from: Data(workspaceJSON.utf8))
+        XCTAssertEqual(workspace.order, 0)
+    }
+
+    func testSQLiteSidebarOrderRoundTripAndMove() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        let host = Host(name: "Mac")
+        let alpha = Project(hostID: host.id, name: "alpha", rootPath: "/tmp/alpha", order: 1)
+        let bravo = Project(hostID: host.id, name: "bravo", rootPath: "/tmp/bravo", order: 0)
+        let alphaMain = Workspace(
+            projectID: alpha.id,
+            name: "main",
+            path: "/tmp/alpha",
+            branch: "main",
+            order: 1
+        )
+        let alphaReview = Workspace(
+            projectID: alpha.id,
+            name: "review",
+            path: "/tmp/alpha-review",
+            branch: "review",
+            order: 0
+        )
+        let state = PersistedHostState(
+            hosts: [host],
+            projects: [alpha, bravo],
+            workspaces: [alphaMain, alphaReview]
+        )
+        try await repository.save(state)
+
+        var loaded = try await repository.load()
+        XCTAssertEqual(loaded.projects.map(\.name), ["bravo", "alpha"])
+        XCTAssertEqual(
+            loaded.workspaces.filter { $0.projectID == alpha.id }.map(\.name),
+            ["review", "main"]
+        )
+
+        try await repository.moveProject(alpha.id, before: bravo.id)
+        try await repository.moveWorkspace(alphaMain.id, before: alphaReview.id)
+
+        loaded = try await repository.load()
+        XCTAssertEqual(loaded.projects.map(\.name), ["alpha", "bravo"])
+        XCTAssertEqual(
+            loaded.workspaces.filter { $0.projectID == alpha.id }.map(\.name),
+            ["main", "review"]
+        )
+        XCTAssertEqual(
+            loaded.workspaces.filter { $0.projectID == alpha.id }.map(\.order),
+            [0, 1]
+        )
+        XCTAssertEqual(loaded.projects.map(\.order), [0, 1])
+    }
+
+    func testSQLiteOrderAndPinningMigrationsRunIndependently() async throws {
+        let database = try TemporaryStateDatabase()
+        defer { try? database.cleanup() }
+        let repository = try SQLiteHostStateRepository(databaseURL: database.url)
+        let host = Host(name: "Mac")
+        let project = Project(
+            hostID: host.id,
+            name: "warren",
+            rootPath: "/tmp/warren",
+            pinned: true
+        )
+        let workspace = Workspace(
+            projectID: project.id,
+            name: "main",
+            path: "/tmp/warren",
+            branch: "main",
+            pinned: true,
+            order: 2
+        )
+        try await repository.save(PersistedHostState(
+            hosts: [host],
+            projects: [project],
+            workspaces: [workspace]
+        ))
+
+        // Simulate a database that already ran main's pinning migration but
+        // never ran the sidebar-order migration: drop the order columns and
+        // forget the migration record, then reopen.
+        let queue = try DatabaseQueue(path: database.url.path)
+        try await queue.write { db in
+            try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier = 'v4_sidebar_order'")
+            try db.execute(sql: "ALTER TABLE projects DROP COLUMN position")
+            try db.execute(sql: "ALTER TABLE workspaces DROP COLUMN position")
+        }
+
+        let reopened = try SQLiteHostStateRepository(databaseURL: database.url)
+        let loaded = try await reopened.load()
+        XCTAssertEqual(loaded.projects[0].pinned, true)
+        XCTAssertEqual(loaded.workspaces[0].pinned, true)
+        XCTAssertEqual(loaded.workspaces[0].order, 0)
     }
 
     private func makeRecoverableState() throws -> PersistedHostState {

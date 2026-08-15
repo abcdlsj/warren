@@ -16,19 +16,42 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
     public var name: String
     public var rootPath: String
     public var pinned: Bool
+    /// Host-owned sidebar order. Zero is the legacy fallback (creation order).
+    public var order: Int
 
     public init(
         id: ProjectID = ProjectID(),
         hostID: HostID,
         name: String,
         rootPath: String,
-        pinned: Bool = false
+        pinned: Bool = false,
+        order: Int = 0
     ) {
         self.id = id
         self.hostID = hostID
         self.name = name
         self.rootPath = rootPath
         self.pinned = pinned
+        self.order = order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case hostID
+        case name
+        case rootPath
+        case pinned
+        case order
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(ProjectID.self, forKey: .id)
+        hostID = try container.decode(HostID.self, forKey: .hostID)
+        name = try container.decode(String.self, forKey: .name)
+        rootPath = try container.decode(String.self, forKey: .rootPath)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }
 }
 
@@ -39,6 +62,9 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
     public var path: String
     public var branch: String?
     public var pinned: Bool
+    /// Host-owned sidebar order within its project. Zero is the legacy
+    /// fallback (creation order).
+    public var order: Int
 
     public init(
         id: WorkspaceID = WorkspaceID(),
@@ -46,7 +72,8 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         name: String,
         path: String,
         branch: String? = nil,
-        pinned: Bool = false
+        pinned: Bool = false,
+        order: Int = 0
     ) {
         self.id = id
         self.projectID = projectID
@@ -54,6 +81,28 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         self.path = path
         self.branch = branch
         self.pinned = pinned
+        self.order = order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case projectID
+        case name
+        case path
+        case branch
+        case pinned
+        case order
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(WorkspaceID.self, forKey: .id)
+        projectID = try container.decode(ProjectID.self, forKey: .projectID)
+        name = try container.decode(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        branch = try container.decodeIfPresent(String.self, forKey: .branch)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }
 }
 

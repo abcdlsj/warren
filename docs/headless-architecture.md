@@ -25,7 +25,7 @@ SSH is not a Warren business protocol. `warren ssh` only starts the remote daemo
 
 | State | Authority | Behavior after disconnect |
 | --- | --- | --- |
-| Projects, Workspaces, Sessions | Remote daemon | Retained |
+| Projects, Workspaces, Sessions, sidebar order | Remote daemon | Retained |
 | tmux runtime | Remote daemon | Keeps running |
 | Current endpoint | Local Desktop/CLI config | Retained |
 | Desktop selection and renderer | Local Desktop | Rebuildable |

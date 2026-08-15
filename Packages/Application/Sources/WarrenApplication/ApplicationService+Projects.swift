@@ -54,6 +54,26 @@ extension WarrenApplicationService {
         await publish()
     }
 
+    /// Moves one project before another in the Host-owned sidebar order.
+    /// Passing a nil target moves the project to the end. The change is
+    /// persisted on the Host so every client starts with the same order.
+    public func moveProject(_ projectID: ProjectID, before otherProjectID: ProjectID?) async throws {
+        try await withPersistenceMutation {
+            try requireReady()
+            try await repository.moveProject(projectID, before: otherProjectID)
+            guard let source = state.projects.firstIndex(where: { $0.id == projectID }) else { return }
+            var target = state.projects.endIndex
+            if let otherProjectID, let otherIndex = state.projects.firstIndex(where: { $0.id == otherProjectID }) {
+                target = otherIndex
+            }
+            let moved = state.projects.remove(at: source)
+            if source < target { target -= 1 }
+            state.projects.insert(moved, at: target)
+            for index in state.projects.indices { state.projects[index].order = index }
+        }
+        await publish()
+    }
+
     public func setProjectPinned(_ projectID: ProjectID, pinned: Bool) async throws {
         try await withPersistenceMutation {
             try requireReady()
@@ -74,6 +94,35 @@ extension WarrenApplicationService {
             }
             try await repository.setWorkspacePinned(workspaceID, pinned: pinned)
             state.workspaces[index].pinned = pinned
+        }
+        await publish()
+    }
+
+    /// Moves one workspace before another inside the same project in the
+    /// Host-owned sidebar order. A nil target moves it to the end of the
+    /// project.
+    public func moveWorkspace(_ workspaceID: WorkspaceID, before otherWorkspaceID: WorkspaceID?) async throws {
+        try await withPersistenceMutation {
+            try requireReady()
+            try await repository.moveWorkspace(workspaceID, before: otherWorkspaceID)
+            guard let workspace = state.workspaces.first(where: { $0.id == workspaceID }) else { return }
+            let projectID = workspace.projectID
+            var scoped = state.workspaces.filter { $0.projectID == projectID }
+            guard let source = scoped.firstIndex(where: { $0.id == workspaceID }) else { return }
+            var target = scoped.endIndex
+            if let otherWorkspaceID, let otherIndex = scoped.firstIndex(where: { $0.id == otherWorkspaceID }) {
+                target = otherIndex
+            }
+            let moved = scoped.remove(at: source)
+            if source < target { target -= 1 }
+            scoped.insert(moved, at: target)
+            var orderByID: [WorkspaceID: Int] = [:]
+            for index in scoped.indices { orderByID[scoped[index].id] = index }
+            for index in state.workspaces.indices where state.workspaces[index].projectID == projectID {
+                if let order = orderByID[state.workspaces[index].id] {
+                    state.workspaces[index].order = order
+                }
+            }
         }
         await publish()
     }

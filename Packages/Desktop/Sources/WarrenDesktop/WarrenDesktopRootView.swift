@@ -30,6 +30,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private let onWebOpenURL: (URL) -> Void
     private let onWebCopyURL: (URL) -> Void
     @State private var sidebarState: WarrenDesktopSidebarState
+    @State private var sidebarTree: WarrenDesktopSidebarTreeState
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
     @State private var commandPalettePresented = false
@@ -86,6 +87,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.onWebOpenURL = onWebOpenURL
         self.onWebCopyURL = onWebCopyURL
         _sidebarState = State(initialValue: Self.restoredSidebarState())
+        _sidebarTree = State(initialValue: Self.restoredSidebarTree(scope: selectedEndpointID))
         _inspectorVisible = State(initialValue: projection.inspector != nil)
         _inspectorWasAvailable = State(initialValue: projection.inspector != nil)
     }
@@ -113,6 +115,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 WarrenDesktopSidebar(
                     projection: projection,
                     sidebarState: $sidebarState,
+                    sidebarTree: $sidebarTree,
                     selection: navigation.selection,
                     chromeMode: chromeMode,
                     onAction: dispatch,
@@ -244,6 +247,12 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         }
         .onChange(of: sidebarState) { _, newState in
             Self.persist(newState)
+        }
+        .onChange(of: sidebarTree) { _, newState in
+            Self.persist(newState, scope: selectedEndpointID)
+        }
+        .onChange(of: selectedEndpointID) { _, newEndpointID in
+            sidebarTree = Self.restoredSidebarTree(scope: newEndpointID)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.commandPalette)) { _ in
             commandPalettePresented = true
@@ -449,6 +458,14 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private static func persist(_ state: WarrenDesktopSidebarState) {
         UserDefaults.standard.set(state.width, forKey: WarrenDesktopSidebarKeys.width)
+    }
+
+    private static func restoredSidebarTree(scope: String) -> WarrenDesktopSidebarTreeState {
+        WarrenDesktopSidebarTreePersistence.restore(scope: scope)
+    }
+
+    private static func persist(_ state: WarrenDesktopSidebarTreeState, scope: String) {
+        WarrenDesktopSidebarTreePersistence.save(state, scope: scope)
     }
 }
 

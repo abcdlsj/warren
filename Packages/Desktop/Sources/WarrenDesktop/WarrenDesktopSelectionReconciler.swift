@@ -104,7 +104,7 @@ public enum WarrenDesktopNavigationReducer {
         case .addProject, .importSuperset, .requestNewWorkspace,
              .renameProject, .renameWorkspace, .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
-             .moveTab,
+             .moveTab, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,
              .toggleInspector, .toggleSidebar:
             return state

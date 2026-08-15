@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
+import { buildCatalog, moveInCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
 import {
   captureNavigationPosition,
   resolveRestoredWorkspace,
@@ -55,6 +55,53 @@ test("catalog keeps pinned workspaces and sessions first", () => {
   assert.equal(catalog.projects[0].id, "project-a");
   assert.equal(catalog.workspaces[0].id, "workspace-a");
   assert.equal(workspaceTabs(catalog, "workspace-a")[0].id, "session-a");
+});
+
+test("moveInCatalog reorders projects before a target", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    projects: [{ id: "project-a" }, { id: "project-b" }, { id: "project-c" }],
+    workspaces: [],
+  }));
+
+  const moved = moveInCatalog(catalog, "projects", "project-c", "project-a");
+
+  assert.deepEqual(moved.projects.map(project => project.id), [
+    "project-c",
+    "project-a",
+    "project-b",
+  ]);
+});
+
+test("moveInCatalog moves workspaces to the end of their project", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    projects: [{ id: "project" }],
+    workspaces: [
+      { id: "workspace-one", project: "project" },
+      { id: "workspace-two", project: "project" },
+      { id: "workspace-three", project: "project" },
+    ],
+  }));
+
+  const moved = moveInCatalog(catalog, "workspaces", "workspace-one", null);
+
+  assert.deepEqual(moved.workspaces.map(workspace => workspace.id), [
+    "workspace-two",
+    "workspace-three",
+    "workspace-one",
+  ]);
+  assert.deepEqual(
+    moved.workspacesByProject.get("project").map(workspace => workspace.id),
+    ["workspace-two", "workspace-three", "workspace-one"],
+  );
+});
+
+test("moveInCatalog is a no-op for an unknown id", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    projects: [{ id: "project-a" }],
+    workspaces: [],
+  }));
+
+  assert.equal(moveInCatalog(catalog, "projects", "missing", null), catalog);
 });
 
 test("terminal title removes empty separators", () => {

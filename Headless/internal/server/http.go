@@ -646,6 +646,11 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
+	case "project.move":
+		if err := p.server.Service.MoveProject(stringParam(params, "id"), stringParam(params, "before")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"moved": true})
 	case "workspace.create":
 		value, err := p.server.Service.CreateWorkspace(stringParam(params, "project"), stringParam(params, "branch"), stringParam(params, "name"), stringParam(params, "path"))
 		if err != nil {
@@ -667,6 +672,11 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
+	case "workspace.move":
+		if err := p.server.Service.MoveWorkspace(stringParam(params, "id"), stringParam(params, "before")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"moved": true})
 	case "session.create":
 		value, err := p.server.Service.CreateSession(ctx, stringParam(params, "workspace"), stringParam(params, "command"), stringParam(params, "kind"), stringParam(params, "title"))
 		if err != nil {

@@ -14,6 +14,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .sidebar-scroll { flex:1 1 auto; min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:7px 8px 12px; }
 .section-label { padding:8px 10px 5px; color:var(--sub); font-size:10px; font-weight:500; letter-spacing:.1em; opacity:.6; }
 .project-toggle { display:flex; align-items:center; gap:2px; width:100%; height:30px; padding:0 6px 0 8px; border-radius:6px; }
+.project-toggle.drag-over { outline:1px solid var(--ring); outline-offset:-1px; }
 .project-toggle:hover { background:var(--fill-hover); }
 .project-toggle-main { display:flex; align-items:center; gap:8px; min-width:0; height:100%; flex:1; border:0; background:transparent; text-align:left; cursor:pointer; }
 .project-toggle-main .branch { color:var(--fg); font-size:13px; }
@@ -27,6 +28,9 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .workspace-list { display:none; }
 .project.open .workspace-list { display:block; }
 .workspace-row { display:flex; align-items:center; gap:8px; width:100%; height:28px; padding:0 10px 0 24px; border:0; border-radius:6px; background:transparent; text-align:left; cursor:pointer; color:var(--sub); }
+.workspace-row.drag-over { outline:1px solid var(--ring); outline-offset:-1px; }
+.sidebar-drop-end { height:10px; margin:0 8px; border-radius:6px; }
+.sidebar-drop-end.drag-over { background:var(--ring); opacity:.35; }
 .workspace-row:hover { background:var(--fill-hover); }
 .workspace-row.active { background:var(--fill-selected); color:rgba(234,232,230,.9); }
 .branch { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }

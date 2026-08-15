@@ -5,6 +5,7 @@ import WarrenDomain
 struct WarrenDesktopSidebar: View {
     let projection: WarrenDesktopProjection
     @Binding var sidebarState: WarrenDesktopSidebarState
+    @Binding var sidebarTree: WarrenDesktopSidebarTreeState
     let selection: WarrenDesktopSidebarSelection?
     let chromeMode: WarrenDesktopChromeMode
     let onAction: (WarrenDesktopAction) -> Void
@@ -31,6 +32,7 @@ struct WarrenDesktopSidebar: View {
                     WarrenDesktopSidebarRows(
                         groups: projection.groups,
                         workspaceActivities: projection.workspaceActivities,
+                        tree: $sidebarTree,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,
                         onAddProject: { onAction(.addProject) },

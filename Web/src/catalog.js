@@ -47,6 +47,33 @@ export function buildCatalog(roster = rosterFromMessage()) {
   return { ...roster, projects, workspaces, sessions, tabsByWorkspace, workspacesByProject };
 }
 
+/**
+ * Returns a new catalog with one project or workspace moved before another
+ * entry (or to the end when beforeID is omitted). The Host persists the same
+ * order; this is the acting client's optimistic preview until the next roster
+ * confirms it.
+ */
+export function moveInCatalog(catalog, kind, id, beforeID) {
+  const sourceList = kind === "projects" ? catalog.projects : catalog.workspaces;
+  const source = sourceList.findIndex(item => item.id === id);
+  if (source < 0) return catalog;
+  let target = sourceList.length;
+  if (beforeID) {
+    const before = sourceList.findIndex(item => item.id === beforeID);
+    if (before >= 0) target = before;
+  }
+  const next = [...sourceList];
+  const [moved] = next.splice(source, 1);
+  if (source < target) target -= 1;
+  next.splice(target, 0, moved);
+  return buildCatalog({
+    host: catalog.host,
+    projects: kind === "projects" ? next : catalog.projects,
+    workspaces: kind === "workspaces" ? next : catalog.workspaces,
+    tabs: catalog.tabs,
+  });
+}
+
 export function workspaceTabs(catalog, workspaceID) {
   return (catalog.tabsByWorkspace.get(workspaceID) || []).flatMap(tab => {
     const session = catalog.sessions.get(tab.session);

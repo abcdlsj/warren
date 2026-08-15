@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
 
-import { buildCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
+import { buildCatalog, moveInCatalog, rosterFromMessage, workspaceTabs } from "./catalog.js";
 import { WarrenConnection } from "./connection.js";
 import {
   captureNavigationPosition,
@@ -140,10 +140,11 @@ export default function App() {
   const messageHandlerRef = useRef(() => {});
   const connectionStateHandlerRef = useRef(() => {});
   const appStateRef = useRef({});
-  const pendingRequestsRef = useRef(new Map());
-  const inputQueueRef = useRef(null);
-  const navigationBeforeSettingsRef = useRef(null);
+   const pendingRequestsRef = useRef(new Map());
+   const inputQueueRef = useRef(null);
+   const navigationBeforeSettingsRef = useRef(null);
   const autoFocusOnAttachRef = useRef(true);
+  const projectDragRef = useRef(null);
   if (inputQueueRef.current === null) {
     inputQueueRef.current = new InputQueue({
       limit: pendingInputLimit,
@@ -436,7 +437,7 @@ export default function App() {
     setEmptyOverride(null);
     if (nextWorkspaceID) {
       const workspace = nextCatalog.workspaces.find(value => value.id === nextWorkspaceID);
-      if (workspace) {
+      if (workspace && !projectDragRef.current) {
         setExpandedProjects(previous => previous.has(workspace.project)
           ? previous
           : new Set([...previous, workspace.project]));
@@ -837,7 +838,7 @@ export default function App() {
   }, [activeWorkspace, selectedWorkspaceID]);
 
   useEffect(() => {
-    if (!selectedWorkspace) return;
+    if (!selectedWorkspace || projectDragRef.current) return;
     setExpandedProjects(previous => previous.has(selectedWorkspace.project)
       ? previous
       : new Set([...previous, selectedWorkspace.project]));
@@ -971,6 +972,33 @@ export default function App() {
     ]);
   }, [renameSession, showContextMenu, toggleSessionPin]);
 
+  const beginProjectDrag = useCallback(previousExpanded => {
+    projectDragRef.current = { previousExpanded };
+    setExpandedProjects(new Set());
+  }, []);
+
+  const endProjectDrag = useCallback(() => {
+    const previous = projectDragRef.current?.previousExpanded;
+    projectDragRef.current = null;
+    if (previous) setExpandedProjects(previous);
+  }, []);
+
+  const moveProject = useCallback((projectID, beforeProjectID) => {
+    request("project.move", {
+      id: projectID,
+      ...(beforeProjectID ? { before: beforeProjectID } : {}),
+    });
+    setCatalog(current => moveInCatalog(current, "projects", projectID, beforeProjectID));
+  }, [request]);
+
+  const moveWorkspace = useCallback((workspaceID, beforeWorkspaceID) => {
+    request("workspace.move", {
+      id: workspaceID,
+      ...(beforeWorkspaceID ? { before: beforeWorkspaceID } : {}),
+    });
+    setCatalog(current => moveInCatalog(current, "workspaces", workspaceID, beforeWorkspaceID));
+  }, [request]);
+
   const openSettings = useCallback(() => {
     navigationBeforeSettingsRef.current = captureNavigationPosition(appStateRef.current);
     setSearchOpen(false);
@@ -1080,6 +1108,10 @@ export default function App() {
           onOpenSettings={openSettings}
           onProjectContextMenu={projectContextMenu}
           onWorkspaceContextMenu={workspaceContextMenu}
+          onMoveProject={moveProject}
+          onMoveWorkspace={moveWorkspace}
+          onBeginProjectDrag={beginProjectDrag}
+          onEndProjectDrag={endProjectDrag}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
         <main className="main">

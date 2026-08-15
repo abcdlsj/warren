@@ -135,6 +135,8 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 	case "project.pin":
 		method = "project.pin"
+	case "project.move":
+		method = "project.move"
 		result = &map[string]any{}
 	case "workspace.create", "workspace.add":
 		method = "workspace.create"
@@ -147,6 +149,8 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 	case "workspace.pin":
 		method = "workspace.pin"
+	case "workspace.move":
+		method = "workspace.move"
 		result = &map[string]any{}
 	case "session.create", "session.add":
 		method = "session.create"
@@ -458,8 +462,8 @@ Usage:
 
 Commands:
   endpoint list|add|use|remove|current
-  project list|add|remove|rename|pin
-  workspace list|create|remove|rename|pin   (worktree is an alias)
+  project list|add|remove|rename|pin|move
+  workspace list|create|remove|rename|pin|move  (worktree is an alias)
   session list|create|delete|rename|pin|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
@@ -467,9 +471,11 @@ Commands:
 Examples:
   warren endpoint add vps --url http://127.0.0.1:8789 --token TOKEN --use
   warren project add /srv/my-repo
+  warren project move PROJECT_ID --before OTHER_PROJECT_ID
   warren workspace create PROJECT_ID --branch release/feature
     --path is optional; omit it to create under ~/.warren/worktrees/
     (pass --path only when the worktree must live somewhere specific)
+  warren workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session attach SESSION_ID
 `)
