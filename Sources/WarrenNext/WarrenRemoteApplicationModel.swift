@@ -1197,7 +1197,7 @@ final class WarrenRemoteApplicationModel {
         surface.onSettled = { [weak self] in
             self?.settledSessionIDs.insert(sessionID)
         }
-        surface.needsSettledReflow = true
+        surface.needsSettledReflow = existingSurface == nil
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)
@@ -1218,6 +1218,19 @@ final class WarrenRemoteApplicationModel {
         guard generation == attachGeneration,
               selectedSessionID == sessionID,
               mountedSurfaces.first === surface else { return }
+        if existingSurface == nil {
+            // Reflow the empty surface before replaying the full snapshot.
+            // Ghostty's BCE corruption is avoided up front, so the surface can
+            // be revealed immediately when the snapshot arrives instead of
+            // hiding again for a post-replay reflow.
+            surface.requestSettledReflow()
+            for _ in 0..<100 where !settledSessionIDs.contains(sessionID) {
+                guard generation == attachGeneration,
+                      selectedSessionID == sessionID else { return }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            settledSessionIDs.insert(sessionID)
+        }
         do {
             initialRefreshPending = true
             appendDiagnostic(
@@ -1244,7 +1257,9 @@ final class WarrenRemoteApplicationModel {
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
             if existingSurface != nil {
-                surface.requestSettledReflow()
+                // A reused surface keeps its settled grid; no reflow is needed
+                // and revealing it must not look like a re-layout.
+                settledSessionIDs.insert(sessionID)
             }
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
