@@ -24,6 +24,9 @@ public enum WarrenTypography {
     /// Superset tab and pane titles use the compact text-xs tier.
     public static let tabTitle = Font.system(size: 12, weight: .regular)
     public static let activeTabTitle = Font.system(size: 12, weight: .medium)
+    /// Tab shell titles use the light text tier; the active tab separates
+    /// itself with a brighter gray instead of a heavier weight.
+    public static let tabShellTitle = Font.system(size: 12, weight: .light)
     public static let paneHeader = Font.system(size: 12, weight: .medium)
     public static let badge = Font.system(size: 10, weight: .medium)
     public static let activityChip = Font.system(size: 9, weight: .medium)

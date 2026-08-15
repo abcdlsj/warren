@@ -35,7 +35,7 @@ struct WarrenDesktopTabItem: View {
                             .accessibilityHidden(true)
                     }
                     Text(tab.title)
-                        .font(isSelected ? WarrenTypography.activeTabTitle : WarrenTypography.tabTitle)
+                        .font(WarrenTypography.tabShellTitle)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Spacer(minLength: 0)
@@ -53,7 +53,11 @@ struct WarrenDesktopTabItem: View {
             .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isTabFocused, cornerRadius: 0))
             .focused($isTabFocused)
             .disabled(tab.sessionID == nil)
-            .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
+            .foregroundStyle(
+                isSelected
+                    ? tokens.foreground.opacity(0.90)
+                    : tokens.mutedForeground
+            )
             .accessibilityLabel("Tab \(tab.title)")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAddTraits(isSelected ? .isSelected : [])

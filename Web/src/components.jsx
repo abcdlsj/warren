@@ -220,11 +220,6 @@ export function EmptyTerminal({
       <div className="empty-state">
         {terminalIcon}
         <div className="empty-title">Start a session</div>
-        <div className="shortcut-list">
-          <span><kbd>⌘X</kbd> Next tab</span>
-          <span><kbd>⇧⌘X</kbd> Previous tab</span>
-          <span><kbd>⌘K</kbd> Search projects</span>
-        </div>
         <button type="button" className="empty-action" onClick={onNewSession}>New Session</button>
       </div>
     );
