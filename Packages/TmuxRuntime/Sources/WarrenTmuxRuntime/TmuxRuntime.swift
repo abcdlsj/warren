@@ -116,6 +116,7 @@ public actor TmuxRuntime: TerminalRuntime {
                 ],
                 recovery: "Ensure the tmux server can start and the working directory still exists."
             )
+            await enableExtendedKeys()
             let paneTarget = try await paneTarget(for: name)
             let finalizedDescriptor = descriptorWithPane(
                 descriptor,
@@ -164,6 +165,7 @@ public actor TmuxRuntime: TerminalRuntime {
                 recovery: "Check whether the tmux server is running; if the session exited, mark it ended in Host before creating a new one."
             )
         }
+        await enableExtendedKeys()
 
         let spoolURL = try spoolURL(from: descriptor)
         guard FileManager.default.fileExists(atPath: spoolURL.path) else {
@@ -327,6 +329,16 @@ public actor TmuxRuntime: TerminalRuntime {
         } catch {
             throw normalize(error)
         }
+    }
+
+    /// tmux reports Shift+Enter to panes as a kitty-protocol sequence only
+    /// when the server's `extended-keys` option is on. Without it, Ghostty's
+    /// Shift+Enter newline collapses to plain Enter inside tmux and agent TUIs
+    /// submit instead of inserting a newline. The option is server-wide and
+    /// idempotent; older tmux versions without it should still create
+    /// sessions, so failures are intentionally ignored.
+    private func enableExtendedKeys() async {
+        _ = try? await execute(arguments: ["set-option", "-s", "extended-keys", "on"])
     }
 
     public func inspect(sessionID: TerminalSessionID) async throws -> TerminalRuntimeInspection {

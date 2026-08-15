@@ -54,6 +54,13 @@ func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command strin
 	if err != nil {
 		return fmt.Errorf("create tmux session: %s: %w", strings.TrimSpace(string(output)), err)
 	}
+	// tmux reports Shift+Enter to panes as a kitty-protocol sequence only when
+	// the server's extended-keys option is on. Without it, Ghostty's
+	// Shift+Enter newline collapses to plain Enter inside tmux and agent TUIs
+	// submit instead of inserting a newline. The server must already exist, so
+	// this runs after new-session; best-effort so older tmux versions without
+	// the option can still host sessions.
+	_ = t.command(ctx, "set-option", "-s", "extended-keys", "on").Run()
 	if err := t.setLatestWindowSize(ctx, runtimeName); err != nil {
 		_ = t.Kill(ctx, runtimeName)
 		return err

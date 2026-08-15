@@ -147,6 +147,30 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         await runtime.shutdown()
     }
 
+    func testCreateEnablesExtendedKeysAfterCreatingSession() async throws {
+        let executor = RecordingTmuxExecutor()
+        let outputDirectory = try temporaryDirectory()
+        let runtime = TmuxRuntime(
+            executor: executor,
+            outputDirectory: outputDirectory,
+            exitPollIntervalNanoseconds: 10_000_000
+        )
+
+        _ = try await runtime.create(
+            sessionID: TerminalSessionID(),
+            workingDirectory: outputDirectory.path,
+            size: TerminalSize(columns: 80, rows: 24)!
+        )
+
+        let calls = await executor.calls
+        let optionIndex = try XCTUnwrap(
+            calls.firstIndex { $0.arguments == ["set-option", "-s", "extended-keys", "on"] }
+        )
+        let sessionIndex = try XCTUnwrap(calls.firstIndex { $0.arguments.first == "new-session" })
+        XCTAssertGreaterThan(optionIndex, sessionIndex)
+        await runtime.shutdown()
+    }
+
     func testPresetLaunchStartsAsFirstPaneProcessWithoutSyntheticInput() async throws {
         let executor = RecordingTmuxExecutor()
         let outputDirectory = try temporaryDirectory()

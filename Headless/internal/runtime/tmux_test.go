@@ -145,6 +145,30 @@ func TestListCreatedReturnsSessionCreationTimestamps(t *testing.T) {
 	}
 }
 
+func TestCreateEnablesExtendedKeys(t *testing.T) {
+	binary, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux is not installed")
+	}
+
+	name := "warren_keys_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	tmux := Tmux{Binary: binary, Socket: name}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+		t.Fatal(err)
+	}
+	defer tmux.Kill(context.Background(), name)
+
+	output, err := tmux.command(ctx, "show-options", "-s", "extended-keys").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(output, []byte("on")) {
+		t.Fatalf("show-options -s extended-keys = %q, want on", output)
+	}
+}
+
 func TestNormalizeCaptureOutput(t *testing.T) {
 	tests := []struct {
 		name  string
