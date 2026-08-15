@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
@@ -25,6 +26,7 @@ import {
   SearchPanel,
   SettingsPage,
   Sidebar,
+  TerminalSearch,
   TopBar,
 } from "./components.jsx";
 
@@ -40,6 +42,12 @@ const storageKeys = {
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
 const pendingInputLimit = 64 * 1024;
+const terminalSearchDecorations = {
+  matchBackground: "#3a3837",
+  matchOverviewRuler: "#f59e0b",
+  activeMatchBackground: "#e07850",
+  activeMatchColorOverviewRuler: "#e07850",
+};
 const isCoarsePointer = () => (
   typeof window.matchMedia === "function"
     ? window.matchMedia("(pointer: coarse)").matches
@@ -77,11 +85,17 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [terminalSearchOpen, setTerminalSearchOpen] = useState(false);
+  const [terminalSearchQuery, setTerminalSearchQuery] = useState("");
+  const [terminalSearchIndex, setTerminalSearchIndex] = useState(-1);
+  const [terminalSearchCount, setTerminalSearchCount] = useState(0);
+  const [terminalSearchFocusNonce, setTerminalSearchFocusNonce] = useState(0);
 
   const connectionRef = useRef(null);
   const terminalHostRef = useRef(null);
   const terminalRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const searchAddonRef = useRef(null);
   const webglAddonRef = useRef(null);
   const fitFrameRef = useRef(null);
   const resizeTimerRef = useRef(null);
@@ -184,6 +198,50 @@ export default function App() {
     }
   }, []);
 
+  const clearTerminalSearch = useCallback(() => {
+    setTerminalSearchOpen(false);
+    setTerminalSearchQuery("");
+    setTerminalSearchIndex(-1);
+    setTerminalSearchCount(0);
+    searchAddonRef.current?.clearDecorations();
+  }, []);
+
+  const openTerminalSearch = useCallback(() => {
+    if (isCoarsePointer()) return;
+    setTerminalSearchOpen(true);
+    setTerminalSearchFocusNonce(value => value + 1);
+  }, []);
+
+  const closeTerminalSearch = useCallback(() => {
+    clearTerminalSearch();
+    terminalRef.current?.focus();
+  }, [clearTerminalSearch]);
+
+  const updateTerminalSearchQuery = useCallback(query => {
+    setTerminalSearchQuery(query);
+    const addon = searchAddonRef.current;
+    if (!addon) return;
+    if (!query) {
+      addon.clearDecorations();
+      setTerminalSearchIndex(-1);
+      setTerminalSearchCount(0);
+      return;
+    }
+    addon.findNext(query, {
+      incremental: true,
+      decorations: terminalSearchDecorations,
+    });
+  }, []);
+
+  const stepTerminalSearch = useCallback(direction => {
+    const addon = searchAddonRef.current;
+    const query = terminalSearchQuery;
+    if (!addon || !query) return;
+    const options = { decorations: terminalSearchDecorations };
+    if (direction === "next") addon.findNext(query, options);
+    else addon.findPrevious(query, options);
+  }, [terminalSearchQuery]);
+
   const refreshTerminal = useCallback(() => {
     const terminal = terminalRef.current;
     if (!terminal || terminal.rows <= 0) return;
@@ -271,6 +329,7 @@ export default function App() {
     sentTerminalSizeRef.current = null;
     if (changed) {
       terminalRef.current?.clear();
+      clearTerminalSearch();
       recoveryAnchorRef.current = null;
       reanchorRequiredRef.current = false;
     }
@@ -279,7 +338,7 @@ export default function App() {
       : recoveryAnchorRef.current;
     const message = attachTerminalMessage(sessionID, terminalRef.current, anchor);
     request(message.method, message.params, () => markAttachReady(sessionID));
-  }, [markAttachReady, refreshTerminal, request]);
+  }, [clearTerminalSearch, markAttachReady, refreshTerminal, request]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
@@ -294,6 +353,7 @@ export default function App() {
     setAttachedSession(null);
     setEmptyOverride(null);
     terminalRef.current?.clear();
+    clearTerminalSearch();
     recoveryAnchorRef.current = null;
     reanchorRequiredRef.current = false;
     setDrawerOpen(false);
@@ -301,7 +361,7 @@ export default function App() {
     if (preferredSessionID) attachSession(preferredSessionID, true);
     else if (nextTabs.length) attachSession(nextTabs[0].id, true);
     else if (wasAttached) request("session.detach");
-  }, [attachSession, request]);
+  }, [attachSession, clearTerminalSearch, request]);
 
   const createSession = useCallback(kind => {
     const workspaceID = appStateRef.current.activeWorkspace;
@@ -357,6 +417,7 @@ export default function App() {
       setActiveSession(null);
       setAttachedSession(null);
       terminalRef.current?.clear();
+      clearTerminalSearch();
       recoveryAnchorRef.current = null;
       reanchorRequiredRef.current = false;
     }
@@ -365,7 +426,7 @@ export default function App() {
     if (state.activeSession) attachSession(state.activeSession);
     else if (nextTabs.length) attachSession(nextTabs[0].id);
     else if (activeTabWasRemoved) request("session.detach");
-  }, [attachSession, request]);
+  }, [attachSession, clearTerminalSearch, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
@@ -508,6 +569,7 @@ export default function App() {
         setActiveSession(null);
         setAttachedSession(null);
         terminalRef.current?.clear();
+        clearTerminalSearch();
         recoveryAnchorRef.current = null;
         reanchorRequiredRef.current = false;
         snapshotPendingRef.current = false;
@@ -520,6 +582,7 @@ export default function App() {
         focusedSessionRef.current = null;
         setActiveSession(null);
         setAttachedSession(null);
+        clearTerminalSearch();
         snapshotPendingRef.current = false;
         setEmptyOverride({ loading: false, message: "Session ended" });
       }
@@ -532,7 +595,7 @@ export default function App() {
     default:
       break;
     }
-  }, [acceptRoster, attachSession, fitTerminal, markAttachReady, requestSessionFocus]);
+  }, [acceptRoster, attachSession, clearTerminalSearch, fitTerminal, markAttachReady, requestSessionFocus]);
 
   const acceptConnectionState = useCallback(state => {
     if (state === "connecting") {
@@ -602,6 +665,13 @@ export default function App() {
       // WebGL is optional; older browsers and some embedded webviews keep the
       // DOM renderer.
     }
+    const searchAddon = new SearchAddon({ highlightLimit: 2000 });
+    terminal.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
+    const searchResultsSubscription = searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+      setTerminalSearchIndex(resultIndex);
+      setTerminalSearchCount(resultCount);
+    });
     const batcher = new OutputBatcher({
       write: bytes => {
         const buffer = terminal.buffer.active;
@@ -657,6 +727,17 @@ export default function App() {
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const onTerminalFocus = () => requestSessionFocus(true);
     const onTerminalBlur = () => requestSessionFocus(false);
+    const copySelectionOnMouseUp = event => {
+      // Ghostty on macOS copies a completed selection to the clipboard; mirror
+      // that behavior for web mouse users. Touch selection is left to the
+      // platform because automatic copying is fragile on mobile.
+      if (event.pointerType !== "mouse" || !terminal.hasSelection()) return;
+      const text = terminal.getSelection();
+      if (text && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    };
+    terminal.element?.addEventListener("mouseup", copySelectionOnMouseUp);
     terminal.textarea?.addEventListener("focus", onTerminalFocus);
     terminal.textarea?.addEventListener("blur", onTerminalBlur);
     const releaseWindowFocus = () => requestSessionFocus(false);
@@ -680,6 +761,8 @@ export default function App() {
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
+      searchResultsSubscription.dispose();
+      terminal.element?.removeEventListener("mouseup", copySelectionOnMouseUp);
       textarea?.removeEventListener("compositionstart", onCompositionStart);
       textarea?.removeEventListener("compositionend", onCompositionEnd);
       terminal.textarea?.removeEventListener("focus", onTerminalFocus);
@@ -691,6 +774,8 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       webglAddonRef.current?.dispose();
       webglAddonRef.current = null;
+      searchAddon.dispose();
+      searchAddonRef.current = null;
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
@@ -777,8 +862,9 @@ export default function App() {
   const openSettings = useCallback(() => {
     navigationBeforeSettingsRef.current = captureNavigationPosition(appStateRef.current);
     setSearchOpen(false);
+    clearTerminalSearch();
     setSettingsOpen(true);
-  }, []);
+  }, [clearTerminalSearch]);
 
   const closeSettings = useCallback(() => {
     const previousPosition = navigationBeforeSettingsRef.current;
@@ -806,6 +892,10 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = event => {
       const modifier = event.metaKey || event.ctrlKey;
+      if (event.key === "Escape" && terminalSearchOpen) {
+        closeTerminalSearch();
+        return;
+      }
       if (event.key === "Escape" && searchOpen) {
         closeSearch();
         return;
@@ -818,6 +908,9 @@ export default function App() {
       if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
+      } else if (event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        openTerminalSearch();
       } else if (event.key === ",") {
         event.preventDefault();
         openSettings();
@@ -825,7 +918,7 @@ export default function App() {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen, settingsOpen, openSettings, closeSearch, closeSettings]);
+  }, [searchOpen, settingsOpen, terminalSearchOpen, openSettings, closeSearch, closeSettings, closeTerminalSearch, openTerminalSearch]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
     closeSearch();
@@ -895,6 +988,18 @@ export default function App() {
             onClick={focusTerminal}
           >
             <div id="terminal" ref={terminalHostRef} />
+            <TerminalSearch
+              open={terminalSearchOpen}
+              query={terminalSearchQuery}
+              resultIndex={terminalSearchIndex}
+              resultCount={terminalSearchCount}
+              focusNonce={terminalSearchFocusNonce}
+              onQueryChange={updateTerminalSearchQuery}
+              onNext={() => stepTerminalSearch("next")}
+              onPrevious={() => stepTerminalSearch("previous")}
+              onOpen={openTerminalSearch}
+              onClose={closeTerminalSearch}
+            />
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}
               activeSession={activeSession}

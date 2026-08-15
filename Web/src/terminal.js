@@ -24,3 +24,10 @@ export function fitTerminalToHost(fitAddon, host) {
   fitAddon.fit();
   return true;
 }
+
+export function terminalSearchSummary(resultIndex, resultCount, hasQuery) {
+  if (!hasQuery) return "";
+  if (resultCount <= 0) return "No results";
+  if (resultIndex >= 0) return `${resultIndex + 1}/${resultCount}`;
+  return `${resultCount} found`;
+}

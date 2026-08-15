@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachTerminalMessage, fitTerminalToHost, terminalSize } from "./terminal.js";
+import {
+  attachTerminalMessage,
+  fitTerminalToHost,
+  terminalSearchSummary,
+  terminalSize,
+} from "./terminal.js";
 
 test("terminalSize accepts only a positive integer grid", () => {
   assert.deepEqual(terminalSize({ cols: 120, rows: 36 }), { cols: 120, rows: 36 });
@@ -27,4 +32,11 @@ test("fitTerminalToHost waits for a measurable host and invokes fit once", () =>
   assert.equal(fitTerminalToHost(addon, { clientWidth: 0, clientHeight: 400 }), false);
   assert.equal(fitTerminalToHost(addon, { clientWidth: 800, clientHeight: 400 }), true);
   assert.equal(calls, 1);
+});
+
+test("terminalSearchSummary formats empty, total-only and active-index states", () => {
+  assert.equal(terminalSearchSummary(0, 0, false), "");
+  assert.equal(terminalSearchSummary(-1, 0, true), "No results");
+  assert.equal(terminalSearchSummary(-1, 12, true), "12 found");
+  assert.equal(terminalSearchSummary(2, 12, true), "3/12");
 });

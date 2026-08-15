@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
+import { terminalSearchSummary } from "./terminal.js";
 
 const activityLabels = {
   working: "Working",
@@ -245,6 +246,78 @@ export function EmptyTerminal({
   }
 
   return <div className="terminal-empty" hidden={hidden}>{content}</div>;
+}
+
+export function TerminalSearch({
+  open,
+  query,
+  resultIndex,
+  resultCount,
+  focusNonce,
+  onQueryChange,
+  onNext,
+  onPrevious,
+  onOpen,
+  onClose,
+}) {
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open, focusNonce]);
+
+  const handleKeyDown = event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.shiftKey) onPrevious();
+      else onNext();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="terminal-search-open chrome-button"
+        aria-label="Search terminal"
+        title="Search terminal (⌘F)"
+        onClick={onOpen}
+      >
+        <SearchIcon />
+      </button>
+    );
+  }
+
+  const summary = terminalSearchSummary(resultIndex, resultCount, Boolean(query));
+  const hasMatches = Boolean(query) && resultCount > 0;
+  return (
+    <div className="terminal-search" role="search" aria-label="Search terminal">
+      <SearchIcon />
+      <input
+        ref={inputRef}
+        value={query}
+        onChange={event => onQueryChange(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Find…"
+        aria-label="Find in terminal"
+        autoComplete="off"
+        spellCheck="false"
+      />
+      <span className="terminal-search-count">{summary}</span>
+      <button type="button" aria-label="Previous match" title="Previous match (⇧↵)" disabled={!hasMatches} onClick={onPrevious}>
+        <ChevronUpIcon />
+      </button>
+      <button type="button" aria-label="Next match" title="Next match (↵)" disabled={!hasMatches} onClick={onNext}>
+        <ChevronDownIcon />
+      </button>
+      <button type="button" aria-label="Close search" title="Close search (esc)" onClick={onClose}>
+        <CloseIcon />
+      </button>
+    </div>
+  );
 }
 
 export function MobileKeys({ onInput }) {
@@ -664,6 +737,30 @@ function SearchIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
       <circle cx="11" cy="11" r="6" />
       <path d="m16 16 4 4" />
+    </svg>
+  );
+}
+
+function ChevronUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="m6 15 6-6 6 6" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
