@@ -291,9 +291,20 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     // MARK: - Drop zones
 
     private enum DropZone: Equatable {
-        case before(String)
-        case endOfWorkspaces(ProjectID)
-        case endOfProjects
+        case beforeWorkspace(rowID: String, y: CGFloat)
+        case beforeProject(rowID: String, y: CGFloat)
+        case endOfWorkspaces(projectID: ProjectID, y: CGFloat)
+        case endOfProjects(y: CGFloat)
+
+        var insertionY: CGFloat {
+            switch self {
+            case .beforeWorkspace(_, let y),
+                 .beforeProject(_, let y),
+                 .endOfWorkspaces(_, let y),
+                 .endOfProjects(let y):
+                return y
+            }
+        }
     }
 
     private func rowFrame(at point: NSPoint) -> WarrenSidebarRowDragFrame? {
@@ -301,31 +312,32 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     }
 
     private func dropZone(at point: NSPoint, payload: String) -> DropZone? {
-        guard let row = rowFrame(at: point) else { return nil }
-        let info = row.info
+        let ordered = rows.values.sorted { $0.frame.minY < $1.frame.minY }
+        guard let first = ordered.first, let last = ordered.last else { return nil }
+        guard point.y >= first.frame.minY, point.y <= last.frame.maxY else { return nil }
+
         let isWorkspacePayload = payload.hasPrefix(WarrenSidebarDragPayload.workspacePrefix)
-        let isProjectPayload = payload.hasPrefix(WarrenSidebarDragPayload.projectPrefix)
-        switch info.kind {
-        case .project:
+        var candidates: [DropZone] = []
+        for row in ordered {
             if isWorkspacePayload {
-                // The whole project row is a natural end-of-list target for
-                // its own workspaces.
-                return .endOfWorkspaces(info.projectID)
+                guard !row.info.isProjectRow else { continue }
+                candidates.append(.beforeWorkspace(rowID: row.info.id, y: row.frame.minY))
+                if row.info.isLastOfList {
+                    candidates.append(
+                        .endOfWorkspaces(projectID: row.info.projectID, y: row.frame.maxY)
+                    )
+                }
+            } else {
+                guard row.info.isProjectRow else { continue }
+                candidates.append(.beforeProject(rowID: row.info.id, y: row.frame.minY))
+                if row.info.isLastOfList {
+                    candidates.append(.endOfProjects(y: row.frame.maxY))
+                }
             }
-            if isProjectPayload, info.isLastOfList, point.y >= row.frame.midY {
-                return .endOfProjects
-            }
-            return .before(info.id)
-        case .workspace:
-            if isProjectPayload {
-                // A project dropped anywhere on a workspace row lands before
-                // the project that contains the workspace.
-                return .before(info.id)
-            }
-            if isWorkspacePayload, info.isLastOfList, point.y >= row.frame.midY {
-                return .endOfWorkspaces(info.projectID)
-            }
-            return .before(info.id)
+        }
+        guard !candidates.isEmpty else { return nil }
+        return candidates.min {
+            abs($0.insertionY - point.y) < abs($1.insertionY - point.y)
         }
     }
 
@@ -335,30 +347,26 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
             let sourceID = String(payload.dropFirst(WarrenSidebarDragPayload.projectPrefix.count))
             guard ProjectID(uuidString: sourceID) != nil else { return false }
             switch zone {
-            case .before(let rowID):
-                guard let row = rows[rowID] else { return false }
-                return onDropProject?(payload, row.info.projectID) ?? false
+            case .beforeProject(let rowID, _):
+                guard let projectID = ProjectID(uuidString: rowID) else { return false }
+                return onDropProject?(payload, projectID) ?? false
             case .endOfProjects:
                 return onDropProject?(payload, nil) ?? false
-            case .endOfWorkspaces:
+            case .beforeWorkspace, .endOfWorkspaces:
                 return false
             }
         } else {
             let sourceID = String(payload.dropFirst(WarrenSidebarDragPayload.workspacePrefix.count))
             guard WorkspaceID(uuidString: sourceID) != nil else { return false }
             switch zone {
-            case .before(let rowID):
-                guard let row = rows[rowID] else { return false }
-                if row.info.isProjectRow {
-                    return onDropWorkspace?(payload, nil, row.info.projectID) ?? false
-                }
-                guard let target = WorkspaceID(uuidString: row.info.id) else {
+            case .beforeWorkspace(let rowID, _):
+                guard let target = WorkspaceID(uuidString: rowID) else {
                     return false
                 }
-                return onDropWorkspace?(payload, target, row.info.projectID) ?? false
-            case .endOfWorkspaces(let projectID):
+                return onDropWorkspace?(payload, target, nil) ?? false
+            case .endOfWorkspaces(let projectID, _):
                 return onDropWorkspace?(payload, nil, projectID) ?? false
-            case .endOfProjects:
+            case .beforeProject, .endOfProjects:
                 return false
             }
         }
@@ -366,7 +374,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     private func updateHighlight(payload: String, at point: NSPoint) {
         let zone = dropZone(at: point, payload: payload)
-        let rect = zone.flatMap { highlightRect(for: $0, at: point) }
+        let rect = zone.map { insertionRect(for: $0) }
         if highlightRect != rect {
             highlightRect = rect
             needsDisplay = true
@@ -379,33 +387,13 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         needsDisplay = true
     }
 
-    private func highlightRect(
-        for zone: DropZone,
-        at point: NSPoint
-    ) -> NSRect? {
-        switch zone {
-        case .before(let rowID):
-            guard let row = rows[rowID] else { return nil }
-            return row.frame.insetBy(dx: WarrenSpacing.compact, dy: 1)
-        case .endOfWorkspaces:
-            guard let row = rowFrame(at: point) else { return nil }
-            if row.info.isProjectRow {
-                return row.frame.insetBy(dx: WarrenSpacing.compact, dy: 1)
-            }
-            return lowerHalfRect(row.frame)
-        case .endOfProjects:
-            guard let row = rowFrame(at: point) else { return nil }
-            return lowerHalfRect(row.frame)
-        }
-    }
-
-    private func lowerHalfRect(_ frame: CGRect) -> NSRect {
-        let halfHeight = frame.height / 2
+    private func insertionRect(for zone: DropZone) -> NSRect {
+        let lineHeight: CGFloat = 2.5
         return NSRect(
-            x: frame.minX + WarrenSpacing.compact,
-            y: frame.midY,
-            width: frame.width - WarrenSpacing.compact * 2,
-            height: halfHeight - 1
+            x: WarrenSpacing.compact,
+            y: zone.insertionY - lineHeight / 2,
+            width: max(0, bounds.width - WarrenSpacing.compact * 2),
+            height: lineHeight
         )
     }
 
@@ -415,14 +403,11 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         guard let highlightRect else { return }
         let path = NSBezierPath(
             roundedRect: highlightRect,
-            xRadius: WarrenRadius.row,
-            yRadius: WarrenRadius.row
+            xRadius: highlightRect.height / 2,
+            yRadius: highlightRect.height / 2
         )
-        NSColor.controlAccentColor.withAlphaComponent(0.14).setFill()
+        NSColor.controlAccentColor.setFill()
         path.fill()
-        NSColor.controlAccentColor.withAlphaComponent(0.8).setStroke()
-        path.lineWidth = 1
-        path.stroke()
     }
 
     // MARK: - Helpers
