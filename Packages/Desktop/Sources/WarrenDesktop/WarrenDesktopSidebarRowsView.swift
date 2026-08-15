@@ -139,7 +139,7 @@ struct WarrenDesktopSidebarRows: View {
                     .flatMap(\.workspaces)
                     .first(where: { $0.id == workspaceID })
             else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            _ = withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                 tree.expandedProjectIDs.insert(workspace.projectID)
             }
         }

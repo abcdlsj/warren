@@ -162,9 +162,9 @@ public extension WarrenColorTokens {
     /// Sidebar text hierarchy from brightest to most muted. Projects are the
     /// top-level navigation and read whitest; the selected workspace sits one
     /// step below; idle workspaces use the muted foreground.
-    public var projectText: Color { foreground.opacity(0.96) }
-    public var workspaceSelectedText: Color { foreground.opacity(0.90) }
-    public var workspaceText: Color { mutedForeground }
+    var projectText: Color { foreground.opacity(0.96) }
+    var workspaceSelectedText: Color { foreground.opacity(0.90) }
+    var workspaceText: Color { mutedForeground }
 
     func wash(_ kind: WarrenWashKind) -> Color {
         switch kind {

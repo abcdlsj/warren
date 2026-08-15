@@ -8,6 +8,7 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
+    cssCodeSplit: false,
     rollupOptions: {
       output: {
         entryFileNames: "assets/app.js",
@@ -15,6 +16,11 @@ export default defineConfig({
         assetFileNames: ({ names = [] }) => names.some(name => name.endsWith(".css"))
           ? "assets/app.css"
           : "assets/[name][extname]",
+        manualChunks(id) {
+          if (!id.includes("/node_modules/")) return;
+          if (id.includes("/@xterm/")) return "xterm";
+          if (id.includes("/react/") || id.includes("/react-dom/")) return "react";
+        },
       },
     },
   },
