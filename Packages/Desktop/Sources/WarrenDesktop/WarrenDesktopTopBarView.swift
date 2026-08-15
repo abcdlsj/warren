@@ -35,7 +35,9 @@ struct WarrenDesktopTopBar: View {
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
 
-            Spacer(minLength: WarrenSpacing.medium)
+            WarrenDesktopWindowDragRegion()
+                .frame(maxWidth: .infinity)
+                .accessibilityHidden(true)
 
             if hasInspector {
                 WarrenDesktopInspectorButton(

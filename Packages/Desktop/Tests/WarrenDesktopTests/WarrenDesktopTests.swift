@@ -51,10 +51,99 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testTabBarDragFillerSpansEmptyTrackWhenTabsFit() {
+        let root = WarrenDesktopRoot(
+            projection: WarrenDesktopFixture.preview.projection,
+            actions: WarrenDesktopActions()
+        ) { context in
+            TestTerminalSurface(context: context)
+        }
+        .environment(\.colorScheme, .dark)
+
+        let hostingView = NSHostingView(rootView: root)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1280, height: 800)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        hostingView.layoutSubtreeIfNeeded()
+
+        let dragViews = descendantViews(
+            of: hostingView,
+            as: WarrenDesktopWindowDragView.self
+        )
+        guard let filler = dragViews.first(where: {
+            $0.identifier?.rawValue == "warren.tab-bar-drag-region"
+        }) else {
+            XCTFail("Tab bar drag filler is missing")
+            return
+        }
+
+        XCTAssertGreaterThanOrEqual(filler.frame.width, 100)
+    }
+
+    private func descendantViews<T: NSView>(
+        of view: NSView,
+        as type: T.Type
+    ) -> [T] {
+        var matches: [T] = []
+        for subview in view.subviews {
+            if let typed = subview as? T {
+                matches.append(typed)
+            }
+            matches.append(contentsOf: descendantViews(of: subview, as: type))
+        }
+        return matches
+    }
+
     func testWindowDragRegionUsesDedicatedAppKitView() {
         let view = WarrenDesktopWindowDragView()
 
         XCTAssertFalse(view.acceptsFirstResponder)
+    }
+
+    func testWindowDragRegionPerformsDragOnSingleClick() {
+        let view = WarrenDesktopWindowDragView()
+        let window = WarrenDragProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+
+        view.mouseDown(with: Self.mouseDownEvent(clickCount: 1))
+
+        XCTAssertTrue(window.didRequestDrag)
+        XCTAssertFalse(window.didToggleFullScreen)
+    }
+
+    func testWindowDragRegionTogglesFullScreenOnDoubleClick() {
+        let view = WarrenDesktopWindowDragView()
+        let window = WarrenDragProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+
+        view.mouseDown(with: Self.mouseDownEvent(clickCount: 2))
+
+        XCTAssertTrue(window.didToggleFullScreen)
+        XCTAssertFalse(window.didRequestDrag)
+    }
+
+    private static func mouseDownEvent(clickCount: Int) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: clickCount,
+            pressure: 1
+        )!
     }
 
     func testSidebarStateUsesSupersetSnapAndRestoreValues() {
@@ -735,5 +824,19 @@ final class WarrenDesktopTests: XCTestCase {
                 initial
             )
         }
+    }
+}
+
+@MainActor
+private final class WarrenDragProbeWindow: NSWindow {
+    var didRequestDrag = false
+    var didToggleFullScreen = false
+
+    override func performDrag(with event: NSEvent) {
+        didRequestDrag = true
+    }
+
+    override func toggleFullScreen(_ sender: Any?) {
+        didToggleFullScreen = true
     }
 }

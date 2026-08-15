@@ -47,6 +47,11 @@ struct WarrenDesktopTabBar: View {
     @State private var pendingRenameSessionID: TerminalSessionID?
     @State private var sessionRenameTitle = ""
 
+    private var tabTrackWidth: CGFloat {
+        CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
+            + WarrenLayoutMetrics.tabAddButtonSlotWidth
+    }
+
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         ZStack(alignment: .leading) {
@@ -128,21 +133,11 @@ struct WarrenDesktopTabBar: View {
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(
+                    maxWidth: hasTabOverflow ? .infinity : tabTrackWidth,
+                    alignment: .leading
+                )
                 .layoutPriority(1)
-                .background {
-                    GeometryReader { viewport in
-                        Color.clear.preference(
-                            key: WarrenTabViewportWidthKey.self,
-                            value: viewport.size.width
-                        )
-                    }
-                }
-                .onPreferenceChange(WarrenTabViewportWidthKey.self) { viewportWidth in
-                    let neededWidth = CGFloat(tabs.count) * WarrenLayoutMetrics.tabWidth
-                        + WarrenLayoutMetrics.tabAddButtonSlotWidth
-                    hasTabOverflow = viewportWidth > 0 && neededWidth > viewportWidth + 1
-                }
 
                 if hasTabOverflow {
                     WarrenDesktopTabAddSlot(
@@ -159,7 +154,7 @@ struct WarrenDesktopTabBar: View {
                 // The drag filler lives outside the scroll view, exactly like
                 // Superset's TabBar: it stays available when the track is full
                 // so there is always a small native drag leaf.
-                WarrenDesktopWindowDragRegion()
+                WarrenDesktopWindowDragRegion(identifier: "warren.tab-bar-drag-region")
                     .frame(minWidth: WarrenSpacing.standard, maxWidth: .infinity)
                     .accessibilityHidden(true)
 
@@ -180,6 +175,20 @@ struct WarrenDesktopTabBar: View {
                 }
             }
             .frame(height: WarrenLayoutMetrics.tabBarHeight)
+            .background {
+                // Measure against the full HStack, not the constrained scroll
+                // track, so overflow reflects the real available tab width.
+                GeometryReader { viewport in
+                    Color.clear.preference(
+                        key: WarrenTabViewportWidthKey.self,
+                        value: viewport.size.width
+                    )
+                }
+            }
+            .onPreferenceChange(WarrenTabViewportWidthKey.self) { viewportWidth in
+                hasTabOverflow = viewportWidth > 0
+                    && tabTrackWidth > viewportWidth + 1
+            }
         }
         .frame(height: WarrenLayoutMetrics.tabBarHeight)
         .alert("Rename Session", isPresented: Binding(
@@ -209,7 +218,7 @@ private struct WarrenDesktopCollapsedWorkspaceLeading: View {
 
     var body: some View {
         HStack(spacing: WarrenSpacing.small) {
-            Color.clear
+            WarrenDesktopWindowDragRegion()
                 .frame(width: max(
                     WarrenLayoutMetrics.macTrafficLightInset
                         - WarrenLayoutMetrics.sidebarCollapsedWidth,
