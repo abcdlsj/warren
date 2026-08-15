@@ -23,6 +23,7 @@ let package = Package(
             name: "GhosttyAdapter",
             dependencies: [
                 .product(name: "GhosttyTerminal", package: "libghostty-swift"),
+                .product(name: "GhosttyKit", package: "libghostty-swift"),
                 .product(name: "WarrenDomain", package: "Domain"),
             ]
         ),

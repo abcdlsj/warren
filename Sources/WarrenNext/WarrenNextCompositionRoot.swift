@@ -13,6 +13,7 @@ struct WarrenNextCompositionRoot: View {
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var isSupersetImporting = false
     @State private var workspaceCreatorProjectID: ProjectID?
+    @State private var terminalSearchPresented = false
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
@@ -53,7 +54,8 @@ struct WarrenNextCompositionRoot: View {
                 },
                 onBlurred: { sessionID in
                     remoteModel.blur(sessionID: sessionID)
-                }
+                },
+                searchPresented: $terminalSearchPresented
             )
         }
         .preferredColorScheme(.dark)
@@ -105,6 +107,9 @@ struct WarrenNextCompositionRoot: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: WebCommand.copyLocalURL)) { _ in
             remoteModel.copyLocalWebURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.findInTerminal)) { _ in
+            terminalSearchPresented = true
         }
         .onChange(of: terminalFontFamily) { _, _ in updateTerminalFont() }
         .onChange(of: terminalFontSize) { _, _ in updateTerminalFont() }
@@ -526,61 +531,183 @@ private struct WarrenNextTerminalSurfaceView: View {
     let surfaces: [GhosttySurface]
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
+    @Binding var searchPresented: Bool
+    @State private var searchQuery = ""
+    @FocusState private var searchFieldFocused: Bool
     @State private var focusDriver = GhosttyFocusDriver()
 
-    var body: some View {
-        if surfaces.isEmpty {
-            VStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Connecting \(context.tab.title)…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            GeometryReader { proxy in
-                ZStack {
-                    ForEach(surfaces) { surface in
-                        let isActive = surface.id == context.tab.sessionID
-                        GhosttyManagedSurface(
-                            surface: surface,
-                            isActive: isActive,
-                            focusDriver: focusDriver,
-                            viewportSize: proxy.size,
-                            onFocused: {
-                                onFocused(
-                                    surface.id,
-                                    surface.state.surfaceSize.flatMap {
-                                        TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
-                                    }
-                                )
-                            },
-                            onBlurred: {
-                                onBlurred(surface.id)
-                            }
-                        )
-                            // Every mounted renderer owns the same pane-sized
-                            // viewport, including hidden siblings. Otherwise
-                            // AppKit reports the hidden view's 50x17 intrinsic
-                            // grid to tmux and switching tabs visibly reflows
-                            // the agent before it expands again.
-                            .frame(
-                                width: proxy.size.width,
-                                height: proxy.size.height
-                            )
-                            .opacity(isActive ? 1 : 0)
-                            .allowsHitTesting(isActive)
-                            .accessibilityHidden(!isActive)
-                    }
-                }
-                .frame(
-                    width: proxy.size.width,
-                    height: proxy.size.height
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+    private var activeSurface: GhosttySurface? {
+        surfaces.first { $0.id == context.tab.sessionID }
     }
 
+    var body: some View {
+        Group {
+            if surfaces.isEmpty {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Connecting \(context.tab.title)…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                GeometryReader { proxy in
+                    ZStack {
+                        ForEach(surfaces) { surface in
+                            let isActive = surface.id == context.tab.sessionID
+                            GhosttyManagedSurface(
+                                surface: surface,
+                                isActive: isActive,
+                                focusDriver: focusDriver,
+                                viewportSize: proxy.size,
+                                onFocused: {
+                                    onFocused(
+                                        surface.id,
+                                        surface.state.surfaceSize.flatMap {
+                                            TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
+                                        }
+                                    )
+                                },
+                                onBlurred: {
+                                    onBlurred(surface.id)
+                                }
+                            )
+                                // Every mounted renderer owns the same pane-sized
+                                // viewport, including hidden siblings. Otherwise
+                                // AppKit reports the hidden view's 50x17 intrinsic
+                                // grid to tmux and switching tabs visibly reflows
+                                // the agent before it expands again.
+                                .frame(
+                                    width: proxy.size.width,
+                                    height: proxy.size.height
+                                )
+                                .opacity(isActive ? 1 : 0)
+                                .allowsHitTesting(isActive)
+                                .accessibilityHidden(!isActive)
+                        }
+                    }
+                    .frame(
+                        width: proxy.size.width,
+                        height: proxy.size.height
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if activeSurface != nil {
+                if searchPresented {
+                    WarrenTerminalSearchBar(
+                        presented: $searchPresented,
+                        query: $searchQuery,
+                        fieldFocused: $searchFieldFocused,
+                        surface: activeSurface
+                    )
+                    .padding(WarrenSpacing.compact)
+                } else {
+                    Button {
+                        searchPresented = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                    }
+                    .help("Find in Terminal (⌘F)")
+                    .accessibilityLabel("Find in Terminal")
+                    .padding(WarrenSpacing.compact)
+                }
+            }
+        }
+        .onChange(of: searchPresented) { _, presented in
+            if presented {
+                searchQuery = activeSurface?.readSelection() ?? ""
+                searchFieldFocused = true
+            } else {
+                searchQuery = ""
+                activeSurface?.endSearch()
+            }
+        }
+        .onChange(of: context.tab.sessionID) { _, _ in
+            for surface in surfaces { surface.endSearch() }
+            searchQuery = ""
+            searchPresented = false
+        }
+    }
+}
+
+private struct WarrenTerminalSearchBar: View {
+    @Binding var presented: Bool
+    @Binding var query: String
+    @FocusState.Binding var fieldFocused: Bool
+    let surface: GhosttySurface?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        HStack(spacing: WarrenSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(tokens.mutedForeground)
+
+            TextField("Find", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .focused($fieldFocused)
+                .frame(width: 170)
+                .onSubmit {
+                    surface?.navigateSearch(.next)
+                }
+
+            Button {
+                surface?.navigateSearch(.previous)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .frame(width: 20, height: 20)
+            }
+            .help("Previous match (⇧⏎)")
+
+            Button {
+                surface?.navigateSearch(.next)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .frame(width: 20, height: 20)
+            }
+            .help("Next match (⏎)")
+
+            Button {
+                presented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 20, height: 20)
+            }
+            .keyboardShortcut(.cancelAction)
+            .help("Close search (esc)")
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(tokens.mutedForeground)
+        .padding(.horizontal, WarrenSpacing.small)
+        .frame(height: 30)
+        .background(tokens.popoverSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
+        }
+        .onAppear {
+            surface?.search(for: query)
+            fieldFocused = true
+        }
+        .onChange(of: query) { _, newValue in
+            surface?.search(for: newValue)
+        }
+    }
 }

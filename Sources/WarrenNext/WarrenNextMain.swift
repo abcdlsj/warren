@@ -288,6 +288,16 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         paletteItem.representedObject = WarrenDesktopCommand.commandPalette.rawValue
 
         sessionMenu.addItem(.separator())
+        let findItem = sessionMenu.addItem(
+            withTitle: "Find in Terminal…",
+            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            keyEquivalent: "f"
+        )
+        findItem.target = target
+        findItem.keyEquivalentModifierMask = [.command]
+        findItem.representedObject = WarrenDesktopCommand.findInTerminal.rawValue
+
+        sessionMenu.addItem(.separator())
         let sidebarItem = sessionMenu.addItem(
             withTitle: "Toggle Sidebar",
             action: #selector(WarrenNextAppDelegate.postCommand(_:)),

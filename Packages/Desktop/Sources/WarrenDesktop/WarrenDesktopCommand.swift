@@ -12,6 +12,7 @@ public enum WarrenDesktopCommand {
     public static let selectTab = Notification.Name("WarrenDesktopCommand.selectTab")
     public static let selectTabIndexKey = "WarrenDesktopCommand.selectTabIndex"
     public static let closeTab = Notification.Name("WarrenDesktopCommand.closeTab")
+    public static let findInTerminal = Notification.Name("WarrenDesktopCommand.findInTerminal")
     public static let toggleSidebar = Notification.Name("WarrenDesktopCommand.toggleSidebar")
     public static let toggleInspector = Notification.Name("WarrenDesktopCommand.toggleInspector")
 }

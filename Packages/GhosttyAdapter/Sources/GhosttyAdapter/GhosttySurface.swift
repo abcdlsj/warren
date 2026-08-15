@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyKit
 import GhosttyTerminal
 import WarrenDomain
 
@@ -100,6 +101,11 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withFontSize(Float(font.size))
             builder.withFontThicken(false)
             builder.withCustom("adjust-cell-height", Self.defaultCellHeightAdjustment)
+            builder.withCustom("copy-on-select", "true")
+            builder.withCustom("search-foreground", "#eae8e6")
+            builder.withCustom("search-background", "#3a3837")
+            builder.withCustom("search-selected-foreground", "#151110")
+            builder.withCustom("search-selected-background", "#e07850")
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
             builder.withCustom("keybind", "super+t=unbind")
@@ -126,5 +132,56 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 
     public var view: TerminalSurfaceView {
         TerminalSurfaceView(context: state)
+    }
+}
+
+public enum TerminalSearchDirection: Sendable {
+    case next
+    case previous
+}
+
+public extension GhosttySurface {
+    /// Starts (or replaces) a scrollback search inside Ghostty. An empty
+    /// query stops the current search, matching Ghostty's `search:` action.
+    func search(for query: String) {
+        guard !query.isEmpty else {
+            endSearch()
+            return
+        }
+        _ = performBindingAction("search:\(query)")
+    }
+
+    func navigateSearch(_ direction: TerminalSearchDirection) {
+        switch direction {
+        case .next: _ = performBindingAction("navigate_search:next")
+        case .previous: _ = performBindingAction("navigate_search:previous")
+        }
+    }
+
+    func endSearch() {
+        _ = performBindingAction("end_search")
+    }
+
+    /// Current selection text, used to prefill the find box (⌘F with a
+    /// selection behaves like Ghostty's "search selection").
+    func readSelection() -> String? {
+        guard let raw = state.surface?.rawValue else { return nil }
+        var out = ghostty_text_s()
+        guard ghostty_surface_read_selection(raw, &out) else { return nil }
+        defer { ghostty_surface_free_text(raw, &out) }
+        guard let text = out.text, out.text_len > 0 else { return nil }
+        let bytes = UnsafeBufferPointer(start: text, count: Int(out.text_len))
+            .map { UInt8(bitPattern: $0) }
+        let value = String(decoding: bytes, as: UTF8.self)
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @discardableResult
+    private func performBindingAction(_ action: String) -> Bool {
+        guard let raw = state.surface?.rawValue else { return false }
+        return action.withCString { pointer in
+            ghostty_surface_binding_action(raw, pointer, UInt(action.utf8.count))
+        }
     }
 }
