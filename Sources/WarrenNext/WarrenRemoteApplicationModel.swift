@@ -40,15 +40,22 @@ private struct WarrenEndpointConfigurationFile: Decodable {
 }
 
 enum WarrenEndpointCatalog {
-    static func load() -> (current: String?, endpoints: [WarrenRemoteEndpointConfiguration]) {
+    static func configurationURL() -> URL {
         let environment = ProcessInfo.processInfo.environment
-        let configURL: URL
         if let value = environment["WARREN_CONFIG"], !value.isEmpty {
-            configURL = URL(fileURLWithPath: value)
-        } else {
-            configURL = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".warren/config.json")
+            return URL(fileURLWithPath: value)
         }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".warren/config.json")
+    }
+
+    static func load() -> (current: String?, endpoints: [WarrenRemoteEndpointConfiguration]) {
+        load(from: configurationURL())
+    }
+
+    static func load(
+        from configURL: URL
+    ) -> (current: String?, endpoints: [WarrenRemoteEndpointConfiguration]) {
         guard let data = try? Data(contentsOf: configURL),
               let file = try? JSONDecoder().decode(WarrenEndpointConfigurationFile.self, from: data) else {
             return (nil, [])

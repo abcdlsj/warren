@@ -40,7 +40,7 @@ From your Mac, `warren ssh` starts the remote daemon, fetches the token, saves t
 warren ssh user@vps
 ```
 
-Keep that process running. The Desktop reads the endpoint from `~/.warren/config.json` and shows `Local` plus server options in the top-right corner.
+Keep that process running. The Desktop reads the endpoint from `~/.warren/config.json` and shows `Local` plus server options in the top-right corner. Endpoint changes made with `warren endpoint add|use|remove` are picked up within about a second, so restarting Warren is not required.
 
 ## LAN HTTPS
 

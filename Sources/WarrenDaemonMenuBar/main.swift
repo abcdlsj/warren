@@ -55,6 +55,18 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         pollTask?.cancel()
     }
 
+    /// `open Warren.app` can land on this process because the menu-bar helper
+    /// shares the app bundle and therefore the same bundle identifier. Launch
+    /// the foreground executable instead of silently activating an accessory
+    /// process that has no desktop window.
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        launchForegroundApplication()
+        return false
+    }
+
     @objc private func restartDaemon() {
         autoStartDisabled = false
         stopDaemon()
@@ -68,6 +80,32 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     @objc private func quitMenuBar() {
         NSApp.terminate(nil)
+    }
+
+    private func launchForegroundApplication() {
+        let environment = ProcessInfo.processInfo.environment
+        let executable: URL
+        if let configured = environment["WARREN_APP_PATH"], !configured.isEmpty {
+            executable = URL(fileURLWithPath: configured)
+        } else {
+            let sibling = URL(fileURLWithPath: CommandLine.arguments[0])
+                .deletingLastPathComponent()
+                .appendingPathComponent("Warren")
+            let bundled = Bundle.main.bundleURL
+                .appendingPathComponent("Contents/MacOS/Warren")
+            executable = FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling : bundled
+        }
+        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
+            NSLog("Unable to reopen Warren desktop: %@ is not executable", executable.path)
+            return
+        }
+        let process = Process()
+        process.executableURL = executable
+        do {
+            try process.run()
+        } catch {
+            NSLog("Unable to reopen Warren desktop: %@", error.localizedDescription)
+        }
     }
 
     private func makeMenu() -> NSMenu {

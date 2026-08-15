@@ -24,10 +24,9 @@ struct WarrenNextCompositionRoot: View {
 
     @MainActor
     init() {
-        // Endpoint configuration is user input, not frame state. Read it once
-        // when the composition root is created instead of touching disk on
-        // every SwiftUI body evaluation (terminal output can invalidate the
-        // root frequently).
+        // Endpoint configuration is user input, not frame state. Seed the
+        // catalog once and refresh it from disk in the background so CLI
+        // changes appear without restarting Warren.
         _endpointCatalog = State(initialValue: WarrenEndpointCatalog.load().endpoints)
     }
 
@@ -132,6 +131,7 @@ struct WarrenNextCompositionRoot: View {
         .task {
             updateTerminalFont()
             restoreEndpointSelection()
+            await monitorEndpointConfiguration()
         }
         .onChange(of: selectedEndpointID) { _, _ in connectSelectedEndpoint() }
     }
@@ -214,6 +214,30 @@ struct WarrenNextCompositionRoot: View {
             return
         }
         connectSelectedEndpoint()
+    }
+
+    private func monitorEndpointConfiguration() async {
+        while !Task.isCancelled {
+            let previous = endpointCatalog
+            let loaded = WarrenEndpointCatalog.load().endpoints
+            guard loaded != previous else {
+                try? await Task.sleep(for: .seconds(1))
+                continue
+            }
+            endpointCatalog = loaded
+            guard selectedEndpointID != "local" else {
+                try? await Task.sleep(for: .seconds(1))
+                continue
+            }
+            if let endpoint = loaded.first(where: { $0.id == selectedEndpointID }) {
+                if previous.first(where: { $0.id == selectedEndpointID }) != endpoint {
+                    connectSelectedEndpoint()
+                }
+            } else {
+                selectedEndpointID = "local"
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
     }
 
     private func connectSelectedEndpoint() {

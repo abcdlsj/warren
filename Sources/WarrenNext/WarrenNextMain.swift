@@ -201,6 +201,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         let process = Process()
         process.executableURL = executable
         var childEnvironment = environment
+        childEnvironment["WARREN_APP_PATH"] = URL(fileURLWithPath: CommandLine.arguments[0]).path
         if childEnvironment["WARREN_HEADLESS_PATH"] == nil {
             let sibling = executable.deletingLastPathComponent().appendingPathComponent("warren-headless")
             if FileManager.default.isExecutableFile(atPath: sibling.path) {
