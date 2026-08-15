@@ -535,6 +535,28 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
+func TestCACertDownload(t *testing.T) {
+	t.Parallel()
+	caPath := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(caPath, []byte("-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
+		t.Fatalf("write CA certificate: %v", err)
+	}
+	handler := NewHTTPServer(&Service{}, "secret", slog.Default())
+	handler.CACertPath = caPath
+	request := httptest.NewRequest("GET", "http://localhost/tls/ca.pem", nil)
+	response := httptest.NewRecorder()
+	handler.Handler().ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("CA download returned %d", response.Code)
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "application/x-x509-ca-cert" {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+	if body := response.Body.String(); !strings.Contains(body, "BEGIN CERTIFICATE") {
+		t.Fatalf("CA body = %q", body)
+	}
+}
+
 func TestSameOriginAllowsLANAndForwardedHTTPS(t *testing.T) {
 	t.Parallel()
 	server := NewHTTPServer(&Service{}, "secret", slog.Default())

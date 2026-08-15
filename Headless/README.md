@@ -17,7 +17,7 @@ go install github.com/abcdlsj/warren/Headless/cmd/warren@latest
 mise run build:headless
 ```
 
-`warren-headless` listens on `0.0.0.0:8789` by default so phones and tablets on the same LAN can open the Web UI directly (for example `http://<host-LAN-IP>:8789/#t=<token>`). The same port serves the Web UI (`/`, static assets) and the control protocol (`/v1/ws`); every data endpoint requires token authentication except `/healthz` and static assets. The port has no TLS, so do not expose it to the public internet.
+`warren-headless` listens on `0.0.0.0:8789` by default so phones and tablets on the same LAN can open the Web UI directly. It also serves the same UI over HTTPS on `0.0.0.0:8788` (see "LAN HTTPS" below). The HTTP port has no TLS, so do not expose it to the public internet.
 
 ## 启动与连接
 
@@ -42,6 +42,15 @@ warren ssh user@vps
 
 保持该进程运行。Desktop 会从 `~/.warren/config.json` 读取 endpoint，并在右上角显示 `Local` 和服务器选项。
 
+## LAN HTTPS
+
+To remove the browser's "Not secure" badge when opening the Web UI from a phone on the same LAN, use the HTTPS listener on `0.0.0.0:8788` (disable it with `--lan-https=` or an empty `WARREN_LAN_HTTPS`). On first start the daemon generates a local CA and a server certificate in `~/.warren/tls/`; the certificate includes `localhost` and the machine's current LAN IPs.
+
+1. Open `http://<host-LAN-IP>:8789/tls/ca.pem` on the phone, install the CA certificate, and enable full trust for it (iOS: Settings → General → VPN & Device Management, then Certificate Trust Settings; Android: Settings → Security → Install certificates).
+2. Open `https://<host-LAN-IP>:8788/#t=<token>`.
+
+The loopback HTTP endpoint `127.0.0.1:8789` keeps serving Desktop and CLI clients unchanged. If the machine's LAN IP changes, restart the daemon so the server certificate is regenerated with the new IP.
+
 ## CLI
 
 ```sh
@@ -60,7 +69,7 @@ warren --endpoint my-vps session attach SESSION_ID
 
 The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
-The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `http://<host-LAN-IP>:8789/#t=<token>`. Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
+The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
 
 ## 输出链路
 
