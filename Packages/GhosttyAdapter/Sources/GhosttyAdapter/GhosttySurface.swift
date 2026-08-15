@@ -27,7 +27,8 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
-    private var settleDrawWorkItem: DispatchWorkItem?
+    private let reflowGate: ReflowGate
+    private var settleWorkItem: DispatchWorkItem?
 
     public init(
         id: TerminalSessionID,
@@ -42,10 +43,13 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         self.id = id
         self.attachmentID = attachmentID
         self.onViewportResize = onResize
+        let reflowGate = ReflowGate()
+        self.reflowGate = reflowGate
 
         let inMemory = InMemoryTerminalSession(
             write: onInput,
             resize: { viewport in
+                guard !reflowGate.isReflowing else { return }
                 onResize(Int(viewport.columns), Int(viewport.rows))
             }
         )
@@ -132,24 +136,38 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         requestDisplayRefresh()
     }
 
-    /// Presents the settled grid after the output queue drains.
+    /// Forces the settled grid to reflow after the output queue drains.
     ///
-    /// `ghostty_surface_refresh` is a no-op when the pixel dimensions are
-    /// unchanged, which is exactly the state after a tab switch reuses the
-    /// same pane size — the stale half-replayed frame stays on screen until a
-    /// real resize. Debounce one inline draw after the queue settles instead;
-    /// never pair it with a queued renderer-thread refresh in the same turn,
-    /// or an older queued frame can land after this present and roll part of
-    /// the pane backwards.
+    /// Ghostty's BCE handling corrupts soft-wrapped colored history when a
+    /// reanchor snapshot is replayed into a fresh surface: the background
+    /// color active at a wrap point bleeds past later SGR resets, and neither
+    /// `ghostty_surface_refresh` nor an inline draw clears it. A transient
+    /// pixel resize forces Ghostty to reflow the grid, which does clear the
+    /// corrupted rows. Debounce one wider-then-restore resize after the queue
+    /// settles; resize callbacks are gated so tmux never sees the transient
+    /// geometry.
     public func presentSettledOutput() {
-        settleDrawWorkItem?.cancel()
+        settleWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self,
-                  let raw = self.state.surface?.rawValue else { return }
-            self.state.controller.tick()
-            ghostty_surface_draw(raw)
+                  let raw = self.state.surface?.rawValue,
+                  let size = self.state.surfaceSize else { return }
+            self.reflowGate.begin()
+            let wider = size.widthPixels + max(32, size.cellWidthPixels * 2)
+            ghostty_surface_set_size(raw, wider, size.heightPixels)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                guard let self,
+                      let raw = self.state.surface?.rawValue else {
+                    self?.reflowGate.end()
+                    return
+                }
+                ghostty_surface_set_size(raw, size.widthPixels, size.heightPixels)
+                self.reflowGate.end()
+                self.state.controller.tick()
+                ghostty_surface_refresh(raw)
+            }
         }
-        settleDrawWorkItem = workItem
+        settleWorkItem = workItem
         DispatchQueue.main.asyncAfter(
             deadline: .now() + 0.15,
             execute: workItem
@@ -231,6 +249,26 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 public enum TerminalSearchDirection: Sendable {
     case next
     case previous
+}
+
+/// Gates Ghostty's resize callbacks while a settled-output reflow is in
+/// flight. The transient wider/restore resize must never reach tmux: only the
+/// original viewport is real.
+private final class ReflowGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reflowing = false
+
+    var isReflowing: Bool {
+        lock.withLock { reflowing }
+    }
+
+    func begin() {
+        lock.withLock { reflowing = true }
+    }
+
+    func end() {
+        lock.withLock { reflowing = false }
+    }
 }
 
 public extension GhosttySurface {
