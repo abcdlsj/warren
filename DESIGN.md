@@ -338,6 +338,7 @@ Behavior requirements:
 - A Workspace aggregates explicit activity across all Host Sessions, prioritized `failed > waitingForInput > connecting > working > ready > exited`; it must not look at only the current Tab.
 - Superset-style status dots: failed red breathing, waitingForInput yellow breathing, working amber breathing, ready green static, exited gray static.
 - Agent activity is reported by Claude/Codex Hooks managed by Warren. Hooks read only the event type and `WARREN_SESSION_ID`; they never read or upload conversation content. Config merging must preserve user entries and update idempotently.
+- Structured Web projections are fed by the agent CLI's own local JSONL transcript, tailed by the Host and normalized into `agent` events. The transcript never leaves the Host and never replaces the PTY stream: if a transcript is missing or its format changes, the session remains a plain terminal.
 - When Warren launches Codex, it uses `--dangerously-bypass-hook-trust` only to trust the Warren-generated and -validated Hook; it must not bypass Codex command approval or sandbox.
 
 ## 11. Web/PWA Interaction Design
@@ -351,6 +352,7 @@ The Web Client uses the same Project → Workspace → Session information archi
 - Web Attachments are distinct identities from Desktop Attachments; both ends can observe simultaneously. Only an Attachment that actually sends input or resizes acquires the Control Lease with last-writer-wins semantics.
 - Creating a Session on Web shows loading immediately; when the Host returns the new Session ID, attach directly instead of waiting for the next roster guess.
 - Touch arrow keys send real ANSI cursor sequences; Esc, Tab, Ctrl-C, and Ctrl-D send real control bytes.
+- Codex and Claude sessions may render an Agent view from normalized transcript events instead of an emulated TUI; the terminal stays available through a pane-title toggle and remains the input authority.
 
 Performance goals:
 

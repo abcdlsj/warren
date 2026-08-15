@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/ghostline"
+	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
 	"github.com/abcdlsj/warren/Headless/internal/settings"
@@ -48,8 +49,11 @@ type Service struct {
 	// explicit kind.
 	DefaultRuntime string
 	// SettingsPath persists DefaultRuntime changes made over the API.
-	SettingsPath  string
-	WorktreeRoot  string
+	SettingsPath string
+	WorktreeRoot string
+	// AgentFinder locates Codex/Claude transcript files. When nil, agent
+	// projection is disabled and sessions behave exactly as before.
+	AgentFinder   agent.Finder
 	MaxSpoolBytes int64
 	// MaxSpoolReplayBytes bounds raw spool replay during attach. Gaps larger
 	// than this fall back to a screen-resetting snapshot reanchor instead of
@@ -69,6 +73,9 @@ type Service struct {
 	peers          map[string]map[*wsPeer]struct{}
 	focusedPeers   map[string]*wsPeer
 	broadcastLocks map[string]*sync.Mutex
+	agentsMu       sync.Mutex
+	agents         map[string]*agentSession
+	agentEpoch     uint64
 
 	lifecycleOnce   sync.Once
 	lifecycleCancel context.CancelFunc
@@ -84,6 +91,16 @@ type outputSession struct {
 	responder         *ghostline.QueryResponder
 	persistedSequence uint64
 	reanchorRequired  bool
+}
+
+type agentSession struct {
+	mu      sync.Mutex
+	watcher *agent.Watcher
+	events  []api.AgentEvent
+	// lastFind throttles transcript discovery while a CLI has not written a
+	// transcript yet, so reconcile does not walk the whole CLI directory tree
+	// on every one-second tick.
+	lastFind time.Time
 }
 
 type Runtime interface {
@@ -172,6 +189,12 @@ func (s *Service) lazyInitLocked() {
 	if s.broadcastLocks == nil {
 		s.broadcastLocks = map[string]*sync.Mutex{}
 	}
+	if s.agents == nil {
+		s.agents = map[string]*agentSession{}
+	}
+	if s.agentEpoch == 0 {
+		s.agentEpoch = uint64(time.Now().UnixNano())
+	}
 }
 
 // Start runs the single lifecycle watcher. One goroutine probes tmux for all
@@ -199,6 +222,17 @@ func (s *Service) Shutdown() {
 		outputSession.mu.Lock()
 		_ = s.persistCursorLocked(outputSession)
 		outputSession.mu.Unlock()
+	}
+	s.agentsMu.Lock()
+	agents := make([]*agentSession, 0, len(s.agents))
+	for _, agentSession := range s.agents {
+		agents = append(agents, agentSession)
+	}
+	s.agentsMu.Unlock()
+	for _, agentSession := range agents {
+		if agentSession.watcher != nil {
+			agentSession.watcher.Close()
+		}
 	}
 }
 
@@ -239,6 +273,7 @@ func (s *Service) reconcile(ctx context.Context) {
 			continue
 		}
 		_, _ = s.ensureOutput(ctx, session)
+		_, _ = s.ensureAgent(probeContext, session)
 	}
 }
 
@@ -936,6 +971,7 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 		}
 		return api.Session{}, err
 	}
+	_, _ = s.ensureAgent(ctx, session)
 	return session, nil
 }
 
@@ -1077,6 +1113,131 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	s.outputs[session.ID] = outputSession
 	s.outputMu.Unlock()
 	return outputSession, nil
+}
+
+// ensureAgent starts a transcript watcher for a running Codex/Claude session.
+// The watcher is best-effort: no transcript yet, an unknown CLI layout, or a
+// missing CLI must never make the terminal session fail.
+func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentSession, error) {
+	if session.Kind != "codex" && session.Kind != "claude" {
+		return nil, nil
+	}
+	if s.AgentFinder == nil {
+		return nil, nil
+	}
+	s.lazyInit()
+	s.agentsMu.Lock()
+	if existing := s.agents[session.ID]; existing != nil {
+		if existing.watcher != nil || time.Since(existing.lastFind) < 5*time.Second {
+			s.agentsMu.Unlock()
+			return existing, nil
+		}
+	}
+	entry := s.agents[session.ID]
+	if entry == nil {
+		entry = &agentSession{}
+		s.agents[session.ID] = entry
+	}
+	entry.lastFind = time.Now()
+	s.agentsMu.Unlock()
+
+	workspacePath := ""
+	for _, workspace := range s.Store.Snapshot().Workspaces {
+		if workspace.ID == session.WorkspaceID {
+			workspacePath = workspace.Path
+			break
+		}
+	}
+	if workspacePath == "" {
+		s.stopAgent(session.ID)
+		return nil, nil
+	}
+	transcriptPath, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
+	if err != nil || transcriptPath == "" {
+		// Keep the placeholder so reconcile retries at its next tick instead
+		// of re-running discovery concurrently from every caller.
+		return entry, nil
+	}
+	watcher := agent.Start(session.ID, session.Kind, transcriptPath, func(events []api.AgentEvent) {
+		s.recordAgentEvents(session.ID, events)
+	})
+	s.agentsMu.Lock()
+	current := s.agents[session.ID]
+	if current == nil || current.watcher != nil {
+		s.agentsMu.Unlock()
+		watcher.Close()
+		return current, nil
+	}
+	current.watcher = watcher
+	s.agentsMu.Unlock()
+	return current, nil
+}
+
+// recordAgentEvents stores a bounded event history and forwards the batch to
+// every peer attached to the session.
+func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent) {
+	if len(events) == 0 {
+		return
+	}
+	s.lazyInit()
+	s.agentsMu.Lock()
+	if entry := s.agents[sessionID]; entry != nil {
+		entry.mu.Lock()
+		entry.events = append(entry.events, events...)
+		if len(entry.events) > 2000 {
+			entry.events = append([]api.AgentEvent(nil), entry.events[len(entry.events)-2000:]...)
+		}
+		entry.mu.Unlock()
+	}
+	s.agentsMu.Unlock()
+	s.broadcastAgentEvents(sessionID, events)
+}
+
+func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	s.agentsMu.Unlock()
+	if entry == nil {
+		return nil
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	return append([]api.AgentEvent(nil), entry.events...)
+}
+
+func (s *Service) stopAgent(sessionID string) {
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	delete(s.agents, sessionID)
+	s.agentsMu.Unlock()
+	if entry != nil && entry.watcher != nil {
+		entry.watcher.Close()
+	}
+}
+
+func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent) {
+	lock := s.broadcastLock(sessionID)
+	lock.Lock()
+	defer lock.Unlock()
+	s.outputMu.Lock()
+	peers := make([]*wsPeer, 0, len(s.peers[sessionID]))
+	for peer := range s.peers[sessionID] {
+		peers = append(peers, peer)
+	}
+	s.outputMu.Unlock()
+	for _, peer := range peers {
+		if err := peer.enqueueAgentEvents(sessionID, events); err != nil {
+			s.detachPeer(peer, sessionID)
+		}
+	}
+}
+
+func (s *Service) currentAgentEpoch() uint64 {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	return s.agentEpoch
 }
 
 func (s *Service) ringCapacity() int {
@@ -1373,7 +1534,13 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 			return errors.New("outbound queue overflow during reanchor")
 		}
 	}
-	return peer.enqueueSynced(session.ID, epoch, upper)
+	if err := peer.enqueueSynced(session.ID, epoch, upper); err != nil {
+		return err
+	}
+	if history := s.agentHistory(session.ID); len(history) > 0 {
+		return peer.enqueueAgentEvents(session.ID, history)
+	}
+	return nil
 }
 
 func (s *Service) PingOutput(sessionID string) {
@@ -1538,6 +1705,7 @@ func (s *Service) hasFocusedPeer(sessionID string) bool {
 
 func (s *Service) stopOutput(sessionID string, notify bool) {
 	s.lazyInit()
+	s.stopAgent(sessionID)
 	s.outputMu.Lock()
 	outputSession := s.outputs[sessionID]
 	delete(s.outputs, sessionID)

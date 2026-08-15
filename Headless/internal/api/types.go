@@ -59,6 +59,53 @@ type Session struct {
 	EndedAt     *time.Time `json:"endedAt,omitempty"`
 }
 
+// AgentEvent is one normalized message or tool transition from a Codex or
+// Claude transcript. It is a projection of the TUI process's own JSONL log;
+// the terminal byte stream remains the source of truth for rendering.
+type AgentEvent struct {
+	Sequence   uint64      `json:"seq"`
+	ID         string      `json:"id,omitempty"`
+	Provider   string      `json:"provider"`
+	Type       string      `json:"type"`
+	Role       string      `json:"role,omitempty"`
+	Content    string      `json:"content,omitempty"`
+	Model      string      `json:"model,omitempty"`
+	StopReason string      `json:"stopReason,omitempty"`
+	ToolName   string      `json:"toolName,omitempty"`
+	ToolInput  any         `json:"toolInput,omitempty"`
+	ToolStatus string      `json:"toolStatus,omitempty"`
+	CallID     string      `json:"callId,omitempty"`
+	Output     string      `json:"output,omitempty"`
+	Files      []string    `json:"files,omitempty"`
+	Error      string      `json:"error,omitempty"`
+	Usage      *AgentUsage `json:"usage,omitempty"`
+	DurationMs int64       `json:"durationMs,omitempty"`
+	Sidechain  bool        `json:"sidechain,omitempty"`
+	Timestamp  time.Time   `json:"timestamp,omitempty"`
+}
+
+// AgentUsage mirrors the token accounting both CLIs attach to their own
+// transcript lines.
+type AgentUsage struct {
+	InputTokens              int64 `json:"inputTokens,omitempty"`
+	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     int64 `json:"cacheReadInputTokens,omitempty"`
+	OutputTokens             int64 `json:"outputTokens,omitempty"`
+	ReasoningOutputTokens    int64 `json:"reasoningOutputTokens,omitempty"`
+	TotalTokens              int64 `json:"totalTokens,omitempty"`
+}
+
+// AgentMessage carries an initial replay or a live batch of normalized agent
+// events for one session.
+type AgentMessage struct {
+	Type    string `json:"t"`
+	Session string `json:"session"`
+	// Epoch identifies one Host process's agent projection. Clients reset
+	// their event history when the epoch changes after a daemon restart.
+	Epoch  uint64       `json:"epoch,omitempty"`
+	Events []AgentEvent `json:"events"`
+}
+
 type State struct {
 	Schema     int         `json:"schema"`
 	Host       Host        `json:"host"`

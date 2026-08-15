@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/ghostline"
+	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/server"
 	"github.com/abcdlsj/warren/Headless/internal/settings"
@@ -127,6 +128,7 @@ func main() {
 		DefaultRuntime: defaultKind,
 		SettingsPath:   *settingsFile,
 		WorktreeRoot:   *worktreeRoot,
+		AgentFinder:    agent.DefaultFinder{},
 	}
 	serviceContext, stopService := context.WithCancel(context.Background())
 	service.Start(serviceContext)

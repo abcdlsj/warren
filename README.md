@@ -16,6 +16,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 - **One resource model** — Project → Workspace → Terminal Session → Runtime, shared by every client surface.
 - **Local and remote** — The desktop connects to an in-process Local Host by default, or to `warren-headless` on a VPS. SSH only bootstraps the daemon and forwards a port; the same versioned WebSocket API is used everywhere.
 - **Real terminal fidelity** — Ghostty on macOS and xterm.js on the Web preserve ANSI, OSC, Unicode, and colors from shells, Codex, Claude, and TUIs.
+- **Structured agent views** — Codex and Claude transcripts are projected as normalized events on the Web, so agent sessions can render as a conversation without losing the terminal fallback.
 - **Workspace-first Git support** — Projects, main checkouts, and Git worktrees are first-class resources; one-time onboarding can import your existing Superset metadata.
 - **Optional central control plane** — The Relay Service provides Host registration, pairing, revocation, and outbound WSS forwarding without storing terminal output or user input.
 - **Observability-first acceptance** — Tests use semantic UI snapshots and typed intents: no screenshots, no mouse movement, no focus stealing.

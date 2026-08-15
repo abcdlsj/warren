@@ -75,8 +75,55 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .preset img { width:14px; height:14px; flex:0 0 auto; object-fit:contain; opacity:.9; }
 .pane-title { display:flex; align-items:center; min-width:0; height:28px; padding:0 12px; border-bottom:1px solid var(--muted); background:rgba(234,232,230,.05); color:var(--sub); font-size:12px; font-weight:300; }
 .pane-title span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pane-title .pane-action { flex:0 0 auto; height:20px; margin-left:auto; padding:0 8px; border:1px solid var(--ring); border-radius:5px; background:transparent; color:var(--sub); font-size:11px; cursor:pointer; }
+.pane-title .pane-action:hover { color:var(--fg); background:var(--fill-hover); }
 .terminal-shell { position:relative; min-width:0; min-height:0; background:var(--bg); }
 #terminal { position:absolute; inset:6px 5px 4px 8px; }
+#terminal[hidden] { display:none; }
+.agent-view { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
+.agent-events { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:10px; padding:14px 16px 10px; overflow-y:auto; overscroll-behavior:contain; }
+.agent-empty { margin:auto; color:var(--sub); font-size:13px; }
+.agent-message { max-width:min(720px,88%); padding:8px 11px; border-radius:10px; }
+.agent-message.user { align-self:flex-end; background:rgba(224,120,80,.12); }
+.agent-message.assistant { align-self:flex-start; background:var(--panel); border:1px solid var(--muted); }
+.agent-role { display:flex; align-items:center; gap:8px; margin-bottom:4px; color:var(--sub); font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.agent-model { color:var(--amber); font:500 11px ui-monospace,monospace; letter-spacing:0; text-transform:none; }
+.agent-stop-reason { margin-top:6px; color:var(--sub); font-size:10px; }
+.agent-body { margin:0; font:12px/1.5 ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+.agent-markdown { color:var(--fg); font:13px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; }
+.agent-markdown > :first-child { margin-top:0; }
+.agent-markdown > :last-child { margin-bottom:0; }
+.agent-markdown p { margin:.35em 0; }
+.agent-markdown pre { padding:9px 11px; overflow-x:auto; border-radius:7px; background:rgba(0,0,0,.28); color:var(--fg); font:12px/1.5 ui-monospace,monospace; white-space:pre; }
+.agent-markdown code { font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; }
+.agent-markdown pre code { padding:0; background:transparent; }
+.agent-markdown :not(pre) > code { padding:1px 4px; border-radius:4px; background:rgba(234,232,230,.08); }
+.agent-markdown table { border-collapse:collapse; margin:.5em 0; }
+.agent-markdown th, .agent-markdown td { padding:4px 8px; border:1px solid var(--ring); }
+.agent-markdown blockquote { margin:.4em 0; padding-left:10px; border-left:2px solid var(--ring); color:var(--sub); }
+.agent-markdown ul, .agent-markdown ol { padding-left:20px; margin:.4em 0; }
+.agent-markdown a { color:#7ec0f5; }
+.agent-reasoning, .agent-tool-output, .agent-unknown { width:100%; max-width:min(720px,100%); border:1px solid var(--muted); border-radius:8px; background:rgba(234,232,230,.04); }
+.agent-reasoning summary, .agent-tool-output summary, .agent-unknown summary { padding:6px 10px; color:var(--sub); font-size:11px; cursor:pointer; }
+.agent-reasoning .agent-body, .agent-tool-output .agent-body, .agent-unknown .agent-body { padding:0 10px 8px; color:var(--sub); }
+.agent-tool-call { width:100%; max-width:min(720px,100%); padding:8px 11px; border:1px solid var(--ring); border-radius:8px; background:rgba(234,232,230,.04); }
+.agent-tool-name { margin-bottom:5px; color:var(--amber); font:600 11px ui-monospace,monospace; }
+.agent-tool-output.error { border-color:rgba(239,68,68,.45); }
+.agent-tool-output.interrupted { border-color:rgba(245,158,11,.45); }
+.agent-tool-error { margin:6px 10px 0; padding:6px 9px; border-radius:6px; background:rgba(239,68,68,.12); color:#ef8b8b; font:11px/1.5 ui-monospace,monospace; white-space:pre-wrap; }
+.agent-files { display:flex; flex-wrap:wrap; gap:6px; padding:6px 10px 8px; }
+.agent-file { padding:2px 7px; border:1px solid var(--ring); border-radius:999px; color:var(--sub); font:11px ui-monospace,monospace; }
+.agent-usage-chip { display:inline-flex; margin-top:6px; padding:2px 7px; border-radius:999px; background:rgba(97,175,239,.12); color:#7ec0f5; font:10px ui-monospace,monospace; }
+.agent-usage { display:flex; align-items:center; gap:8px; align-self:center; padding:3px 9px; border-radius:999px; background:rgba(97,175,239,.08); color:var(--sub); font-size:11px; }
+.agent-error, .agent-attachment { align-self:flex-start; width:100%; max-width:min(720px,100%); padding:8px 11px; border:1px solid rgba(239,68,68,.45); border-radius:8px; background:rgba(239,68,68,.08); }
+.agent-attachment { border-color:var(--ring); background:rgba(234,232,230,.04); }
+.agent-system { align-self:center; padding:2px 8px; border-radius:999px; background:rgba(234,232,230,.06); color:var(--sub); font-size:11px; }
+.agent-input { display:flex; align-items:flex-end; gap:8px; flex:0 0 auto; padding:8px 10px; border-top:1px solid var(--muted); background:var(--panel); }
+.agent-input textarea { flex:1 1 auto; min-width:0; height:34px; max-height:120px; padding:7px 9px; resize:none; border:1px solid var(--ring); border-radius:7px; background:var(--bg); color:var(--fg); font:12px/1.4 ui-monospace,monospace; outline:0; }
+.agent-input textarea:focus { border-color:var(--sub); }
+.agent-input textarea::placeholder { color:var(--sub); }
+.agent-input button { flex:0 0 auto; height:34px; padding:0 14px; border:0; border-radius:7px; background:var(--amber); color:#1a1716; font-size:12px; font-weight:600; cursor:pointer; }
+.agent-input button:disabled { opacity:.4; cursor:default; }
 .terminal-search { position:absolute; top:8px; right:8px; z-index:10; }
 .terminal-search { display:flex; align-items:center; gap:5px; height:34px; max-width:min(430px,calc(100% - 16px)); padding:0 5px 0 10px; border:1px solid var(--muted); border-radius:7px; background:rgba(28,25,24,.96); box-shadow:0 4px 18px rgba(0,0,0,.35); }
 .terminal-search > svg { width:14px; height:14px; flex:0 0 auto; color:var(--sub); }

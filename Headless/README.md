@@ -139,3 +139,17 @@ Known limits:
   keeps the old server running and retries on a later start.
 - The ghostline module bundles a prebuilt libghostty-vt dylib for macOS
   arm64; other platforms must rebuild it (see the ghostline README).
+
+## Agent Transcript Projection
+
+For `codex` and `claude` sessions, `warren-headless` also watches the JSONL
+transcript written by the CLI itself (Codex: `~/.codex/sessions/**/rollout-*.jsonl`,
+Claude Code: `~/.claude/projects/**/<session>.jsonl`), normalizes messages,
+reasoning, tool calls, and tool output into `agent` events, and sends them to
+attached clients as `{"t":"agent","session":...,"events":[...]}` text messages.
+The PTY byte stream remains the source of truth; the transcript is a
+best-effort side channel.
+
+The Web client renders an Agent view for these sessions and sends user input
+through the same PTY as terminal bytes. If a transcript is missing or its
+format changes, sessions keep working as plain terminals.

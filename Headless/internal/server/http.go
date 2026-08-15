@@ -614,6 +614,15 @@ func (p *wsPeer) enqueueSynced(sessionID string, epoch, sequence uint64) error {
 	})
 }
 
+func (p *wsPeer) enqueueAgentEvents(sessionID string, events []api.AgentEvent) error {
+	return p.writeJSON(api.AgentMessage{
+		Type:    "agent",
+		Session: sessionID,
+		Epoch:   p.server.Service.currentAgentEpoch(),
+		Events:  events,
+	})
+}
+
 func (p *wsPeer) enqueueExited(sessionID string) error {
 	return p.writeJSON(map[string]any{"t": "exited", "session": sessionID})
 }

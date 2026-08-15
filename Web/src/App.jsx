@@ -22,6 +22,8 @@ import {
   terminalSize,
   waitForTerminalFont,
 } from "./terminal.js";
+import { mergeAgentEvents } from "./agent.js";
+import { AgentView } from "./agent.jsx";
 import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
@@ -122,6 +124,8 @@ export default function App() {
   const [terminalSearchCount, setTerminalSearchCount] = useState(0);
   const [terminalSearchFocusNonce, setTerminalSearchFocusNonce] = useState(0);
   const [contextMenu, setContextMenu] = useState(null);
+  const [agentStateBySession, setAgentStateBySession] = useState({});
+  const [agentViewOverride, setAgentViewOverride] = useState(null);
 
   const connectionRef = useRef(null);
   const terminalHostRef = useRef(null);
@@ -235,6 +239,13 @@ export default function App() {
       connectionRef.current?.reconnectNow();
     }
   }, []);
+
+  const sendAgentInput = useCallback(text => {
+    // The agent process is a TUI: the only input channel is the PTY. Normal
+    // newlines become terminal returns so Enter submits exactly like typing
+    // in the terminal.
+    sendInput(text.replace(/\n/g, "\r") + "\r");
+  }, [sendInput]);
 
   const fitTerminal = useCallback(() => {
     if (fitTimerRef.current !== null) {
@@ -395,6 +406,7 @@ export default function App() {
       clearTerminalSearch();
       recoveryAnchorRef.current = null;
       reanchorRequiredRef.current = false;
+      setAgentViewOverride(null);
     }
     const anchor = (!changed || reanchorRequiredRef.current)
       ? null
@@ -421,6 +433,7 @@ export default function App() {
     setActiveSession(null);
     setAttachedSession(null);
     setEmptyOverride(null);
+    setAgentViewOverride(null);
     terminalRef.current?.clear();
     clearTerminalSearch();
     recoveryAnchorRef.current = null;
@@ -486,6 +499,7 @@ export default function App() {
       focusedSessionRef.current = null;
       setActiveSession(null);
       setAttachedSession(null);
+      setAgentViewOverride(null);
       terminalRef.current?.clear();
       clearTerminalSearch();
       recoveryAnchorRef.current = null;
@@ -623,6 +637,20 @@ export default function App() {
         };
         snapshotPendingRef.current = false;
       }
+      break;
+    case "agent":
+      setAgentStateBySession(previous => {
+        const current = previous[message.session];
+        const sameEpoch = !message.epoch || current?.epoch === message.epoch;
+        const base = sameEpoch ? current.events : [];
+        return {
+          ...previous,
+          [message.session]: {
+            epoch: message.epoch,
+            events: mergeAgentEvents(base, message.events),
+          },
+        };
+      });
       break;
     case "runtimeMetadata":
       setCatalog(previous => {
@@ -1197,6 +1225,16 @@ export default function App() {
     setFontSize(defaultFontSize);
   }, []);
 
+  const selectedAgentEvents = selectedSession
+    ? agentStateBySession[selectedSession.id]?.events || []
+    : [];
+  const agentViewActive = Boolean(
+    selectedSession
+      && (selectedSession.kind === "codex" || selectedSession.kind === "claude")
+      && selectedAgentEvents.length > 0
+      && agentViewOverride !== "terminal",
+  );
+
   return (
     <>
       <div className={`app${drawerOpen ? " drawer-open" : ""}`} hidden={settingsOpen}>
@@ -1231,7 +1269,23 @@ export default function App() {
             onTabContextMenu={sessionContextMenu}
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
-          <div className="pane-title"><span>{paneTitle}</span></div>
+          <div className="pane-title">
+            <span>{paneTitle}</span>
+            {agentViewActive ? (
+              <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
+                Terminal
+              </button>
+            ) : (
+              selectedSession
+              && (selectedSession.kind === "codex" || selectedSession.kind === "claude")
+              && selectedAgentEvents.length > 0
+              && (
+                <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
+                  Agent
+                </button>
+              )
+            )}
+          </div>
           <section
             className="terminal-shell"
             aria-label="Terminal"
@@ -1240,7 +1294,14 @@ export default function App() {
             }}
             onClick={focusTerminal}
           >
-            <div id="terminal" ref={terminalHostRef} />
+            <div id="terminal" ref={terminalHostRef} hidden={agentViewActive} />
+            {agentViewActive && (
+              <AgentView
+                session={selectedSession}
+                events={selectedAgentEvents}
+                onSend={sendAgentInput}
+              />
+            )}
             <TerminalSearch
               open={terminalSearchOpen}
               query={terminalSearchQuery}
