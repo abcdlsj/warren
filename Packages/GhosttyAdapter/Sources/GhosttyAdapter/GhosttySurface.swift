@@ -159,6 +159,11 @@ public final class GhosttySurface: Identifiable, ObservableObject {
                 builder.withCustom("keybind", "super+\(index)=unbind")
                 builder.withCustom("keybind", "super+digit_\(index)=unbind")
             }
+            // Agent TUIs (Claude Code, Codex, etc.) use Enter to submit a
+            // prompt. Ghostty otherwise sends Shift+Enter as a kitty-protocol
+            // escape that these TUIs do not treat as a newline; map it to a
+            // literal newline so multi-line prompts stay possible.
+            builder.withCustom("keybind", "shift+enter=text:\\n")
         }
     }
 
