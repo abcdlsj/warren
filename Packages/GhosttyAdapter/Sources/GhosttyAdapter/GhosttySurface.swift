@@ -27,11 +27,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
-    private var settleWorkItem: DispatchWorkItem?
-    /// Called on the main actor after a reanchor snapshot has been replayed
-    /// and the surface has reflowed into a settled grid. Consumers keep the
-    /// view hidden until this fires so the BCE-clearing reflow is invisible.
-    public var onSettled: (@MainActor () -> Void)?
 
     public init(
         id: TerminalSessionID,
@@ -86,12 +81,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             workingDirectory: workingDirectory
         )
         self.state = state
-
-        outputWriter.setOnDrained { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleSettledReflow()
-            }
-        }
     }
 
     public func markRendered(epoch: UInt64, sequence: UInt64) {
@@ -116,44 +105,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// resize or keystroke.
     public func requestDisplayRefresh() {
         state.controller.tick()
-    }
-
-    private func scheduleSettledReflow() {
-        settleWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.performSettledReflow()
-        }
-        settleWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + 0.15,
-            execute: workItem
-        )
-    }
-
-    /// Ghostty's BCE handling corrupts soft-wrapped colored history when a
-    /// snapshot is replayed into a fresh surface. A transient wider-then-
-    /// restore resize forces Ghostty to reflow and clear the corrupted rows.
-    /// The consumer keeps this surface hidden until `onSettled` fires, so the
-    /// reflow is never visible.
-    private func performSettledReflow() {
-        guard let raw = state.surface?.rawValue,
-              let size = state.surfaceSize else {
-            onSettled?()
-            return
-        }
-        let wider = size.widthPixels + max(32, size.cellWidthPixels * 2)
-        ghostty_surface_set_size(raw, wider, size.heightPixels)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self,
-                  let raw = self.state.surface?.rawValue else {
-                self?.onSettled?()
-                return
-            }
-            ghostty_surface_set_size(raw, size.widthPixels, size.heightPixels)
-            self.state.controller.tick()
-            ghostty_surface_refresh(raw)
-            self.onSettled?()
-        }
     }
 
     public func apply(font: TerminalFontPreference) {

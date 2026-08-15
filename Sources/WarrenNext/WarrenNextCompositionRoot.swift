@@ -49,7 +49,6 @@ struct WarrenNextCompositionRoot: View {
             WarrenNextTerminalSurfaceView(
                 context: context,
                 surfaces: remoteModel.mountedSurfaces,
-                settledSessionIDs: remoteModel.settledSessionIDs,
                 maintenanceMessage: remoteModel.maintenanceMessage,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)
@@ -547,7 +546,6 @@ private struct WarrenNextSupersetImportView: View {
 private struct WarrenNextTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaces: [GhosttySurface]
-    let settledSessionIDs: Set<TerminalSessionID>
     let maintenanceMessage: String?
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
@@ -578,8 +576,6 @@ private struct WarrenNextTerminalSurfaceView: View {
                     ZStack {
                         ForEach(surfaces) { surface in
                             let isActive = surface.id == context.tab.sessionID
-                            let isVisible = isActive
-                                && settledSessionIDs.contains(surface.id)
                             GhosttyManagedSurface(
                                 surface: surface,
                                 isActive: isActive,
@@ -610,7 +606,7 @@ private struct WarrenNextTerminalSurfaceView: View {
                                 // opacity; a hidden sibling must be removed
                                 // from compositing or its frame bleeds over the
                                 // active terminal.
-                                .modifier(HiddenIf(hidden: !isVisible))
+                                .modifier(HiddenIf(hidden: !isActive))
                                 .allowsHitTesting(isActive)
                                 .accessibilityHidden(!isActive)
                         }

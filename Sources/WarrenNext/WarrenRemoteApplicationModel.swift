@@ -340,7 +340,6 @@ final class WarrenRemoteApplicationModel {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
     private(set) var mountedSurfaces: [GhosttySurface] = []
-    private(set) var settledSessionIDs: Set<TerminalSessionID> = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Set while the daemon has announced an operator-initiated maintenance
@@ -445,7 +444,6 @@ final class WarrenRemoteApplicationModel {
         pendingInput.removeAll(keepingCapacity: true)
         initialRefreshPending = false
         attachGeneration &+= 1
-        settledSessionIDs.removeAll()
         resizeTask?.cancel()
         resizeTask = nil
         focusTask?.cancel()
@@ -458,7 +456,6 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
         }
         mountedSurfaces.removeAll()
-        settledSessionIDs.removeAll()
     }
 
     private func removeMountedSurface(sessionID: TerminalSessionID) {
@@ -467,11 +464,6 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
             return true
         }
-        settledSessionIDs.remove(sessionID)
-    }
-
-    private func markSurfaceSettled(_ sessionID: TerminalSessionID) {
-        settledSessionIDs.insert(sessionID)
     }
 
     private func clearMaintenance() {
@@ -1011,7 +1003,6 @@ final class WarrenRemoteApplicationModel {
         let liveTabSessionIDs = Set(tabs.compactMap(\.sessionID))
         for surface in mountedSurfaces where !liveTabSessionIDs.contains(surface.id) {
             surface.outputWriter.shutdown()
-            settledSessionIDs.remove(surface.id)
         }
         mountedSurfaces.removeAll { !liveTabSessionIDs.contains($0.id) }
         issue = nil
@@ -1065,7 +1056,6 @@ final class WarrenRemoteApplicationModel {
         guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
             return
         }
-        settledSessionIDs.remove(sessionID)
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
@@ -1086,9 +1076,6 @@ final class WarrenRemoteApplicationModel {
                 onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
             )
             mountedSurfaces.append(surface)
-        }
-        surface.onSettled = { [weak self] in
-            self?.markSurfaceSettled(sessionID)
         }
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
@@ -1116,15 +1103,6 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
-            // Safety net: if a session produces no output (or the drain
-            // callback is missed), never leave the tab hidden forever.
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(5))
-                guard let self,
-                      self.attachGeneration == generation,
-                      self.selectedSessionID == sessionID else { return }
-                self.markSurfaceSettled(sessionID)
-            }
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
