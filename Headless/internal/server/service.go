@@ -36,7 +36,7 @@ type Service struct {
 	outputMu       sync.Mutex
 	outputs        map[string]*outputSession
 	peers          map[string]map[*wsPeer]struct{}
-	controllers    map[string]*wsPeer
+	focusedPeers   map[string]*wsPeer
 	broadcastLocks map[string]*sync.Mutex
 
 	lifecycleOnce   sync.Once
@@ -96,8 +96,8 @@ func (s *Service) lazyInitLocked() {
 	if s.peers == nil {
 		s.peers = map[string]map[*wsPeer]struct{}{}
 	}
-	if s.controllers == nil {
-		s.controllers = map[string]*wsPeer{}
+	if s.focusedPeers == nil {
+		s.focusedPeers = map[string]*wsPeer{}
 	}
 	if s.broadcastLocks == nil {
 		s.broadcastLocks = map[string]*sync.Mutex{}
@@ -715,13 +715,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	outputSession := s.outputs[session.ID]
 	s.outputMu.Unlock()
 
-	s.outputMu.Lock()
-	if s.peers[session.ID] == nil {
-		s.peers[session.ID] = map[*wsPeer]struct{}{}
-	}
-	s.peers[session.ID][peer] = struct{}{}
-	s.controllers[session.ID] = peer
-	s.outputMu.Unlock()
+	s.registerPeer(session.ID, peer)
 
 	outputSession.mu.Lock()
 	recovery := outputSession.ring.Recovery(anchor)
@@ -820,10 +814,135 @@ func (s *Service) detachPeer(peer *wsPeer, sessionID string) {
 			delete(s.peers, sessionID)
 		}
 	}
-	if s.controllers[sessionID] == peer {
-		delete(s.controllers, sessionID)
+	if s.focusedPeers[sessionID] == peer {
+		delete(s.focusedPeers, sessionID)
 	}
 	s.outputMu.Unlock()
+}
+
+// registerPeer records a live output subscription. It is intentionally kept
+// separate from attachOutputLocked so an attach can claim focus and resize
+// the runtime before the first snapshot is captured.
+func (s *Service) registerPeer(sessionID string, peer *wsPeer) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if s.peers[sessionID] == nil {
+		s.peers[sessionID] = map[*wsPeer]struct{}{}
+	}
+	s.peers[sessionID][peer] = struct{}{}
+}
+
+// focusPeerLocked updates focus ownership and optionally resizes the shared
+// runtime. The caller must hold the session broadcast lock. Keeping both
+// operations under that lock prevents an old endpoint's resize from racing a
+// focus handoff.
+func (s *Service) focusPeerLocked(
+	ctx context.Context,
+	peer *wsPeer,
+	session api.Session,
+	focused bool,
+	columns, rows int,
+	resizeSpecified bool,
+) (resized bool, err error) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	_, registered := s.peers[session.ID][peer]
+	owner := s.focusedPeers[session.ID]
+	s.outputMu.Unlock()
+	if !registered {
+		return false, nil
+	}
+	if !focused {
+		if owner == peer {
+			s.outputMu.Lock()
+			if s.focusedPeers[session.ID] == peer {
+				delete(s.focusedPeers, session.ID)
+			}
+			s.outputMu.Unlock()
+		}
+		return false, nil
+	}
+	if resizeSpecified {
+		if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+			return false, err
+		}
+		resized = true
+	}
+	s.outputMu.Lock()
+	// A peer can disconnect while Runtime.Resize is in flight. Do not hand
+	// focus back to a socket that has already been removed from the roster.
+	if _, stillRegistered := s.peers[session.ID][peer]; !stillRegistered {
+		s.outputMu.Unlock()
+		return false, nil
+	}
+	s.focusedPeers[session.ID] = peer
+	s.outputMu.Unlock()
+	return resized, nil
+}
+
+// resizeFocusedLocked only lets the current focused peer mutate the shared
+// tmux/PTY size. A background endpoint receives a successful no-op so stale
+// browser resize callbacks do not surface as terminal errors.
+func (s *Service) resizeFocusedLocked(
+	ctx context.Context,
+	peer *wsPeer,
+	session api.Session,
+	columns, rows int,
+) (bool, error) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	focused := s.focusedPeers[session.ID] == peer
+	s.outputMu.Unlock()
+	if !focused {
+		return false, nil
+	}
+	if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) focusPeer(
+	ctx context.Context,
+	peer *wsPeer,
+	session api.Session,
+	focused bool,
+	columns, rows int,
+	resizeSpecified bool,
+) (bool, bool, error) {
+	lock := s.broadcastLock(session.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	resized, err := s.focusPeerLocked(ctx, peer, session, focused, columns, rows, resizeSpecified)
+	if err != nil {
+		return false, false, err
+	}
+	return s.isFocused(peer, session.ID), resized, nil
+}
+
+func (s *Service) resizeFocused(
+	ctx context.Context,
+	peer *wsPeer,
+	session api.Session,
+	columns, rows int,
+) (bool, error) {
+	lock := s.broadcastLock(session.ID)
+	lock.Lock()
+	defer lock.Unlock()
+	return s.resizeFocusedLocked(ctx, peer, session, columns, rows)
+}
+
+func (s *Service) isFocused(peer *wsPeer, sessionID string) bool {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	return s.focusedPeers[sessionID] == peer
+}
+
+func (s *Service) hasFocusedPeer(sessionID string) bool {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	return s.focusedPeers[sessionID] != nil
 }
 
 func (s *Service) stopOutput(sessionID string, notify bool) {
@@ -836,7 +955,7 @@ func (s *Service) stopOutput(sessionID string, notify bool) {
 		peers = append(peers, peer)
 	}
 	delete(s.peers, sessionID)
-	delete(s.controllers, sessionID)
+	delete(s.focusedPeers, sessionID)
 	s.outputMu.Unlock()
 	if outputSession != nil && outputSession.watcher != nil {
 		outputSession.watcher.Close()

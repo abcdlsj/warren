@@ -71,9 +71,13 @@ Local 与 Server 是两套独立 Host 资源树。切换 endpoint 只切换投�
 
 - spool 达到上限时执行 in-place 压缩（archive + truncate）并 bump epoch；
   所有客户端以 tmux 屏幕快照 reanchor，不做静默字节裁剪。
-- Headless Go 的 `/v1/ws` 与 `/ws` 已统一为同一套 request/response 控制协议
-  （`session.attach` 携带 `cols/rows/epoch/sequence` 恢复锚），控制消息和
-  DENB 输出帧语义与 Swift Host 一致。
+- Headless Go's `/v1/ws` and `/ws` expose one request/response control protocol.
+  `session.attach` creates an output subscription only (and carries the
+  `epoch/sequence` recovery anchor); a client sends `session.focus` with an
+  optional `cols/rows` viewport after it gains UI focus. Host only lets the
+  focused peer resize the shared tmux/PTY; background `session.resize` requests
+  are safe no-ops, and detach releases focus. Control messages and DENB output
+  frames match the Swift Host semantics.
 - Desktop 从 CLI 配置文件发现 server；配置改变后需重新选择或重启 Desktop。
 - 远端 Project 的路径必须通过 CLI 添加，Desktop 文件选择器只适用于 Local。
 - SSH 自动启动要求远端已安装 `warren-headless` 和 `openssl`。

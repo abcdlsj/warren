@@ -14,7 +14,7 @@ import {
 } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
-import { attachTerminalMessage, fitTerminalToHost } from "./terminal.js";
+import { attachTerminalMessage, fitTerminalToHost, terminalSize } from "./terminal.js";
 import { InputQueue } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
@@ -82,6 +82,7 @@ export default function App() {
   const resizeTimerRef = useRef(null);
   const pendingTerminalSizeRef = useRef(null);
   const sentTerminalSizeRef = useRef(null);
+  const focusedSessionRef = useRef(null);
   const batcherRef = useRef(null);
   const recoveryAnchorRef = useRef(null);
   const reanchorRequiredRef = useRef(false);
@@ -190,12 +191,37 @@ export default function App() {
       pendingTerminalSizeRef.current = null;
       if (!next || (next.cols === sentTerminalSizeRef.current?.cols && next.rows === sentTerminalSizeRef.current?.rows)) return;
       const state = appStateRef.current;
-      if (state.activeSession && state.attachedSession === state.activeSession) {
+      if (state.activeSession
+        && state.attachedSession === state.activeSession
+        && focusedSessionRef.current === state.activeSession) {
         if (request("session.resize", { cols: next.cols, rows: next.rows })) {
           sentTerminalSizeRef.current = next;
         }
       }
     }, 40);
+  }, [request]);
+
+  const requestSessionFocus = useCallback((focused, size = null) => {
+    const state = appStateRef.current;
+    const sessionID = state.activeSession;
+    if (!sessionID || state.attachedSession !== sessionID) return false;
+    const params = { focused };
+    if (focused) {
+      const next = size || terminalSize(terminalRef.current);
+      if (next) Object.assign(params, next);
+    }
+    const sent = request("session.focus", params, result => {
+      if (appStateRef.current.activeSession !== sessionID
+        || appStateRef.current.attachedSession !== sessionID) return;
+      if (focused) {
+        focusedSessionRef.current = result?.focused ? sessionID : null;
+      } else if (focusedSessionRef.current === sessionID) {
+        focusedSessionRef.current = null;
+      }
+    });
+    if (!sent) return false;
+    focusedSessionRef.current = focused ? sessionID : null;
+    return true;
   }, [request]);
 
   const attachSession = useCallback((sessionID, force = false) => {
@@ -205,6 +231,7 @@ export default function App() {
     const changed = sessionID !== state.activeSession;
     state.activeSession = sessionID;
     state.attachedSession = null;
+    focusedSessionRef.current = null;
     if (changed) inputQueueRef.current.clear();
     setActiveSession(sessionID);
     setAttachedSession(null);
@@ -229,6 +256,7 @@ export default function App() {
     state.activeWorkspace = workspaceID;
     state.activeSession = null;
     state.attachedSession = null;
+    focusedSessionRef.current = null;
     setActiveWorkspace(workspaceID);
     setActiveSession(null);
     setAttachedSession(null);
@@ -293,6 +321,7 @@ export default function App() {
     if (activeTabWasRemoved) {
       state.activeSession = null;
       state.attachedSession = null;
+      focusedSessionRef.current = null;
       setActiveSession(null);
       setAttachedSession(null);
       terminalRef.current?.clear();
@@ -376,6 +405,7 @@ export default function App() {
       break;
     case "attached": {
       if (appStateRef.current.activeSession !== message.session) break;
+      focusedSessionRef.current = null;
       setActiveSession(message.session);
       markAttachReady(message.session);
       setEmptyOverride(null);
@@ -399,14 +429,17 @@ export default function App() {
       requestAnimationFrame(() => {
         fitTerminal();
         const terminal = terminalRef.current;
-        if (terminal) scheduleRemoteResize({ cols: terminal.cols, rows: terminal.rows });
-        terminal?.focus();
+        if (terminal && document.hasFocus()) {
+          terminal.focus();
+          if (focusedSessionRef.current !== message.session) requestSessionFocus(true);
+        }
       });
       break;
     }
     case "created":
       appStateRef.current.activeSession = null;
       appStateRef.current.attachedSession = null;
+      focusedSessionRef.current = null;
       setActiveSession(null);
       setAttachedSession(null);
       setEmptyOverride(null);
@@ -438,6 +471,7 @@ export default function App() {
       if (appStateRef.current.activeSession === message.session) {
         appStateRef.current.activeSession = null;
         appStateRef.current.attachedSession = null;
+        focusedSessionRef.current = null;
         setActiveSession(null);
         setAttachedSession(null);
         terminalRef.current?.clear();
@@ -450,6 +484,7 @@ export default function App() {
       if (appStateRef.current.attachedSession === message.session) {
         appStateRef.current.activeSession = null;
         appStateRef.current.attachedSession = null;
+        focusedSessionRef.current = null;
         setActiveSession(null);
         setAttachedSession(null);
         snapshotPendingRef.current = false;
@@ -464,7 +499,7 @@ export default function App() {
     default:
       break;
     }
-  }, [acceptRoster, attachSession, fitTerminal, markAttachReady, scheduleRemoteResize]);
+  }, [acceptRoster, attachSession, fitTerminal, markAttachReady, requestSessionFocus]);
 
   const acceptConnectionState = useCallback(state => {
     if (state === "connecting") {
@@ -476,6 +511,7 @@ export default function App() {
       return;
     }
     appStateRef.current.attachedSession = null;
+    focusedSessionRef.current = null;
     setAttachedSession(null);
     sentTerminalSizeRef.current = null;
     batcherRef.current?.reset();
@@ -533,7 +569,7 @@ export default function App() {
     });
     batcherRef.current = batcher;
     // xterm opens at its fallback 80x24 grid. Fit once synchronously and once
-    // on the next frame so the very first attach carries the real viewport,
+    // on the next frame so the first focus claim carries the real viewport,
     // even when fonts/layout settle after the DOM mount.
     fitTerminalToHost(fitAddon, terminalHost);
     requestAnimationFrame(() => {
@@ -542,6 +578,19 @@ export default function App() {
 
     const dataSubscription = terminal.onData(sendInput);
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
+    const focusSubscription = terminal.onFocus(() => requestSessionFocus(true));
+    const blurSubscription = terminal.onBlur(() => requestSessionFocus(false));
+    const releaseWindowFocus = () => requestSessionFocus(false);
+    const claimWindowFocus = () => {
+      if (terminal.element?.contains(document.activeElement)) requestSessionFocus(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.hidden) releaseWindowFocus();
+      else claimWindowFocus();
+    };
+    window.addEventListener("blur", releaseWindowFocus);
+    window.addEventListener("focus", claimWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     const resizeObserver = new ResizeObserver(() => scheduleTerminalFit());
     resizeObserver.observe(terminalHost);
     const onVisibilityChange = () => {
@@ -552,6 +601,11 @@ export default function App() {
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
+      focusSubscription.dispose();
+      blurSubscription.dispose();
+      window.removeEventListener("blur", releaseWindowFocus);
+      window.removeEventListener("focus", claimWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       webglAddonRef.current?.dispose();
@@ -562,7 +616,7 @@ export default function App() {
       batcher.dispose();
       batcherRef.current = null;
     };
-  }, [scheduleRemoteResize, scheduleTerminalFit, sendInput]);
+  }, [requestSessionFocus, scheduleRemoteResize, scheduleTerminalFit, sendInput]);
 
   useEffect(() => {
     if (!terminalRef.current) return;

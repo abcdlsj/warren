@@ -8,10 +8,10 @@ export function terminalSize(terminal) {
 }
 
 export function attachTerminalMessage(session, terminal, anchor = null) {
-  const size = terminalSize(terminal);
-  const params = size
-    ? { id: session, ...size }
-    : { id: session };
+  // Attaching subscribes to output only. The focused terminal claims the
+  // shared PTY geometry through session.focus after it actually receives UI
+  // focus, so a background browser cannot resize a desktop session.
+  const params = { id: session, focused: false };
   if (anchor) {
     params.epoch = anchor.epoch;
     params.sequence = anchor.sequence;

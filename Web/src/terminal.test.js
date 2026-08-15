@@ -10,14 +10,14 @@ test("terminalSize accepts only a positive integer grid", () => {
   assert.equal(terminalSize(null), null);
 });
 
-test("initial attach carries the fitted terminal grid", () => {
+test("attach subscribes without claiming shared terminal focus", () => {
   assert.deepEqual(
     attachTerminalMessage("session-1", { cols: 96, rows: 31 }),
-    { method: "session.attach", params: { id: "session-1", cols: 96, rows: 31 } },
+    { method: "session.attach", params: { id: "session-1", focused: false } },
   );
   assert.deepEqual(
     attachTerminalMessage("session-1", { cols: 0, rows: 31 }),
-    { method: "session.attach", params: { id: "session-1" } },
+    { method: "session.attach", params: { id: "session-1", focused: false } },
   );
 });
 

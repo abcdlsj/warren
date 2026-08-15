@@ -48,7 +48,13 @@ struct WarrenNextCompositionRoot: View {
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,
-                surfaces: remoteModel.mountedSurfaces
+                surfaces: remoteModel.mountedSurfaces,
+                onFocused: { sessionID, size in
+                    remoteModel.focus(sessionID: sessionID, size: size)
+                },
+                onBlurred: { sessionID in
+                    remoteModel.blur(sessionID: sessionID)
+                }
             )
         }
         .preferredColorScheme(.dark)
@@ -357,6 +363,8 @@ private struct WarrenNextSupersetImportView: View {
 private struct WarrenNextTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaces: [GhosttySurface]
+    let onFocused: (TerminalSessionID, TerminalSize?) -> Void
+    let onBlurred: (TerminalSessionID) -> Void
     @State private var focusDriver = GhosttyFocusDriver()
 
     var body: some View {
@@ -378,7 +386,18 @@ private struct WarrenNextTerminalSurfaceView: View {
                             surface: surface,
                             isActive: isActive,
                             focusDriver: focusDriver,
-                            viewportSize: proxy.size
+                            viewportSize: proxy.size,
+                            onFocused: {
+                                onFocused(
+                                    surface.id,
+                                    surface.state.surfaceSize.flatMap {
+                                        TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
+                                    }
+                                )
+                            },
+                            onBlurred: {
+                                onBlurred(surface.id)
+                            }
                         )
                             // Every mounted renderer owns the same pane-sized
                             // viewport, including hidden siblings. Otherwise

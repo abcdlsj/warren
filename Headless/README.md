@@ -58,7 +58,7 @@ warren --endpoint my-vps session attach SESSION_ID
 
 ## API 边界
 
-控制接口是 `/v1/ws`，先发送 token 鉴权，再使用带 request ID 的 request/response。Roster 是 Host 资源投影；终端输出使用 WebSocket binary frame。SSH、Tailscale 和未来的 Relay 只负责可达性，不进入资源领域模型。
+The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
 ## 输出链路
 
