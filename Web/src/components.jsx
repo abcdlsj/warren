@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 import { terminalSearchSummary } from "./terminal.js";
 import { terminalTabTitle } from "./title.js";
