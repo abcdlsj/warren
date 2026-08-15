@@ -60,19 +60,17 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     }
 
     private func emptyWelcome(tokens: WarrenColorTokens) -> some View {
-        VStack(spacing: WarrenSpacing.standard) {
-            Image(systemName: "terminal")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(tokens.mutedForeground)
+        VStack(spacing: WarrenSpacing.compact) {
             Text("Open a project to begin")
-                .font(WarrenTypography.screenTitle)
+                .font(WarrenTypography.emptyState)
+                .foregroundStyle(tokens.mutedForeground)
             Button(action: onAddProject) {
                 Text("Add Project…")
-                    .font(WarrenTypography.bodyEmphasis)
+                    .font(WarrenTypography.supporting)
             }
-            .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
+            .buttonStyle(.plain)
+            .foregroundStyle(tokens.mutedForeground)
             .focused($primaryButtonFocused)
-            .controlSize(.regular)
             .warrenSemanticElement(
                 id: "onboarding.add-project",
                 role: .button,
@@ -85,6 +83,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(tokens.mutedForeground)
+            .opacity(0.75)
             .warrenSemanticElement(
                 id: "onboarding.import-superset",
                 role: .button,
@@ -180,10 +179,6 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(tokens.background)
-        .overlay {
-            Rectangle()
-                .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Terminal panel \(tab.title)")
     }

@@ -73,9 +73,6 @@ struct WarrenNextCompositionRoot: View {
                             .font(WarrenTypography.supporting)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, WarrenSpacing.large)
-                    .padding(.vertical, WarrenSpacing.medium)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 }
                 .transition(.opacity)
             }
