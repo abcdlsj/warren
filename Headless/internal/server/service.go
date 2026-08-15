@@ -61,6 +61,7 @@ type outputSession struct {
 	runtimeName       string
 	ring              *output.Ring
 	watcher           *runtime.SpoolWatcher
+	responder         *queryResponder
 	persistedSequence uint64
 	reanchorRequired  bool
 }
@@ -848,7 +849,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapter()
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring}
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring, responder: newQueryResponder()}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -870,6 +871,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	outputSession := &outputSession{
 		sessionID:         session.ID,
 		runtimeName:       session.Runtime,
+		responder:         newQueryResponder(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}
@@ -930,15 +932,20 @@ func (s *Service) commandTimeout() time.Duration {
 func (s *Service) recordOutput(sessionID string, data []byte) {
 	s.outputMu.Lock()
 	outputSession := s.outputs[sessionID]
+	attached := len(s.peers[sessionID]) > 0
 	s.outputMu.Unlock()
 	if outputSession == nil {
 		return
 	}
+	var replies [][]byte
 	for _, chunk := range output.SplitPayload(data) {
 		outputSession.mu.Lock()
 		frame, err := outputSession.ring.Append(sessionID, chunk)
 		epoch := outputSession.ring.Epoch
 		sequence := outputSession.ring.Upper()
+		if !attached {
+			replies = append(replies, outputSession.responder.Feed(chunk)...)
+		}
 		outputSession.mu.Unlock()
 		if err != nil {
 			continue
@@ -947,6 +954,9 @@ func (s *Service) recordOutput(sessionID string, data []byte) {
 		// a peer cannot keep up and has to reconnect.
 		s.broadcastFrame(frame)
 		s.maybePersistCursor(sessionID, epoch, sequence)
+	}
+	for _, reply := range replies {
+		_ = s.Runtime.Input(context.Background(), outputSession.runtimeName, reply)
 	}
 }
 
@@ -1248,6 +1258,7 @@ func (s *Service) focusPeerLocked(
 		if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
 			return false, err
 		}
+		s.updateResponderSize(session.ID, columns, rows)
 		resized = true
 	}
 	s.outputMu.Lock()
@@ -1281,7 +1292,16 @@ func (s *Service) resizeFocusedLocked(
 	if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
 		return false, err
 	}
+	s.updateResponderSize(session.ID, columns, rows)
 	return true, nil
+}
+
+func (s *Service) updateResponderSize(sessionID string, columns, rows int) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if outputSession := s.outputs[sessionID]; outputSession != nil {
+		outputSession.responder.Resize(columns, rows)
+	}
 }
 
 func (s *Service) focusPeer(

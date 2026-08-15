@@ -764,6 +764,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 				p.detach()
 				return err
 			}
+			p.server.Service.updateResponderSize(session.ID, columns, rows)
 		}
 		if err := p.writeResult(command.ID, session); err != nil {
 			lock.Unlock()

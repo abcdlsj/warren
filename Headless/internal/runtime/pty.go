@@ -129,7 +129,14 @@ func ptyCommand(directory, command string) *exec.Cmd {
 func ptyEnvironment() []string {
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, item := range os.Environ() {
-		if strings.HasPrefix(item, "TERM=") || strings.HasPrefix(item, "COLORTERM=") {
+		if strings.HasPrefix(item, "TERM=") ||
+			strings.HasPrefix(item, "COLORTERM=") ||
+			// The daemon host may export NO_COLOR (for example when launched
+			// from an agent session). It must not leak into PTY children:
+			// Warren pins a color-capable terminal and the client renderer
+			// handles colors itself, so applications like Codex would
+			// otherwise silently downgrade to monochrome.
+			strings.HasPrefix(item, "NO_COLOR=") {
 			continue
 		}
 		env = append(env, item)

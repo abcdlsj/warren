@@ -64,15 +64,16 @@ func TestPTYInputReachesChild(t *testing.T) {
 }
 
 func TestPTYChildHasStableColorEnvironment(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
 	runtimeAdapter := newTestPTY(t)
 	ctx := context.Background()
 	if err := runtimeAdapter.Create(ctx, "warren_test_env", t.TempDir(), "sh"); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := runtimeAdapter.Input(ctx, "warren_test_env", []byte("echo TERM=$TERM COLORTERM=$COLORTERM\r")); err != nil {
+	if err := runtimeAdapter.Input(ctx, "warren_test_env", []byte("echo TERM=$TERM COLORTERM=$COLORTERM NO_COLOR=$NO_COLOR\r")); err != nil {
 		t.Fatalf("Input: %v", err)
 	}
-	waitSpoolContains(t, runtimeAdapter, "warren_test_env", "TERM=xterm-256color COLORTERM=truecolor")
+	waitSpoolContains(t, runtimeAdapter, "warren_test_env", "TERM=xterm-256color COLORTERM=truecolor NO_COLOR=")
 }
 
 func TestPTYRecoverReadsSpoolRange(t *testing.T) {
