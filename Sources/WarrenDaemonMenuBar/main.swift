@@ -44,7 +44,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         } else {
             statusItem.button?.title = "W"
         }
-        statusItem.button?.toolTip = "Warren daemon"
+        statusItem.button?.toolTip = "Warren headless daemon"
         statusItem.menu = makeMenu()
         updateStatusItem()
         ensureDaemon()
@@ -71,7 +71,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        let status = NSMenuItem(title: "Daemon: Checking…", action: nil, keyEquivalent: "")
+        let status = NSMenuItem(title: "Headless: Checking…", action: nil, keyEquivalent: "")
         status.tag = 1
         status.isEnabled = false
         menu.addItem(status)
@@ -80,10 +80,10 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         endpoint.isEnabled = false
         menu.addItem(endpoint)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "r"))
-        menu.addItem(NSMenuItem(title: "Stop Daemon", action: #selector(stopDaemonAction), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "Restart Headless", action: #selector(restartDaemon), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem(title: "Stop Headless", action: #selector(stopDaemonAction), keyEquivalent: "s"))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Warren Daemon Menu Bar", action: #selector(quitMenuBar), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit Warren Menu Bar", action: #selector(quitMenuBar), keyEquivalent: "q"))
         return menu
     }
 
@@ -136,7 +136,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             }
             try? await Task.sleep(for: .milliseconds(200))
         }
-        state = .failed("Daemon did not become ready")
+        state = .failed("Headless did not become ready")
     }
 
     private func startDaemonProcess() {
@@ -256,17 +256,17 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         }
         if button.image != nil { button.title = "" }
         button.toolTip = switch state {
-        case .checking: "Warren daemon: Checking"
-        case .running: "Warren daemon: Running"
-        case .stopped: "Warren daemon: Stopped"
-        case .failed: "Warren daemon: Failed"
+        case .checking: "Warren headless: Checking"
+        case .running: "Warren headless: Running"
+        case .stopped: "Warren headless: Stopped"
+        case .failed: "Warren headless: Failed"
         }
         if let status = statusItem.menu?.item(withTag: 1) {
             switch state {
-            case .checking: status.title = "Daemon: Checking…"
-            case .running: status.title = "Daemon: Running"
-            case .stopped: status.title = "Daemon: Stopped"
-            case .failed(let reason): status.title = "Daemon: \(reason)"
+            case .checking: status.title = "Headless: Checking…"
+            case .running: status.title = "Headless: Running"
+            case .stopped: status.title = "Headless: Stopped"
+            case .failed(let reason): status.title = "Headless: \(reason)"
             }
         }
         if let endpoint = statusItem.menu?.item(withTag: 2) {
