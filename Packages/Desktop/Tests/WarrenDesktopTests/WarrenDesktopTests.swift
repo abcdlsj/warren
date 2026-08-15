@@ -189,6 +189,37 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testTabCyclerRequiresMultipleTabsAndWrapsInBothDirections() {
+        let tabs = WarrenDesktopFixture.preview.projection.tabs
+        XCTAssertEqual(tabs.count, 2)
+
+        XCTAssertNil(WarrenDesktopTabCycler.tabID(
+            forward: true,
+            in: [tabs[0]],
+            selectedTabID: tabs[0].id
+        ))
+        XCTAssertEqual(WarrenDesktopTabCycler.tabID(
+            forward: true,
+            in: tabs,
+            selectedTabID: nil
+        ), tabs[0].id)
+        XCTAssertEqual(WarrenDesktopTabCycler.tabID(
+            forward: true,
+            in: tabs,
+            selectedTabID: tabs[0].id
+        ), tabs[1].id)
+        XCTAssertEqual(WarrenDesktopTabCycler.tabID(
+            forward: true,
+            in: tabs,
+            selectedTabID: tabs[1].id
+        ), tabs[0].id)
+        XCTAssertEqual(WarrenDesktopTabCycler.tabID(
+            forward: false,
+            in: tabs,
+            selectedTabID: tabs[0].id
+        ), tabs[1].id)
+    }
+
     func testPresetIconCacheLoadsHitsAndMissesOnlyOnce() {
         var loads: [String] = []
         let expected = NSImage(size: NSSize(width: 12, height: 12))

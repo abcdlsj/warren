@@ -99,8 +99,20 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 .foregroundStyle(tokens.mutedForeground)
             Text("Start a session")
                 .font(WarrenTypography.screenTitle)
+            VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+                shortcutRow(tokens: tokens, key: "⌘T", label: "New terminal")
+                shortcutRow(tokens: tokens, key: "⌘X", label: "Next tab")
+                shortcutRow(tokens: tokens, key: "⇧⌘X", label: "Previous tab")
+                shortcutRow(tokens: tokens, key: "⌘W", label: "Close terminal")
+            }
+            .padding(.horizontal, WarrenSpacing.medium)
+            .padding(.vertical, WarrenSpacing.compact)
+            .background(
+                tokens.tertiaryWash,
+                in: RoundedRectangle(cornerRadius: WarrenRadius.medium)
+            )
             Button(action: onNewSession) {
-                Text("New Session…")
+                Text("New Terminal")
                     .font(WarrenTypography.bodyEmphasis)
             }
             .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
@@ -109,6 +121,24 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
+    }
+
+    private func shortcutRow(
+        tokens: WarrenColorTokens,
+        key: String,
+        label: String
+    ) -> some View {
+        HStack(spacing: WarrenSpacing.medium) {
+            Text(key)
+                .font(WarrenTypography.shortcut)
+                .foregroundStyle(tokens.mutedForeground)
+                .frame(width: 60, alignment: .trailing)
+            Text(label)
+                .font(WarrenTypography.body)
+                .foregroundStyle(tokens.foreground.opacity(0.86))
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(key) \(label)")
     }
 }
 

@@ -271,6 +271,19 @@ export default function App() {
     else if (wasAttached) request("session.detach");
   }, [attachSession, request]);
 
+  const switchTab = useCallback(direction => {
+    const state = appStateRef.current;
+    const workspaceID = state.activeWorkspace;
+    if (!workspaceID) return;
+    const nextTabs = workspaceTabs(state.catalog, workspaceID);
+    if (nextTabs.length < 2) return;
+    const currentIndex = nextTabs.findIndex(tab => tab.id === state.activeSession);
+    const nextIndex = currentIndex === -1
+      ? 0
+      : (currentIndex + direction + nextTabs.length) % nextTabs.length;
+    attachSession(nextTabs[nextIndex].id);
+  }, [attachSession]);
+
   const createSession = useCallback(kind => {
     const workspaceID = appStateRef.current.activeWorkspace;
     if (!workspaceID) return;
@@ -730,18 +743,21 @@ export default function App() {
         closeSettings();
         return;
       }
-      if (settingsOpen || !modifier) return;
+      if (settingsOpen || searchOpen || !modifier) return;
       if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
       } else if (event.key === ",") {
         event.preventDefault();
         openSettings();
+      } else if (event.key.toLowerCase() === "x") {
+        event.preventDefault();
+        switchTab(event.shiftKey ? -1 : 1);
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen, settingsOpen, openSettings, closeSettings]);
+  }, [searchOpen, settingsOpen, openSettings, closeSettings, switchTab]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
     setSearchOpen(false);

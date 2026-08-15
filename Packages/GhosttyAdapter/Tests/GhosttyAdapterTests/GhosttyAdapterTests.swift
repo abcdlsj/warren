@@ -42,4 +42,22 @@ final class GhosttyAdapterTests: XCTestCase {
         XCTAssertTrue(surface.state.renderedConfig.contains("font-thicken = false"))
         XCTAssertTrue(surface.state.renderedConfig.contains("adjust-cell-height = 12%"))
     }
+
+    @MainActor
+    func testAppLevelShortcutsAreUnboundFromGhostty() {
+        let surface = GhosttySurface(
+            id: TerminalSessionID(),
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: "/tmp",
+            onInput: { _ in },
+            onResize: { _, _ in }
+        )
+
+        for shortcut in ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q"] {
+            XCTAssertTrue(
+                surface.state.renderedConfig.contains("keybind = \(shortcut)=unbind"),
+                "Expected \(shortcut) to be unbound so Warren shortcuts stay available."
+            )
+        }
+    }
 }

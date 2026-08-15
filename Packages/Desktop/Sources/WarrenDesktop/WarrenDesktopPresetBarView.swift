@@ -10,7 +10,6 @@ import WarrenDomain
 /// button emits a typed intent and creates a real Host-owned session.
 struct WarrenDesktopPresetBar: View {
     let workspace: Workspace?
-    let onChooseCommand: () -> Void
     let onLaunch: (TerminalSessionLaunchRequest) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -22,24 +21,7 @@ struct WarrenDesktopPresetBar: View {
             fadeLength: WarrenLayoutMetrics.sidebarScrollFadeLength,
             surface: tokens.background
         ) {
-            HStack(spacing: WarrenSpacing.xxs) {
-                Button(action: onChooseCommand) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 24, height: 24)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(WarrenPresetButtonStyle())
-                .foregroundStyle(tokens.mutedForeground)
-                .disabled(workspace == nil)
-                .accessibilityLabel("Choose session command")
-                .accessibilityHint("Open the full session launcher")
-
-                Rectangle()
-                    .fill(tokens.border)
-                    .frame(width: WarrenSpacing.hairline, height: 16)
-                    .padding(.horizontal, WarrenSpacing.xs)
-
+            HStack(spacing: WarrenSpacing.small) {
                 ForEach(WarrenDesktopSessionPreset.pinned) { preset in
                     Button {
                         onLaunch(preset.request)
@@ -49,11 +31,11 @@ struct WarrenDesktopPresetBar: View {
                                 .frame(width: 14, height: 14)
 
                             Text(preset.presetBarTitle)
-                                .font(.system(size: 13, weight: .regular))
+                                .font(.system(size: 13, weight: .light))
                                 .lineLimit(1)
                         }
                         .padding(.horizontal, 6)
-                        .frame(height: 24)
+                        .frame(height: 20)
                         .contentShape(.rect)
                     }
                     .buttonStyle(WarrenPresetButtonStyle())

@@ -12,7 +12,6 @@ struct WarrenNextCompositionRoot: View {
     @State private var isProjectImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var isSupersetImporting = false
-    @State private var sessionCreatorWorkspaceID: WorkspaceID?
     @State private var workspaceCreatorProjectID: ProjectID?
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
@@ -99,15 +98,6 @@ struct WarrenNextCompositionRoot: View {
                 }
             }
         }
-        .sheet(isPresented: sessionCreatorBinding) {
-            if let workspaceID = sessionCreatorWorkspaceID {
-                WarrenNextSessionCreatorView(
-                    workspaceName: activeProjection.workspace(id: workspaceID)?.name ?? "Workspace"
-                ) { request in
-                    remoteModel.createSession(workspaceID: workspaceID, request: request)
-                }
-            }
-        }
         .sheet(isPresented: workspaceCreatorBinding) {
             if let projectID = workspaceCreatorProjectID,
                let project = activeProjection.projectGroup(id: projectID)?.project {
@@ -170,7 +160,7 @@ struct WarrenNextCompositionRoot: View {
         } else if case .requestNewWorkspace(let projectID) = action {
             workspaceCreatorProjectID = projectID
         } else if case .requestNewSession(let workspaceID) = action {
-            sessionCreatorWorkspaceID = workspaceID
+            remoteModel.createSession(workspaceID: workspaceID, request: .shell)
         } else {
             remoteModel.perform(action)
         }
@@ -256,15 +246,6 @@ struct WarrenNextCompositionRoot: View {
             }
             isSupersetImporting = false
         }
-    }
-
-    private var sessionCreatorBinding: Binding<Bool> {
-        Binding(
-            get: { sessionCreatorWorkspaceID != nil },
-            set: { isPresented in
-                if !isPresented { sessionCreatorWorkspaceID = nil }
-            }
-        )
     }
 
     private var workspaceCreatorBinding: Binding<Bool> {

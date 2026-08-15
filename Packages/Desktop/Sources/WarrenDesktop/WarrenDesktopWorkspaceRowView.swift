@@ -71,7 +71,11 @@ struct WarrenDesktopWorkspaceRow: View {
 
                 Text(workspace.name.isEmpty ? "Workspace" : workspace.name)
                     .font(WarrenTypography.navigationItem)
-                    .foregroundStyle(isSelected ? tokens.foreground : tokens.foreground.opacity(0.80))
+                    .foregroundStyle(
+                        isSelected
+                            ? tokens.workspaceSelectedText
+                            : tokens.workspaceText
+                    )
                     .lineLimit(1)
                     .truncationMode(.middle)
 

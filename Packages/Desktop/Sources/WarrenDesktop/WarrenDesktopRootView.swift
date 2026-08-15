@@ -152,10 +152,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     )
                     WarrenDesktopPresetBar(
                         workspace: presentation.workspace,
-                        onChooseCommand: {
-                            guard let workspaceID = presentation.workspace?.id else { return }
-                            dispatch(.requestNewSession(workspaceID))
-                        },
                         onLaunch: { request in
                             guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.launchSession(workspaceID, request))
@@ -220,6 +216,26 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.newSession)) { _ in
             guard let workspace = presentation.workspace else { return }
             dispatch(.requestNewSession(workspace.id))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.nextTab)) { _ in
+            guard let tabID = WarrenDesktopTabCycler.tabID(
+                forward: true,
+                in: presentation.tabs,
+                selectedTabID: navigation.selectedTabID
+            ) else { return }
+            dispatch(.selectTab(tabID))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.previousTab)) { _ in
+            guard let tabID = WarrenDesktopTabCycler.tabID(
+                forward: false,
+                in: presentation.tabs,
+                selectedTabID: navigation.selectedTabID
+            ) else { return }
+            dispatch(.selectTab(tabID))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.closeTab)) { _ in
+            guard let tab = presentation.tab, tab.sessionID != nil else { return }
+            dispatch(.closeTab(tab.id))
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.toggleSidebar)) { _ in
             toggleSidebar()
@@ -358,6 +374,26 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private static func persist(_ state: WarrenDesktopSidebarState) {
         UserDefaults.standard.set(state.width, forKey: WarrenDesktopSidebarKeys.width)
+    }
+}
+
+/// Pure tab-cycling rule for the ⌘X / ⇧⌘X shortcuts. A workspace must have
+/// more than one open tab; without a current selection the first tab wins.
+enum WarrenDesktopTabCycler {
+    static func tabID(
+        forward: Bool,
+        in tabs: [ClientTab],
+        selectedTabID: String?
+    ) -> String? {
+        guard tabs.count > 1 else { return nil }
+        guard let selectedTabID,
+              let selectedIndex = tabs.firstIndex(where: { $0.id == selectedTabID }) else {
+            return tabs.first?.id
+        }
+        let nextIndex = (
+            selectedIndex + (forward ? 1 : -1) + tabs.count
+        ) % tabs.count
+        return tabs[nextIndex].id
     }
 }
 

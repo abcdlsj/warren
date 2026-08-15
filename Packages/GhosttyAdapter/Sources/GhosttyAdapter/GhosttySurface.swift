@@ -56,15 +56,8 @@ public final class GhosttySurface: Identifiable, ObservableObject {
                 builder.withCursorStyleBlink(true)
             }
         )
-        let controller = TerminalController(theme: theme) { builder in
-            builder.withBackgroundOpacity(1)
-            builder.withFontFamily(font.family)
-            builder.withFontSize(Float(font.size))
-            builder.withFontThicken(false)
-            builder.withCustom("adjust-cell-height", Self.defaultCellHeightAdjustment)
-            builder.withWindowPaddingX(0)
-            builder.withWindowPaddingY(0)
-        }
+        let controller = TerminalController(theme: theme) { _ in }
+        controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
         let state = TerminalViewState(controller: controller)
         state.configuration = TerminalSurfaceOptions(
             backend: .inMemory(inMemory),
@@ -84,7 +77,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     }
 
     public func apply(font: TerminalFontPreference) {
-        _ = state.controller.setTerminalConfiguration(TerminalConfiguration { builder in
+        _ = state.controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
+    }
+
+    /// Terminal chrome that Warren owns as app-level shortcuts. Ghostty's
+    /// default bindings for these keys would consume them while the surface is
+    /// the first responder, so each one is explicitly unbound.
+    private static func makeConfiguration(
+        font: TerminalFontPreference
+    ) -> TerminalConfiguration {
+        TerminalConfiguration { builder in
             builder.withBackgroundOpacity(1)
             builder.withFontFamily(font.family)
             builder.withFontSize(Float(font.size))
@@ -92,7 +94,13 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withCustom("adjust-cell-height", Self.defaultCellHeightAdjustment)
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
-        })
+            builder.withCustom("keybind", "super+t=unbind")
+            builder.withCustom("keybind", "super+w=unbind")
+            builder.withCustom("keybind", "super+x=unbind")
+            builder.withCustom("keybind", "super+k=unbind")
+            builder.withCustom("keybind", "super+b=unbind")
+            builder.withCustom("keybind", "super+q=unbind")
+        }
     }
 
     public func semanticSnapshot() -> TerminalSemanticSnapshot {

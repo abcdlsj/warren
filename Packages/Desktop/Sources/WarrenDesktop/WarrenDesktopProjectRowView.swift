@@ -18,6 +18,7 @@ struct WarrenDesktopProjectRow: View {
     let onAddWorkspace: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.warrenForceHover) private var forceHover
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
     @FocusState private var isAddFocused: Bool
@@ -80,6 +81,7 @@ struct WarrenDesktopProjectRow: View {
                         .font(WarrenTypography.navigationMeta)
                         .foregroundStyle(tokens.mutedForeground)
                         .lineLimit(1)
+                        .opacity(isHovered || isToggleFocused || forceHover ? 1 : 0)
                         .accessibilityHidden(true)
 
                     Spacer(minLength: 0)
@@ -92,7 +94,7 @@ struct WarrenDesktopProjectRow: View {
             }
             .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
             .focused($isFocused)
-            .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
+            .foregroundStyle(tokens.projectText)
             .accessibilityLabel("Project \(project.name)")
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
