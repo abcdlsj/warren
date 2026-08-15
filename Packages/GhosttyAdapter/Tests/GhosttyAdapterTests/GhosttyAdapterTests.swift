@@ -63,7 +63,13 @@ final class GhosttyAdapterTests: XCTestCase {
             onResize: { _, _ in }
         )
 
-        for shortcut in ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q"] {
+        var shortcuts = ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q"]
+        for index in 1...9 {
+            shortcuts.append("super+\(index)")
+            shortcuts.append("super+digit_\(index)")
+        }
+
+        for shortcut in shortcuts {
             XCTAssertTrue(
                 surface.state.renderedConfig.contains("keybind = \(shortcut)=unbind"),
                 "Expected \(shortcut) to be unbound so Warren shortcuts stay available."
