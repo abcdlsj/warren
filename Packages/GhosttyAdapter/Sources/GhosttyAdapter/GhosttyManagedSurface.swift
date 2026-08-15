@@ -71,6 +71,12 @@ public struct GhosttyManagedSurface: View {
                         canRefresh: { isActive },
                         onRefreshed: {
                             surface.synchronizeViewport()
+                            // The view has settled; ask the renderer for one
+                            // more frame so the first snapshot appears without
+                            // waiting for input. Refreshes stay queued and
+                            // serialized by Ghostty's renderer — never pair
+                            // them with an inline draw here.
+                            surface.requestDisplayRefresh()
                             // The view has settled by the second refresh leg;
                             // re-claim focus so keystrokes land without a click.
                             focusDriver.moveFocus(

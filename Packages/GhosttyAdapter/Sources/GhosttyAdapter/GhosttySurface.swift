@@ -111,32 +111,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         ghostty_surface_refresh(raw)
     }
 
-    /// Presents Ghostty's current grid inline after its view re-enters the
-    /// window (tab switch, settings dismissal).
-    ///
-    /// A renderer-thread refresh can be suppressed when the pixel dimensions
-    /// are unchanged, leaving a reattached surface on a stale framebuffer
-    /// until a resize or keystroke. This draw-only nudge is scheduled after
-    /// the renderer refresh has been requested and the layout has settled;
-    /// never pair it with `requestDisplayRefresh()` in the same runloop turn,
-    /// or an already-queued renderer frame can land after the inline present
-    /// and roll part of the pane backwards.
-    public func forceDisplayRefresh() {
-        guard let raw = state.surface?.rawValue else { return }
-        ghostty_surface_draw(raw)
-    }
-
     /// Re-entry repaint for a surface whose AppKit view is being recreated or
-    /// reattached: request a renderer-thread frame immediately and once more
-    /// after the runloop, then present the current grid once layout settles.
+    /// reattached (tab switch, settings dismissal). Requests a renderer-thread
+    /// frame so the first snapshot does not wait for a resize or keystroke.
+    /// Only `ghostty_surface_refresh` is used here: pairing an inline
+    /// `ghostty_surface_draw` with a queued renderer frame lets an older frame
+    /// land after the newer inline present and roll part of the pane backwards
+    /// (libghostty explicitly forbids that pairing). Layout-settled refreshes
+    /// are requested by the managed surface after `fitToSize` completes.
     public func refreshAfterReentry() {
         requestDisplayRefresh()
-        DispatchQueue.main.async { [weak self] in
-            self?.requestDisplayRefresh()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.forceDisplayRefresh()
-        }
     }
 
     public func apply(font: TerminalFontPreference) {
