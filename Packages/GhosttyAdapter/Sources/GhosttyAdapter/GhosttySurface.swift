@@ -99,26 +99,23 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         outputWriter.receive(payload)
     }
 
-    /// Requests an immediate Ghostty display tick. The first reanchor
-    /// snapshot can be written before the surface's display loop has painted
-    /// anything; an explicit tick renders it without waiting for the next
-    /// resize or keystroke. The renderer-thread refresh mirrors what the
-    /// embedded view's display link does: process app state, then ask
-    /// Ghostty to present a frame asynchronously.
+    /// Requests an immediate Ghostty app tick so pending state (including a
+    /// freshly attached snapshot) is processed without waiting for the next
+    /// resize or keystroke.
+    ///
+    /// This deliberately does not call `ghostty_surface_refresh`: host output
+    /// is written in bounded background chunks, and an arbitrary main-thread
+    /// refresh can ask the renderer to draw while the grid is only partially
+    /// updated. Ghostty's own render request (fired after each write and
+    /// coalesced through the display link) paints a consistent grid instead.
     public func requestDisplayRefresh() {
         state.controller.tick()
-        guard let raw = state.surface?.rawValue else { return }
-        ghostty_surface_refresh(raw)
     }
 
     /// Re-entry repaint for a surface whose AppKit view is being recreated or
-    /// reattached (tab switch, settings dismissal). Requests a renderer-thread
-    /// frame so the first snapshot does not wait for a resize or keystroke.
-    /// Only `ghostty_surface_refresh` is used here: pairing an inline
-    /// `ghostty_surface_draw` with a queued renderer frame lets an older frame
-    /// land after the newer inline present and roll part of the pane backwards
-    /// (libghostty explicitly forbids that pairing). Layout-settled refreshes
-    /// are requested by the managed surface after `fitToSize` completes.
+    /// reattached (tab switch, settings dismissal). App tick only; rendering
+    /// stays on Ghostty's write-completion path so the grid is never sampled
+    /// mid-update.
     public func refreshAfterReentry() {
         requestDisplayRefresh()
     }
