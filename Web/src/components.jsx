@@ -146,6 +146,14 @@ export function TopBar({
   onOpenMenu,
   onOpenSearch,
 }) {
+  const tabRefs = useRef(new Map());
+
+  useEffect(() => {
+    if (!activeSession) return;
+    const node = tabRefs.current.get(activeSession);
+    node?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+  }, [activeSession, tabs]);
+
   return (
     <header className="topbar">
       <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
@@ -160,6 +168,10 @@ export function TopBar({
               className={`tab${active ? " active" : ""}`}
               key={session.id}
               onClick={() => onAttachSession(session.id)}
+              ref={node => {
+                if (node) tabRefs.current.set(session.id, node);
+                else tabRefs.current.delete(session.id);
+              }}
             >
               <ActivityDot activity={session.activity} />
               <span className="tab-title">{session.title}</span>
@@ -236,18 +248,58 @@ export function EmptyTerminal({
 }
 
 export function MobileKeys({ onInput }) {
+  const barRef = useRef(null);
   const keys = [
     ["escape", "Esc", "\u001b"],
     ["tab", "Tab", "\t"],
     ["ctrlC", "Ctrl-C", "\u0003"],
     ["ctrlD", "Ctrl-D", "\u0004"],
+    ["ctrlA", "Ctrl-A", "\u0001"],
+    ["ctrlE", "Ctrl-E", "\u0005"],
+    ["ctrlU", "Ctrl-U", "\u0015"],
+    ["ctrlK", "Ctrl-K", "\u000b"],
+    ["ctrlL", "Ctrl-L", "\u000c"],
     ["up", "↑", "\u001b[A"],
     ["down", "↓", "\u001b[B"],
     ["left", "←", "\u001b[D"],
     ["right", "→", "\u001b[C"],
+    ["home", "Home", "\u001b[H"],
+    ["end", "End", "\u001b[F"],
   ];
+
+  useEffect(() => {
+    const bar = barRef.current;
+    const viewport = window.visualViewport;
+    if (!bar || !viewport) return undefined;
+
+    const safeBottom = () => {
+      const raw = getComputedStyle(document.documentElement)
+        .getPropertyValue("--safe-bottom")
+        .trim();
+      const value = Number.parseFloat(raw);
+      return Number.isFinite(value) ? value : 0;
+    };
+    const update = () => {
+      // Cross-platform keyboard inset: Android resizes the layout viewport
+      // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
+      // the visual viewport (covered == keyboard height). When the keyboard
+      // collapses, clamp back to the safe-area bottom so the bar sinks.
+      const covered = window.innerHeight - (viewport.height + viewport.offsetTop);
+      bar.style.bottom = `${covered > 2 ? covered : safeBottom()}px`;
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   return (
-    <nav className="mobile-keys" aria-label="Terminal keys">
+    <nav ref={barRef} className="mobile-keys" aria-label="Terminal keys">
       {keys.map(([key, label, sequence]) => (
         <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
       ))}

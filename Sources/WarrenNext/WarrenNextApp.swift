@@ -27,6 +27,23 @@ struct WarrenNextApp: App {
                 }
                 .keyboardShortcut("t", modifiers: .command)
 
+                Button("Next Tab") {
+                    post(WarrenDesktopCommand.nextTab)
+                }
+                .keyboardShortcut("x", modifiers: .command)
+
+                Button("Previous Tab") {
+                    post(WarrenDesktopCommand.previousTab)
+                }
+                .keyboardShortcut("x", modifiers: [.command, .shift])
+
+                Button("Close Tab") {
+                    post(WarrenDesktopCommand.closeTab)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+
+                Divider()
+
                 Button("Command Palette…") {
                     post(WarrenDesktopCommand.commandPalette)
                 }

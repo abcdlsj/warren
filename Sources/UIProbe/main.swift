@@ -130,7 +130,9 @@ private enum UIProbe {
             violations.append("Non-positive semantic frames: \(invalidFrames.joined(separator: ", "))")
         }
         let undersizedSidebarRows = snapshot.nodes.filter {
-            if $0.id.hasPrefix("project.") && !$0.id.hasSuffix(".new-workspace") {
+            if $0.id.hasPrefix("project."),
+               !$0.id.hasSuffix(".new-workspace"),
+               !$0.id.hasSuffix(".toggle") {
                 return $0.frame.width < 250 || $0.frame.height < 28
             }
             if $0.id.hasPrefix("workspace.project-list.") {

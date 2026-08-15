@@ -18,8 +18,9 @@ public enum WarrenLayoutMetrics {
     public static let workspaceBarWorkspaceWidth: CGFloat = 240
     public static let topBarHeight: CGFloat = 48
     public static let tabBarHeight: CGFloat = 40
-    /// Superset's pinned command preset row is `h-8`.
-    public static let presetBarHeight: CGFloat = 32
+    /// Superset's pinned command preset row is `h-8`; Warren keeps the bar
+    /// slightly flatter so the command row reads as chrome, not a toolbar.
+    public static let presetBarHeight: CGFloat = 28
     public static let tabWidth: CGFloat = 160
     /// Superset keeps the add-tab affordance in a fixed `w-10` slot.
     public static let tabAddButtonSlotWidth: CGFloat = 40

@@ -40,6 +40,11 @@ const storageKeys = {
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
 const pendingInputLimit = 64 * 1024;
+const isCoarsePointer = () => (
+  typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false
+);
 const previewSession = {
   title: "Claude",
   process: "claude",
@@ -148,7 +153,9 @@ export default function App() {
     state.attachedSession = sessionID;
     setAttachedSession(sessionID);
     if (flush) inputQueueRef.current.flush(sessionID);
-    terminalRef.current?.focus();
+    // Touch devices must not pop the software keyboard as a side effect of
+    // attaching a session; the user focuses the terminal by tapping it.
+    if (!isCoarsePointer()) terminalRef.current?.focus();
   }, []);
 
   const sendInput = useCallback(data => {
@@ -428,8 +435,9 @@ export default function App() {
       reanchorRequiredRef.current = false;
       requestAnimationFrame(() => {
         fitTerminal();
+        terminalRef.current?.scrollToBottom();
         const terminal = terminalRef.current;
-        if (terminal && document.hasFocus()) {
+        if (terminal && document.hasFocus() && !isCoarsePointer()) {
           terminal.focus();
           if (focusedSessionRef.current !== message.session) requestSessionFocus(true);
         }
@@ -546,6 +554,15 @@ export default function App() {
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const textarea = terminal.textarea;
+    if (textarea) {
+      // Hint mobile keyboards toward the English layout by default; the user
+      // can still switch IMEs when they actually need CJK input.
+      textarea.lang = "en-US";
+      textarea.setAttribute("autocorrect", "off");
+      textarea.setAttribute("autocapitalize", "off");
+      textarea.setAttribute("spellcheck", "false");
+    }
     try {
       const webglAddon = new WebglAddon();
       terminal.loadAddon(webglAddon);
@@ -561,7 +578,14 @@ export default function App() {
       // DOM renderer.
     }
     const batcher = new OutputBatcher({
-      write: bytes => terminal.write(bytes),
+      write: bytes => {
+        const buffer = terminal.buffer.active;
+        const followsOutput = buffer.viewportY === buffer.baseY;
+        terminal.write(bytes);
+        // Keep a terminal that is already pinned to the bottom glued to new
+        // output; a user who scrolled up keeps their place.
+        if (followsOutput) terminal.scrollToBottom();
+      },
       onOverflow: () => {
         reanchorRequiredRef.current = true;
         connectionRef.current?.reset();
@@ -576,7 +600,35 @@ export default function App() {
       if (terminalRef.current === terminal) fitTerminalToHost(fitAddon, terminalHost);
     });
 
-    const dataSubscription = terminal.onData(sendInput);
+    // Mobile soft keyboards and CJK IMEs can fire xterm onData twice for the
+    // same keystroke (compositionend plus the following input event). Track
+    // composition state and drop exact duplicates inside a short window.
+    const isTouch = isCoarsePointer();
+    let isComposing = false;
+    let compositionEndTime = 0;
+    let lastSentData = "";
+    let lastSentTime = 0;
+    const onCompositionStart = () => {
+      isComposing = true;
+    };
+    const onCompositionEnd = () => {
+      isComposing = false;
+      compositionEndTime = Date.now();
+    };
+    textarea?.addEventListener("compositionstart", onCompositionStart);
+    textarea?.addEventListener("compositionend", onCompositionEnd);
+    const dataSubscription = terminal.onData(data => {
+      const now = Date.now();
+      const inCompositionWindow = isComposing || now - compositionEndTime < 150;
+      if ((inCompositionWindow || isTouch)
+        && data === lastSentData
+        && now - lastSentTime < 150) {
+        return;
+      }
+      lastSentData = data;
+      lastSentTime = now;
+      sendInput(data);
+    });
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const onTerminalFocus = () => requestSessionFocus(true);
     const onTerminalBlur = () => requestSessionFocus(false);
@@ -603,6 +655,8 @@ export default function App() {
     return () => {
       dataSubscription.dispose();
       resizeSubscription.dispose();
+      textarea?.removeEventListener("compositionstart", onCompositionStart);
+      textarea?.removeEventListener("compositionend", onCompositionEnd);
       terminal.textarea?.removeEventListener("focus", onTerminalFocus);
       terminal.textarea?.removeEventListener("blur", onTerminalBlur);
       window.removeEventListener("blur", releaseWindowFocus);
@@ -730,7 +784,7 @@ export default function App() {
         closeSettings();
         return;
       }
-      if (settingsOpen || !modifier) return;
+      if (settingsOpen || searchOpen || !modifier) return;
       if (event.key.toLowerCase() === "k") {
         event.preventDefault();
         setSearchOpen(true);
@@ -802,7 +856,14 @@ export default function App() {
           />
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title"><span>{paneTitle}</span></div>
-          <section className="terminal-shell" aria-label="Terminal" onPointerDown={focusTerminal}>
+          <section
+            className="terminal-shell"
+            aria-label="Terminal"
+            onPointerDown={event => {
+              if (event.pointerType === "mouse") focusTerminal();
+            }}
+            onClick={focusTerminal}
+          >
             <div id="terminal" ref={terminalHostRef} />
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}

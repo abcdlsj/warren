@@ -222,30 +222,57 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         let sessionMenuItem = NSMenuItem()
         mainMenu.addItem(sessionMenuItem)
         let sessionMenu = NSMenu(title: "Session")
-        sessionMenu.addItem(
+        let newSessionItem = sessionMenu.addItem(
             withTitle: "New Session…",
             action: #selector(WarrenNextAppDelegate.postCommand(_:)),
             keyEquivalent: "t"
-        ).target = target
-        sessionMenu.addItem(
+        )
+        newSessionItem.target = target
+        newSessionItem.representedObject = WarrenDesktopCommand.newSession.rawValue
+
+        let nextTabItem = sessionMenu.addItem(
+            withTitle: "Next Tab",
+            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            keyEquivalent: "x"
+        )
+        nextTabItem.target = target
+        nextTabItem.keyEquivalentModifierMask = [.command]
+        nextTabItem.representedObject = WarrenDesktopCommand.nextTab.rawValue
+
+        let previousTabItem = sessionMenu.addItem(
+            withTitle: "Previous Tab",
+            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            keyEquivalent: "x"
+        )
+        previousTabItem.target = target
+        previousTabItem.keyEquivalentModifierMask = [.command, .shift]
+        previousTabItem.representedObject = WarrenDesktopCommand.previousTab.rawValue
+
+        let closeTabItem = sessionMenu.addItem(
+            withTitle: "Close Tab",
+            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            keyEquivalent: "w"
+        )
+        closeTabItem.target = target
+        closeTabItem.representedObject = WarrenDesktopCommand.closeTab.rawValue
+
+        sessionMenu.addItem(.separator())
+        let paletteItem = sessionMenu.addItem(
             withTitle: "Command Palette…",
             action: #selector(WarrenNextAppDelegate.postCommand(_:)),
             keyEquivalent: "k"
-        ).target = target
+        )
+        paletteItem.target = target
+        paletteItem.representedObject = WarrenDesktopCommand.commandPalette.rawValue
+
         sessionMenu.addItem(.separator())
-        sessionMenu.addItem(
+        let sidebarItem = sessionMenu.addItem(
             withTitle: "Toggle Sidebar",
             action: #selector(WarrenNextAppDelegate.postCommand(_:)),
             keyEquivalent: "b"
-        ).target = target
-
-        let newSessionItem = sessionMenu.item(at: 0)
-        newSessionItem?.representedObject = WarrenDesktopCommand.newSession.rawValue
-        let paletteItem = sessionMenu.item(at: 1)
-        paletteItem?.representedObject = WarrenDesktopCommand.commandPalette.rawValue
-        let sidebarItem = sessionMenu.item(at: 3)
-        sidebarItem?.representedObject = WarrenDesktopCommand.toggleSidebar.rawValue
-
+        )
+        sidebarItem.target = target
+        sidebarItem.representedObject = WarrenDesktopCommand.toggleSidebar.rawValue
         sessionMenuItem.submenu = sessionMenu
 
         let webMenuItem = NSMenuItem()

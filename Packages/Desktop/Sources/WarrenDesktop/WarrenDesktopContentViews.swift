@@ -105,10 +105,35 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 .font(WarrenTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
                 .opacity(0.75)
+            VStack(spacing: WarrenSpacing.xs) {
+                shortcutRow(tokens: tokens, key: "⌘T", label: "New terminal")
+                shortcutRow(tokens: tokens, key: "⌘X", label: "Next tab")
+                shortcutRow(tokens: tokens, key: "⇧⌘X", label: "Previous tab")
+                shortcutRow(tokens: tokens, key: "⌘W", label: "Close terminal")
+            }
+            .frame(maxWidth: 420)
+            .padding(.top, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No open sessions in \(workspace.name)")
+    }
+
+    private func shortcutRow(
+        tokens: WarrenColorTokens,
+        key: String,
+        label: String
+    ) -> some View {
+        HStack(spacing: WarrenSpacing.medium) {
+            Text(key)
+                .font(WarrenTypography.shortcut)
+                .foregroundStyle(tokens.mutedForeground)
+                .frame(width: 72, alignment: .leading)
+            Spacer(minLength: WarrenSpacing.medium)
+            Text(label)
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+        }
     }
 }
 
