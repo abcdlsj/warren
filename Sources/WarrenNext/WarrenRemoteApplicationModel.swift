@@ -966,7 +966,7 @@ final class WarrenRemoteApplicationModel {
         // attach request; feeding that snapshot into an already-created surface
         // prevents the initial prompt from disappearing in the network race.
         guard sessionID != selectedSessionID || mountedSurfaces.first?.id != sessionID else { return }
-        if sessionID != selectedSessionID {
+        if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
         attachGeneration &+= 1
