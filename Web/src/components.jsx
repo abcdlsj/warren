@@ -70,10 +70,6 @@ export function Sidebar({
   const [dragOverID, setDragOverID] = useState(null);
 
   const beginDrag = (kind, id, projectID, event) => {
-    if (!(event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      return;
-    }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", id);
     setDragOverID(null);
