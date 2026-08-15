@@ -508,6 +508,8 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
         }
         mountedSurfaces.removeAll()
+        outputAnchors.removeAll()
+        suppressFramedAnchorUpdates.removeAll()
     }
 
     private func removeMountedSurface(sessionID: TerminalSessionID) {
@@ -516,6 +518,8 @@ final class WarrenRemoteApplicationModel {
             surface.outputWriter.shutdown()
             return true
         }
+        outputAnchors.removeValue(forKey: sessionID)
+        suppressFramedAnchorUpdates.remove(sessionID)
     }
 
     private func clearMaintenance() {
@@ -1104,6 +1108,8 @@ final class WarrenRemoteApplicationModel {
         let liveTabSessionIDs = Set(tabs.compactMap(\.sessionID))
         for surface in mountedSurfaces where !liveTabSessionIDs.contains(surface.id) {
             surface.outputWriter.shutdown()
+            outputAnchors.removeValue(forKey: surface.id)
+            suppressFramedAnchorUpdates.remove(surface.id)
         }
         mountedSurfaces.removeAll { !liveTabSessionIDs.contains($0.id) }
         issue = nil
