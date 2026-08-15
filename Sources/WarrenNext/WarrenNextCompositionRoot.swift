@@ -675,7 +675,7 @@ private struct WarrenNextTerminalSurfaceView: View {
                     )
                 }
             )
-            surface.forceDisplayRefresh()
+            surface.requestDisplayRefresh()
         }
     }
 }

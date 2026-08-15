@@ -107,20 +107,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         state.controller.tick()
     }
 
-    /// Forces Ghostty to present a frame immediately after its AppKit view
-    /// re-enters the window (settings dismissal, tab switch, window restore).
-    ///
-    /// `requestDisplayRefresh()` only asks the renderer to schedule a frame,
-    /// and libghostty suppresses duplicate metric callbacks, so a reattached
-    /// surface can stay on a stale or blank framebuffer until a real resize
-    /// arrives (for example a window drag). Drawing inline presents the
-    /// current grid now while the refresh keeps the async renderer in sync.
-    public func forceDisplayRefresh() {
-        guard let raw = state.surface?.rawValue else { return }
-        ghostty_surface_refresh(raw)
-        ghostty_surface_draw(raw)
-    }
-
     public func apply(font: TerminalFontPreference) {
         _ = state.controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
     }

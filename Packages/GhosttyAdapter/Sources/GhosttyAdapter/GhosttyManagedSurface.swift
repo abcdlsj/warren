@@ -71,7 +71,6 @@ public struct GhosttyManagedSurface: View {
                         canRefresh: { isActive },
                         onRefreshed: {
                             surface.synchronizeViewport()
-                            surface.forceDisplayRefresh()
                             // The view has settled by the second refresh leg;
                             // re-claim focus so keystrokes land without a click.
                             focusDriver.moveFocus(
@@ -128,14 +127,11 @@ public struct GhosttyManagedSurface: View {
 
     private func requestImmediateDisplayRefresh() {
         // Re-entering a shell (tab switch, settings dismissal) can recreate
-        // the AppKit view while the renderer is still settling. Nudge Ghostty
-        // immediately and once more after the runloop, forcing an inline
-        // present so the first frame never waits for a resize or keystroke.
+        // the AppKit view while the renderer is still settling. Request a
+        // renderer-thread frame immediately and once more after the runloop.
         surface.requestDisplayRefresh()
-        surface.forceDisplayRefresh()
         DispatchQueue.main.async { [weak surface] in
             surface?.requestDisplayRefresh()
-            surface?.forceDisplayRefresh()
         }
     }
 }
