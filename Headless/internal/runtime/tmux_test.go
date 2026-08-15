@@ -41,24 +41,26 @@ func TestRenderCaptureSnapshotRestoresCursorAndDoesNotAddFinalRow(t *testing.T) 
 
 func TestTmuxKeyNameMapsTerminalSequences(t *testing.T) {
 	cases := map[string]string{
-		"\x1b[A":    "Up",
-		"\x1bOA":    "Up",
-		"\x1b[B":    "Down",
-		"\x1b[C":    "Right",
-		"\x1b[D":    "Left",
-		"\x1b[H":    "Home",
-		"\x1b[F":    "End",
-		"\x1b[5~":   "PageUp",
-		"\x1b[6~":   "PageDown",
-		"\x1b[3~":   "DC",
-		"\x1b[1;2A": "S-Up",
-		"\x1b[1;5B": "C-Down",
-		"\x1b[1;3C": "M-Right",
-		"\x1b[Z":    "BTab",
-		"\x1b[11~":  "F1",
-		"\r":        "Enter",
-		"\t":        "Tab",
-		"\x7f":      "BSpace",
+		"\x1b[A":     "Up",
+		"\x1bOA":     "Up",
+		"\x1b[B":     "Down",
+		"\x1b[C":     "Right",
+		"\x1b[D":     "Left",
+		"\x1b[H":     "Home",
+		"\x1b[F":     "End",
+		"\x1b[5~":    "PageUp",
+		"\x1b[6~":    "PageDown",
+		"\x1b[3~":    "DC",
+		"\x1b[1;2A":  "S-Up",
+		"\x1b[1;5B":  "C-Down",
+		"\x1b[1;3C":  "M-Right",
+		"\x1b[Z":     "BTab",
+		"\x1b[11~":   "F1",
+		"\r":         "Enter",
+		"\n":         "C-j",
+		"\x1b[13;2u": "S-Enter",
+		"\t":         "Tab",
+		"\x7f":       "BSpace",
 	}
 	for input, want := range cases {
 		got, ok := tmuxKeyName([]byte(input))
@@ -66,7 +68,7 @@ func TestTmuxKeyNameMapsTerminalSequences(t *testing.T) {
 			t.Fatalf("tmuxKeyName(%q) = (%q, %v), want (%q, true)", input, got, ok, want)
 		}
 	}
-	for _, input := range []string{"hello", "\n", "\x1b[99~", "\x1b[1;9A", "abc\x1b[A"} {
+	for _, input := range []string{"hello", "\x1b[99~", "\x1b[1;9A", "abc\x1b[A"} {
 		if got, ok := tmuxKeyName([]byte(input)); ok {
 			t.Fatalf("tmuxKeyName(%q) = (%q, true), want false", input, got)
 		}

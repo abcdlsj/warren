@@ -466,8 +466,19 @@ public actor TmuxRuntime: TerminalRuntime {
         if bytes == [0x0D] {
             return "Enter"
         }
+        // tmux's paste path converts a literal LF into Enter (CR), so a
+        // Shift+Enter (or Ctrl+J) newline must arrive as the real C-j key:
+        // send-keys delivers it to the pane as an unmodified LF.
+        if bytes == [0x0A] {
+            return "C-j"
+        }
         if bytes == [0x09] {
             return "Tab"
+        }
+        // Kitty-protocol Shift+Enter, emitted when a future Ghostty version
+        // bypasses the text: keybind for an app that requested extended keys.
+        if bytes == [0x1B, 0x5B, 0x31, 0x33, 0x3B, 0x32, 0x75] {
+            return "S-Enter"
         }
         if bytes == [0x7F] {
             return "BSpace"

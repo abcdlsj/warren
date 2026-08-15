@@ -1,5 +1,8 @@
 import XCTest
 import WarrenDomain
+import AppKit
+import GhosttyKit
+import GhosttyTerminal
 @testable import GhosttyAdapter
 
 final class GhosttyAdapterTests: XCTestCase {
@@ -78,6 +81,61 @@ final class GhosttyAdapterTests: XCTestCase {
     }
 
     @MainActor
+    func testShiftEnterKeybindEmitsLiteralNewline() async throws {
+        let recorder = LockedInputRecorder()
+        let surface = GhosttySurface(
+            id: TerminalSessionID(),
+            attachmentID: TerminalAttachmentID(),
+            workingDirectory: "/tmp",
+            onInput: { recorder.append($0) },
+            onResize: { _, _ in }
+        )
+
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let view = AppTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        view.delegate = surface.state
+        view.controller = surface.state.controller
+        view.configuration = surface.state.configuration
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        defer { window.orderOut(nil) }
+
+        let terminalSurface = try await waitUntilSurfaceAvailable(on: surface.state)
+        // tmux requests the kitty keyboard protocol from its outer terminal.
+        // Ghostty may then encode Shift+Enter as CSI 13;2u instead of firing
+        // the text: keybind, which is exactly what Warren must handle.
+        surface.receive(Data("\u{1b}[>1u".utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        for action in [GHOSTTY_ACTION_PRESS, GHOSTTY_ACTION_RELEASE] {
+            var event = ghostty_input_key_s()
+            event.action = action
+            event.keycode = 0x24 // kVK_Return
+            event.mods = GHOSTTY_MODS_SHIFT
+            event.consumed_mods = GHOSTTY_MODS_SHIFT
+            event.text = nil
+            event.unshifted_codepoint = 0x0D
+            event.composing = false
+            _ = terminalSurface.sendKeyEvent(event)
+        }
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(
+            recorder.allBytes(),
+            Data([0x0A]),
+            "Shift+Enter should emit a literal newline (received bytes)"
+        )
+    }
+
+    @MainActor
     func testOutputWriterDrainsFramedAndRawBytesOffMainInOrder() async throws {
         let surface = GhosttySurface(
             id: TerminalSessionID(),
@@ -99,4 +157,36 @@ final class GhosttyAdapterTests: XCTestCase {
         XCTAssertEqual(surface.semanticSnapshot().plainText, "abcdefgh")
         surface.outputWriter.shutdown()
     }
+}
+
+private final class LockedInputRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes = Data()
+
+    func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        bytes.append(data)
+    }
+
+    func allBytes() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return bytes
+    }
+}
+
+@MainActor
+private func waitUntilSurfaceAvailable(
+    on state: TerminalViewState
+) async throws -> TerminalSurface {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    while state.surface == nil, ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    guard let surface = state.surface else {
+        struct SurfaceUnavailable: Error {}
+        throw SurfaceUnavailable()
+    }
+    return surface
 }

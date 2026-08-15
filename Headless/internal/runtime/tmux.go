@@ -453,8 +453,17 @@ func tmuxKeyName(data []byte) (string, bool) {
 		return "Escape", true
 	case "\r":
 		return "Enter", true
+	// tmux's paste path converts a literal LF into Enter (CR), so a
+	// Shift+Enter (or Ctrl+J) newline must arrive as the real C-j key:
+	// send-keys delivers it to the pane as an unmodified LF.
+	case "\n":
+		return "C-j", true
 	case "\t":
 		return "Tab", true
+	// Kitty-protocol Shift+Enter, emitted when a future Ghostty version
+	// bypasses the text: keybind for an app that requested extended keys.
+	case "\x1b[13;2u":
+		return "S-Enter", true
 	case "\x7f":
 		return "BSpace", true
 	case "\x1bOA", "\x1b[A":
