@@ -604,9 +604,10 @@ private struct WarrenNextTerminalSurfaceView: View {
                                 )
                                 // Ghostty's CAMetalLayer does not honor SwiftUI
                                 // opacity; a hidden sibling must be removed
-                                // from compositing or its frame bleeds over the
-                                // active terminal.
-                                .modifier(HiddenIf(hidden: !isActive))
+                                // from compositing. GhosttyWindowProbe sets the
+                                // underlying NSView.isHidden directly so the
+                                // surface stays alive across tab switches.
+                                .opacity(isActive ? 1 : 0)
                                 .allowsHitTesting(isActive)
                                 .accessibilityHidden(!isActive)
                         }
@@ -680,18 +681,6 @@ private struct WarrenNextTerminalSurfaceView: View {
                 }
             )
             surface.requestDisplayRefresh()
-        }
-    }
-}
-
-private struct HiddenIf: ViewModifier {
-    let hidden: Bool
-
-    func body(content: Content) -> some View {
-        if hidden {
-            content.hidden()
-        } else {
-            content
         }
     }
 }

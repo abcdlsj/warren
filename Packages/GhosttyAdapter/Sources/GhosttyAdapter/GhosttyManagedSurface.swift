@@ -44,7 +44,8 @@ public struct GhosttyManagedSurface: View {
             .background {
                 GhosttyWindowProbe(
                     state: surface.state,
-                    focusDriver: focusDriver
+                    focusDriver: focusDriver,
+                    hidden: !isActive
                 ) {
                     guard isActive else { return }
                     focusDriver.moveFocus(
@@ -350,17 +351,22 @@ private final class WeakWindow {
 private struct GhosttyWindowProbe: NSViewRepresentable {
     let state: TerminalViewState
     let focusDriver: GhosttyFocusDriver
+    let hidden: Bool
     let repair: () -> Void
 
     func makeNSView(context: Context) -> GhosttyWindowProbeView {
         let view = GhosttyWindowProbeView(frame: .zero)
         configure(view)
+        view.shouldHide = hidden
+        view.applyHidden()
         DispatchQueue.main.async { [weak view] in view?.registerAndRepair() }
         return view
     }
 
     func updateNSView(_ view: GhosttyWindowProbeView, context: Context) {
         configure(view)
+        view.shouldHide = hidden
+        view.applyHidden()
     }
 
     private func configure(_ view: GhosttyWindowProbeView) {
@@ -369,11 +375,38 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
             focusDriver.register(state, in: window)
             repair()
         }
+        view.onApplyHidden = { [weak view, weak state] hidden in
+            guard let view,
+                  let state,
+                  let window = view.window,
+                  let root = window.contentView,
+                  let terminal = Self.terminalView(matching: state, under: root) else { return }
+            terminal.isHidden = hidden
+        }
+    }
+
+    private static func terminalView(
+        matching state: TerminalViewState,
+        under root: NSView
+    ) -> TerminalView? {
+        if let terminal = root as? TerminalView,
+           let delegate = terminal.delegate as AnyObject?,
+           delegate === state {
+            return terminal
+        }
+        for child in root.subviews {
+            if let match = terminalView(matching: state, under: child) {
+                return match
+            }
+        }
+        return nil
     }
 }
 
 private final class GhosttyWindowProbeView: NSView {
     var onWindowAvailable: ((NSWindow) -> Void)?
+    var onApplyHidden: ((Bool) -> Void)?
+    var shouldHide = false
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -383,6 +416,11 @@ private final class GhosttyWindowProbeView: NSView {
     func registerAndRepair() {
         guard let window else { return }
         onWindowAvailable?(window)
+        applyHidden()
+    }
+
+    func applyHidden() {
+        onApplyHidden?(shouldHide)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
