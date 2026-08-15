@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -137,5 +138,51 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 	}
 	if row.Workspace.ID != "workspace-1" || row.Kind != "worktree" {
 		t.Errorf("embedded workspace lost: %+v", row.Workspace)
+	}
+}
+
+func TestHoistGlobalFlagsMovesFlagsFromAnyPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "json after subcommand",
+			args: []string{"session", "list", "--json"},
+			want: []string{"--json", "session", "list"},
+		},
+		{
+			name: "json before subcommand",
+			args: []string{"--json", "session", "list"},
+			want: []string{"--json", "session", "list"},
+		},
+		{
+			name: "value flag mixed with json",
+			args: []string{"session", "list", "--endpoint", "vps", "--json"},
+			want: []string{"--endpoint", "vps", "--json", "session", "list"},
+		},
+		{
+			name: "equals form is preserved",
+			args: []string{"session", "list", "--config=/tmp/cfg.json", "--json=false"},
+			want: []string{"--config=/tmp/cfg.json", "--json=false", "session", "list"},
+		},
+		{
+			name: "headless flags are untouched",
+			args: []string{"headless", "--name", "host-a"},
+			want: []string{"headless", "--name", "host-a"},
+		},
+		{
+			name: "missing value stays for flag parser",
+			args: []string{"session", "list", "--token"},
+			want: []string{"session", "list", "--token"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hoistGlobalFlags(test.args); !reflect.DeepEqual(got, test.want) {
+				t.Errorf("hoistGlobalFlags(%v) = %v, want %v", test.args, got, test.want)
+			}
+		})
 	}
 }

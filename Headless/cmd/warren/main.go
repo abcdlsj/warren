@@ -42,6 +42,7 @@ func run(arguments []string) error {
 	global.StringVar(&endpointURL, "server", env("WARREN_SERVER", ""), "server URL")
 	global.StringVar(&endpointToken, "token", env("WARREN_TOKEN", ""), "server token")
 	global.StringVar(&configPath, "config", config.DefaultPath(), "config path")
+	arguments = hoistGlobalFlags(arguments)
 	if err := global.Parse(arguments); err != nil {
 		return err
 	}
@@ -68,6 +69,54 @@ func run(arguments []string) error {
 	default:
 		return fmt.Errorf("unknown command %q; run 'warren help'", args[0])
 	}
+}
+
+var globalFlagNames = map[string]bool{
+	"json":     true,
+	"endpoint": true,
+	"server":   true,
+	"token":    true,
+	"config":   true,
+}
+
+// hoistGlobalFlags moves global flags (--json, --endpoint, --server, --token,
+// --config) to the front so they work before or after the subcommand. Go's
+// flag package stops parsing at the first positional argument, which would
+// otherwise silently ignore flags such as `warren session list --json`.
+func hoistGlobalFlags(arguments []string) []string {
+	extracted := make([]string, 0, len(arguments))
+	rest := make([]string, 0, len(arguments))
+	for index := 0; index < len(arguments); index++ {
+		item := arguments[index]
+		name, _, hasValue := splitFlag(item)
+		if !globalFlagNames[name] {
+			rest = append(rest, item)
+			continue
+		}
+		if hasValue || name == "json" {
+			extracted = append(extracted, item)
+			continue
+		}
+		if index+1 < len(arguments) && !strings.HasPrefix(arguments[index+1], "--") {
+			extracted = append(extracted, item, arguments[index+1])
+			index++
+			continue
+		}
+		// Missing value: leave it for flag.Parse to report.
+		rest = append(rest, item)
+	}
+	return append(extracted, rest...)
+}
+
+func splitFlag(item string) (name, value string, hasValue bool) {
+	if !strings.HasPrefix(item, "--") {
+		return "", "", false
+	}
+	trimmed := strings.TrimPrefix(item, "--")
+	if split := strings.SplitN(trimmed, "=", 2); len(split) == 2 {
+		return split[0], split[1], true
+	}
+	return trimmed, "", false
 }
 
 func connect() (context.Context, *client.Client, error) {
