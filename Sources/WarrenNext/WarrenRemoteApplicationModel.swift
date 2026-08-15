@@ -1192,6 +1192,12 @@ final class WarrenRemoteApplicationModel {
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)
+        if existingSurface != nil {
+            appendDiagnostic(
+                "existing surface viewportChars=\(surface.inMemory.readViewportText()?.count ?? -1) "
+                    + "mounted=\(mountedSurfaces.count)"
+            )
+        }
 
         // SwiftUI/AppKit reports the actual Ghostty grid only after the
         // surface has entered a measured pane. Waiting here makes the very
