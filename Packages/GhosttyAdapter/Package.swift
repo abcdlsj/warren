@@ -14,7 +14,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/jiweiyuan/libghostty-swift",
-            from: "1.0.15"
+            from: "1.0.16"
         ),
         .package(path: "../Domain"),
         .package(path: "../TerminalRenderer"),
