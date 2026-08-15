@@ -42,6 +42,8 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         XCTAssertEqual(environment["HOME"], "/Users/example")
         XCTAssertEqual(environment["TERM"], "xterm-ghostty")
         XCTAssertEqual(environment["COLORTERM"], "truecolor")
+        XCTAssertEqual(environment["COLORFGBG"], "15;0")
+        XCTAssertEqual(environment["TERM_THEME"], "dark")
         XCTAssertEqual(environment["TERM_PROGRAM"], "Warren")
         XCTAssertFalse(environment["TERM_PROGRAM_VERSION", default: ""].isEmpty)
         for key in [
@@ -539,6 +541,8 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
                 return (parts[0], parts[1])
             })
         XCTAssertEqual(values["COLORTERM"], "truecolor")
+        XCTAssertEqual(values["COLORFGBG"], "15;0")
+        XCTAssertEqual(values["TERM_THEME"], "dark")
         XCTAssertEqual(values["TERM_PROGRAM"], "Warren")
         XCTAssertNil(values["NO_COLOR"])
 
@@ -551,6 +555,8 @@ final class WarrenTmuxRuntimeTests: XCTestCase {
         let environmentText = String(decoding: environmentOutput, as: UTF8.self)
         XCTAssertTrue(environmentText.contains("TERM=tmux-256color"))
         XCTAssertTrue(environmentText.contains("COLORTERM=truecolor"))
+        XCTAssertTrue(environmentText.contains("COLORFGBG=15;0"))
+        XCTAssertTrue(environmentText.contains("TERM_THEME=dark"))
         XCTAssertFalse(environmentText.contains("\nNO_COLOR="))
 
         let marker = Data("WARREN_SMOKE_\(UUID().uuidString)".utf8)

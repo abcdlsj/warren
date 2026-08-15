@@ -25,6 +25,24 @@ export function fitTerminalToHost(fitAddon, host) {
   return true;
 }
 
+const FONT_SETTLE_TIMEOUT_MS = 2000;
+
+/**
+ * Wait until the configured terminal font is available so xterm measures
+ * cell dimensions against the glyphs it will actually render (including
+ * CJK fallback fonts) instead of a half-loaded font stack.
+ */
+export function waitForTerminalFont({ fontFamily, fontSize, timeoutMs = FONT_SETTLE_TIMEOUT_MS } = {}) {
+  if (typeof document === "undefined" || !document.fonts?.load) return Promise.resolve();
+  const spec = `${fontSize}px ${fontFamily}`;
+  let timeoutId = null;
+  const timeout = new Promise(resolve => {
+    timeoutId = setTimeout(resolve, timeoutMs);
+  });
+  const loaded = Promise.resolve(document.fonts.load(spec)).catch(() => {});
+  return Promise.race([loaded, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
 export function terminalSearchSummary(resultIndex, resultCount, hasQuery) {
   if (!hasQuery) return "";
   if (resultCount <= 0) return "No results";

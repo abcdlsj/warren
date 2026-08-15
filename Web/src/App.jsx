@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import "./style.css";
@@ -15,7 +16,12 @@ import {
 } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
-import { attachTerminalMessage, fitTerminalToHost, terminalSize } from "./terminal.js";
+import {
+  attachTerminalMessage,
+  fitTerminalToHost,
+  terminalSize,
+  waitForTerminalFont,
+} from "./terminal.js";
 import { InputQueue } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
@@ -41,6 +47,29 @@ const storageKeys = {
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
+const terminalTheme = {
+  background: "#151110",
+  foreground: "#eae8e6",
+  cursor: "#e07850",
+  cursorAccent: "#151110",
+  selectionBackground: "rgba(224, 120, 80, 0.25)",
+  black: "#151110",
+  red: "#dc6b6b",
+  green: "#7ec699",
+  yellow: "#e5c07b",
+  blue: "#61afef",
+  magenta: "#c678dd",
+  cyan: "#56b6c2",
+  white: "#eae8e6",
+  brightBlack: "#5c5856",
+  brightRed: "#e88888",
+  brightGreen: "#98d1a8",
+  brightYellow: "#ecd08f",
+  brightBlue: "#7ec0f5",
+  brightMagenta: "#d494e6",
+  brightCyan: "#73c7d3",
+  brightWhite: "#ffffff",
+};
 const pendingInputLimit = 64 * 1024;
 const terminalSearchDecorations = {
   matchBackground: "#3a3837",
@@ -624,21 +653,19 @@ export default function App() {
     if (!terminalHost) return undefined;
 
     const terminal = new Terminal({
-      theme: {
-        background: "#151110",
-        foreground: "#eae8e6",
-        cursor: "#eae8e6",
-        selectionBackground: "#3a3837",
-      },
+      theme: terminalTheme,
       fontFamily,
       fontSize,
       lineHeight: 1.12,
       cursorBlink: true,
       scrollback: 20000,
       allowTransparency: false,
+      allowProposedApi: true,
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(new Unicode11Addon());
+    terminal.unicode.activeVersion = "11";
     terminal.open(terminalHost);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -693,6 +720,9 @@ export default function App() {
     fitTerminalToHost(fitAddon, terminalHost);
     requestAnimationFrame(() => {
       if (terminalRef.current === terminal) fitTerminalToHost(fitAddon, terminalHost);
+    });
+    waitForTerminalFont({ fontFamily, fontSize }).then(() => {
+      if (terminalRef.current === terminal) scheduleTerminalFit();
     });
 
     // Mobile soft keyboards and CJK IMEs can fire xterm onData twice for the
@@ -785,10 +815,14 @@ export default function App() {
   }, [requestSessionFocus, scheduleRemoteResize, scheduleTerminalFit, sendInput]);
 
   useEffect(() => {
-    if (!terminalRef.current) return;
-    terminalRef.current.options.fontFamily = fontFamily;
-    terminalRef.current.options.fontSize = fontSize;
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    terminal.options.fontFamily = fontFamily;
+    terminal.options.fontSize = fontSize;
     scheduleTerminalFit();
+    waitForTerminalFont({ fontFamily, fontSize }).then(() => {
+      if (terminalRef.current === terminal) scheduleTerminalFit();
+    });
   }, [fontFamily, fontSize, scheduleTerminalFit]);
 
   useEffect(() => {

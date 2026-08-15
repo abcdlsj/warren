@@ -5,6 +5,7 @@ import {
   fitTerminalToHost,
   terminalSearchSummary,
   terminalSize,
+  waitForTerminalFont,
 } from "./terminal.js";
 
 test("terminalSize accepts only a positive integer grid", () => {
@@ -32,6 +33,32 @@ test("fitTerminalToHost waits for a measurable host and invokes fit once", () =>
   assert.equal(fitTerminalToHost(addon, { clientWidth: 0, clientHeight: 400 }), false);
   assert.equal(fitTerminalToHost(addon, { clientWidth: 800, clientHeight: 400 }), true);
   assert.equal(calls, 1);
+});
+
+test("waitForTerminalFont resolves immediately when FontFaceSet is unavailable", async () => {
+  await waitForTerminalFont({ fontFamily: "monospace", fontSize: 14 });
+});
+
+test("waitForTerminalFont waits for the configured font before settling", async () => {
+  const previousDocument = globalThis.document;
+  let resolveLoad;
+  const load = () => new Promise(resolve => {
+    resolveLoad = resolve;
+  });
+  globalThis.document = { fonts: { load } };
+  try {
+    const pending = waitForTerminalFont({ fontFamily: "monospace", fontSize: 14, timeoutMs: 1000 });
+    let settled = false;
+    pending.then(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(settled, false);
+    resolveLoad([]);
+    await pending;
+    assert.equal(settled, true);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
 });
 
 test("terminalSearchSummary formats empty, total-only and active-index states", () => {

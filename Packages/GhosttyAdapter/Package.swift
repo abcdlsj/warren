@@ -17,6 +17,7 @@ let package = Package(
             from: "1.0.15"
         ),
         .package(path: "../Domain"),
+        .package(path: "../TerminalRenderer"),
     ],
     targets: [
         .target(
@@ -25,6 +26,7 @@ let package = Package(
                 .product(name: "GhosttyTerminal", package: "libghostty-swift"),
                 .product(name: "GhosttyKit", package: "libghostty-swift"),
                 .product(name: "WarrenDomain", package: "Domain"),
+                .product(name: "WarrenTerminalRenderer", package: "TerminalRenderer"),
             ]
         ),
         .testTarget(

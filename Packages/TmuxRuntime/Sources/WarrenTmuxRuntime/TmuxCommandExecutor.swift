@@ -32,6 +32,10 @@ enum WarrenTerminalEnvironment {
             !dropped.contains(key) && !droppedPrefixes.contains { key.hasPrefix($0) }
         }
         environment["COLORTERM"] = "truecolor"
+        // Warren's terminal chrome is dark-only today; expose the same
+        // light/dark hints Superset uses so TUIs don't guess wrong colors.
+        environment["COLORFGBG"] = "15;0"
+        environment["TERM_THEME"] = "dark"
         environment["TERM_PROGRAM"] = termProgram
         environment["TERM_PROGRAM_VERSION"] = termProgramVersion
         return environment
@@ -40,6 +44,8 @@ enum WarrenTerminalEnvironment {
     static func tmuxSessionArguments(environment: [String: String] = [:]) -> [String] {
         let base = [
             "-e", "COLORTERM=truecolor",
+            "-e", "COLORFGBG=15;0",
+            "-e", "TERM_THEME=dark",
             "-e", "TERM_PROGRAM=\(termProgram)",
             "-e", "TERM_PROGRAM_VERSION=\(termProgramVersion)",
         ]
@@ -64,6 +70,8 @@ enum WarrenTerminalEnvironment {
     ) -> String {
         let assignments = [
             "COLORTERM=truecolor",
+            "COLORFGBG=15;0",
+            "TERM_THEME=dark",
             "TERM_PROGRAM=\(termProgram)",
             "TERM_PROGRAM_VERSION=\(termProgramVersion)",
         ] + environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }

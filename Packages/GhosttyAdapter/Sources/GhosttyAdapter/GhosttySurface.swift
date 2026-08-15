@@ -2,6 +2,7 @@ import Foundation
 import GhosttyKit
 import GhosttyTerminal
 import WarrenDomain
+import WarrenTerminalRenderer
 
 @_exported import GhosttyTerminal
 
@@ -51,10 +52,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             dark: TerminalConfiguration { builder in
                 builder.withBackground("#151110")
                 builder.withForeground("#eae8e6")
-                builder.withSelectionBackground("#3a3837")
                 builder.withCursorColor("#e07850")
+                builder.withCursorText("#151110")
+                // Ghostty colors carry no alpha; blend Superset's 25% orange
+                // selection over #151110 instead of using its rgba() value.
+                builder.withSelectionBackground("#482b20")
                 builder.withCursorStyle(.block)
                 builder.withCursorStyleBlink(true)
+                for (index, color) in TerminalPalette.ember.enumerated() {
+                    builder.withPalette(index, color: Self.hex(color))
+                }
             }
         )
         let controller = TerminalController(theme: theme) { _ in }
@@ -115,6 +122,15 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             builder.withCustom("keybind", "super+b=unbind")
             builder.withCustom("keybind", "super+q=unbind")
         }
+    }
+
+    private static func hex(_ color: TerminalPaletteColor) -> String {
+        String(
+            format: "#%02x%02x%02x",
+            color.red,
+            color.green,
+            color.blue
+        )
     }
 
     public func semanticSnapshot() -> TerminalSemanticSnapshot {
