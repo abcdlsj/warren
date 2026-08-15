@@ -20,6 +20,8 @@ struct WarrenDesktopSidebarRows: View {
     @State private var dragSource: WarrenDesktopSidebarDragSource?
     @State private var dragTargetID: String?
     @State private var rowFrames: [String: CGRect] = [:]
+    @State private var commandHeld = false
+    @State private var commandMonitor: Any?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -198,6 +200,8 @@ struct WarrenDesktopSidebarRows: View {
                 tree.expandedProjectIDs.insert(projectID)
             }
         }
+        .onAppear(perform: installCommandMonitor)
+        .onDisappear(perform: removeCommandMonitor)
     }
 
     private var selectedProjectID: ProjectID? {
@@ -280,7 +284,7 @@ struct WarrenDesktopSidebarRows: View {
     ) {
         guard dragSource == nil,
               !isCollapsed,
-              NSEvent.modifierFlags.contains(.command) else { return }
+              commandHeld else { return }
         dragSource = WarrenDesktopSidebarDragSource(
             kind: kind,
             id: id,
@@ -344,6 +348,22 @@ struct WarrenDesktopSidebarRows: View {
         guard target != dragTargetID else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             dragTargetID = target
+        }
+    }
+
+    private func installCommandMonitor() {
+        guard commandMonitor == nil else { return }
+        commandHeld = NSEvent.modifierFlags.contains(.command)
+        commandMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            commandHeld = event.modifierFlags.contains(.command)
+            return event
+        }
+    }
+
+    private func removeCommandMonitor() {
+        if let commandMonitor {
+            NSEvent.removeMonitor(commandMonitor)
+            self.commandMonitor = nil
         }
     }
 
