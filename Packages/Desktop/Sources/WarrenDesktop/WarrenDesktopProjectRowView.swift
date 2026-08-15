@@ -72,8 +72,8 @@ struct WarrenDesktopProjectRow: View {
 
     private var expandedRow: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        let actionSlot = WarrenLayoutMetrics.sidebarActionButtonSize + WarrenSpacing.compact
         let compactActionSize = WarrenLayoutMetrics.sidebarActionButtonSize - WarrenSpacing.xs
-        let actionSlot = 2 * compactActionSize + WarrenSpacing.xxs + WarrenSpacing.xs
         return ZStack(alignment: .trailing) {
             Button(action: onToggleExpansion) {
                 HStack(spacing: WarrenSpacing.compact) {
@@ -125,13 +125,6 @@ struct WarrenDesktopProjectRow: View {
             )
 
             HStack(spacing: WarrenSpacing.xxs) {
-                WarrenDesktopRowDeleteButton(
-                    label: "Delete project \(project.name)",
-                    onDelete: onDelete
-                )
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
-
                 Button(action: onAddWorkspace) {
                     Image(systemName: "plus")
                         .font(.system(size: 10, weight: .medium))

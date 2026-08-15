@@ -21,7 +21,6 @@ struct WarrenDesktopWorkspaceRow: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isFocused: Bool
-    @State private var isHovered = false
 
     var body: some View {
         if isCollapsed {
@@ -68,7 +67,6 @@ struct WarrenDesktopWorkspaceRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
-        .onHover { isHovered = $0 }
     }
 
     private var expandedRow: some View {
@@ -125,15 +123,6 @@ struct WarrenDesktopWorkspaceRow: View {
         .padding(.trailing, WarrenSpacing.compact)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
-        .overlay(alignment: .trailing) {
-            WarrenDesktopRowDeleteButton(
-                label: "Delete workspace \(workspace.name)",
-                onDelete: onDelete
-            )
-            .opacity(isHovered ? 1 : 0)
-            .allowsHitTesting(isHovered)
-            .padding(.trailing, WarrenSpacing.compact)
-        }
         .contextMenu {
             Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
             Button("Rename Workspace", action: onRename)
@@ -141,7 +130,6 @@ struct WarrenDesktopWorkspaceRow: View {
             Button("Delete Workspace…", role: .destructive, action: onDelete)
         }
         .padding(.horizontal, WarrenSpacing.compact)
-        .onHover { isHovered = $0 }
         .accessibilityElement(children: .contain)
     }
 
