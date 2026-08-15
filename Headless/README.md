@@ -150,6 +150,22 @@ attached clients as `{"t":"agent","session":...,"events":[...]}` text messages.
 The PTY byte stream remains the source of truth; the transcript is a
 best-effort side channel.
 
+Each Warren session is bound to one CLI conversation by its own session ID,
+so several agents in the same workspace never mix transcripts:
+
+- Claude starts with `--session-id <warren-session-id>`, which makes its
+  transcript path deterministic (`~/.claude/projects/-Users-.../<id>.jsonl`).
+- Codex gets a Warren-managed `SessionStart` hook merged into
+  `$CODEX_HOME/hooks.json` (user entries are preserved). The hook reads the
+  CLI's `session_id`/`transcript_path` from its stdin and writes them to
+  `~/.warren/agent-bind/<warren-session-id>.json`; the daemon starts the
+  watcher from that exact file.
+
+The bound CLI session ID and transcript path are stored on the Session and
+shown in the Web Agent view. When a binding is not available yet (hook not
+installed, CLI version with a different layout), discovery falls back to
+cwd + mtime matching so the session still works.
+
 The Web client renders an Agent view for these sessions and sends user input
 through the same PTY as terminal bytes. If a transcript is missing or its
 format changes, sessions keep working as plain terminals.

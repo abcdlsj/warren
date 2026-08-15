@@ -49,8 +49,11 @@ func (t *Tmux) Check(ctx context.Context) error {
 	return nil
 }
 
-func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command string) error {
+func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command string, env []string) error {
 	args := []string{"new-session", "-d", "-s", runtimeName, "-c", directory, "-x", "120", "-y", "36"}
+	for _, entry := range env {
+		args = append(args, "-e", entry)
+	}
 	if strings.TrimSpace(command) != "" {
 		args = append(args, command)
 	}

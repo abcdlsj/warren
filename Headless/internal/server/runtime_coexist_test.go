@@ -24,7 +24,7 @@ func newKindRecordingRuntime(kind string) *kindRecordingRuntime {
 	return &kindRecordingRuntime{kind: kind, sessions: map[string]bool{}}
 }
 
-func (r *kindRecordingRuntime) Create(_ context.Context, name, _, _ string) error {
+func (r *kindRecordingRuntime) Create(_ context.Context, name, _, _ string, _ []string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sessions[name] = true

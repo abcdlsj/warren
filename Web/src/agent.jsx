@@ -24,6 +24,12 @@ export function AgentView({ session, events = [], onSend }) {
 
   return (
     <div className="agent-view">
+      {session.agentSessionId && (
+        <div className="agent-binding" title={session.transcriptPath || session.agentSessionId}>
+          Session <code>{session.agentSessionId}</code>
+          {session.transcriptPath && <span className="agent-binding-file">{basename(session.transcriptPath)}</span>}
+        </div>
+      )}
       <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} transcript`}>
         {events.length === 0 ? (
           <div className="agent-empty">Waiting for agent events…</div>
@@ -58,6 +64,11 @@ export function AgentView({ session, events = [], onSend }) {
       </form>
     </div>
   );
+}
+
+function basename(path) {
+  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return index >= 0 ? path.slice(index + 1) : path;
 }
 
 function AgentEventCard({ event }) {

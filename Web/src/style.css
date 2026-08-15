@@ -81,6 +81,9 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 #terminal { position:absolute; inset:6px 5px 4px 8px; }
 #terminal[hidden] { display:none; }
 .agent-view { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
+.agent-binding { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:5px 10px; border-bottom:1px solid var(--muted); background:var(--panel); color:var(--sub); font-size:11px; white-space:nowrap; overflow:hidden; }
+.agent-binding code { color:var(--fg); font:11px ui-monospace,monospace; }
+.agent-binding-file { overflow:hidden; text-overflow:ellipsis; }
 .agent-events { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:10px; padding:14px 16px 10px; overflow-y:auto; overscroll-behavior:contain; }
 .agent-empty { margin:auto; color:var(--sub); font-size:13px; }
 .agent-message { max-width:min(720px,88%); padding:8px 11px; border-radius:10px; }

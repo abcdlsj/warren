@@ -53,7 +53,11 @@ type Service struct {
 	WorktreeRoot string
 	// AgentFinder locates Codex/Claude transcript files. When nil, agent
 	// projection is disabled and sessions behave exactly as before.
-	AgentFinder   agent.Finder
+	AgentFinder agent.Finder
+	// AgentHooks installs the Warren-managed Codex hook that reports the
+	// CLI session ID and transcript path. Nil disables installation; the
+	// finder then remains the best-effort fallback.
+	AgentHooks    func() error
 	MaxSpoolBytes int64
 	// MaxSpoolReplayBytes bounds raw spool replay during attach. Gaps larger
 	// than this fall back to a screen-resetting snapshot reanchor instead of
@@ -104,7 +108,7 @@ type agentSession struct {
 }
 
 type Runtime interface {
-	Create(context.Context, string, string, string) error
+	Create(context.Context, string, string, string, []string) error
 	Exists(context.Context, string) bool
 	Capture(context.Context, string) ([]byte, error)
 	Input(context.Context, string, []byte) error
@@ -201,6 +205,12 @@ func (s *Service) lazyInitLocked() {
 // managed sessions; it never creates a polling task per Session.
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
+		if s.AgentHooks != nil {
+			// Best-effort: the managed hook makes Codex binding precise, but
+			// an unwritable config directory must not stop the daemon; the
+			// finder fallback still works.
+			_ = s.AgentHooks()
+		}
 		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 		s.lifecycleCancel = cancel
 		go s.lifecycleLoop(ctx)
@@ -952,10 +962,27 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	if adapter == nil {
 		return api.Session{}, fmt.Errorf("runtime %q is not available", sessionKind)
 	}
-	if err := adapter.Create(ctx, runtimeName, workspace.Path, command); err != nil {
+	// The Claude transcript path is derived from the session ID we inject,
+	// so the daemon can bind it without a hook round-trip.
+	injectedClaude := false
+	if kind == "claude" {
+		injected := agent.InjectClaudeSessionID(command, id)
+		if injected != command {
+			command = injected
+			injectedClaude = true
+		}
+	}
+	env := []string(nil)
+	if kind == "codex" || kind == "claude" {
+		env = agent.BindEnvironment(id, kind)
+	}
+	if err := adapter.Create(ctx, runtimeName, workspace.Path, command, env); err != nil {
 		return api.Session{}, err
 	}
 	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, CustomTitle: customTitle, Kind: kind, Command: command, Runtime: runtimeName, RuntimeKind: sessionKind, Lifecycle: "running", CreatedAt: time.Now().UTC()}
+	if injectedClaude {
+		session.AgentSessionID = id
+	}
 	if err := s.Store.Update(func(value *api.State) error { value.Sessions = append(value.Sessions, session); return nil }); err != nil {
 		_ = adapter.Kill(ctx, runtimeName)
 		return api.Session{}, err
@@ -1019,6 +1046,7 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 	if output := s.outputAdapterFor(*session); output != nil {
 		output.RemoveSpool(session.Runtime)
 	}
+	agent.RemoveBinding(id)
 	return s.Store.Update(func(value *api.State) error {
 		value.Sessions = filter(value.Sessions, func(item api.Session) bool { return item.ID != id })
 		return nil
@@ -1042,6 +1070,7 @@ func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, w
 			if output := s.outputAdapterFor(session); output != nil {
 				output.RemoveSpool(session.Runtime)
 			}
+			agent.RemoveBinding(session.ID)
 		}
 	}
 	return nil
@@ -1152,12 +1181,21 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 		s.stopAgent(session.ID)
 		return nil, nil
 	}
-	transcriptPath, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
-	if err != nil || transcriptPath == "" {
-		// Keep the placeholder so reconcile retries at its next tick instead
-		// of re-running discovery concurrently from every caller.
-		return entry, nil
+	transcriptPath := s.boundTranscript(session, workspacePath)
+	agentSessionID := session.AgentSessionID
+	if binding, err := agent.ReadBinding(agent.BindPath(session.ID)); err == nil && binding != nil {
+		agentSessionID = binding.SessionID
 	}
+	if transcriptPath == "" {
+		found, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
+		if err != nil || found == "" {
+			// Keep the placeholder so reconcile retries at its next tick
+			// instead of re-running discovery concurrently from every caller.
+			return entry, nil
+		}
+		transcriptPath = found
+	}
+	s.persistAgentMeta(session.ID, agentSessionID, transcriptPath)
 	watcher := agent.Start(session.ID, session.Kind, transcriptPath, func(events []api.AgentEvent) {
 		s.recordAgentEvents(session.ID, events)
 	})
@@ -1171,6 +1209,48 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 	current.watcher = watcher
 	s.agentsMu.Unlock()
 	return current, nil
+}
+
+// boundTranscript prefers the deterministic per-session binding (Claude's
+// injected session ID and the Codex hook's report) over cwd+mtime scanning.
+func (s *Service) boundTranscript(session api.Session, workspacePath string) string {
+	if session.Kind == "claude" && session.AgentSessionID != "" {
+		path := agent.ClaudeTranscriptPath(agent.ClaudeProjectsRoot(), workspacePath, session.AgentSessionID)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	binding, err := agent.ReadBinding(agent.BindPath(session.ID))
+	if err != nil || binding == nil || binding.Provider != session.Kind {
+		return ""
+	}
+	if info, err := os.Stat(binding.TranscriptPath); err == nil && !info.IsDir() {
+		return binding.TranscriptPath
+	}
+	return ""
+}
+
+// persistAgentMeta records the CLI session ID and transcript path on the
+// Session so roster consumers and a daemon restart keep the exact binding.
+func (s *Service) persistAgentMeta(sessionID, agentSessionID, transcriptPath string) {
+	for _, session := range s.Store.Snapshot().Sessions {
+		if session.ID != sessionID {
+			continue
+		}
+		if session.AgentSessionID == agentSessionID && session.TranscriptPath == transcriptPath {
+			return
+		}
+		_ = s.Store.Update(func(value *api.State) error {
+			for index := range value.Sessions {
+				if value.Sessions[index].ID == sessionID {
+					value.Sessions[index].AgentSessionID = agentSessionID
+					value.Sessions[index].TranscriptPath = transcriptPath
+				}
+			}
+			return nil
+		})
+		return
+	}
 }
 
 // recordAgentEvents stores a bounded event history and forwards the batch to

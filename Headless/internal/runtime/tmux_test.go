@@ -93,7 +93,7 @@ func TestCaptureUsesRealTmuxCursorAndSingleCommandSnapshot(t *testing.T) {
 	tmux := Tmux{Binary: binary, Socket: name}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer tmux.Kill(context.Background(), name)
@@ -129,7 +129,7 @@ func TestListCreatedReturnsSessionCreationTimestamps(t *testing.T) {
 	tmux := Tmux{Binary: binary, Socket: name}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer tmux.Kill(context.Background(), name)
@@ -157,7 +157,7 @@ func TestCreateEnablesExtendedKeys(t *testing.T) {
 	tmux := Tmux{Binary: binary, Socket: name}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer tmux.Kill(context.Background(), name)
@@ -202,7 +202,7 @@ func TestEnsurePipeDoesNotCloseExistingPipe(t *testing.T) {
 	tmux := Tmux{Binary: binary, Socket: name, OutputDir: t.TempDir()}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc"); err != nil {
+	if err := tmux.Create(ctx, name, t.TempDir(), "bash --noprofile --norc", nil); err != nil {
 		t.Fatal(err)
 	}
 	defer tmux.Kill(context.Background(), name)

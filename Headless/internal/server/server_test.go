@@ -24,6 +24,11 @@ type memoryRuntime struct {
 	sessions map[string][]byte
 }
 
+func newMemoryRuntime(t *testing.T) *memoryRuntime {
+	t.Helper()
+	return &memoryRuntime{sessions: map[string][]byte{}}
+}
+
 type listingRuntime struct {
 	memoryRuntime
 	lists  int
@@ -101,7 +106,7 @@ func (runtime *cancellationSensitiveRuntime) Exists(ctx context.Context, name st
 	return runtime.memoryRuntime.Exists(ctx, name)
 }
 
-func (m *memoryRuntime) Create(_ context.Context, name, _, _ string) error {
+func (m *memoryRuntime) Create(_ context.Context, name, _, _ string, _ []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessions[name] = []byte("ready\n")

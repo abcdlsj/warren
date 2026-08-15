@@ -41,7 +41,7 @@ func newSpoolRuntime(t *testing.T) *spoolRuntime {
 	}
 }
 
-func (runtime *spoolRuntime) Create(_ context.Context, name, _, _ string) error {
+func (runtime *spoolRuntime) Create(_ context.Context, name, _, _ string, _ []string) error {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.sessions[name] = true
@@ -171,7 +171,7 @@ func (runtime *spoolRuntime) Recover(_ context.Context, name string, offset, end
 func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 	state := newStateWithSession(t, "session-stream", "runtime-stream")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-stream", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-stream", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(runtime.SpoolPath("runtime-stream"), []byte("welcome\r\n"), 0o600); err != nil {
@@ -241,7 +241,7 @@ func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 func TestStreamedAttachRecoversFromSpoolAfterRingEviction(t *testing.T) {
 	state := newStateWithSession(t, "session-spool-recover", "runtime-spool-recover")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-spool-recover", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-spool-recover", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(runtime.SpoolPath("runtime-spool-recover"), bytes.Repeat([]byte("A"), 300), 0o600); err != nil {
@@ -300,7 +300,7 @@ func TestStreamedAttachRecoversFromSpoolAfterRingEviction(t *testing.T) {
 func TestStreamedAttachReanchorsWhenSpoolGapExceedsLimit(t *testing.T) {
 	state := newStateWithSession(t, "session-spool-gap", "runtime-spool-gap")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-spool-gap", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-spool-gap", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(runtime.SpoolPath("runtime-spool-gap"), bytes.Repeat([]byte("A"), 300), 0o600); err != nil {
@@ -352,7 +352,7 @@ func TestStreamedAttachReanchorsWhenSpoolGapExceedsLimit(t *testing.T) {
 func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
 	state := newStateWithSession(t, "session-input-early", "runtime-input-early")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-input-early", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-input-early", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{Store: state, Runtime: runtime}
@@ -403,7 +403,7 @@ func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
 func TestAttachCaptureTimeoutReleasesLockAndResumesWatcher(t *testing.T) {
 	state := newStateWithSession(t, "session-capture-hang", "runtime-capture-hang")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-capture-hang", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-capture-hang", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 200 * time.Millisecond}
@@ -473,7 +473,7 @@ func TestAttachCaptureTimeoutReleasesLockAndResumesWatcher(t *testing.T) {
 func TestEnsurePipeTimeoutFailsAttachWithoutWedging(t *testing.T) {
 	state := newStateWithSession(t, "session-pipe-hang", "runtime-pipe-hang")
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-pipe-hang", t.TempDir(), ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-pipe-hang", t.TempDir(), "", nil); err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 200 * time.Millisecond}
@@ -544,7 +544,7 @@ func waitForRingUpper(t *testing.T, service *Service, sessionID string, want uin
 func TestRepeatedAttachInstallsPipeOnce(t *testing.T) {
 	state := newStateWithSession(t, "session-pipe", "runtime-pipe")
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-pipe", t.TempDir(), "")
+	_ = runtime.Create(context.Background(), "runtime-pipe", t.TempDir(), "", nil)
 	service := &Service{Store: state, Runtime: runtime}
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
@@ -568,7 +568,7 @@ func TestRepeatedAttachInstallsPipeOnce(t *testing.T) {
 func TestReanchorDoesNotBumpEpochWhenCaptureExceedsSpool(t *testing.T) {
 	state := newStateWithSession(t, "session-reanchor", "runtime-reanchor")
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-reanchor", t.TempDir(), "")
+	_ = runtime.Create(context.Background(), "runtime-reanchor", t.TempDir(), "", nil)
 	if err := os.WriteFile(runtime.SpoolPath("runtime-reanchor"), []byte("prompt\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -658,7 +658,7 @@ func TestLifecycleAdoptsLiveAndMarksMissingEnded(t *testing.T) {
 		return nil
 	})
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-live", t.TempDir(), "")
+	_ = runtime.Create(context.Background(), "runtime-live", t.TempDir(), "", nil)
 	service := &Service{Store: state, Runtime: runtime}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -700,7 +700,7 @@ func TestLifecycleAdoptsLiveAndMarksMissingEnded(t *testing.T) {
 func TestExplicitDeleteKillsTmuxAndRemovesSpool(t *testing.T) {
 	state := newStateWithSession(t, "session-delete", "runtime-delete")
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-delete", t.TempDir(), "")
+	_ = runtime.Create(context.Background(), "runtime-delete", t.TempDir(), "", nil)
 	service := &Service{Store: state, Runtime: runtime}
 	if err := service.DeleteSession(context.Background(), "session-delete"); err != nil {
 		t.Fatal(err)
@@ -716,7 +716,7 @@ func TestExplicitDeleteKillsTmuxAndRemovesSpool(t *testing.T) {
 func TestExplicitDeleteIsIdempotent(t *testing.T) {
 	state := newStateWithSession(t, "session-delete", "runtime-delete")
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-delete", t.TempDir(), "")
+	_ = runtime.Create(context.Background(), "runtime-delete", t.TempDir(), "", nil)
 	service := &Service{Store: state, Runtime: runtime}
 
 	if err := service.DeleteSession(context.Background(), "session-delete"); err != nil {

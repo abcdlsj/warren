@@ -62,7 +62,7 @@ func waitGhostlineOutput(t *testing.T, runtime *GhostlineRuntime, name, needle s
 func TestGhostlineRuntimeLifecycle(t *testing.T) {
 	runtime, _ := startGhostlineRuntime(t)
 	ctx := context.Background()
-	if err := runtime.Create(ctx, "warren_ghost_test", t.TempDir(), "sh"); err != nil {
+	if err := runtime.Create(ctx, "warren_ghost_test", t.TempDir(), "sh", nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if !runtime.Exists(ctx, "warren_ghost_test") {
@@ -114,7 +114,7 @@ func TestGhostlineRuntimeClearsInheritedNoColor(t *testing.T) {
 func TestGhostlineRuntimeAdoptsAfterRestart(t *testing.T) {
 	runtime, client := startGhostlineRuntime(t)
 	ctx := context.Background()
-	if err := runtime.Create(ctx, "warren_ghost_adopt", t.TempDir(), "sh"); err != nil {
+	if err := runtime.Create(ctx, "warren_ghost_adopt", t.TempDir(), "sh", nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	restarted := NewGhostlineRuntime(client)

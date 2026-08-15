@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
@@ -51,7 +52,7 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	}
 
 	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-agent", directory, ""); err != nil {
+	if err := runtime.Create(context.Background(), "runtime-agent", directory, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{
@@ -101,6 +102,118 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	if history := service.agentHistory("session-agent"); len(history) != 2 {
 		t.Fatalf("history length = %d, want 2", len(history))
 	}
+}
+
+func TestEnsureAgentPrefersCodexBinding(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("WARREN_DATA_DIR", directory)
+	transcriptPath := filepath.Join(directory, "rollout-bound.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"thread-bound","cwd":"`+directory+`"}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding := agent.Binding{
+		Provider:       "codex",
+		SessionID:      "thread-bound",
+		TranscriptPath: transcriptPath,
+		Cwd:            directory,
+	}
+	if err := agent.WriteBinding(agent.BindPath("session-bound"), binding); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	session := api.Session{
+		ID: "session-bound", WorkspaceID: workspaceID, Title: "Codex", Kind: "codex",
+		Runtime: "runtime-bound", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: directory, CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: directory, Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{session}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		Store:       state,
+		Runtime:     newMemoryRuntime(t),
+		AgentFinder: staticAgentFinder{path: filepath.Join(directory, "wrong-path.jsonl")},
+	}
+	service.lazyInit()
+	entry, err := service.ensureAgent(context.Background(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.watcher == nil {
+		t.Fatal("expected a bound watcher")
+	}
+	if got := entry.watcher.Path(); got != transcriptPath {
+		t.Fatalf("watcher path = %q, want %q", got, transcriptPath)
+	}
+	current, _ := state.SnapshotVersion()
+	if current.Sessions[0].AgentSessionID != "thread-bound" || current.Sessions[0].TranscriptPath != transcriptPath {
+		t.Fatalf("session meta = %#v", current.Sessions[0])
+	}
+	entry.watcher.Close()
+}
+
+func TestEnsureAgentDerivesClaudePathFromSessionID(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(directory, "claude"))
+	transcriptPath := agent.ClaudeTranscriptPath(agent.ClaudeProjectsRoot(), directory, "uuid-claude")
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"type":"user","uuid":"u1","timestamp":"2026-08-16T10:00:00Z","message":{"role":"user","content":"Hello"}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	session := api.Session{
+		ID: "session-claude", WorkspaceID: workspaceID, Title: "Claude", Kind: "claude",
+		AgentSessionID: "uuid-claude", Runtime: "runtime-claude", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: directory, CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: directory, Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{session}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		Store:       state,
+		Runtime:     newMemoryRuntime(t),
+		AgentFinder: staticAgentFinder{path: filepath.Join(directory, "wrong-path.jsonl")},
+	}
+	service.lazyInit()
+	entry, err := service.ensureAgent(context.Background(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.watcher == nil {
+		t.Fatal("expected a bound watcher")
+	}
+	if got := entry.watcher.Path(); got != transcriptPath {
+		t.Fatalf("watcher path = %q, want %q", got, transcriptPath)
+	}
+	entry.watcher.Close()
 }
 
 func readAgentEvents(t *testing.T, connection interface {
@@ -157,7 +270,7 @@ func TestAgentHistoryIncludesInitialAndLiveEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := newSpoolRuntime(t)
-	_ = runtime.Create(context.Background(), "runtime-history", directory, "")
+	_ = runtime.Create(context.Background(), "runtime-history", directory, "", nil)
 	service := &Service{
 		Store:       state,
 		Runtime:     runtime,

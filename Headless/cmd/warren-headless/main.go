@@ -129,6 +129,10 @@ func main() {
 		SettingsPath:   *settingsFile,
 		WorktreeRoot:   *worktreeRoot,
 		AgentFinder:    agent.DefaultFinder{},
+		AgentHooks: func() error {
+			_, err := agent.EnsureCodexBindHook(agent.CodexHome())
+			return err
+		},
 	}
 	serviceContext, stopService := context.WithCancel(context.Background())
 	service.Start(serviceContext)

@@ -339,6 +339,7 @@ Behavior requirements:
 - Superset-style status dots: failed red breathing, waitingForInput yellow breathing, working amber breathing, ready green static, exited gray static.
 - Agent activity is reported by Claude/Codex Hooks managed by Warren. Hooks read only the event type and `WARREN_SESSION_ID`; they never read or upload conversation content. Config merging must preserve user entries and update idempotently.
 - Structured Web projections are fed by the agent CLI's own local JSONL transcript, tailed by the Host and normalized into `agent` events. The transcript never leaves the Host and never replaces the PTY stream: if a transcript is missing or its format changes, the session remains a plain terminal.
+- Transcripts are bound to Warren sessions by the CLI's own conversation ID, never guessed from cwd alone: Claude is started with `--session-id` (deterministic transcript path), Codex reports `session_id`/`transcript_path` through the Warren-managed `SessionStart` hook into `~/.warren/agent-bind/`. The cwd+mtime finder is only a fallback.
 - When Warren launches Codex, it uses `--dangerously-bypass-hook-trust` only to trust the Warren-generated and -validated Hook; it must not bypass Codex command approval or sandbox.
 
 ## 11. Web/PWA Interaction Design

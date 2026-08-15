@@ -43,20 +43,25 @@ type WorkspaceCreateResult struct {
 }
 
 type Session struct {
-	ID          string     `json:"id"`
-	WorkspaceID string     `json:"workspace"`
-	Title       string     `json:"title"`
-	CustomTitle string     `json:"customTitle,omitempty"`
-	Kind        string     `json:"kind"`
-	Command     string     `json:"command,omitempty"`
-	Runtime     string     `json:"runtime"`
-	RuntimeKind string     `json:"runtimeKind,omitempty"`
-	Lifecycle   string     `json:"lifecycle"`
-	Epoch       uint64     `json:"epoch,omitempty"`
-	Sequence    uint64     `json:"sequence,omitempty"`
-	Pinned      bool       `json:"pinned,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	EndedAt     *time.Time `json:"endedAt,omitempty"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace"`
+	Title       string `json:"title"`
+	CustomTitle string `json:"customTitle,omitempty"`
+	Kind        string `json:"kind"`
+	Command     string `json:"command,omitempty"`
+	Runtime     string `json:"runtime"`
+	RuntimeKind string `json:"runtimeKind,omitempty"`
+	Lifecycle   string `json:"lifecycle"`
+	Epoch       uint64 `json:"epoch,omitempty"`
+	Sequence    uint64 `json:"sequence,omitempty"`
+	Pinned      bool   `json:"pinned,omitempty"`
+	// AgentSessionID is the CLI's own conversation ID (Codex thread ID or
+	// Claude session ID) bound to this Warren session.
+	AgentSessionID string `json:"agentSessionId,omitempty"`
+	// TranscriptPath is the JSONL transcript projected by the agent watcher.
+	TranscriptPath string     `json:"transcriptPath,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	EndedAt        *time.Time `json:"endedAt,omitempty"`
 }
 
 // AgentEvent is one normalized message or tool transition from a Codex or
