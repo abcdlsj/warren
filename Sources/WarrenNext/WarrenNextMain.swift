@@ -12,6 +12,25 @@ enum WebCommand {
     static let copySecureURL = Notification.Name("Web.copySecureURL")
 }
 
+private enum WarrenWindowGeometry {
+    /// Subtle corner radius for the borderless shell. The window keeps its
+    /// own chrome edge-to-edge while the content is clipped into a rounded
+    /// shape. 8pt stays clear of the 12pt traffic lights, which sit only 8pt
+    /// from the top edge of the sidebar header.
+    static let cornerRadius: CGFloat = 8
+}
+
+private extension NSWindow {
+    /// Rounds the content view corners. Full-screen windows stay rectangular
+    /// so the corners never cut into the display edge.
+    func applyWindowCornerRadius(_ radius: CGFloat) {
+        contentView?.wantsLayer = true
+        contentView?.layer?.cornerRadius = radius
+        contentView?.layer?.masksToBounds = true
+        invalidateShadow()
+    }
+}
+
 /// AppKit bootstrap for the macOS app.
 ///
 /// A SwiftUI `WindowGroup` always reserves a system titlebar strip even with
@@ -97,7 +116,7 @@ private struct WarrenHeadlessAcceptanceReport: Codable {
 }
 
 @MainActor
-private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
+private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var daemonMenuBarProcess: Process?
 
@@ -128,18 +147,27 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         // back into Spaces full-screen mode so the traffic-light toggle and
         // the ⌃⌘F menu item both work.
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.backgroundColor = NSColor(
-            srgbRed: 21 / 255,
-            green: 17 / 255,
-            blue: 16 / 255,
-            alpha: 1
-        )
+        // Transparent backing lets the rounded content corners reveal the
+        // desktop instead of painting a square background behind them.
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
         window.contentView = hosting
+        window.applyWindowCornerRadius(WarrenWindowGeometry.cornerRadius)
+        window.delegate = self
         // Keep the window reference valid if AppKit ever closes it while the
         // process is still alive, so a later reopen can bring it back.
         window.isReleasedWhenClosed = false
         window.center()
         return window
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        window?.applyWindowCornerRadius(0)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        window?.applyWindowCornerRadius(WarrenWindowGeometry.cornerRadius)
     }
 
     /// Shows the main window, recreating it when a second launch activated an
