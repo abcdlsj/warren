@@ -682,14 +682,7 @@ export function SettingsPage({
               onClick={() => setActiveSection(section.id)}
             >
               {section.id === "font" ? terminalIcon : <TitleIcon />}
-              <span className="settings-nav-item-text">
-                <span className="settings-nav-item-title">{section.label}</span>
-                <span className="settings-nav-item-value">
-                  {section.id === "font"
-                    ? `${fontFamily} · ${fontSize}px`
-                    : titleTemplate}
-                </span>
-              </span>
+              <span>{section.label}</span>
             </button>
           ))}
           {!visibleSections.length && <div className="settings-nav-empty">No settings found</div>}

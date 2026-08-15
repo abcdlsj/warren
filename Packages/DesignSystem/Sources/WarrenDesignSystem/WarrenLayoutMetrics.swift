@@ -111,6 +111,9 @@ public enum WarrenSpacing {
     public static let large: CGFloat = 24
     /// Extra-large spacing for calm, breathing settings layouts.
     public static let xlarge: CGFloat = 32
+    /// The largest shared spacing tier; settings detail sections use it so each
+    /// page reads as a calm, isolated block.
+    public static let xxlarge: CGFloat = 40
 }
 
 /// Shared corner-radius tokens. `base` is the confirmed Superset radius

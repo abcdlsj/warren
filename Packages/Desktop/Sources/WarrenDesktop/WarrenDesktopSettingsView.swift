@@ -109,17 +109,6 @@ struct WarrenDesktopSettingsView: View {
         .background(tokens.chromeSurface)
     }
 
-    private func summary(for section: SettingsSection) -> String {
-        switch section {
-        case .terminalFont:
-            "\(fontFamily) · \(Int(fontSize))pt"
-        case .terminalTitle:
-            titleTemplate
-        case .webSharing:
-            gnarSharingEnabled ? "gnar · On" : "gnar · Off"
-        }
-    }
-
     private func navigationPanel(tokens: WarrenColorTokens) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onBack) {
@@ -224,7 +213,6 @@ struct WarrenDesktopSettingsView: View {
         tokens: WarrenColorTokens
     ) -> some View {
         let isSelected = selectedSection == section
-        let summary = summary(for: section)
         return Button {
             selectedSection = section
         } label: {
@@ -235,33 +223,26 @@ struct WarrenDesktopSettingsView: View {
                     .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
-                    Text(section.rawValue)
-                        .font(WarrenTypography.settingsNavigationItem)
-                        .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
-                        .lineLimit(1)
-                    Text(summary)
-                        .font(WarrenTypography.settingsNavigationValue)
-                        .foregroundStyle(isSelected ? tokens.foreground.opacity(0.72) : tokens.mutedForeground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Text(section.rawValue)
+                    .font(WarrenTypography.settingsNavigationItem)
+                    .foregroundStyle(isSelected ? tokens.foreground : tokens.mutedForeground)
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, WarrenSpacing.standard)
-            .frame(maxWidth: .infinity, minHeight: 46)
+            .frame(maxWidth: .infinity, minHeight: 36)
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected))
         .accessibilityLabel(section.rawValue)
-        .accessibilityValue("\(summary)\(isSelected ? ", Selected" : "")")
+        .accessibilityValue(isSelected ? "Selected" : "")
         .accessibilityIdentifier("settings.section.\(section.id)")
     }
 
     private func detailPanel(tokens: WarrenColorTokens) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: WarrenSpacing.xlarge) {
+            VStack(alignment: .leading, spacing: WarrenSpacing.xxlarge) {
                 switch selectedSection {
                 case .terminalFont:
                     terminalFontSection(tokens: tokens)
@@ -278,12 +259,12 @@ struct WarrenDesktopSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(tokens.mutedForeground)
-                .padding(.top, WarrenSpacing.small)
+                .padding(.top, WarrenSpacing.medium)
                 .accessibilityIdentifier("settings.restore-defaults")
             }
             .frame(maxWidth: WarrenLayoutMetrics.settingsContentMaxWidth, alignment: .leading)
             .padding(.horizontal, WarrenSpacing.xlarge)
-            .padding(.vertical, WarrenSpacing.xlarge)
+            .padding(.vertical, WarrenSpacing.xxlarge)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .id(selectedSection)
         }
@@ -291,7 +272,7 @@ struct WarrenDesktopSettingsView: View {
 
     private func terminalFontSection(tokens: WarrenColorTokens) -> some View {
         settingsSection("Terminal font", section: .terminalFont, tokens: tokens) {
-            HStack(alignment: .bottom, spacing: WarrenSpacing.large) {
+            HStack(alignment: .bottom, spacing: WarrenSpacing.xlarge) {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
                     Text("Font family").font(WarrenTypography.bodyEmphasis)
                     TextField(TerminalFontPreference.defaultFamily, text: $fontFamily)
@@ -311,7 +292,7 @@ struct WarrenDesktopSettingsView: View {
             Text("$  The quick brown fox  0123456789  中文  │─└")
                 .font(.custom(normalizedFont.family, size: normalizedFont.size))
                 .foregroundStyle(tokens.foreground)
-                .padding(WarrenSpacing.large)
+                .padding(WarrenSpacing.xlarge)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(tokens.fillHover)
                 .clipShape(.rect(cornerRadius: WarrenRadius.medium))
@@ -328,9 +309,9 @@ struct WarrenDesktopSettingsView: View {
                 .foregroundStyle(tokens.mutedForeground)
                 .lineLimit(1)
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150), spacing: WarrenSpacing.small)],
+                columns: [GridItem(.adaptive(minimum: 150), spacing: WarrenSpacing.compact)],
                 alignment: .leading,
-                spacing: WarrenSpacing.small
+                spacing: WarrenSpacing.compact
             ) {
                 ForEach(TerminalDisplayTitleTemplate.placeholders, id: \.token) { placeholder in
                     Button {
@@ -344,7 +325,7 @@ struct WarrenDesktopSettingsView: View {
                                 .font(WarrenTypography.navigationMeta)
                                 .foregroundStyle(tokens.mutedForeground)
                         }
-                        .padding(WarrenSpacing.small)
+                        .padding(WarrenSpacing.compact)
                         .background(tokens.fillHover)
                         .clipShape(.rect(cornerRadius: WarrenRadius.small))
                     }
@@ -375,14 +356,14 @@ struct WarrenDesktopSettingsView: View {
         tokens: WarrenColorTokens,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: WarrenSpacing.large) {
-            VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+        VStack(alignment: .leading, spacing: WarrenSpacing.xlarge) {
+            VStack(alignment: .leading, spacing: WarrenSpacing.small) {
                 Text(title).font(WarrenTypography.pageTitle)
                 Text(section.detail)
                     .font(WarrenTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
             }
-            .padding(.bottom, WarrenSpacing.xs)
+            .padding(.bottom, WarrenSpacing.small)
             content()
         }
     }
