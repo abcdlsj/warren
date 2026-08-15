@@ -982,7 +982,7 @@ final class WarrenRemoteApplicationModel {
                     )
                 }
             }
-            await feedOutput(payload)
+            await feedOutput(payload, sessionID: sessionID)
         case .anchor(let sessionID, let epoch, let sequence, let reanchor):
             if reanchor {
                 suppressFramedAnchorUpdates.insert(sessionID)
@@ -1010,10 +1010,11 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func feedOutput(_ data: Data) async {
+    private func feedOutput(_ data: Data, sessionID: TerminalSessionID? = nil) async {
         guard !data.isEmpty,
-              let surface = mountedSurfaces.first,
-              surface.id == selectedSessionID else { return }
+              let targetSessionID = sessionID ?? selectedSessionID,
+              targetSessionID == selectedSessionID,
+              let surface = mountedSurfaces.first(where: { $0.id == targetSessionID }) else { return }
         surface.outputWriter.enqueueRaw(data)
         if initialRefreshPending {
             // The attach snapshot is fed before Ghostty's display loop
@@ -1196,6 +1197,9 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
+            if existingSurface != nil {
+                surface.presentNow()
+            }
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
