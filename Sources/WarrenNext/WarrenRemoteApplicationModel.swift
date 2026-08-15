@@ -938,20 +938,6 @@ final class WarrenRemoteApplicationModel {
 
     func report(_ error: Error) { present(error) }
 
-    private func appendDiagnostic(_ message: String) {
-        let line = "[\(Date())] \(message)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        let path = "/tmp/warren-attach.log"
-        if FileManager.default.fileExists(atPath: path) {
-            guard let handle = FileHandle(forWritingAtPath: path) else { return }
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: URL(fileURLWithPath: path))
-        }
-    }
-
     private func request(_ method: String, params: [String: String]) {
         guard let wire else { return }
         Task { @MainActor [weak self] in
@@ -979,9 +965,6 @@ final class WarrenRemoteApplicationModel {
         case .output(let data):
             await feedOutput(data)
         case .framedOutput(let sessionID, let epoch, let sequence, let payload):
-            appendDiagnostic(
-                "framedOutput session=\(sessionID) epoch=\(epoch) seq=\(sequence) bytes=\(payload.count)"
-            )
             if !suppressFramedAnchorUpdates.contains(sessionID) {
                 let endSequence = sequence + UInt64(payload.count)
                 if let current = outputAnchors[sessionID] {
@@ -1001,9 +984,6 @@ final class WarrenRemoteApplicationModel {
             }
             await feedOutput(payload)
         case .anchor(let sessionID, let epoch, let sequence, let reanchor):
-            appendDiagnostic(
-                "anchor session=\(sessionID) epoch=\(epoch) seq=\(sequence) reanchor=\(reanchor ? 1 : 0)"
-            )
             if reanchor {
                 suppressFramedAnchorUpdates.insert(sessionID)
             } else {
@@ -1192,12 +1172,6 @@ final class WarrenRemoteApplicationModel {
         selectedSessionID = sessionID
         mountedSurfaces.removeAll { $0 === surface }
         mountedSurfaces.insert(surface, at: 0)
-        if existingSurface != nil {
-            appendDiagnostic(
-                "existing surface viewportChars=\(surface.inMemory.readViewportText()?.count ?? -1) "
-                    + "mounted=\(mountedSurfaces.count)"
-            )
-        }
 
         // SwiftUI/AppKit reports the actual Ghostty grid only after the
         // surface has entered a measured pane. Waiting here makes the very
@@ -1211,18 +1185,6 @@ final class WarrenRemoteApplicationModel {
               mountedSurfaces.first === surface else { return }
         do {
             initialRefreshPending = true
-            appendDiagnostic(
-                "attach session=\(sessionID) existing=\(existingSurface == nil ? 0 : 1) "
-                    + "anchor=\(outputAnchors[sessionID].map { "\($0.epoch):\($0.sequence)" } ?? "nil") "
-                    + "size=\(size.map { "\($0.columns)x\($0.rows)" } ?? "nil")"
-            )
-            NSLog(
-                "Warren attach session=%@ existing=%d anchor=%@ size=%@",
-                sessionID.description,
-                existingSurface == nil ? 0 : 1,
-                outputAnchors[sessionID].map { "\($0.epoch):\($0.sequence)" } ?? "nil",
-                size.map { "\($0.columns)x\($0.rows)" } ?? "nil"
-            )
             _ = try await wire.request(
                 "session.attach",
                 params: WarrenRemoteTerminalProtocol.attachParameters(

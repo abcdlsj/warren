@@ -1038,10 +1038,6 @@ func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sync
 
 func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session api.Session, anchor *output.Anchor) error {
 	s.lazyInit()
-	appendDaemonDiagnostic(fmt.Sprintf(
-		"attachOutput session=%s runtime=%s anchor=%v",
-		session.ID, session.Runtime, anchor,
-	))
 	s.outputMu.Lock()
 	outputSession := s.outputs[session.ID]
 	s.outputMu.Unlock()
@@ -1052,10 +1048,6 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	recovery := outputSession.ring.Recovery(anchor)
 	reanchorRequired := outputSession.reanchorRequired
 	outputSession.mu.Unlock()
-	appendDaemonDiagnostic(fmt.Sprintf(
-		"attachOutput session=%s plan=%d reanchorRequired=%t frames=%d upper=%d",
-		session.ID, recovery.Plan, reanchorRequired, len(recovery.Frames), recovery.Upper,
-	))
 
 	if !recovery.Reanchor && !reanchorRequired {
 		// The attached cursor must point at the first frame the client is
@@ -1088,10 +1080,6 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	captureContext, cancelCapture := context.WithTimeout(ctx, s.commandTimeout())
 	defer cancelCapture()
 	snapshot, err := s.Runtime.Capture(captureContext, session.Runtime)
-	appendDaemonDiagnostic(fmt.Sprintf(
-		"attachOutput capture session=%s runtime=%s bytes=%d err=%v",
-		session.ID, session.Runtime, len(snapshot), err,
-	))
 	if err != nil {
 		return err
 	}
@@ -1134,17 +1122,6 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 		}
 	}
 	return peer.enqueueSynced(session.ID, epoch, upper)
-}
-
-func appendDaemonDiagnostic(message string) {
-	line := fmt.Sprintf("[%s] %s\n", time.Now().UTC().Format(time.RFC3339), message)
-	path := "/tmp/warren-daemon-attach.log"
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	_, _ = file.WriteString(line)
-	_ = file.Close()
 }
 
 func (s *Service) PingOutput(sessionID string) {

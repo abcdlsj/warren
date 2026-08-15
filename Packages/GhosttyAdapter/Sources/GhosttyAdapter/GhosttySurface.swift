@@ -114,22 +114,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public func presentNow() {
         state.controller.tick()
         guard let raw = state.surface?.rawValue else { return }
-        appendDiagnostic("presentNow surface=\(id)")
         ghostty_surface_draw(raw)
-    }
-
-    private func appendDiagnostic(_ message: String) {
-        let line = "[\(Date())] \(message)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        let path = "/tmp/warren-attach.log"
-        if FileManager.default.fileExists(atPath: path) {
-            guard let handle = FileHandle(forWritingAtPath: path) else { return }
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: URL(fileURLWithPath: path))
-        }
     }
 
     public func apply(font: TerminalFontPreference) {
