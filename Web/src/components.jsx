@@ -257,7 +257,6 @@ export function TerminalSearch({
   onQueryChange,
   onNext,
   onPrevious,
-  onOpen,
   onClose,
 }) {
   const inputRef = useRef(null);
@@ -277,19 +276,7 @@ export function TerminalSearch({
     }
   };
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        className="terminal-search-open chrome-button"
-        aria-label="Search terminal"
-        title="Search terminal (⌘F)"
-        onClick={onOpen}
-      >
-        <SearchIcon />
-      </button>
-    );
-  }
+  if (!open) return null;
 
   const summary = terminalSearchSummary(resultIndex, resultCount, Boolean(query));
   const hasMatches = Boolean(query) && resultCount > 0;

@@ -997,7 +997,6 @@ export default function App() {
               onQueryChange={updateTerminalSearchQuery}
               onNext={() => stepTerminalSearch("next")}
               onPrevious={() => stepTerminalSearch("previous")}
-              onOpen={openTerminalSearch}
               onClose={closeTerminalSearch}
             />
             <EmptyTerminal
