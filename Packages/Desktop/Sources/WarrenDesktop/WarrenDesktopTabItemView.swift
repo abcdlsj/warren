@@ -5,6 +5,7 @@ import WarrenObservation
 
 struct WarrenDesktopTabItem: View {
     let tab: ClientTab
+    let displayTitle: String
     let isSelected: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -34,7 +35,7 @@ struct WarrenDesktopTabItem: View {
                             .controlSize(.mini)
                             .accessibilityHidden(true)
                     }
-                    Text(tab.title)
+                    Text(displayTitle)
                         .font(WarrenTypography.tabShellTitle)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -58,13 +59,13 @@ struct WarrenDesktopTabItem: View {
                     ? tokens.foreground.opacity(0.90)
                     : tokens.mutedForeground
             )
-            .accessibilityLabel("Tab \(tab.title)")
+            .accessibilityLabel("Tab \(displayTitle)")
             .accessibilityValue(isSelected ? "Selected" : "Not selected")
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .warrenSemanticElement(
                 id: "tab.\(tab.id)",
                 role: .tab,
-                label: "Tab \(tab.title)",
+                label: "Tab \(displayTitle)",
                 value: isSelected ? "Selected" : "Not selected",
                 isSelected: isSelected,
                 action: onSelect
@@ -92,11 +93,11 @@ struct WarrenDesktopTabItem: View {
             .focused($isCloseFocused)
             .onHover { isCloseHovered = $0 }
             .accessibilityHidden(!exposesClose)
-            .accessibilityLabel("Close tab \(tab.title)")
+            .accessibilityLabel("Close tab \(displayTitle)")
             .warrenSemanticElement(
                 id: "tab.\(tab.id).close",
                 role: .button,
-                label: "Close tab \(tab.title)",
+                label: "Close tab \(displayTitle)",
                 isEnabled: exposesClose,
                 action: onClose
             )
@@ -137,7 +138,7 @@ struct WarrenDesktopTabItem: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tab \(tab.title)")
+        .accessibilityLabel("Tab \(displayTitle)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 }

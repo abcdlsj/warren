@@ -89,6 +89,19 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     public var body: some View {
         let presentation = makePresentation()
+        let tabTitles = Dictionary(uniqueKeysWithValues: presentation.tabs.map { tab in
+            let session = tab.sessionID.flatMap { projection.session(id: $0) }
+            let workspace = tab.sessionID.flatMap { projection.workspace(for: $0) }
+                ?? presentation.workspace
+            return (
+                tab.id,
+                WarrenDesktopTabTitle.displayTitle(
+                    tab: tab,
+                    session: session,
+                    workspace: workspace
+                )
+            )
+        })
         ZStack(alignment: .topLeading) {
             if settingsPresented {
                 WarrenDesktopSettingsView(onBack: closeSettings)
@@ -119,6 +132,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     }
                     WarrenDesktopTabBar(
                         tabs: presentation.tabs,
+                        tabTitles: tabTitles,
                         selectedTabID: navigation.selectedTabID,
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,

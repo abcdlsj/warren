@@ -7,6 +7,7 @@ import WarrenDesignSystem
 /// header controls, so the workspace never gets a duplicate 48pt top bar.
 struct WarrenDesktopTabBar: View {
     let tabs: [ClientTab]
+    let tabTitles: [String: String]
     let selectedTabID: String?
     let chromeMode: WarrenDesktopChromeMode
     let isSidebarCollapsed: Bool
@@ -55,6 +56,7 @@ struct WarrenDesktopTabBar: View {
                         ForEach(tabs) { tab in
                             WarrenDesktopTabItem(
                                 tab: tab,
+                                displayTitle: tabTitles[tab.id] ?? tab.title,
                                 isSelected: selectedTabID == tab.id,
                                 onSelect: { onSelectTab(tab.id) },
                                 onClose: { onCloseTab(tab.id) },

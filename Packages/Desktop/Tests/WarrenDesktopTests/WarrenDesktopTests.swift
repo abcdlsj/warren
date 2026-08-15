@@ -229,6 +229,80 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertNil(WarrenDesktopTabSelector.tabID(in: [], number: 1))
     }
 
+    func testTabTitleUsesDirectoryNameForInteractiveShell() {
+        let workspaceID = WorkspaceID()
+        let sessionID = TerminalSessionID()
+        let tab = ClientTab(
+            id: "tab-1",
+            title: "Shell",
+            sessionID: sessionID,
+            kind: .shell
+        )
+        let session = WarrenDesktopSession(
+            id: sessionID,
+            workspaceID: workspaceID,
+            title: "Shell",
+            kind: .shell,
+            runtimeProcess: "zsh",
+            workingDirectory: "/Users/me/Workspace/warren"
+        )
+        let workspace = Workspace(
+            projectID: ProjectID(),
+            name: "warren",
+            path: "/Users/me/Workspace/warren"
+        )
+
+        XCTAssertEqual(
+            WarrenDesktopTabTitle.displayTitle(
+                tab: tab,
+                session: session,
+                workspace: workspace
+            ),
+            "warren"
+        )
+    }
+
+    func testTabTitleShowsRunningProcessAlongsideDirectory() {
+        let workspaceID = WorkspaceID()
+        let sessionID = TerminalSessionID()
+        let tab = ClientTab(
+            id: "tab-2",
+            title: "Codex",
+            sessionID: sessionID,
+            kind: .codex
+        )
+        let session = WarrenDesktopSession(
+            id: sessionID,
+            workspaceID: workspaceID,
+            title: "Codex",
+            kind: .codex,
+            runtimeProcess: "codex",
+            workingDirectory: "/Users/me/Workspace/superset"
+        )
+
+        XCTAssertEqual(
+            WarrenDesktopTabTitle.displayTitle(
+                tab: tab,
+                session: session,
+                workspace: nil
+            ),
+            "codex — superset"
+        )
+    }
+
+    func testTabTitleFallsBackWhenNoDirectoryIsKnown() {
+        let tab = ClientTab(id: "tab-3", title: "Shell", kind: .shell)
+
+        XCTAssertEqual(
+            WarrenDesktopTabTitle.displayTitle(
+                tab: tab,
+                session: nil,
+                workspace: nil
+            ),
+            "Shell"
+        )
+    }
+
     func testPresetIconCacheLoadsHitsAndMissesOnlyOnce() {
         var loads: [String] = []
         let expected = NSImage(size: NSSize(width: 12, height: 12))
