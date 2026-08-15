@@ -2,12 +2,14 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/config"
 )
 
 func TestSessionRowsJoinsWorkspaceAndProject(t *testing.T) {
@@ -186,6 +188,72 @@ func TestHoistGlobalFlagsMovesFlagsFromAnyPosition(t *testing.T) {
 				t.Errorf("hoistGlobalFlags(%v) = %v, want %v", test.args, got, test.want)
 			}
 		})
+	}
+}
+
+func TestHoistGlobalFlagsLeavesTokenForEndpointAdd(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "endpoint add token stays local",
+			args: []string{"endpoint", "add", "spike", "--url", "http://127.0.0.1:8789", "--token", "secret"},
+			want: []string{"endpoint", "add", "spike", "--url", "http://127.0.0.1:8789", "--token", "secret"},
+		},
+		{
+			name: "server alias also keeps token",
+			args: []string{"server", "add", "spike", "--token=secret", "--url", "http://127.0.0.1:8789"},
+			want: []string{"server", "add", "spike", "--token=secret", "--url", "http://127.0.0.1:8789"},
+		},
+		{
+			name: "json still hoists for endpoint add",
+			args: []string{"endpoint", "add", "spike", "--url", "http://127.0.0.1:8789", "--token", "secret", "--json"},
+			want: []string{"--json", "endpoint", "add", "spike", "--url", "http://127.0.0.1:8789", "--token", "secret"},
+		},
+		{
+			name: "config still hoists for endpoint add",
+			args: []string{"--config", "/tmp/cfg.json", "endpoint", "add", "spike", "--token", "secret"},
+			want: []string{"--config", "/tmp/cfg.json", "endpoint", "add", "spike", "--token", "secret"},
+		},
+		{
+			name: "other commands still hoist token",
+			args: []string{"session", "list", "--token", "secret"},
+			want: []string{"--token", "secret", "session", "list"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hoistGlobalFlags(test.args); !reflect.DeepEqual(got, test.want) {
+				t.Errorf("hoistGlobalFlags(%v) = %v, want %v", test.args, got, test.want)
+			}
+		})
+	}
+}
+
+func TestEndpointAddKeepsTokenFlag(t *testing.T) {
+	configPath = filepath.Join(t.TempDir(), "config.json")
+	t.Cleanup(func() { configPath = config.DefaultPath() })
+
+	if err := run([]string{
+		"--config", configPath,
+		"endpoint", "add", "spike",
+		"--url", "http://127.0.0.1:8789",
+		"--token", "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, ok := settings.Endpoints["spike"]
+	if !ok {
+		t.Fatalf("endpoint spike not saved: %#v", settings.Endpoints)
+	}
+	if endpoint.Token != "secret" {
+		t.Errorf("token = %q, want secret", endpoint.Token)
 	}
 }
 

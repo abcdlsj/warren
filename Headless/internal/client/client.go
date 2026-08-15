@@ -121,14 +121,20 @@ func (c *Client) Input(ctx context.Context, data []byte) error {
 }
 
 func (c *Client) ReadOutput(ctx context.Context, onOutput func([]byte) bool) error {
+	// ReadMessage blocks without a deadline, so a context timeout or
+	// interrupt alone cannot wake it. Close the connection when the context
+	// finishes; the read then returns and we translate the error back to the
+	// context result.
+	stopClose := context.AfterFunc(ctx, func() {
+		_ = c.connection.Close()
+	})
+	defer stopClose()
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 		typeID, data, err := c.connection.ReadMessage()
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
 			return err
 		}
 		if typeID == websocket.BinaryMessage {

@@ -111,10 +111,17 @@ var globalFlagNames = map[string]bool{
 func hoistGlobalFlags(arguments []string) []string {
 	extracted := make([]string, 0, len(arguments))
 	rest := make([]string, 0, len(arguments))
+	endpointAdd := isEndpointAdd(arguments)
 	for index := 0; index < len(arguments); index++ {
 		item := arguments[index]
 		name, _, hasValue := splitFlag(item)
 		if !globalFlagNames[name] {
+			rest = append(rest, item)
+			continue
+		}
+		// endpoint add accepts its own --token; keep it local so the
+		// subcommand receives it instead of treating it as the server token.
+		if endpointAdd && name == "token" {
 			rest = append(rest, item)
 			continue
 		}
@@ -131,6 +138,38 @@ func hoistGlobalFlags(arguments []string) []string {
 		rest = append(rest, item)
 	}
 	return append(extracted, rest...)
+}
+
+// isEndpointAdd reports whether the arguments target `endpoint add` (or its
+// `server add` alias), where --token is a subcommand flag rather than a global
+// server token.
+func isEndpointAdd(arguments []string) bool {
+	position := 0
+	for index := 0; index < len(arguments); index++ {
+		item := arguments[index]
+		name, _, hasValue := splitFlag(item)
+		if globalFlagNames[name] {
+			if hasValue || name == "json" {
+				continue
+			}
+			if index+1 < len(arguments) && !strings.HasPrefix(arguments[index+1], "--") {
+				index++
+			}
+			continue
+		}
+		position++
+		switch position {
+		case 1:
+			if item != "endpoint" && item != "server" {
+				return false
+			}
+		case 2:
+			return item == "add"
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func splitFlag(item string) (name, value string, hasValue bool) {
