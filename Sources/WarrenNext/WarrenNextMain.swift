@@ -182,6 +182,15 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.post(name: Notification.Name(rawValue), object: nil)
     }
 
+    @objc private func selectTabNumber(_ sender: NSMenuItem) {
+        guard let index = (sender.representedObject as? NSNumber)?.intValue else { return }
+        NotificationCenter.default.post(
+            name: WarrenDesktopCommand.selectTab,
+            object: nil,
+            userInfo: [WarrenDesktopCommand.selectTabIndexKey: index]
+        )
+    }
+
     @objc private func copyLocalWebURL(_ sender: NSMenuItem) {
         NotificationCenter.default.post(name: WebCommand.copyLocalURL, object: nil)
     }
@@ -247,6 +256,19 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate {
         previousTabItem.target = target
         previousTabItem.keyEquivalentModifierMask = [.command, .shift]
         previousTabItem.representedObject = WarrenDesktopCommand.previousTab.rawValue
+
+        sessionMenu.addItem(.separator())
+        for index in 1...9 {
+            let selectTabItem = sessionMenu.addItem(
+                withTitle: "Select Tab \(index)",
+                action: #selector(WarrenNextAppDelegate.selectTabNumber(_:)),
+                keyEquivalent: String(index)
+            )
+            selectTabItem.target = target
+            selectTabItem.keyEquivalentModifierMask = [.command]
+            selectTabItem.representedObject = NSNumber(value: index)
+        }
+        sessionMenu.addItem(.separator())
 
         let closeTabItem = sessionMenu.addItem(
             withTitle: "Close Tab",

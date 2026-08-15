@@ -37,6 +37,23 @@ struct WarrenNextApp: App {
                 }
                 .keyboardShortcut("x", modifiers: [.command, .shift])
 
+                Divider()
+
+                ForEach(1...9, id: \.self) { index in
+                    Button("Select Tab \(index)") {
+                        post(
+                            WarrenDesktopCommand.selectTab,
+                            userInfo: [WarrenDesktopCommand.selectTabIndexKey: index]
+                        )
+                    }
+                    .keyboardShortcut(
+                        KeyEquivalent(Character(String(index))),
+                        modifiers: .command
+                    )
+                }
+
+                Divider()
+
                 Button("Close Tab") {
                     post(WarrenDesktopCommand.closeTab)
                 }
@@ -72,8 +89,8 @@ struct WarrenNextApp: App {
         }
     }
 
-    private func post(_ name: Notification.Name) {
-        NotificationCenter.default.post(name: name, object: nil)
+    private func post(_ name: Notification.Name, userInfo: [AnyHashable: Any]? = nil) {
+        NotificationCenter.default.post(name: name, object: nil, userInfo: userInfo)
     }
 }
 

@@ -220,6 +220,15 @@ final class WarrenDesktopTests: XCTestCase {
         ), tabs[1].id)
     }
 
+    func testTabNumberSelectorIsOneBasedAndBoundsChecked() {
+        let tabs = WarrenDesktopFixture.preview.projection.tabs
+        XCTAssertEqual(WarrenDesktopTabSelector.tabID(in: tabs, number: 1), tabs[0].id)
+        XCTAssertEqual(WarrenDesktopTabSelector.tabID(in: tabs, number: 2), tabs[1].id)
+        XCTAssertNil(WarrenDesktopTabSelector.tabID(in: tabs, number: 0))
+        XCTAssertNil(WarrenDesktopTabSelector.tabID(in: tabs, number: 3))
+        XCTAssertNil(WarrenDesktopTabSelector.tabID(in: [], number: 1))
+    }
+
     func testPresetIconCacheLoadsHitsAndMissesOnlyOnce() {
         var loads: [String] = []
         let expected = NSImage(size: NSSize(width: 12, height: 12))

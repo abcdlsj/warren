@@ -233,6 +233,16 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             ) else { return }
             dispatch(.selectTab(tabID))
         }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.selectTab)) { note in
+            let rawIndex = note.userInfo?[WarrenDesktopCommand.selectTabIndexKey]
+            let index = rawIndex as? Int ?? (rawIndex as? NSNumber)?.intValue
+            guard let index,
+                  let tabID = WarrenDesktopTabSelector.tabID(
+                    in: presentation.tabs,
+                    number: index
+                  ) else { return }
+            dispatch(.selectTab(tabID))
+        }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.closeTab)) { _ in
             guard let tab = presentation.tab, tab.sessionID != nil else { return }
             dispatch(.closeTab(tab.id))
@@ -394,6 +404,15 @@ enum WarrenDesktopTabCycler {
             selectedIndex + (forward ? 1 : -1) + tabs.count
         ) % tabs.count
         return tabs[nextIndex].id
+    }
+}
+
+/// Pure rule for the ⌘1…⌘9 menu shortcuts: the number is a 1-based position
+/// inside the active workspace's tab track.
+enum WarrenDesktopTabSelector {
+    static func tabID(in tabs: [ClientTab], number: Int) -> String? {
+        guard number >= 1, tabs.indices.contains(number - 1) else { return nil }
+        return tabs[number - 1].id
     }
 }
 

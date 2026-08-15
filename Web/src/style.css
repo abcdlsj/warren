@@ -62,11 +62,11 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .pane-title span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .terminal-shell { position:relative; min-width:0; min-height:0; background:var(--bg); }
 #terminal { position:absolute; inset:6px 5px 4px 8px; }
-.terminal-empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--sub); text-align:center; padding:24px; }
+.terminal-empty { position:absolute; inset:0; display:grid; place-items:center; color:var(--sub); text-align:center; padding:24px 24px 88px; }
 .terminal-empty[hidden] { display:none; }
-.empty-state { display:flex; flex-direction:column; align-items:center; gap:12px; }
-.empty-state svg { width:28px; height:28px; color:var(--sub); }
-.empty-title { color:var(--fg); font-size:16px; font-weight:500; }
+.empty-state { display:flex; flex-direction:column; align-items:center; gap:16px; }
+.empty-state svg { width:30px; height:30px; color:var(--sub); }
+.empty-title { color:var(--fg); font-size:17px; font-weight:300; }
 .empty-action { height:30px; padding:0 12px; border:0; border-radius:6px; background:var(--fg); color:var(--bg); font-size:13px; cursor:pointer; }
 .settings-page { display:none; width:100%; height:100%; background:var(--bg); }
 .settings-page.open { display:flex; }

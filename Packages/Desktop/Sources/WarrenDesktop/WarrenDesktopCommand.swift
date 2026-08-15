@@ -8,6 +8,9 @@ public enum WarrenDesktopCommand {
     public static let newSession = Notification.Name("WarrenDesktopCommand.newSession")
     public static let nextTab = Notification.Name("WarrenDesktopCommand.nextTab")
     public static let previousTab = Notification.Name("WarrenDesktopCommand.previousTab")
+    /// Posted with a 1-based `selectTabIndexKey` value for ⌘1…⌘9.
+    public static let selectTab = Notification.Name("WarrenDesktopCommand.selectTab")
+    public static let selectTabIndexKey = "WarrenDesktopCommand.selectTabIndex"
     public static let closeTab = Notification.Name("WarrenDesktopCommand.closeTab")
     public static let toggleSidebar = Notification.Name("WarrenDesktopCommand.toggleSidebar")
     public static let toggleInspector = Notification.Name("WarrenDesktopCommand.toggleInspector")

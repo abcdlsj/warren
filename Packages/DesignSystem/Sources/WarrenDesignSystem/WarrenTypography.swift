@@ -35,6 +35,9 @@ public enum WarrenTypography {
     public static let badge = Font.system(size: 10, weight: .medium)
     public static let activityChip = Font.system(size: 9, weight: .medium)
     public static let emptyState = Font.system(size: 18, weight: .semibold)
+    /// Empty-state titles use the light text tier and a larger size so an
+    /// empty page reads as calm guidance instead of shouting chrome.
+    public static let emptyStateTitle = Font.system(size: 20, weight: .light)
     public static let screenTitle = Font.system(size: 18, weight: .semibold)
     /// Superset settings page headings are `text-xl`.
     public static let pageTitle = Font.system(size: 20, weight: .semibold)

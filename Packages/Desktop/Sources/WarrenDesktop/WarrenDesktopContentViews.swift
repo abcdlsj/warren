@@ -44,15 +44,18 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
         } else if let workspace, tab == nil {
             emptyWorkspace(tokens: tokens, workspace: workspace)
         } else {
-            VStack(spacing: WarrenSpacing.medium) {
+            VStack(spacing: WarrenSpacing.standard) {
                 Text("Select a workspace")
-                    .font(WarrenTypography.emptyState)
+                    .font(WarrenTypography.emptyStateTitle)
                     .foregroundStyle(tokens.mutedForeground)
                 Text("Choose a workspace to open its terminals")
-                    .font(WarrenTypography.supporting)
+                    .font(WarrenTypography.body)
                     .foregroundStyle(tokens.mutedForeground)
-                    .opacity(0.75)
+                    .opacity(0.72)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(WarrenSpacing.small)
             }
+            .padding(.bottom, emptyStatePageOffset * 2)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("No workspace selected")
@@ -60,13 +63,14 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     }
 
     private func emptyWelcome(tokens: WarrenColorTokens) -> some View {
-        VStack(spacing: WarrenSpacing.compact) {
+        VStack(spacing: WarrenSpacing.standard) {
             Text("Open a project to begin")
-                .font(WarrenTypography.emptyState)
+                .font(WarrenTypography.emptyStateTitle)
                 .foregroundStyle(tokens.mutedForeground)
+                .multilineTextAlignment(.center)
             Button(action: onAddProject) {
                 Text("Add Project…")
-                    .font(WarrenTypography.supporting)
+                    .font(WarrenTypography.body)
             }
             .buttonStyle(.plain)
             .foregroundStyle(tokens.mutedForeground)
@@ -79,11 +83,11 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             )
             Button(action: onImportSuperset) {
                 Text("Import from Superset")
-                    .font(WarrenTypography.supporting)
+                    .font(WarrenTypography.body)
             }
             .buttonStyle(.plain)
             .foregroundStyle(tokens.mutedForeground)
-            .opacity(0.75)
+            .opacity(0.72)
             .warrenSemanticElement(
                 id: "onboarding.import-superset",
                 role: .button,
@@ -91,31 +95,43 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 action: onImportSuperset
             )
         }
+        .padding(.bottom, emptyStatePageOffset * 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
     }
 
     private func emptyWorkspace(tokens: WarrenColorTokens, workspace: Workspace) -> some View {
-        VStack(spacing: WarrenSpacing.compact) {
+        VStack(spacing: WarrenSpacing.standard) {
             Text("Start a session")
-                .font(WarrenTypography.emptyState)
+                .font(WarrenTypography.emptyStateTitle)
                 .foregroundStyle(tokens.mutedForeground)
             Text("Open a terminal with the + button or a preset")
-                .font(WarrenTypography.supporting)
+                .font(WarrenTypography.body)
                 .foregroundStyle(tokens.mutedForeground)
-                .opacity(0.75)
-            VStack(spacing: WarrenSpacing.xs) {
+                .opacity(0.72)
+                .multilineTextAlignment(.center)
+                .lineSpacing(WarrenSpacing.small)
+            VStack(spacing: WarrenSpacing.compact) {
                 shortcutRow(tokens: tokens, key: "⌘T", label: "New terminal")
                 shortcutRow(tokens: tokens, key: "⌘X", label: "Next tab")
                 shortcutRow(tokens: tokens, key: "⇧⌘X", label: "Previous tab")
+                shortcutRow(tokens: tokens, key: "⌘1…⌘9", label: "Switch to tab")
                 shortcutRow(tokens: tokens, key: "⌘W", label: "Close terminal")
             }
             .frame(maxWidth: 420)
-            .padding(.top, WarrenSpacing.xs)
+            .padding(.top, WarrenSpacing.compact)
         }
+        .padding(.bottom, emptyStatePageOffset * 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No open sessions in \(workspace.name)")
+    }
+
+    /// The empty state sits inside the content area below the tab and preset
+    /// bars; nudge it up by half that chrome so its visual center lands on the
+    /// whole page's center instead of the terminal pane's center.
+    private var emptyStatePageOffset: CGFloat {
+        (WarrenLayoutMetrics.tabBarHeight + WarrenLayoutMetrics.presetBarHeight) / 2
     }
 
     private func shortcutRow(
