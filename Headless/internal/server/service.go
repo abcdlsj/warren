@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	defaultRingCapacity = 256
-	defaultRingMaxBytes = 8 * 1024 * 1024
-	defaultMaxSpool     = 64 * 1024 * 1024
-	cursorPersistEvery  = 256 * 1024
+	defaultRingCapacity   = 256
+	defaultRingMaxBytes   = 8 * 1024 * 1024
+	defaultMaxSpool       = 64 * 1024 * 1024
+	defaultCommandTimeout = 10 * time.Second
+	cursorPersistEvery    = 256 * 1024
 )
 
 type Service struct {
@@ -32,6 +33,11 @@ type Service struct {
 	MaxSpoolBytes int64
 	RingCapacity  int
 	RingMaxBytes  int
+	// CommandTimeout bounds tmux commands run during attach and adoption. A
+	// stuck tmux client must fail the attach and release the session broadcast
+	// lock and paused output watcher instead of wedging the session until the
+	// daemon restarts.
+	CommandTimeout time.Duration
 
 	outputMu       sync.Mutex
 	outputs        map[string]*outputSession
@@ -524,7 +530,9 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 		s.outputMu.Unlock()
 		return outputSession, nil
 	}
-	if err := adapter.EnsurePipe(ctx, session.Runtime); err != nil {
+	pipeContext, cancelPipe := context.WithTimeout(ctx, s.commandTimeout())
+	defer cancelPipe()
+	if err := adapter.EnsurePipe(pipeContext, session.Runtime); err != nil {
 		return nil, err
 	}
 	spoolOffset := int64(session.Sequence)
@@ -586,6 +594,13 @@ func (s *Service) maxSpoolBytes() int64 {
 		return s.MaxSpoolBytes
 	}
 	return defaultMaxSpool
+}
+
+func (s *Service) commandTimeout() time.Duration {
+	if s.CommandTimeout > 0 {
+		return s.CommandTimeout
+	}
+	return defaultCommandTimeout
 }
 
 func (s *Service) recordOutput(sessionID string, data []byte) {
@@ -750,7 +765,9 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// Reanchor: capture the real tmux screen and replay it as a snapshot
 	// reset. Snapshot frames reuse the current upper sequence; clients do not
 	// advance their anchor until the synced marker arrives.
-	snapshot, err := s.Runtime.Capture(ctx, session.Runtime)
+	captureContext, cancelCapture := context.WithTimeout(ctx, s.commandTimeout())
+	defer cancelCapture()
+	snapshot, err := s.Runtime.Capture(captureContext, session.Runtime)
 	if err != nil {
 		return err
 	}
@@ -1038,7 +1055,9 @@ func (s *Service) rotated(sessionID string) {
 	_ = s.persistCursorLocked(outputSession)
 	outputSession.mu.Unlock()
 
-	snapshot, err := s.Runtime.Capture(context.Background(), session.Runtime)
+	captureContext, cancelCapture := context.WithTimeout(context.Background(), s.commandTimeout())
+	defer cancelCapture()
+	snapshot, err := s.Runtime.Capture(captureContext, session.Runtime)
 	if err != nil {
 		return
 	}
