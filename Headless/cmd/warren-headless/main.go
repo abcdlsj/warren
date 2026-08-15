@@ -77,6 +77,7 @@ func main() {
 	}
 	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
 	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath)
+	httpHandler.BuildVersion = version
 	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -517,12 +516,22 @@ func TestHealthEndpoint(t *testing.T) {
 	response := httptest.NewRecorder()
 	directory := t.TempDir()
 	state, _ := store.Open(filepath.Join(directory, "state.json"), "test")
-	NewHTTPServer(&Service{Store: state, Runtime: &memoryRuntime{sessions: map[string][]byte{}}}, "secret", slog.Default()).Handler().ServeHTTP(response, request)
+	handler := NewHTTPServer(&Service{Store: state, Runtime: &memoryRuntime{sessions: map[string][]byte{}}}, "secret", slog.Default())
+	handler.BuildVersion = "abc1234"
+	handler.Handler().ServeHTTP(response, request)
 	if response.Code != 200 {
 		t.Fatalf("health returned %d", response.Code)
 	}
-	if _, err := url.Parse(response.Body.String()); err == nil {
-		t.Fatal("health body unexpectedly parsed as URL")
+	var body struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+		Build   string `json:"build"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode health body: %v", err)
+	}
+	if !body.OK || body.Version != api.Version || body.Build != "abc1234" {
+		t.Fatalf("health body = %+v", body)
 	}
 }
 

@@ -29,8 +29,9 @@ swift build \
     --configuration "$configuration" \
     --product WarrenDaemonMenuBar
 
-go build -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
-go build -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
+build_version="$(bash "$repository_root/scripts/version.sh")"
+go build -ldflags "-X main.version=$build_version" -o "$repository_root/.build/warren-cli" "$repository_root/Headless/cmd/warren"
+go build -ldflags "-X main.version=$build_version" -o "$repository_root/.build/warren-headless" "$repository_root/Headless/cmd/warren-headless"
 
 binary_directory="$(
     swift build \

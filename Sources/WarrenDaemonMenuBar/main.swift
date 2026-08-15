@@ -30,6 +30,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private var daemonProcess: Process?
     private var pollTask: Task<Void, Never>?
     private var autoStartDisabled = false
+    private var buildVersion: String?
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
@@ -79,6 +80,10 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         endpoint.tag = 2
         endpoint.isEnabled = false
         menu.addItem(endpoint)
+        let version = NSMenuItem(title: "Version: —", action: nil, keyEquivalent: "")
+        version.tag = 3
+        version.isEnabled = false
+        menu.addItem(version)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Restart Headless", action: #selector(restartDaemon), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Stop Headless", action: #selector(stopDaemonAction), keyEquivalent: "s"))
@@ -104,7 +109,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             return
         }
         if await isDaemonHealthy() {
-            state = .running
+            await markRunning()
             return
         }
 
@@ -131,12 +136,32 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private func waitUntilHealthy() async {
         for _ in 0..<30 where !Task.isCancelled {
             if await isDaemonHealthy() {
-                state = .running
+                await markRunning()
                 return
             }
             try? await Task.sleep(for: .milliseconds(200))
         }
         state = .failed("Headless did not become ready")
+    }
+
+    private func markRunning() async {
+        state = .running
+        await refreshBuildVersion()
+    }
+
+    private func refreshBuildVersion() async {
+        var request = URLRequest(url: healthURL)
+        request.timeoutInterval = 1
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let build = object["build"] as? String, !build.isEmpty else { return }
+            buildVersion = build
+            updateStatusItem()
+        } catch {
+            return
+        }
     }
 
     private func startDaemonProcess() {
@@ -255,12 +280,16 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             button.title = " Warren !"
         }
         if button.image != nil { button.title = "" }
-        button.toolTip = switch state {
+        var toolTip = switch state {
         case .checking: "Warren headless: Checking"
         case .running: "Warren headless: Running"
         case .stopped: "Warren headless: Stopped"
         case .failed: "Warren headless: Failed"
         }
+        if let buildVersion {
+            toolTip += " · \(buildVersion)"
+        }
+        button.toolTip = toolTip
         if let status = statusItem.menu?.item(withTag: 1) {
             switch state {
             case .checking: status.title = "Headless: Checking…"
@@ -276,6 +305,9 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             case .stopped: "Endpoint: 127.0.0.1:8789 · Offline"
             case .failed: "Endpoint: 127.0.0.1:8789 · Unavailable"
             }
+        }
+        if let version = statusItem.menu?.item(withTag: 3) {
+            version.title = "Version: \(buildVersion ?? "—")"
         }
     }
 }
