@@ -54,13 +54,14 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                 ScrollView(axes, showsIndicators: false) {
                     content()
                         .id(contentID)
-                        .background {
+                        .overlay {
                             GeometryReader { contentGeometry in
                                 Color.clear.preference(
                                     key: WarrenOverflowFadeMetricsKey.self,
                                     value: WarrenOverflowFadeMetrics(frame: contentGeometry.frame(in: .named(spaceName)))
                                 )
                             }
+                            .allowsHitTesting(false)
                         }
                 }
                 .coordinateSpace(name: spaceName)

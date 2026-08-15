@@ -80,6 +80,32 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(filler.frame.width, 100)
     }
 
+    func testOverflowFadeScrollViewReportsHorizontalOverflow() {
+        var observed: [Bool] = []
+        let scroll = WarrenOverflowFadeScrollView(
+            .horizontal,
+            fadeLength: 36,
+            surface: .black,
+            showsEdgeChevrons: true,
+            onHorizontalOverflowChange: { observed.append($0) }
+        ) {
+            HStack(spacing: 0) {
+                ForEach(0..<12, id: \.self) { _ in
+                    Color.white.frame(width: 150, height: 36)
+                }
+            }
+        }
+        .frame(width: 500, height: 36)
+
+        let hostingView = NSHostingView(rootView: scroll)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 500, height: 36)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        hostingView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(observed, [true])
+    }
+
     private func descendantViews<T: NSView>(
         of view: NSView,
         as type: T.Type
