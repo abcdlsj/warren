@@ -22,7 +22,7 @@ import {
   terminalSize,
   waitForTerminalFont,
 } from "./terminal.js";
-import { InputQueue } from "./input.js";
+import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
 import {
@@ -815,33 +815,40 @@ export default function App() {
     // same keystroke (compositionend plus the following input event). Track
     // composition state and drop exact duplicates inside a short window.
     const isTouch = isCoarsePointer();
-    let isComposing = false;
-    let compositionEndTime = 0;
-    let lastSentData = "";
-    let lastSentTime = 0;
+    const deduper = new MobileInputDeduper({ isTouch });
     const onCompositionStart = () => {
-      isComposing = true;
+      deduper.onCompositionStart();
     };
     const onCompositionEnd = () => {
-      isComposing = false;
-      compositionEndTime = Date.now();
+      deduper.onCompositionEnd();
     };
     textarea?.addEventListener("compositionstart", onCompositionStart);
     textarea?.addEventListener("compositionend", onCompositionEnd);
-    const dataSubscription = terminal.onData(data => {
-      const now = Date.now();
-      const inCompositionWindow = isComposing || now - compositionEndTime < 150;
-      // Touch keyboards can echo one keystroke twice (keydown + input event);
-      // genuine fast repeats like `!!` or `&&` are typically slower than
-      // 40ms apart, so keep the duplicate window tiny outside composition.
-      const duplicateWindow = inCompositionWindow || !isTouch ? 150 : 40;
-      if (data === lastSentData && now - lastSentTime < duplicateWindow) {
+    const sendDeduped = data => {
+      if (!data) return;
+      if (deduper.shouldSend(data)) sendInput(data);
+    };
+    const dataSubscription = terminal.onData(sendDeduped);
+    const onTextareaInput = event => {
+      // Mobile Chinese keyboards can commit full-width punctuation as an
+      // `insertCompositionText`/`insertText` input event that xterm ignores
+      // (it only forwards keydown and plain insertText). Forward the final
+      // committed data ourselves; the deduper absorbs any xterm echo.
+      if (deduper.isComposing || !event.data) return;
+      const inputType = event.inputType || "";
+      // Keep paste/drop/autofill on xterm's own handler so bracketed paste
+      // and quoting semantics stay intact.
+      if (inputType === "insertFromPaste"
+        || inputType === "insertFromDrop"
+        || inputType === "insertFromYank"
+        || inputType === "insertReplacementText"
+        || inputType.startsWith("history")
+        || inputType.startsWith("delete")) {
         return;
       }
-      lastSentData = data;
-      lastSentTime = now;
-      sendInput(data);
-    });
+      sendDeduped(event.data);
+    };
+    textarea?.addEventListener("input", onTextareaInput);
     const resizeSubscription = terminal.onResize(scheduleRemoteResize);
     const onTerminalFocus = () => requestSessionFocus(true);
     const onTerminalBlur = () => {
@@ -895,6 +902,7 @@ export default function App() {
       terminal.element?.removeEventListener("mouseup", copySelectionOnMouseUp);
       textarea?.removeEventListener("compositionstart", onCompositionStart);
       textarea?.removeEventListener("compositionend", onCompositionEnd);
+      textarea?.removeEventListener("input", onTextareaInput);
       terminal.textarea?.removeEventListener("focus", onTerminalFocus);
       terminal.textarea?.removeEventListener("blur", onTerminalBlur);
       window.removeEventListener("blur", releaseWindowFocus);

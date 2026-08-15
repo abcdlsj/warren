@@ -149,3 +149,15 @@ test("mobile deduper does not gate desktop key repeat", () => {
   now += 20;
   assert.equal(deduper.shouldSend("a"), true);
 });
+
+test("mobile deduper keeps genuine fast repeats outside composition", () => {
+  let now = 0;
+  const deduper = new MobileInputDeduper({ isTouch: true, windowMs: 150, now: () => now });
+
+  assert.equal(deduper.shouldSend("!"), true);
+  now += 60;
+  assert.equal(deduper.shouldSend("!"), true);
+  now += 20;
+  // A true OS echo of the same keystroke still lands inside the tiny window.
+  assert.equal(deduper.shouldSend("!"), false);
+});

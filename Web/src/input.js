@@ -67,10 +67,12 @@ export class MobileInputDeduper {
   constructor({
     isTouch = false,
     windowMs = 150,
+    touchWindowMs = 40,
     now = Date.now,
   } = {}) {
     this.isTouch = isTouch;
     this.windowMs = windowMs;
+    this.touchWindowMs = touchWindowMs;
     this.now = now;
     this.isComposing = false;
     this.compositionEndTime = Number.NEGATIVE_INFINITY;
@@ -91,9 +93,15 @@ export class MobileInputDeduper {
     const time = this.now();
     const inCompositionWindow = this.isComposing
       || time - this.compositionEndTime < this.windowMs;
-    if ((inCompositionWindow || this.isTouch)
-      && data === this.lastData
-      && time - this.lastTime < this.windowMs) {
+    // Inside a composition the duplicate window stays wide because the IME
+    // echo arrives right after compositionend. Touch keyboards can also echo
+    // one plain key twice, but genuine fast repeats like `!!` or `&&` are
+    // slower than ~40ms, so keep that window tiny. Desktop repeats are never
+    // gated outside composition.
+    const duplicateWindow = inCompositionWindow
+      ? this.windowMs
+      : (this.isTouch ? this.touchWindowMs : 0);
+    if (data === this.lastData && time - this.lastTime < duplicateWindow) {
       return false;
     }
     this.lastData = data;
