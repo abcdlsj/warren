@@ -38,6 +38,7 @@ func main() {
 	tokenPath := flag.String("token-file", env("WARREN_TOKEN_FILE", filepath.Join(configDir, "token")), "authentication token file")
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
+	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", "tmux"), "runtime backend: tmux or pty (experimental)")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
@@ -63,9 +64,18 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	runtimeAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
-	if err := runtimeAdapter.Check(nil); err != nil {
-		fatal(err)
+	var runtimeAdapter server.Runtime
+	switch *runtimeMode {
+	case "tmux":
+		tmuxAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
+		if err := tmuxAdapter.Check(nil); err != nil {
+			fatal(err)
+		}
+		runtimeAdapter = tmuxAdapter
+	case "pty":
+		runtimeAdapter = runtime.NewPTY(*outputDir)
+	default:
+		fatal(fmt.Errorf("unknown runtime %q (supported: tmux, pty)", *runtimeMode))
 	}
 	service := &server.Service{Store: state, Runtime: runtimeAdapter, WorktreeRoot: *worktreeRoot}
 	serviceContext, stopService := context.WithCancel(context.Background())

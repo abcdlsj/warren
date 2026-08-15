@@ -4,7 +4,9 @@ Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, an
 
 ## Installation
 
-A remote host needs Go 1.25, Git, and tmux.
+A remote host needs Go 1.25 and Git. The default runtime uses tmux; an
+experimental tmux-free PTY runtime (`--runtime pty`) needs neither tmux nor
+any other terminal multiplexer.
 
 ```sh
 go install github.com/abcdlsj/warren/Headless/cmd/warren-headless@latest
@@ -93,3 +95,22 @@ script calls this endpoint before replacing the daemon binary.
 ## Output Pipeline
 
 Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default) via `tmux pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring, or sends a tmux screen snapshot and reanchors once it has been evicted. Every client has its own outbound queue; a slow client only disconnects itself.
+
+## PTY Runtime (experimental)
+
+`warren-headless --runtime pty` replaces tmux with one pseudo-terminal per
+session owned directly by the daemon. The output pipeline is unchanged: raw
+PTY bytes are appended to the same spool files, so recovery anchors and
+reanchor behave identically, and clients still render with their own terminal
+emulator. Input is written to the PTY verbatim, so there is no tmux
+paste-vs-key translation and kitty-protocol keys (for example Shift+Enter)
+reach the application unchanged.
+
+Known limits of the spike:
+
+- A daemon restart closes the PTY master and ends its sessions. tmux sessions
+  survive a daemon restart because tmux owns them; adopting existing PTY
+  children is not implemented yet.
+- `Capture` replays the raw spool bytes instead of a server-rendered screen
+  snapshot, so a reanchor after spool compaction can only recover the bytes
+  written after the last truncation.
