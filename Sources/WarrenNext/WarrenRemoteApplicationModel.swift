@@ -802,20 +802,25 @@ final class WarrenRemoteApplicationModel {
         case .openSession(let id):
             selectSession(id)
         case .deleteSession(let id):
-            request("session.delete", params: ["id": id.description])
+            closeSession(id)
         case .closeTab(let tabID):
             if let id = projection.tabs.first(where: { $0.id == tabID })?.sessionID {
-                request("session.delete", params: ["id": id.description])
+                closeSession(id)
             }
+            // Close selects the replacement tab before the daemon confirms the
+            // delete. Attach it immediately so the pane does not fall back to
+            // the "Connecting…" placeholder while the roster catches up.
+            Task { await attachSelectedSession() }
         case .closeOtherTabs(let tabID):
             guard let workspaceID = projection.workspaceID(forTabID: tabID) else { return }
             for tab in projection.tabs(in: workspaceID) where tab.id != tabID {
-                if let id = tab.sessionID { request("session.delete", params: ["id": id.description]) }
+                if let id = tab.sessionID { closeSession(id) }
             }
+            Task { await attachSelectedSession() }
         case .closeAllTabs:
             guard let workspaceID = selectedWorkspaceID else { return }
             for tab in projection.tabs(in: workspaceID) {
-                if let id = tab.sessionID { request("session.delete", params: ["id": id.description]) }
+                if let id = tab.sessionID { closeSession(id) }
             }
         case .launchSession(let workspaceID, let launch):
             createSession(workspaceID: workspaceID, request: launch)
@@ -887,7 +892,11 @@ final class WarrenRemoteApplicationModel {
             } catch is CancellationError {
                 return
             } catch {
-                self?.present(error)
+                guard let self,
+                      self.selectedSessionID == sessionID,
+                      self.attachedSessionID == sessionID,
+                      self.focusedSessionID == sessionID else { return }
+                self.present(error)
             }
         }
     }
@@ -943,6 +952,8 @@ final class WarrenRemoteApplicationModel {
             } catch is CancellationError {
                 return
             } catch {
+                guard self.selectedSessionID == sessionID,
+                      self.attachedSessionID == sessionID else { return }
                 self.present(error)
             }
         }
@@ -950,12 +961,52 @@ final class WarrenRemoteApplicationModel {
 
     func report(_ error: Error) { present(error) }
 
-    private func request(_ method: String, params: [String: String]) {
+    private func request(
+        _ method: String,
+        params: [String: String] = [:],
+        onError: (@MainActor (Error) -> Void)? = nil
+    ) {
         guard let wire else { return }
         Task { @MainActor [weak self] in
             do { _ = try await wire.request(method, params: params) }
-            catch { self?.present(error) }
+            catch {
+                if let onError {
+                    onError(error)
+                } else {
+                    self?.present(error)
+                }
+            }
         }
+    }
+
+    private func closeSession(_ id: TerminalSessionID) {
+        request("session.delete", params: ["id": id.description]) { [weak self] error in
+            guard let self else { return }
+            if Self.isSessionAlreadyClosed(error, sessionID: id) {
+                // The tab may already have been closed by a previous action or
+                // another client before its roster update arrived. A stale
+                // close is a successful no-op, matching the local model's
+                // closeTabIfPresent behavior; it must not open the Inspector.
+                Task { await self.refreshRosterIfConnected() }
+            } else {
+                self.present(error)
+            }
+        }
+    }
+
+    private func refreshRosterIfConnected() async {
+        guard let wire else { return }
+        try? await refreshRoster(using: wire)
+    }
+
+    nonisolated static func isSessionAlreadyClosed(
+        _ error: Error,
+        sessionID: TerminalSessionID
+    ) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == "WarrenRemote"
+            && nsError.code == 1
+            && nsError.localizedDescription == "session not found: \(sessionID)"
     }
 
     private func consume(_ event: RemoteWireEvent) async {
@@ -1231,8 +1282,12 @@ final class WarrenRemoteApplicationModel {
                 attachedSessionID = nil
                 focusedSessionID = nil
                 removeMountedSurface(sessionID: sessionID)
+                // Only a failure for the currently selected session belongs in
+                // the Inspector. A stale attach can be cancelled by a rapid
+                // close of the very tab it was connecting; reporting that
+                // would flash a daemon error during normal tab churn.
+                present(error)
             }
-            present(error)
         }
     }
 

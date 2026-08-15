@@ -791,7 +791,11 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 		}
 	}
 	if session == nil {
-		return fmt.Errorf("session not found: %s", id)
+		// Deleting a missing session is a successful no-op. The desktop can
+		// emit a second close for a tab whose roster update has not arrived
+		// yet; treating that duplicate as an error makes rapid close actions
+		// surface as failures.
+		return nil
 	}
 	// Only explicit Close Tab / Terminate Session reaches kill-session.
 	if err := s.Runtime.Kill(ctx, session.Runtime); err != nil {

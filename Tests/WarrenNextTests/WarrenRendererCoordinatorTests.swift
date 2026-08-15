@@ -92,6 +92,29 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 99), 30_000)
     }
 
+    func testStaleSessionDeleteErrorIsBenign() {
+        let sessionID = TerminalSessionID()
+
+        XCTAssertTrue(WarrenRemoteApplicationModel.isSessionAlreadyClosed(
+            NSError(domain: "WarrenRemote", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "session not found: \(sessionID)",
+            ]),
+            sessionID: sessionID
+        ))
+        XCTAssertFalse(WarrenRemoteApplicationModel.isSessionAlreadyClosed(
+            NSError(domain: "WarrenRemote", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "session not found: another-id",
+            ]),
+            sessionID: sessionID
+        ))
+        XCTAssertFalse(WarrenRemoteApplicationModel.isSessionAlreadyClosed(
+            NSError(domain: "WarrenRemote", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "tmux kill failed",
+            ]),
+            sessionID: sessionID
+        ))
+    }
+
     @MainActor
     func testPendingShellTabIDIsStablePerWorkspace() {
         let workspaceID = WorkspaceID(

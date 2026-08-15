@@ -574,6 +574,20 @@ func TestExplicitDeleteKillsTmuxAndRemovesSpool(t *testing.T) {
 	}
 }
 
+func TestExplicitDeleteIsIdempotent(t *testing.T) {
+	state := newStateWithSession(t, "session-delete", "runtime-delete")
+	runtime := newSpoolRuntime(t)
+	_ = runtime.Create(context.Background(), "runtime-delete", t.TempDir(), "")
+	service := &Service{Store: state, Runtime: runtime}
+
+	if err := service.DeleteSession(context.Background(), "session-delete"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeleteSession(context.Background(), "session-delete"); err != nil {
+		t.Fatalf("second delete should be a no-op: %v", err)
+	}
+}
+
 func newStateWithSession(t *testing.T, sessionID, runtimeName string) *store.Store {
 	t.Helper()
 	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
