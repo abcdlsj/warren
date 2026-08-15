@@ -90,11 +90,11 @@ struct WarrenNextCompositionRoot: View {
         .fileDialogMessage("Choose a local folder as the project.")
         .fileDialogConfirmationLabel("Add Project")
         .sheet(item: $supersetImportPreview) { preview in
-            WarrenNextSupersetImportView(preview: preview) {
+            WarrenNextSupersetImportView(preview: preview) { selectedPreview in
                 supersetImportPreview = nil
                 isSupersetImporting = true
                 Task {
-                    await remoteModel.commitSupersetImport(preview)
+                    await remoteModel.commitSupersetImport(selectedPreview)
                     isSupersetImporting = false
                 }
             }
@@ -295,68 +295,251 @@ struct WarrenNextCompositionRoot: View {
 
 private struct WarrenNextSupersetImportView: View {
     let preview: SupersetImportPreview
-    let onConfirm: () -> Void
+    let onConfirm: (SupersetImportPreview) -> Void
+
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedProjectIDs: Set<String>
+
+    init(preview: SupersetImportPreview, onConfirm: @escaping (SupersetImportPreview) -> Void) {
+        self.preview = preview
+        self.onConfirm = onConfirm
+        _selectedProjectIDs = State(initialValue: preview.readyProjectIDs)
+    }
 
     private var allWorkspaces: [SupersetImportWorkspaceCandidate] {
         preview.projects.flatMap(\.workspaces)
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Import from Superset")
-                .font(.title2.weight(.semibold))
-            Text("This is a one-time copy. Warren will not modify or synchronize Superset.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 8) {
-                summaryRow("Ready projects", preview.projects.filter { $0.status == .ready }.count)
-                summaryRow("Ready workspaces", allWorkspaces.filter { $0.status == .ready }.count)
-                summaryRow("Missing paths", allWorkspaces.filter { $0.status == .missing }.count)
-                summaryRow("Invalid Git paths", allWorkspaces.filter { $0.status == .invalid }.count)
-            }
-
-            List(preview.projects) { project in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(project.name).font(WarrenTypography.body)
-                        Spacer()
-                        Text(project.status.rawValue.capitalized)
-                            .font(.caption)
-                            .foregroundStyle(project.status == .ready ? .green : .secondary)
-                    }
-                    Text(project.repositoryPath)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                    if let diagnostic = project.diagnostic {
-                        Text(diagnostic).font(.caption).foregroundStyle(.orange)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-            .frame(minHeight: 180)
-
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                Button("Import") {
-                    dismiss()
-                    onConfirm()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(preview.readyProjectCount == 0)
-            }
-        }
-        .padding(24)
-        .frame(minWidth: 560, idealWidth: 560, maxWidth: 560, minHeight: 380)
+    private var selectedPreview: SupersetImportPreview {
+        preview.selectingProjects(selectedProjectIDs)
     }
 
-    private func summaryRow(_ title: String, _ value: Int) -> some View {
-        GridRow {
-            Text(title).foregroundStyle(.secondary)
-            Text("\(value)").fontWeight(.medium)
+    private var missingPathCount: Int {
+        allWorkspaces.filter { $0.status == .missing }.count
+    }
+
+    private var invalidPathCount: Int {
+        allWorkspaces.filter { $0.status == .invalid }.count
+    }
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        VStack(alignment: .leading, spacing: 0) {
+            header(tokens: tokens)
+
+            divider(tokens: tokens)
+
+            summary(tokens: tokens)
+
+            projectList(tokens: tokens)
+
+            divider(tokens: tokens)
+
+            footer(tokens: tokens)
         }
+        .frame(
+            minWidth: 680,
+            idealWidth: 720,
+            maxWidth: 720,
+            minHeight: 520,
+            idealHeight: 580
+        )
+        .background(tokens.popoverSurface)
+    }
+
+    private func divider(tokens: WarrenColorTokens) -> some View {
+        Rectangle()
+            .fill(tokens.border)
+            .frame(height: WarrenSpacing.hairline)
+    }
+
+    private func header(tokens: WarrenColorTokens) -> some View {
+        VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+            Text("Import from Superset")
+                .font(WarrenTypography.dialogTitle)
+            Text("One-time copy. Warren does not modify or synchronize Superset.")
+                .font(WarrenTypography.body)
+                .foregroundStyle(tokens.mutedForeground)
+        }
+        .padding(.horizontal, WarrenSpacing.large)
+        .padding(.top, WarrenSpacing.large)
+        .padding(.bottom, WarrenSpacing.standard)
+    }
+
+    private func summary(tokens: WarrenColorTokens) -> some View {
+        HStack(spacing: WarrenSpacing.small) {
+            summaryMetric(preview.readyProjectCount, label: "ready projects", tokens: tokens)
+            separator(tokens: tokens)
+            summaryMetric(preview.readyWorkspaceCount, label: "ready workspaces", tokens: tokens)
+            separator(tokens: tokens)
+            summaryMetric(missingPathCount, label: "missing paths", tokens: tokens)
+            separator(tokens: tokens)
+            summaryMetric(invalidPathCount, label: "invalid paths", tokens: tokens)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, WarrenSpacing.large)
+        .padding(.vertical, WarrenSpacing.medium)
+    }
+
+    private func summaryMetric(
+        _ value: Int,
+        label: String,
+        tokens: WarrenColorTokens
+    ) -> some View {
+        HStack(spacing: WarrenSpacing.xs) {
+            Text("\(value)")
+                .font(WarrenTypography.bodyEmphasis)
+                .foregroundStyle(tokens.foreground)
+            Text(label)
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+        }
+    }
+
+    private func separator(tokens: WarrenColorTokens) -> some View {
+        Text("·")
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .accessibilityHidden(true)
+    }
+
+    private func projectList(tokens: WarrenColorTokens) -> some View {
+        ScrollView {
+            if preview.projects.isEmpty {
+                Text("No projects found in Superset.")
+                    .font(WarrenTypography.body)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, WarrenSpacing.large)
+            } else {
+                LazyVStack(spacing: WarrenSpacing.xs) {
+                    ForEach(preview.projects) { project in
+                        projectRow(project, tokens: tokens)
+                    }
+                }
+                .padding(WarrenSpacing.small)
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .background(tokens.chromeSurface)
+        .clipShape(.rect(cornerRadius: WarrenRadius.medium))
+        .overlay {
+            RoundedRectangle(cornerRadius: WarrenRadius.medium)
+                .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
+        }
+        .padding(.horizontal, WarrenSpacing.large)
+        .padding(.vertical, WarrenSpacing.medium)
+    }
+
+    private func projectRow(
+        _ project: SupersetImportProjectCandidate,
+        tokens: WarrenColorTokens
+    ) -> some View {
+        let isSelectable = project.status == .ready
+        let isSelected = selectedProjectIDs.contains(project.id)
+        return HStack(spacing: WarrenSpacing.medium) {
+            Toggle("", isOn: selectionBinding(for: project))
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .tint(Color.accentColor)
+                .disabled(!isSelectable)
+                .accessibilityLabel(project.name)
+
+            VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+                HStack(spacing: WarrenSpacing.compact) {
+                    Text(project.name)
+                        .font(WarrenTypography.bodyEmphasis)
+                        .foregroundStyle(tokens.foreground)
+                        .lineLimit(1)
+                    Text(project.status.rawValue.capitalized)
+                        .font(WarrenTypography.badge)
+                        .foregroundStyle(statusColor(project.status, tokens: tokens))
+                }
+                Text(project.repositoryPath)
+                    .font(WarrenTypography.code)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: WarrenSpacing.medium)
+
+            VStack(alignment: .trailing, spacing: WarrenSpacing.xxs) {
+                Text(workspaceSummary(project))
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.mutedForeground)
+                if let diagnostic = project.diagnostic {
+                    Text(diagnostic)
+                        .font(WarrenTypography.supporting)
+                        .foregroundStyle(statusColor(project.status, tokens: tokens))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: 190, alignment: .trailing)
+        }
+        .padding(.horizontal, WarrenSpacing.medium)
+        .padding(.vertical, WarrenSpacing.compact)
+        .background(isSelected ? tokens.fillSelected : Color.clear)
+        .clipShape(.rect(cornerRadius: WarrenRadius.row))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func selectionBinding(for project: SupersetImportProjectCandidate) -> Binding<Bool> {
+        Binding(
+            get: { selectedProjectIDs.contains(project.id) },
+            set: { isOn in
+                if isOn {
+                    selectedProjectIDs.insert(project.id)
+                } else {
+                    selectedProjectIDs.remove(project.id)
+                }
+            }
+        )
+    }
+
+    private func workspaceSummary(_ project: SupersetImportProjectCandidate) -> String {
+        let ready = project.workspaces.filter { $0.status == .ready }.count
+        return "\(ready)/\(project.workspaces.count) workspaces"
+    }
+
+    private func statusColor(
+        _ status: SupersetImportCandidateStatus,
+        tokens: WarrenColorTokens
+    ) -> Color {
+        switch status {
+        case .ready:
+            Color.green
+        case .missing:
+            Color.orange
+        case .invalid:
+            tokens.destructive
+        }
+    }
+
+    private func footer(tokens: WarrenColorTokens) -> some View {
+        HStack(spacing: WarrenSpacing.compact) {
+            Text("\(selectedProjectIDs.count) of \(preview.readyProjectCount) projects selected")
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+
+            Spacer(minLength: 0)
+
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Import") {
+                dismiss()
+                onConfirm(selectedPreview)
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(selectedProjectIDs.isEmpty)
+        }
+        .padding(.horizontal, WarrenSpacing.large)
+        .padding(.vertical, WarrenSpacing.standard)
     }
 }
 

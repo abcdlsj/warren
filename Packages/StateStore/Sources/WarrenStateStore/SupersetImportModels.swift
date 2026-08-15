@@ -95,6 +95,21 @@ public struct SupersetImportPreview: Codable, Hashable, Sendable, Identifiable {
     public var readyWorkspaceCount: Int {
         projects.flatMap(\.workspaces).filter { $0.status == .ready }.count
     }
+
+    public var readyProjectIDs: Set<String> {
+        Set(projects.filter { $0.status == .ready }.map(\.id))
+    }
+
+    /// Returns a preview limited to the given project IDs. Workspace candidates
+    /// are copied unchanged so later filtering still sees the full source
+    /// metadata for each selected project.
+    public func selectingProjects(_ ids: Set<String>) -> SupersetImportPreview {
+        SupersetImportPreview(
+            sourcePath: sourcePath,
+            schemaVersion: schemaVersion,
+            projects: projects.filter { ids.contains($0.id) }
+        )
+    }
 }
 
 public struct SupersetImportCommitResult: Codable, Hashable, Sendable {

@@ -177,6 +177,31 @@ final class SupersetImportSourceTests: XCTestCase {
             beforeAttributes[.modificationDate] as? Date
         )
     }
+
+    func testSelectingProjectsFiltersPreviewCandidates() async throws {
+        let fixture = try SupersetFixtureDatabase()
+        defer { try? fixture.cleanup() }
+        let source = try SupersetImportSource(
+            databaseURL: fixture.url,
+            pathInspector: FixturePathInspector(
+                directories: [
+                    "/repos/alpha": "/real/alpha",
+                    "/repos/alpha-wt": "/real/alpha-wt",
+                ],
+                gitPaths: ["/real/alpha", "/real/alpha-wt"]
+            )
+        )
+        let preview = try await source.preview()
+
+        let projectID = try XCTUnwrap(preview.projects.first?.id)
+        let selection = preview.selectingProjects([projectID])
+        XCTAssertEqual(selection.sourcePath, preview.sourcePath)
+        XCTAssertEqual(selection.schemaVersion, preview.schemaVersion)
+        XCTAssertEqual(selection.projects.map(\.id), [projectID])
+        XCTAssertEqual(selection.projects.first?.workspaces, preview.projects.first?.workspaces)
+        XCTAssertEqual(preview.selectingProjects([]).projects.count, 0)
+        XCTAssertEqual(preview.readyProjectIDs, [projectID])
+    }
 }
 
 private struct TemporaryImportDatabase {
