@@ -1,6 +1,5 @@
-# Contribution Guidelines
-
-- Use English for comments, user-facing copy, documentation, and commit messages.
-- Prefix every commit with a type, such as `feat:`, `fix:`, `refactor:`, `test:`, or `docs:`.
-- Keep code readable and responsibilities clear; design stable boundaries for future extension.
-- After finishing code changes, run relevant checks and commit them immediately.
+- 使用中文回答。
+- 注释、面向用户的文案、文档和提交信息使用英文。
+- 每个提交都加上类型前缀，例如 `feat:`、`fix:`、`refactor:`、`test:` 或 `docs:`。
+- 保持代码可读、职责清晰；为未来扩展设计稳定的边界。
+- 完成代码修改后，运行相关检查并立即提交。
