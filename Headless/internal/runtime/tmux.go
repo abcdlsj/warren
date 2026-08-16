@@ -51,6 +51,10 @@ func (t *Tmux) Check(ctx context.Context) error {
 
 func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command string, env []string) error {
 	args := []string{"new-session", "-d", "-s", runtimeName, "-c", directory, "-x", "120", "-y", "36"}
+	// Agent TUIs pick colors from the inherited environment. A host shell
+	// configured with NO_COLOR would silently strip them inside Warren, so
+	// the session always starts with the variable cleared.
+	args = append(args, "-e", "NO_COLOR=")
 	for _, entry := range env {
 		args = append(args, "-e", entry)
 	}

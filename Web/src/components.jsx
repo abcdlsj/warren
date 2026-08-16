@@ -119,7 +119,7 @@ export function Sidebar({
   return (
     <aside className="sidebar" aria-label="Projects and workspaces">
       <div className="brand">
-        <span className="brand-mark">B</span>
+        <img className="brand-mark" src={webAssetURL("icon.svg")} alt="Warren" />
         <span>Warren</span>
         <span className={`connection${connection.online ? " online" : ""}`}>
           <span className="connection-dot" />
@@ -756,7 +756,7 @@ export function SettingsPage({
                   <h2>Launch commands</h2>
                   <p>Edited in a terminal session after the shell starts, so quitting an agent keeps the tab alive.</p>
                 </header>
-                <div className="settings-fields">
+                <div className="preset-fields">
                   {["shell", "claude", "codex"].map(kind => (
                     <label key={kind}>
                       {kind === "shell" ? "Shell" : kind === "claude" ? "Claude" : "Codex"}
