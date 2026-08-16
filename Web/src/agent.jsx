@@ -18,7 +18,8 @@ export function AgentView({
   const loadMoreRef = useRef(null);
   const pinnedSessionIDRef = useRef(null);
   const pinToBottomRef = useRef(true);
-  const anchorOffsetsRef = useRef(null);
+  const anchorElementRef = useRef(null);
+  const anchorOffsetRef = useRef(null);
   const skipFollowRef = useRef(false);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
@@ -42,22 +43,17 @@ export function AgentView({
   }, [events.length, session?.id]);
 
   const loadEarlier = () => {
-    // Older pages are inserted above the breakpoint, so after the response
-    // the scroll position must be adjusted to keep the breakpoint on screen.
-    // Capture the button's offset (and the first block as a fallback for the
-    // last page, when the button disappears) before the insert happens.
+    // Older pages are inserted above the first existing message, so after
+    // the response the scroll position must be adjusted to keep that message
+    // exactly where the reader left it. The button never moves (new content
+    // lands below it), so anchoring it would push the current conversation
+    // down and flip the viewport onto the older page.
     const list = listRef.current;
-    const button = loadMoreRef.current;
-    const fallback = button ? list?.children[1] : list?.children[0];
     if (!list) return;
-    anchorOffsetsRef.current = {
-      primary: button
-        ? button.getBoundingClientRect().top - list.getBoundingClientRect().top
-        : null,
-      fallback: fallback
-        ? fallback.getBoundingClientRect().top - list.getBoundingClientRect().top
-        : null,
-    };
+    const anchor = loadMoreRef.current ? list.children[1] : list.children[0];
+    if (!anchor) return;
+    anchorElementRef.current = anchor;
+    anchorOffsetRef.current = anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
     onLoadMore();
   };
 
@@ -65,14 +61,13 @@ export function AgentView({
     // Wait for the loading flag to clear so the measurement runs against the
     // page that actually landed; while the button is disabled its offset is
     // unchanged and consuming the anchor there would lose it.
-    if (anchorOffsetsRef.current === null || loadingMore) return;
+    if (anchorElementRef.current === null || loadingMore) return;
     const list = listRef.current;
-    const offsets = anchorOffsetsRef.current;
-    anchorOffsetsRef.current = null;
-    if (!list) return;
-    const anchor = loadMoreRef.current || list.children[0];
-    if (!anchor) return;
-    const target = loadMoreRef.current ? offsets.primary : offsets.fallback;
+    const anchor = anchorElementRef.current;
+    const target = anchorOffsetRef.current;
+    anchorElementRef.current = null;
+    anchorOffsetRef.current = null;
+    if (!list || !anchor.isConnected) return;
     if (target === null || target === undefined) return;
     const current = anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
     const delta = current - target;
