@@ -48,6 +48,7 @@ func main() {
 	ghostlineServe := flag.Bool("ghostline-serve", false, "internal: run the ghostline session server (spawned by the daemon)")
 	ghostlineAdoptFrom := flag.String("adopt-from", "", "internal: adopt sessions from this old server admin socket")
 	settingsFile := flag.String("settings-file", env("WARREN_SETTINGS_FILE", filepath.Join(configDir, "settings.json")), "headless settings file")
+	logFile := flag.String("log-file", env("WARREN_LOG_FILE", filepath.Join(configDir, "headless.log")), "daemon log file (empty disables file logging)")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
@@ -95,7 +96,7 @@ func main() {
 	runtime.SanitizeEnvironment()
 	loadedSettings.ApplyRuntimeEnv()
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := newLogger(*logFile)
 	token, err := loadOrCreateToken(*tokenPath)
 	if err != nil {
 		fatal(err)
@@ -200,6 +201,21 @@ func main() {
 	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
 	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath, *gnarPath)
 	tunnelManager.SetGnarEdge(gnarEdgeValue)
+	// Restore the tunnels the user left running before the previous daemon
+	// exited, so a public URL survives Warren restarts and upgrades. Start is
+	// asynchronous: the daemon must not block readiness on a slow edge.
+	for _, kind := range []string{tunnel.KindGnar, tunnel.KindCloudflared, tunnel.KindTailscale} {
+		if !loadedSettings.TunnelEnabled[kind] {
+			continue
+		}
+		go func() {
+			if _, err := tunnelManager.Start(kind); err != nil {
+				logger.Warn("restore tunnel failed", "kind", kind, "error", err)
+				return
+			}
+			logger.Info("restored tunnel", "kind", kind)
+		}()
+	}
 	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {
@@ -247,6 +263,33 @@ func listenerPort(listener net.Listener) string {
 		return strconv.Itoa(address.Port)
 	}
 	return "8789"
+}
+
+// maxLogFileBytes bounds the daemon log before it rotates to headless.log.1.
+const maxLogFileBytes = 5 * 1024 * 1024
+
+// newLogger writes structured logs to stderr and, when a path is configured,
+// to a 0600 append-only file. Only high-signal events reach the file: daemon
+// start/stop, tunnel starts, restores, and errors. The file rotates once it
+// exceeds maxLogFileBytes so a long-running daemon never grows without bound.
+func newLogger(path string) *slog.Logger {
+	writers := []io.Writer{os.Stderr}
+	if path != "" {
+		if file, err := openLogFile(path); err == nil {
+			writers = append(writers, file)
+		}
+	}
+	return slog.New(slog.NewTextHandler(io.MultiWriter(writers...), nil))
+}
+
+func openLogFile(path string) (*os.File, error) {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxLogFileBytes {
+		_ = os.Rename(path, path+".1")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 }
 
 // runGhostlineServe owns PTY sessions in a child process. The daemon spawns

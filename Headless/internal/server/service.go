@@ -20,6 +20,7 @@ import (
 	"github.com/abcdlsj/warren/Headless/internal/output"
 	"github.com/abcdlsj/warren/Headless/internal/settings"
 	"github.com/abcdlsj/warren/Headless/internal/store"
+	"github.com/abcdlsj/warren/Headless/internal/tunnel"
 )
 
 const (
@@ -1085,6 +1086,30 @@ func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string, gnar
 	}
 	s.DefaultRuntime = kind
 	s.Settings = settings.Settings{DefaultRuntime: kind, RuntimeEnv: runtimeEnv, GnarEdge: gnarEdge}
+	if s.SettingsPath != "" {
+		return settings.Save(s.SettingsPath, s.Settings)
+	}
+	return nil
+}
+
+// UpdateTunnelEnabled records whether a reachability adapter should be
+// restored after a daemon restart, persisting the intent when a settings file
+// is configured. A tunnel that fails to start still keeps its intent so the
+// next daemon retries; only an explicit stop clears it.
+func (s *Service) UpdateTunnelEnabled(kind string, enabled bool) error {
+	switch kind {
+	case tunnel.KindCloudflared, tunnel.KindTailscale, tunnel.KindGnar:
+	default:
+		return fmt.Errorf("unknown tunnel kind %q", kind)
+	}
+	if s.Settings.TunnelEnabled == nil {
+		s.Settings.TunnelEnabled = map[string]bool{}
+	}
+	if enabled {
+		s.Settings.TunnelEnabled[kind] = true
+	} else {
+		delete(s.Settings.TunnelEnabled, kind)
+	}
 	if s.SettingsPath != "" {
 		return settings.Save(s.SettingsPath, s.Settings)
 	}

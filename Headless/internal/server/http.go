@@ -334,6 +334,10 @@ func (s *HTTPServer) handleTunnelControl(writer http.ResponseWriter, request *ht
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if err := s.Service.UpdateTunnelEnabled(body.Kind, start); err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(tunnelResponse(s.Tunnels.Status(), s.Token))
 }

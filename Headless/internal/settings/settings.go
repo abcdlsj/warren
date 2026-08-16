@@ -32,6 +32,10 @@ type Settings struct {
 	// GnarEdge is the gnar edge server used for public Web sharing. Empty
 	// lets gnar use its own default (GNAR_EDGE or the single signed-in edge).
 	GnarEdge string `json:"gnarEdge,omitempty"`
+	// TunnelEnabled records which reachability adapters the user wants
+	// running. The daemon restores them after a restart so a public URL
+	// survives until the user explicitly stops sharing.
+	TunnelEnabled map[string]bool `json:"tunnelEnabled,omitempty"`
 }
 
 // Normalized returns the effective default runtime kind.

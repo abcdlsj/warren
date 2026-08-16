@@ -24,6 +24,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		DefaultRuntime: RuntimeTmux,
 		RuntimeEnv:     map[string]string{"GIT_PAGER": "less", "TERM": "xterm-256color"},
 		GnarEdge:       "https://gnar.example.com",
+		TunnelEnabled:  map[string]bool{"gnar": true},
 	}
 	if err := Save(path, value); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -40,6 +41,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.GnarEdge != "https://gnar.example.com" {
 		t.Fatalf("loaded gnarEdge = %q", loaded.GnarEdge)
+	}
+	if !loaded.TunnelEnabled["gnar"] {
+		t.Fatalf("loaded tunnelEnabled = %#v, want gnar restored", loaded.TunnelEnabled)
 	}
 }
 
