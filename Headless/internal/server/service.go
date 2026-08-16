@@ -1188,7 +1188,7 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 	}
 	if transcriptPath == "" {
 		found, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
-		if err != nil || found == "" {
+		if err != nil || found == "" || s.transcriptTakenByOther(found, session.ID) {
 			// Keep the placeholder so reconcile retries at its next tick
 			// instead of re-running discovery concurrently from every caller.
 			return entry, nil
@@ -1209,6 +1209,18 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 	current.watcher = watcher
 	s.agentsMu.Unlock()
 	return current, nil
+}
+
+// transcriptTakenByOther prevents the cwd+mtime fallback from assigning one
+// transcript to several Warren sessions. A transcript that another running
+// session already projects must never be stolen.
+func (s *Service) transcriptTakenByOther(transcriptPath, sessionID string) bool {
+	for _, other := range s.Store.Snapshot().Sessions {
+		if other.ID != sessionID && other.Lifecycle == "running" && other.TranscriptPath == transcriptPath {
+			return true
+		}
+	}
+	return false
 }
 
 // boundTranscript prefers the deterministic per-session binding (Claude's

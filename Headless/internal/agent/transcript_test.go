@@ -281,6 +281,21 @@ func TestFinderPicksNewestMatchingCodex(t *testing.T) {
 	}
 }
 
+func TestFinderIgnoresTranscriptsBeforeSessionStart(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sessions")
+	path := filepath.Join(root, "2026", "08", "16", "rollout-old.jsonl")
+	writeLines(t, path, `{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"old","cwd":"/work/warren"}}`)
+	finder := DefaultFinder{CodexRoot: root}
+	future := time.Now().Add(time.Hour)
+	found, err := finder.Find(context.Background(), "codex", "/work/warren", future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != "" {
+		t.Fatalf("finder adopted a transcript older than the session: %q", found)
+	}
+}
+
 func TestFinderMatchesClaudeCwd(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "projects")
 	path := filepath.Join(root, "-work-warren", "session.jsonl")

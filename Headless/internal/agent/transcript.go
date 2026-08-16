@@ -26,9 +26,6 @@ const (
 	maxInitialRead  = 32 * 1024 * 1024
 	watchInterval   = 500 * time.Millisecond
 	maxHistory      = 2000
-	// candidateGrace lets a transcript whose mtime is a few hours older than
-	// the Warren session record still be adopted after a daemon restart.
-	candidateGrace = 24 * time.Hour
 )
 
 // Finder locates the transcript file for a running Codex or Claude session.
@@ -113,7 +110,9 @@ func findNewest(ctx context.Context, root string, after time.Time, matches func(
 		if err != nil {
 			return nil
 		}
-		if !after.IsZero() && fileInfo.ModTime().Before(after.Add(-candidateGrace)) {
+		// A session may only adopt transcripts written after it started.
+		// Older files belong to previous conversations in the same workspace.
+		if !after.IsZero() && fileInfo.ModTime().Before(after) {
 			return nil
 		}
 		if !matches(path) {

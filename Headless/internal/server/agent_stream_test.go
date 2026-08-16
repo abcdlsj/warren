@@ -216,6 +216,53 @@ func TestEnsureAgentDerivesClaudePathFromSessionID(t *testing.T) {
 	entry.watcher.Close()
 }
 
+func TestEnsureAgentDoesNotStealAnotherSessionsTranscript(t *testing.T) {
+	directory := t.TempDir()
+	transcriptPath := filepath.Join(directory, "rollout-shared.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"thread-a","cwd":"`+directory+`"}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	sessionA := api.Session{
+		ID: "session-a", WorkspaceID: workspaceID, Title: "Codex", Kind: "codex",
+		Runtime: "runtime-a", Lifecycle: "running", TranscriptPath: transcriptPath, CreatedAt: time.Now().UTC(),
+	}
+	sessionB := api.Session{
+		ID: "session-b", WorkspaceID: workspaceID, Title: "Codex", Kind: "codex",
+		Runtime: "runtime-b", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: directory, CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: directory, Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{sessionA, sessionB}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		Store:       state,
+		Runtime:     newMemoryRuntime(t),
+		AgentFinder: staticAgentFinder{path: transcriptPath},
+	}
+	service.lazyInit()
+	entry, err := service.ensureAgent(context.Background(), sessionB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.watcher != nil {
+		t.Fatal("session B must not adopt a transcript already owned by session A")
+	}
+}
+
 func readAgentEvents(t *testing.T, connection interface {
 	SetReadDeadline(time.Time) error
 	ReadMessage() (int, []byte, error)
