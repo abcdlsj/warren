@@ -30,7 +30,11 @@ const (
 	// orphanReapGrace protects a session between tmux creation and its state
 	// record becoming durable, so a concurrent reaper cannot kill a brand-new
 	// runtime while CreateSession is still persisting it.
-	orphanReapGrace = 30 * time.Second
+	// orphanReapGrace protects sessions across daemon upgrades: an install can
+	// briefly overlap two daemons, and a legacy session must survive a slow
+	// first reconcile instead of being reaped minutes after being marked
+	// ended. Five minutes of grace is a safe trade-off for orphan cleanup.
+	orphanReapGrace = 5 * time.Minute
 )
 
 type Service struct {
@@ -84,6 +88,13 @@ type Runtime interface {
 	Input(context.Context, string, []byte) error
 	Resize(context.Context, string, int, int) error
 	Kill(context.Context, string) error
+}
+
+// SpoolRecoverer serves raw spool bytes when the in-memory ring no longer
+// retains a client's anchor. The ghostline adapter implements it through the
+// session handle; the tmux adapter does not.
+type SpoolRecoverer interface {
+	Recover(context.Context, string, int64, int64) ([]byte, error)
 }
 
 type RuntimeLister interface {
@@ -218,7 +229,7 @@ func (s *Service) reconcile(ctx context.Context) {
 		if changed {
 			s.persistRuntimeKind(adopted)
 		}
-		if !running(adopted) {
+		if !running(adopted) && !s.anyRuntimeOwns(probeContext, adopted) {
 			s.markEnded(session.ID)
 			continue
 		}
@@ -234,6 +245,12 @@ func (s *Service) adoptRuntimeKind(ctx context.Context, session api.Session) (ap
 	if session.RuntimeKind != "" {
 		return session, false
 	}
+	// Legacy sessions predate runtimeKind; tmux was the only engine then, so
+	// check it first and deterministically instead of ranging over a map.
+	if tmuxAdapter := s.Runtimes[settings.RuntimeTmux]; tmuxAdapter != nil && tmuxAdapter.Exists(ctx, session.Runtime) {
+		session.RuntimeKind = settings.RuntimeTmux
+		return session, true
+	}
 	for kind, adapter := range s.Runtimes {
 		if adapter != nil && adapter.Exists(ctx, session.Runtime) {
 			session.RuntimeKind = kind
@@ -241,6 +258,19 @@ func (s *Service) adoptRuntimeKind(ctx context.Context, session api.Session) (ap
 		}
 	}
 	return session, false
+}
+
+// anyRuntimeOwns is a second, direct existence check used when the cached
+// runningSessions probe failed for a session. A transient probe failure must
+// not end a live session: ending it would let the orphan reaper kill the
+// underlying process minutes later.
+func (s *Service) anyRuntimeOwns(ctx context.Context, session api.Session) bool {
+	for _, adapter := range s.Runtimes {
+		if adapter != nil && adapter.Exists(ctx, session.Runtime) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) persistRuntimeKind(session api.Session) {
@@ -1244,7 +1274,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// Rendering those bytes as ordinary output avoids the screen reset and
 	// full replay that otherwise flashes black on every reattach.
 	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
-		if recoverer, ok := s.runtimeFor(session).(ghostline.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
+		if recoverer, ok := s.runtimeFor(session).(SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
 			adapter := s.outputAdapterFor(session)
 			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
 			if sizeErr == nil && anchor.Sequence <= uint64(size) {

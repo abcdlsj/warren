@@ -39,7 +39,7 @@ func TestReapOrphansReclaimsUnmanagedWarrenSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	endedAt := now.Add(-time.Minute)
+	endedAt := now.Add(-6 * time.Minute)
 	if err := state.Update(func(value *api.State) error {
 		value.Sessions = []api.Session{
 			{ID: "managed", Runtime: "warren_managed", Lifecycle: "running"},
