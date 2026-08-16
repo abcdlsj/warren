@@ -70,6 +70,9 @@ export function AgentView({ session, events = [], onSend }) {
           placeholder={`Message ${session.title || "agent"}…`}
           aria-label="Message"
           rows={1}
+          enterKeyHint="send"
+          autoCapitalize="off"
+          autoCorrect="off"
           autoComplete="off"
           spellCheck="false"
         />
