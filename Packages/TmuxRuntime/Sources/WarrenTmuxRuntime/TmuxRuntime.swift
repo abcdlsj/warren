@@ -341,6 +341,15 @@ public actor TmuxRuntime: TerminalRuntime {
     /// submit instead of inserting a newline. The option is server-wide and
     /// idempotent; older tmux versions without it should still create
     /// sessions, so failures are intentionally ignored.
+    ///
+    /// Known issue (2026-08): plain shells get Shift+Enter as a literal LF
+    /// and work, but Codex TUI probes `extended-keys-format` and only
+    /// requests modifyOtherKeys mode 2 (`CSI > 4;2 m`) when tmux reports
+    /// `csi-u`. tmux defaults to `xterm`, so in Codex sessions Shift+Enter
+    /// still collapses to Enter/LF and submits the draft instead of inserting
+    /// a newline. Fix by also running `set-option -s extended-keys-format
+    /// csi-u` here, then restarting the Codex session so the pane re-probes
+    /// at TUI startup.
     private func enableExtendedKeys() async {
         _ = try? await execute(arguments: ["set-option", "-s", "extended-keys", "on"])
     }

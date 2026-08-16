@@ -66,6 +66,14 @@ func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command strin
 	// submit instead of inserting a newline. The server must already exist, so
 	// this runs after new-session; best-effort so older tmux versions without
 	// the option can still host sessions.
+	//
+	// Known issue (2026-08): plain shells get Shift+Enter as a literal LF and
+	// work, but Codex TUI probes `extended-keys-format` and only requests
+	// modifyOtherKeys mode 2 (`CSI > 4;2 m`) when tmux reports `csi-u`. tmux
+	// defaults to `xterm`, so in Codex sessions Shift+Enter still collapses to
+	// Enter/LF and submits the draft instead of inserting a newline. Fix by
+	// also running `set-option -s extended-keys-format csi-u` here, then
+	// restarting the Codex session so the pane re-probes at TUI startup.
 	_ = t.command(ctx, "set-option", "-s", "extended-keys", "on").Run()
 	if err := t.setLatestWindowSize(ctx, runtimeName); err != nil {
 		_ = t.Kill(ctx, runtimeName)
