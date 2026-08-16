@@ -1417,8 +1417,16 @@ export default function App() {
       && (selectedSession.kind === "codex" || selectedSession.kind === "claude"
         || selectedSession.agentSessionId),
   );
+  // A codex/claude session is only safe to message once its CLI has actually
+  // started: before the binding/transcript exists the TUI may still be on a
+  // first-run trust or resume prompt, where typed text is dropped and Enter
+  // is treated as a confirmation key instead of a submit.
+  const agentViewReady = Boolean(
+    selectedSession?.agentSessionId || selectedAgentEvents.length > 0,
+  );
   const agentViewActive = Boolean(
     isAgentSession
+      && (agentViewOverride === "agent" || agentViewReady)
       && agentViewOverride !== "terminal",
   );
 
@@ -1520,6 +1528,7 @@ export default function App() {
                 session={selectedSession}
                 events={selectedAgentEvents}
                 onSend={sendAgentInput}
+                ready={agentViewReady}
                 hasMore={Boolean(agentStateBySession[selectedSession.id]?.historyHasMore)}
                 loadingMore={Boolean(agentStateBySession[selectedSession.id]?.historyLoading)}
                 onLoadMore={() => {

@@ -8,6 +8,7 @@ export function AgentView({
   session,
   events = [],
   onSend,
+  ready = true,
   hasMore = false,
   loadingMore = false,
   onLoadMore = () => {},
@@ -45,6 +46,7 @@ export function AgentView({
   }, [events.length]);
 
   const submit = () => {
+    if (!ready) return;
     const value = draft.trim();
     if (!value) return;
     onSend(value);
@@ -87,36 +89,43 @@ export function AgentView({
           })
         )}
       </div>
-      <form
-        className="agent-input"
-        onSubmit={event => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <textarea
-          ref={inputRef}
-          value={draft}
-          onChange={event => setDraft(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-              event.preventDefault();
-              submit();
-            }
+      {ready ? (
+        <form
+          className="agent-input"
+          onSubmit={event => {
+            event.preventDefault();
+            submit();
           }}
-          placeholder={`Message ${session.title || "agent"}…`}
-          aria-label="Message"
-          rows={1}
-          enterKeyHint="send"
-          autoCapitalize="off"
-          autoCorrect="off"
-          autoComplete="off"
-          spellCheck="false"
-        />
-        <button type="submit" className="agent-send" disabled={!draft.trim()} aria-label="Send">
-          <SendIcon />
-        </button>
-      </form>
+        >
+          <textarea
+            ref={inputRef}
+            value={draft}
+            onChange={event => setDraft(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={`Message ${session.title || "agent"}…`}
+            aria-label="Message"
+            rows={1}
+            enterKeyHint="send"
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck="false"
+          />
+          <button type="submit" className="agent-send" disabled={!draft.trim()} aria-label="Send">
+            <SendIcon />
+          </button>
+        </form>
+      ) : (
+        <div className="agent-starting">
+          Agent is starting — finish first-time setup in Terminal, then send
+          messages from here.
+        </div>
+      )}
     </div>
   );
 }

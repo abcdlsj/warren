@@ -154,6 +154,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-input textarea { flex:1 1 auto; min-width:0; height:42px; max-height:150px; padding:11px 14px; resize:none; border:1px solid var(--ring); border-radius:14px; background:var(--panel); color:var(--fg); font:14px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; outline:0; }
 .agent-input textarea:focus { border-color:var(--amber); box-shadow:0 0 0 2px rgba(224,120,80,.16); }
 .agent-input textarea::placeholder { color:var(--sub); }
+.agent-starting { display:grid; place-items:center; flex:0 0 auto; width:100%; max-width:1100px; margin:0 auto; padding:18px 28px 22px; color:var(--sub); font-size:12.5px; line-height:1.5; text-align:center; }
 .agent-send { display:grid; place-items:center; flex:0 0 auto; width:42px; height:42px; border:0; border-radius:50%; background:#f5f5f4; color:#1f1f1f; cursor:pointer; }
 .agent-send:hover:not(:disabled) { filter:brightness(1.08); }
 .agent-send:disabled { opacity:.35; cursor:default; }
