@@ -235,6 +235,9 @@ func main() {
 	if lanHTTPServer != nil {
 		_ = lanHTTPServer.Close()
 	}
+	// A public tunnel must never outlive its daemon: stop every reachability
+	// adapter so the shared URL stops working as soon as the owner exits.
+	tunnelManager.StopAll()
 	stopService()
 	service.Shutdown()
 }

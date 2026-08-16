@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,12 +50,14 @@ type Manager struct {
 }
 
 type state struct {
-	kind     string
-	cmd      *exec.Cmd
-	url      string
-	err      string
-	stopped  bool
-	scanDone chan struct{}
+	kind      string
+	cmd       *exec.Cmd
+	url       string
+	err       string
+	stopped   bool
+	scanDone  chan struct{}
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 func NewManager(
@@ -120,6 +123,14 @@ func (m *Manager) SetGnarEdge(edge string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.gnarEdge = edge
+}
+
+// StopAll tears down every running reachability adapter. The daemon calls it
+// on shutdown so a public tunnel never outlives its owner process.
+func (m *Manager) StopAll() {
+	for _, kind := range []string{KindCloudflared, KindTailscale, KindGnar} {
+		_ = m.Stop(kind)
+	}
 }
 
 func (m *Manager) startCloudflared() (Status, error) {
@@ -317,6 +328,7 @@ func (m *Manager) startGnar() (Status, error) {
 		m.mu.Unlock()
 		return Status{}, errors.New("gnar binary not found; install it or set WARREN_GNAR_PATH")
 	}
+	reapStaleGnar(m.target)
 	args := []string{m.target, "--no-tui", "--json"}
 	if m.gnarEdge != "" {
 		args = append(args, "--edge", m.gnarEdge)
@@ -337,12 +349,20 @@ func (m *Manager) startGnar() (Status, error) {
 		m.mu.Unlock()
 		return Status{}, err
 	}
-	st := &state{kind: KindGnar, cmd: command, scanDone: make(chan struct{})}
+	st := &state{kind: KindGnar, cmd: command, scanDone: make(chan struct{}), ready: make(chan struct{})}
 	m.states[KindGnar] = st
 	m.mu.Unlock()
 
 	go m.scanGnar(st, io.MultiReader(stdout, stderr))
 	go m.wait(st)
+	// Start is synchronous for the caller: wait for the first tunnel_ready or
+	// error event so the client can show the public URL immediately. An edge
+	// that never answers is surfaced as a running tunnel without a URL and the
+	// error scanner still reports why.
+	select {
+	case <-st.ready:
+	case <-time.After(time.Duration(m.pollAttempts) * m.pollInterval):
+	}
 	return m.Status()[KindGnar], nil
 }
 
@@ -378,6 +398,9 @@ func (m *Manager) scanGnar(st *state, reader io.Reader) {
 			}
 		case "error":
 			m.logger.Warn("gnar tunnel error", "kind", st.kind, "error", event.Message)
+		}
+		if event.Type == "tunnel_ready" || event.Type == "error" {
+			st.readyOnce.Do(func() { close(st.ready) })
 		}
 	}
 }
@@ -446,6 +469,40 @@ func gnarNameArgs() []string {
 		normalized = strings.TrimRight(normalized[:32], "-")
 	}
 	return []string{"--name", "warren-" + normalized}
+}
+
+// reapStaleGnar kills gnar processes left behind by a previous daemon that
+// was not stopped cleanly. Without this, a restarted daemon would start a
+// second client for the same reserved name and both processes would fight
+// over one public endpoint.
+func reapStaleGnar(target string) {
+	data, err := exec.Command("ps", "-axo", "pid=,command=").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, " ", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		command := fields[1]
+		if !strings.Contains(command, "gnar") ||
+			!strings.Contains(command, target) ||
+			!strings.Contains(command, "--name warren-") {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
+	}
 }
 
 func findExecutable(candidates []string) string {

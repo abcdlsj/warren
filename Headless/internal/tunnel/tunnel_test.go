@@ -117,24 +117,46 @@ sleep 30
 	if !status.Running {
 		t.Fatal("gnar is not running after start")
 	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		current := manager.Status()[KindGnar]
-		if current.URL != "" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	current := manager.Status()[KindGnar]
 	if current.URL != "https://warren-host.gnar.example.com" {
-		t.Fatalf("gnar URL = %q", current.URL)
+		t.Fatalf("gnar URL = %q, want immediate tunnel_ready URL", current.URL)
 	}
 	if err := manager.Stop(KindGnar); err != nil {
 		t.Fatalf("stop gnar: %v", err)
 	}
 	if _, ok := manager.Status()[KindGnar]; ok {
 		t.Fatal("gnar state remained after stop")
+	}
+}
+
+func TestManagerStopAllTearsDownEveryRunningAdapter(t *testing.T) {
+	cloudflared := writeScript(t, `#!/bin/sh
+printf 'https://fake-%s.trycloudflare.com\n' "$(date +%s)"
+sleep 60
+`)
+	gnar := writeScript(t, `#!/bin/sh
+printf '%s\n' '{"type":"tunnel_ready","public_url":"https://warren-host.gnar.example.com","target":"http://127.0.0.1:8789","account":null,"reserved":false}'
+sleep 60
+`)
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", cloudflared, "", gnar)
+
+	if _, err := manager.Start(KindCloudflared); err != nil {
+		t.Fatalf("start cloudflared: %v", err)
+	}
+	if _, err := manager.Start(KindGnar); err != nil {
+		t.Fatalf("start gnar: %v", err)
+	}
+	if len(manager.Status()) != 2 {
+		t.Fatalf("status = %#v, want two running adapters", manager.Status())
+	}
+
+	manager.StopAll()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(manager.Status()) != 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := manager.Status(); len(got) != 0 {
+		t.Fatalf("status after StopAll = %#v, want empty", got)
 	}
 }
 
@@ -189,7 +211,7 @@ exit 1
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		current := manager.Status()[KindGnar]
-		if current.Error != "" {
+		if current.Error != "" && !current.Running {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
