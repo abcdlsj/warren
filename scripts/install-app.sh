@@ -12,19 +12,26 @@ installed_menubar_executable_path="$install_path/Contents/MacOS/WarrenDaemonMenu
 daemon_executable_path="$app_path/Contents/MacOS/warren-headless"
 installed_daemon_executable_path="$install_path/Contents/MacOS/warren-headless"
 
+# macOS pgrep/pkill cannot always see processes whose executable file has
+# been replaced while running, so resolve PIDs from `ps` and kill by PID.
+pids_for_path() {
+    local executable="$1"
+    # Match only argument-less invocations (exactly `pid executable`), so the
+    # daemon's ghostline child (started with --ghostline-serve and friends)
+    # is never matched or killed.
+    ps -axo pid=,command= | awk -v exe="$executable" '$2 == exe && NF == 2 { print $1 }'
+}
+
 is_running() {
-    pgrep -f "$executable_path$" >/dev/null 2>&1 \
-        || pgrep -f "$installed_executable_path$" >/dev/null 2>&1
+    [[ -n "$(pids_for_path "$executable_path")$(pids_for_path "$installed_executable_path")" ]]
 }
 
 is_menubar_running() {
-    pgrep -f "$menubar_executable_path$" >/dev/null 2>&1 \
-        || pgrep -f "$installed_menubar_executable_path$" >/dev/null 2>&1
+    [[ -n "$(pids_for_path "$menubar_executable_path")$(pids_for_path "$installed_menubar_executable_path")" ]]
 }
 
 is_daemon_running() {
-    pgrep -f "$daemon_executable_path$" >/dev/null 2>&1 \
-        || pgrep -f "$installed_daemon_executable_path$" >/dev/null 2>&1
+    [[ -n "$(pids_for_path "$daemon_executable_path")$(pids_for_path "$installed_daemon_executable_path")" ]]
 }
 
 notify_maintenance() {
@@ -70,16 +77,22 @@ initialize_local_endpoint() {
     echo "Initialized local endpoint '$endpoint_name' at $endpoint_url"
 }
 
-force_terminate() {
-    local pattern="$1"
-    pkill -TERM -f "$pattern$" >/dev/null 2>&1 || true
+force_terminate_pids() {
+    local pids="${1:-}"
+    local pid
+    [[ -z "${pids//[[:space:]]/}" ]] && return 0
+    for pid in $pids; do
+        kill -TERM "$pid" >/dev/null 2>&1 || true
+    done
     for _ in {1..30}; do
-        pgrep -f "$pattern$" >/dev/null 2>&1 || return 0
+        [[ -z "$(ps -p $pids -o pid= 2>/dev/null)" ]] && return 0
         sleep 0.1
     done
-    pkill -KILL -f "$pattern$" >/dev/null 2>&1 || true
+    for pid in $pids; do
+        kill -KILL "$pid" >/dev/null 2>&1 || true
+    done
     for _ in {1..30}; do
-        pgrep -f "$pattern$" >/dev/null 2>&1 || return 0
+        [[ -z "$(ps -p $pids -o pid= 2>/dev/null)" ]] && return 0
         sleep 0.1
     done
     return 1
@@ -104,21 +117,18 @@ if is_running; then
 fi
 
 if is_running; then
-    force_terminate "$executable_path" || true
-    force_terminate "$installed_executable_path" || true
+    force_terminate_pids "$(pids_for_path "$executable_path") $(pids_for_path "$installed_executable_path")" || true
 fi
 
 if is_menubar_running; then
-    force_terminate "$menubar_executable_path" || true
-    force_terminate "$installed_menubar_executable_path" || true
+    force_terminate_pids "$(pids_for_path "$menubar_executable_path") $(pids_for_path "$installed_menubar_executable_path")" || true
 fi
 
 # The daemon is deliberately independent during normal Desktop shutdown, but
 # an app update must replace its executable too. tmux sessions survive SIGTERM
 # and the new menu-bar process will start the freshly installed daemon.
 if is_daemon_running; then
-    force_terminate "$daemon_executable_path" || true
-    force_terminate "$installed_daemon_executable_path" || true
+    force_terminate_pids "$(pids_for_path "$daemon_executable_path") $(pids_for_path "$installed_daemon_executable_path")" || true
 fi
 
 if is_running; then
