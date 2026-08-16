@@ -167,7 +167,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
                         webStatus: webStatus,
-                        canShareTunnel: gnarSharingEnabled,
                         hasInspector: projection.inspector != nil,
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
@@ -184,15 +183,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             settingsPresented = true
                         },
                         onWeb: { webPresented.toggle() },
-                        onToggleTunnel: {
-                            if webStatus.tunnelRunning {
-                                onWebStop()
-                            } else {
-                                onWebStart()
-                                webPresented = true
-                                refreshWebDismissal()
-                            }
-                        },
                         onSelectEndpoint: onSelectEndpoint,
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
@@ -399,10 +389,18 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 refreshWebDismissal()
             }
         }
+        .onChange(of: webStatus.tunnelRunning) { _, isRunning in
+            // Keep the panel open while sharing so the public address stays
+            // visible for copying; it falls back to auto-dismiss after stop.
+            if isRunning, webPresented {
+                refreshWebDismissal()
+            }
+        }
         .task(id: webDismissalNonce) {
             guard webPresented else { return }
             try? await Task.sleep(for: WarrenDesktopWebDismissal.interval)
             guard !Task.isCancelled else { return }
+            guard !webStatus.tunnelRunning else { return }
             webPresented = false
         }
         .warrenSemanticObservationRoot(recorder: semanticRecorder)

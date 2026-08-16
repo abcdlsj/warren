@@ -130,6 +130,7 @@ public struct WarrenDesktopWebPanel: View {
                 WarrenDesktopWebCommandButton(
                     title: status.secureURL == nil ? "Share" : "Stop",
                     isEnabled: canShare && status.canControl,
+                    isEmphasized: status.secureURL != nil,
                     accessibilityLabel: status.secureURL == nil
                         ? "Share the Web UI publicly"
                         : "Stop public sharing"
@@ -152,9 +153,16 @@ public struct WarrenDesktopWebPanel: View {
                         .foregroundStyle(tokens.mutedForeground)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    Button {
+                        onCopyURL(secureURL)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(WarrenChromeButtonStyle())
+                    .frame(width: 22, height: 22)
+                    .accessibilityLabel("Copy public web address")
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Public web address: \(secureURL.absoluteString)")
             }
         }
         .padding(.horizontal, WarrenSpacing.standard)
@@ -191,6 +199,7 @@ public struct WarrenDesktopWebPanel: View {
 private struct WarrenDesktopWebCommandButton: View {
     let title: String
     var isEnabled = true
+    var isEmphasized = false
     let accessibilityLabel: String
     let action: () -> Void
 
@@ -201,10 +210,13 @@ private struct WarrenDesktopWebCommandButton: View {
         Button(action: action) {
             Text(title)
                 .font(WarrenTypography.chromeLabel)
-                .foregroundStyle(tokens.mutedForeground)
+                .foregroundStyle(isEmphasized ? Color.green : tokens.mutedForeground)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: WarrenLayoutMetrics.compactControlHeight
+                )
+                .background(
+                    isEmphasized ? Color.green.opacity(0.12) : Color.clear
                 )
                 .contentShape(.rect)
         }

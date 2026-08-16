@@ -18,7 +18,6 @@ struct WarrenDesktopTabBar: View {
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
     let webStatus: WarrenDesktopWebStatus
-    var canShareTunnel = true
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onToggleSidebar: () -> Void
@@ -26,7 +25,6 @@ struct WarrenDesktopTabBar: View {
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWeb: () -> Void
-    var onToggleTunnel: () -> Void = {}
     let onSelectEndpoint: (String) -> Void
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
@@ -157,13 +155,11 @@ struct WarrenDesktopTabBar: View {
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
                         webStatus: webStatus,
-                        canShareTunnel: canShareTunnel,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
                         onCommandPalette: onCommandPalette,
                         onSettings: onSettings,
                         onWeb: onWeb,
-                        onToggleTunnel: onToggleTunnel,
                         onSelectEndpoint: onSelectEndpoint,
                         onToggleInspector: onToggleInspector
                     )
@@ -225,13 +221,11 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
     let webStatus: WarrenDesktopWebStatus
-    let canShareTunnel: Bool
     let hasInspector: Bool
     let isInspectorVisible: Bool
     let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWeb: () -> Void
-    let onToggleTunnel: () -> Void
     let onSelectEndpoint: (String) -> Void
     let onToggleInspector: () -> Void
 
@@ -250,21 +244,13 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                 onSelect: onSelectEndpoint
             )
             WarrenDesktopChromeButton(
-                systemImage: "network",
-                label: webStatus.tunnelRunning ? "Stop tunnel" : "Start tunnel",
-                hint: webStatus.tunnelRunning
-                    ? "Public tunnel is running"
-                    : "Start a public tunnel and get a shareable link",
-                action: onToggleTunnel,
-                tint: webStatus.tunnelRunning ? .green : nil
-            )
-            .disabled(!canShareTunnel)
-            WarrenDesktopChromeButton(
                 systemImage: "globe",
                 label: "Web",
-                hint: webStatus.isRunning ? "Web is running" : "Web is stopped",
+                hint: webStatus.tunnelRunning
+                    ? "Public sharing is on"
+                    : "Web is stopped",
                 action: onWeb,
-                tint: webStatus.isRunning ? .green : nil
+                tint: webStatus.tunnelRunning ? .green : nil
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",
