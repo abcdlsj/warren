@@ -15,8 +15,11 @@ export function AgentView({
 }) {
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const loadMoreRef = useRef(null);
   const pinnedSessionIDRef = useRef(null);
   const pinToBottomRef = useRef(true);
+  const anchorOffsetsRef = useRef(null);
+  const skipFollowRef = useRef(false);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
 
@@ -38,9 +41,56 @@ export function AgentView({
     }
   }, [events.length, session?.id]);
 
+  const loadEarlier = () => {
+    // Older pages are inserted above the breakpoint, so after the response
+    // the scroll position must be adjusted to keep the breakpoint on screen.
+    // Capture the button's offset (and the first block as a fallback for the
+    // last page, when the button disappears) before the insert happens.
+    const list = listRef.current;
+    const button = loadMoreRef.current;
+    const fallback = button ? list?.children[1] : list?.children[0];
+    if (!list) return;
+    anchorOffsetsRef.current = {
+      primary: button
+        ? button.getBoundingClientRect().top - list.getBoundingClientRect().top
+        : null,
+      fallback: fallback
+        ? fallback.getBoundingClientRect().top - list.getBoundingClientRect().top
+        : null,
+    };
+    onLoadMore();
+  };
+
+  useLayoutEffect(() => {
+    // Wait for the loading flag to clear so the measurement runs against the
+    // page that actually landed; while the button is disabled its offset is
+    // unchanged and consuming the anchor there would lose it.
+    if (anchorOffsetsRef.current === null || loadingMore) return;
+    const list = listRef.current;
+    const offsets = anchorOffsetsRef.current;
+    anchorOffsetsRef.current = null;
+    if (!list) return;
+    const anchor = loadMoreRef.current || list.children[0];
+    if (!anchor) return;
+    const target = loadMoreRef.current ? offsets.primary : offsets.fallback;
+    if (target === null || target === undefined) return;
+    const current = anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    const delta = current - target;
+    if (delta) {
+      list.scrollTop += delta;
+      // Keep the follow-bottom effect from overriding the anchor on the same
+      // render when the remaining content is barely taller than the viewport.
+      skipFollowRef.current = true;
+    }
+  }, [events.length, hasMore, loadingMore]);
+
   useEffect(() => {
     const list = listRef.current;
     if (!list || pinToBottomRef.current) return;
+    if (skipFollowRef.current) {
+      skipFollowRef.current = false;
+      return;
+    }
     const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 160;
     if (followsBottom) list.scrollTop = list.scrollHeight;
   }, [events.length]);
@@ -63,9 +113,10 @@ export function AgentView({
       <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
         {hasMore && (
           <button
+            ref={loadMoreRef}
             type="button"
             className="agent-load-more"
-            onClick={onLoadMore}
+            onClick={loadEarlier}
             disabled={loadingMore}
           >
             {loadingMore ? "Loading…" : "Load earlier messages"}
@@ -155,10 +206,8 @@ function AgentBlock({ block }) {
       </div>
     );
   }
-  case "tool":
-    return null;
-  case "tool_group":
-    return <ToolGroup items={block.items} />;
+  case "activity_group":
+    return <ActivityGroup block={block} />;
   case "tool_output": {
     const event = block.event;
     return (
@@ -172,10 +221,6 @@ function AgentBlock({ block }) {
       </div>
     );
   }
-  case "reasoning":
-    return null;
-  case "reasoning_group":
-    return <ReasoningGroup events={block.events} />;
   case "system_instructions":
     return null;
   case "usage":
@@ -214,23 +259,36 @@ function AgentBlock({ block }) {
   }
 }
 
-function ToolGroup({ items }) {
+function ActivityGroup({ block }) {
+  const { reasoning, tools, order } = block;
   const [open, setOpen] = useState(false);
-  const status = groupStatus(items);
+  const status = groupStatus(tools);
+  let step = 0;
   return (
-    <div className={`agent-tool-group ${status}`}>
-      <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ToolIcon name={items[0]?.call?.toolName} />
-        <span className="agent-tool-name">{toolGroupTitle(items)}</span>
-        {!open && toolGroupSummary(items) && <code className="agent-tool-summary">{toolGroupSummary(items)}</code>}
+    <div className={`agent-activity-group ${status}`}>
+      <button type="button" className="agent-activity-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ToolIcon name={tools[0]?.call?.toolName} />
+        <span className="agent-activity-title">{activityTitle(reasoning.length, tools.length)}</span>
+        {!open && toolGroupSummary(tools) && <code className="agent-tool-summary">{toolGroupSummary(tools)}</code>}
         <span className="agent-tool-status">{statusText(status)}</span>
         <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
       </button>
       {open && (
-        <div className="agent-tool-group-body">
-          {items.map((item, index) => (
-            <ToolCard key={blockKindKey(item, index)} block={item} defaultOpen />
-          ))}
+        <div className="agent-activity-body">
+          {order.map((item, index) => {
+            if (item.kind === "reasoning") {
+              step += 1;
+              return (
+                <div className="agent-reasoning-item" key={item.event.seq ?? index}>
+                  {reasoning.length > 1 && (
+                    <div className="agent-reasoning-item-label">Step {step}</div>
+                  )}
+                  <MarkdownContent value={item.event.content || ""} />
+                </div>
+              );
+            }
+            return <ToolCard key={blockKindKey(item.block, index)} block={item.block} defaultOpen />;
+          })}
         </div>
       )}
     </div>
@@ -272,42 +330,11 @@ function ToolCard({ block, defaultOpen = false }) {
   );
 }
 
-function ReasoningGroup({ events }) {
-  const [open, setOpen] = useState(false);
-  const count = events.length;
-  return (
-    <div className={`agent-reasoning agent-reasoning-group${count > 1 ? " stacked" : ""}`}>
-      <button type="button" className="agent-reasoning-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={`agent-reasoning-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
-        <span className="agent-reasoning-label">Thinking</span>
-        {count > 1 && <span className="agent-reasoning-count">{count} steps</span>}
-      </button>
-      {open && (
-        <div className="agent-reasoning-body">
-          {events.map((event, index) => (
-            <div className="agent-reasoning-item" key={event.seq ?? index}>
-              {count > 1 && <div className="agent-reasoning-item-label">Step {index + 1}</div>}
-              <MarkdownContent value={event.content || ""} />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function toolGroupTitle(items) {
-  if (items.length === 1) return displayToolName(items[0].call.toolName);
-  const counts = new Map();
-  for (const item of items) {
-    const name = displayToolName(item.call.toolName);
-    counts.set(name, (counts.get(name) || 0) + 1);
-  }
-  const parts = [...counts.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 2)
-    .map(([name, count]) => `${count} ${name}`);
-  return `${items.length} tools${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+function activityTitle(reasoningCount, toolsCount) {
+  const parts = [];
+  if (reasoningCount > 0) parts.push(`Thinking × ${reasoningCount}`);
+  if (toolsCount > 0) parts.push(`Tools × ${toolsCount}`);
+  return parts.join(" · ") || "Activity";
 }
 
 function toolGroupSummary(items) {

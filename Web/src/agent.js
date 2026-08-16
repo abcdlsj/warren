@@ -22,10 +22,10 @@ export function mergeAgentEvents(existing = [], incoming = []) {
  * Groups a flat transcript into renderable blocks. A tool_call and its
  * matching tool_output(s) become one tool block so the UI can show the call
  * and its result as a single compact step instead of two separate cards.
- * Every user message opens a turn. All reasoning and tool blocks produced
- * inside that turn fold into one "Thinking" strip and one tools strip that
- * sit right after the user message, so assistant text fragments never split
- * a busy turn into a wall of cards.
+ * Every user message opens a turn. All reasoning steps and tool blocks
+ * produced inside that turn fold into one activity strip right after the
+ * message, so assistant text fragments never split a busy turn into a wall
+ * of cards.
  */
 export function groupAgentEvents(events = []) {
   const blocks = [];
@@ -34,12 +34,16 @@ export function groupAgentEvents(events = []) {
   let turnStart = -1;
 
   const beginTurn = withPlaceholders => {
-    turn = { reasoning: [], tools: [] };
+    turn = { reasoning: [], tools: [], order: [] };
     turnStart = -1;
     if (withPlaceholders) {
       turnStart = blocks.length;
-      blocks.push({ kind: "reasoning_group", events: turn.reasoning });
-      blocks.push({ kind: "tool_group", items: turn.tools });
+      blocks.push({
+        kind: "activity_group",
+        reasoning: turn.reasoning,
+        tools: turn.tools,
+        order: turn.order,
+      });
     }
   };
 
@@ -48,21 +52,22 @@ export function groupAgentEvents(events = []) {
     if (turnStart >= 0) {
       for (let index = turnStart; index < blocks.length;) {
         const block = blocks[index];
-        const empty = (block.kind === "reasoning_group" && block.events.length === 0)
-          || (block.kind === "tool_group" && block.items.length === 0);
+        const empty = block.kind === "activity_group"
+          && block.reasoning.length === 0
+          && block.tools.length === 0;
         if (empty) {
           blocks.splice(index, 1);
         } else {
           index += 1;
         }
       }
-    } else {
-      if (turn.reasoning.length) {
-        blocks.push({ kind: "reasoning_group", events: turn.reasoning });
-      }
-      if (turn.tools.length) {
-        blocks.push({ kind: "tool_group", items: turn.tools });
-      }
+    } else if (turn.reasoning.length || turn.tools.length) {
+      blocks.push({
+        kind: "activity_group",
+        reasoning: turn.reasoning,
+        tools: turn.tools,
+        order: turn.order,
+      });
     }
     turn = null;
     turnStart = -1;
@@ -76,10 +81,12 @@ export function groupAgentEvents(events = []) {
     } else if (event.type === "reasoning") {
       if (!turn) beginTurn(false);
       turn.reasoning.push(event);
+      turn.order.push({ kind: "reasoning", event });
     } else if (event.type === "tool_call") {
       if (!turn) beginTurn(false);
       const block = { kind: "tool", call: event, outputs: [] };
       turn.tools.push(block);
+      turn.order.push({ kind: "tool", block });
       if (event.callId) pending.set(event.callId, block);
     } else if (event.type === "tool_output") {
       const block = event.callId ? pending.get(event.callId) : null;
