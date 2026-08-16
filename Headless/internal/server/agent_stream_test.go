@@ -275,6 +275,44 @@ func TestEnsureAgentDoesNotStealAnotherSessionsTranscript(t *testing.T) {
 	}
 }
 
+func TestAgentStateFileReflectsShellReturn(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("WARREN_DATA_DIR", directory)
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := api.Session{
+		ID: "session-agent", Title: "Codex", Kind: "codex",
+		Runtime: "runtime-agent", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	service := &Service{Store: state, Runtime: newSpoolRuntime(t)}
+	service.lazyInit()
+
+	statePath := agent.StatePath(session.ID)
+	if err := agent.WriteAgentState(statePath, api.AgentActivityExited); err != nil {
+		t.Fatal(err)
+	}
+	service.applyAgentState(session)
+	if got := service.agentActivity(session.ID); got != api.AgentActivityExited {
+		t.Fatalf("after SessionEnd state = %q, want exited", got)
+	}
+	roster := service.Roster(context.Background())
+	for _, candidate := range roster.Sessions {
+		if candidate.ID == session.ID && candidate.AgentActivity != api.AgentActivityExited {
+			t.Fatalf("roster activity = %q, want exited", candidate.AgentActivity)
+		}
+	}
+
+	if err := agent.WriteAgentState(statePath, api.AgentActivityReady); err != nil {
+		t.Fatal(err)
+	}
+	service.applyAgentState(session)
+	if got := service.agentActivity(session.ID); got != api.AgentActivityReady {
+		t.Fatalf("after new SessionStart state = %q, want ready", got)
+	}
+}
+
 func readAgentEvents(t *testing.T, connection interface {
 	SetReadDeadline(time.Time) error
 	ReadMessage() (int, []byte, error)

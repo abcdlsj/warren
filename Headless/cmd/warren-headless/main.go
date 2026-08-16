@@ -130,7 +130,10 @@ func main() {
 		WorktreeRoot:   *worktreeRoot,
 		AgentFinder:    agent.DefaultFinder{},
 		AgentHooks: func() error {
-			_, err := agent.EnsureCodexBindHook(agent.CodexHome())
+			if _, err := agent.EnsureCodexBindHook(agent.CodexHome()); err != nil {
+				return err
+			}
+			_, err := agent.EnsureClaudeBindHook(agent.ClaudeConfigDir())
 			return err
 		},
 	}

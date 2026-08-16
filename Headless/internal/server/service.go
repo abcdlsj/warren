@@ -284,6 +284,7 @@ func (s *Service) reconcile(ctx context.Context) {
 			continue
 		}
 		_, _ = s.ensureOutput(ctx, session)
+		s.applyAgentState(session)
 		_, _ = s.ensureAgent(probeContext, session)
 	}
 }
@@ -1312,15 +1313,15 @@ func (s *Service) recordAgentActivity(sessionID string, activity api.AgentActivi
 	s.lazyInit()
 	s.agentsMu.Lock()
 	entry := s.agents[sessionID]
-	if entry != nil {
-		entry.mu.Lock()
-		entry.activity = activity
-		entry.mu.Unlock()
+	if entry == nil {
+		entry = &agentSession{}
+		s.agents[sessionID] = entry
 	}
+	entry.mu.Lock()
+	entry.activity = activity
+	entry.mu.Unlock()
 	s.agentsMu.Unlock()
-	if entry != nil {
-		s.broadcastAgentEvents(sessionID, nil, activity)
-	}
+	s.broadcastAgentEvents(sessionID, nil, activity)
 }
 
 func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
@@ -1347,6 +1348,29 @@ func (s *Service) agentActivity(sessionID string) api.AgentActivity {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	return entry.activity
+}
+
+// applyAgentState reflects the managed hook's SessionEnd state on the status
+// light: the agent CLI is gone, but the Warren session is still a shell.
+func (s *Service) applyAgentState(session api.Session) {
+	if session.Kind != "codex" && session.Kind != "claude" {
+		return
+	}
+	state, err := agent.ReadAgentState(agent.StatePath(session.ID))
+	if err != nil || state == "" {
+		return
+	}
+	current := s.agentActivity(session.ID)
+	switch state {
+	case api.AgentActivityExited:
+		if current != state {
+			s.recordAgentActivity(session.ID, state)
+		}
+	case api.AgentActivityReady:
+		if current == api.AgentActivityExited {
+			s.recordAgentActivity(session.ID, state)
+		}
+	}
 }
 
 func (s *Service) stopAgent(sessionID string) {

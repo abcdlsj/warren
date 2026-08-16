@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/abcdlsj/warren/Headless/internal/api"
 )
 
 // Binding records which Codex/Claude conversation belongs to one Warren
@@ -32,6 +34,10 @@ const (
 	BindEnvFile = "WARREN_BIND_FILE"
 	// BindEnvKind names the agent kind (codex or claude) for the hook.
 	BindEnvKind = "WARREN_AGENT_KIND"
+	// BindEnvState points the managed hook at the file it must update when
+	// the CLI session ends, so the daemon can switch the status light from
+	// agent activity back to the surrounding shell.
+	BindEnvState = "WARREN_STATE_FILE"
 	// hookCommandMarker identifies the Warren-managed hook entry so repeated
 	// daemon starts can merge idempotently.
 	hookCommandMarker = "# warren-agent-bind-v1"
@@ -44,12 +50,19 @@ func BindEnvironment(warrenSessionID, kind string) []string {
 		BindEnvSession + "=" + warrenSessionID,
 		BindEnvKind + "=" + kind,
 		BindEnvFile + "=" + BindPath(warrenSessionID),
+		BindEnvState + "=" + StatePath(warrenSessionID),
 	}
 }
 
 // BindPath is the per-session file the managed hook writes.
 func BindPath(warrenSessionID string) string {
 	return filepath.Join(BindDir(), warrenSessionID+".json")
+}
+
+// StatePath is the per-session file the managed hook uses to report that the
+// agent CLI has exited and the shell is back.
+func StatePath(warrenSessionID string) string {
+	return filepath.Join(BindDir(), warrenSessionID+".state")
 }
 
 // BindDir is the directory holding per-session bindings.
@@ -114,6 +127,45 @@ func ReadBinding(path string) (*Binding, error) {
 // RemoveBinding cleans up the per-session file when the session is deleted.
 func RemoveBinding(warrenSessionID string) {
 	_ = os.Remove(BindPath(warrenSessionID))
+	_ = os.Remove(StatePath(warrenSessionID))
+}
+
+// ReadAgentState returns the state recorded by the managed hook, or "" when
+// the file is missing or malformed.
+func ReadAgentState(path string) (api.AgentActivity, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	var state struct {
+		State api.AgentActivity `json:"state"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", nil
+	}
+	return state.State, nil
+}
+
+// WriteAgentState persists a state reported by a hook. The write is atomic so
+// the daemon never reads a half-written file.
+func WriteAgentState(path string, state api.AgentActivity) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create state directory: %w", err)
+	}
+	data, err := json.Marshal(struct {
+		State api.AgentActivity `json:"state"`
+	}{State: state})
+	if err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, path)
 }
 
 // InjectClaudeSessionID makes Claude's transcript path deterministic for a
@@ -163,17 +215,34 @@ func ClaudeProjectsRoot() string {
 	return defaultClaudeProjectsRoot()
 }
 
-// EnsureCodexBindHook installs the Warren SessionStart hook into Codex's
-// user hooks file, preserving every existing entry. The hook command is a
-// small script under Warren's hooks directory so it works without any
-// Python/Node runtime beyond the shell.
+// ClaudeConfigDir returns the directory Claude reads settings from, honoring
+// CLAUDE_CONFIG_DIR just like the CLI itself.
+func ClaudeConfigDir() string {
+	return filepath.Dir(defaultClaudeProjectsRoot())
+}
+
+// EnsureCodexBindHook installs the Warren SessionStart and SessionEnd hooks
+// into Codex's user hooks file, preserving every existing entry.
 func EnsureCodexBindHook(codexHome string) (changed bool, err error) {
-	hooksPath := filepath.Join(codexHome, "hooks.json")
-	scriptPath := filepath.Join(configDir(), "hooks", "codex-bind.sh")
+	return ensureAgentHooks(filepath.Join(codexHome, "hooks.json"))
+}
+
+// EnsureClaudeBindHook installs the same two hooks into Claude's user
+// settings file, preserving every existing entry.
+func EnsureClaudeBindHook(claudeConfigDir string) (changed bool, err error) {
+	return ensureAgentHooks(filepath.Join(claudeConfigDir, "settings.json"))
+}
+
+// ensureAgentHooks merges the Warren-managed hook command into the
+// SessionStart and SessionEnd arrays of either Codex hooks.json or Claude
+// settings.json. The marker in the command makes repeated installs
+// idempotent; user entries are never touched.
+func ensureAgentHooks(hooksPath string) (changed bool, err error) {
+	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
 	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o700); err != nil {
 		return false, fmt.Errorf("create hooks directory: %w", err)
 	}
-	if err := os.WriteFile(scriptPath, []byte(codexBindHookScript), 0o700); err != nil {
+	if err := os.WriteFile(scriptPath, []byte(agentBindHookScript), 0o700); err != nil {
 		return false, fmt.Errorf("write bind hook script: %w", err)
 	}
 
@@ -188,8 +257,20 @@ func EnsureCodexBindHook(codexHome string) (changed bool, err error) {
 		hooks = map[string]any{}
 		document["hooks"] = hooks
 	}
-	entries, _ := hooks["SessionStart"].([]any)
 	command := "bash '" + scriptPath + "' " + hookCommandMarker
+	for _, event := range []string{"SessionStart", "SessionEnd"} {
+		if ensureHookEvent(hooks, event, command) {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+	return true, writeHooksJSON(hooksPath, document)
+}
+
+func ensureHookEvent(hooks map[string]any, event, command string) bool {
+	entries, _ := hooks[event].([]any)
 	for _, entry := range entries {
 		item, ok := entry.(map[string]any)
 		if !ok {
@@ -203,19 +284,19 @@ func EnsureCodexBindHook(codexHome string) (changed bool, err error) {
 			}
 			if text, _ := config["command"].(string); strings.Contains(text, hookCommandMarker) {
 				if text == command {
-					return false, nil
+					return false
 				}
 				config["command"] = command
-				return true, writeHooksJSON(hooksPath, document)
+				return true
 			}
 		}
 	}
-	hooks["SessionStart"] = append(entries, map[string]any{
+	hooks[event] = append(entries, map[string]any{
 		"hooks": []any{
 			map[string]any{"type": "command", "command": command},
 		},
 	})
-	return true, writeHooksJSON(hooksPath, document)
+	return true
 }
 
 func writeHooksJSON(path string, document map[string]any) error {
@@ -230,21 +311,34 @@ func writeHooksJSON(path string, document map[string]any) error {
 	return os.Rename(temporary, path)
 }
 
-// codexBindHookScript reads the SessionStart JSON from stdin, extracts the
-// CLI session ID and transcript path, and writes them to the bind file named
-// by $WARREN_BIND_FILE. The marker string appears in the command so the
+// agentBindHookScript reads the hook event JSON from stdin. SessionStart
+// writes the transcript binding and resets the state file; SessionEnd marks
+// the state file exited so the daemon can switch the status light back to
+// the surrounding shell. The marker string appears in the command so the
 // daemon can find and update its own entry idempotently.
-const codexBindHookScript = `#!/bin/sh
+const agentBindHookScript = `#!/bin/sh
 # warren-agent-bind-v1
-[ -n "$WARREN_BIND_FILE" ] || exit 0
+[ -n "$WARREN_BIND_FILE" ] || [ -n "$WARREN_STATE_FILE" ] || exit 0
 input=$(cat)
 session_id=$(printf '%s' "$input" | sed -nE 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 transcript_path=$(printf '%s' "$input" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 cwd=$(printf '%s' "$input" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
+hook_event=$(printf '%s' "$input" | sed -nE 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 [ -n "$session_id" ] || session_id=$(printf '%s' "$input" | sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 [ -n "$session_id" ] || exit 0
-[ -n "$transcript_path" ] || exit 0
 provider=${WARREN_AGENT_KIND:-codex}
+if [ "$hook_event" = "SessionEnd" ]; then
+  [ -n "$WARREN_STATE_FILE" ] || exit 0
+  dir=$(dirname "$WARREN_STATE_FILE")
+  mkdir -p "$dir" 2>/dev/null || exit 0
+  temporary="$WARREN_STATE_FILE.tmp.$$"
+  printf '%s\n' '{"state":"exited"}' > "$temporary" 2>/dev/null || exit 0
+  mv -f "$temporary" "$WARREN_STATE_FILE" 2>/dev/null || exit 0
+  printf '%s\n' '{"continue":true}'
+  exit 0
+fi
+[ -n "$WARREN_BIND_FILE" ] || exit 0
+[ -n "$transcript_path" ] || exit 0
 dir=$(dirname "$WARREN_BIND_FILE")
 mkdir -p "$dir" 2>/dev/null || exit 0
 temporary="$WARREN_BIND_FILE.tmp.$$"
@@ -253,6 +347,13 @@ temporary="$WARREN_BIND_FILE.tmp.$$"
     "$provider" "$session_id" "$transcript_path" "$cwd" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } > "$temporary" 2>/dev/null || exit 0
 mv -f "$temporary" "$WARREN_BIND_FILE" 2>/dev/null || exit 0
+if [ -n "$WARREN_STATE_FILE" ]; then
+  state_dir=$(dirname "$WARREN_STATE_FILE")
+  mkdir -p "$state_dir" 2>/dev/null || exit 0
+  state_tmp="$WARREN_STATE_FILE.tmp.$$"
+  printf '%s\n' '{"state":"ready"}' > "$state_tmp" 2>/dev/null || exit 0
+  mv -f "$state_tmp" "$WARREN_STATE_FILE" 2>/dev/null || exit 0
+fi
 printf '%s\n' '{"continue":true}'
 exit 0
 `

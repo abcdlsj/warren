@@ -155,11 +155,13 @@ so several agents in the same workspace never mix transcripts:
 
 - Claude starts with `--session-id <warren-session-id>`, which makes its
   transcript path deterministic (`~/.claude/projects/-Users-.../<id>.jsonl`).
-- Codex gets a Warren-managed `SessionStart` hook merged into
-  `$CODEX_HOME/hooks.json` (user entries are preserved). The hook reads the
-  CLI's `session_id`/`transcript_path` from its stdin and writes them to
-  `~/.warren/agent-bind/<warren-session-id>.json`; the daemon starts the
-  watcher from that exact file.
+- Codex and Claude get Warren-managed `SessionStart` and `SessionEnd` hooks
+  merged into `$CODEX_HOME/hooks.json` / `$CLAUDE_CONFIG_DIR/settings.json`
+  (user entries are preserved). `SessionStart` writes the CLI's
+  `session_id`/`transcript_path` to
+  `~/.warren/agent-bind/<warren-session-id>.json` and resets the state file;
+  `SessionEnd` marks the state file exited so the status light returns to
+  the surrounding shell. The daemon starts the watcher from the exact file.
 
 The bound CLI session ID and transcript path are stored on the Session and
 shown in the Web Agent view. When a binding is not available yet (hook not

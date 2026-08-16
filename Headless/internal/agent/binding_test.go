@@ -106,8 +106,16 @@ func TestEnsureCodexBindHookMergesIdempotently(t *testing.T) {
 	if !strings.Contains(warren, hookCommandMarker) {
 		t.Fatalf("warren hook command = %q", warren)
 	}
-	if !strings.Contains(warren, filepath.Join(configDir(), "hooks", "codex-bind.sh")) {
+	if !strings.Contains(warren, filepath.Join(configDir(), "hooks", "agent-bind.sh")) {
 		t.Fatalf("warren hook command = %q, want script path", warren)
+	}
+	end := hooks["SessionEnd"].([]any)
+	if len(end) != 1 {
+		t.Fatalf("SessionEnd entries = %d, want 1 (warren)", len(end))
+	}
+	warrenEnd := end[0].(map[string]any)["hooks"].([]any)[0].(map[string]any)["command"].(string)
+	if !strings.Contains(warrenEnd, hookCommandMarker) {
+		t.Fatalf("SessionEnd hook command = %q", warrenEnd)
 	}
 	stop := hooks["Stop"].([]any)
 	if len(stop) != 1 {
@@ -135,7 +143,8 @@ func TestBindEnvironment(t *testing.T) {
 	joined := strings.Join(entries, "\n")
 	if !strings.Contains(joined, BindEnvSession+"=warren-1") ||
 		!strings.Contains(joined, BindEnvKind+"=codex") ||
-		!strings.Contains(joined, BindEnvFile+"="+BindPath("warren-1")) {
+		!strings.Contains(joined, BindEnvFile+"="+BindPath("warren-1")) ||
+		!strings.Contains(joined, BindEnvState+"="+StatePath("warren-1")) {
 		t.Fatalf("BindEnvironment = %#v", entries)
 	}
 }
@@ -146,12 +155,14 @@ func TestCodexBindHookScriptWritesBinding(t *testing.T) {
 	if _, err := EnsureCodexBindHook(codexHome); err != nil {
 		t.Fatal(err)
 	}
-	scriptPath := filepath.Join(configDir(), "hooks", "codex-bind.sh")
+	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
 	bindPath := filepath.Join(t.TempDir(), "bind.json")
+	statePath := filepath.Join(t.TempDir(), "bind.state")
 	command := exec.Command("bash", scriptPath)
 	command.Stdin = strings.NewReader(`{"session_id":"thread-9","transcript_path":"/work/rollout-9.jsonl","cwd":"/work","hook_event_name":"SessionStart"}`)
 	command.Env = append(os.Environ(),
 		"WARREN_BIND_FILE="+bindPath,
+		"WARREN_STATE_FILE="+statePath,
 		"WARREN_AGENT_KIND=codex",
 	)
 	if output, err := command.CombinedOutput(); err != nil {
@@ -163,5 +174,84 @@ func TestCodexBindHookScriptWritesBinding(t *testing.T) {
 	}
 	if binding == nil || binding.SessionID != "thread-9" || binding.TranscriptPath != "/work/rollout-9.jsonl" || binding.Provider != "codex" {
 		t.Fatalf("hook binding = %#v", binding)
+	}
+	state, err := ReadAgentState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != "ready" {
+		t.Fatalf("hook state = %q, want ready", state)
+	}
+}
+
+func TestAgentBindHookScriptMarksSessionEnd(t *testing.T) {
+	t.Setenv("WARREN_DATA_DIR", t.TempDir())
+	codexHome := t.TempDir()
+	if _, err := EnsureCodexBindHook(codexHome); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
+	statePath := filepath.Join(t.TempDir(), "bind.state")
+	command := exec.Command("bash", scriptPath)
+	command.Stdin = strings.NewReader(`{"session_id":"thread-9","hook_event_name":"SessionEnd"}`)
+	command.Env = append(os.Environ(),
+		"WARREN_STATE_FILE="+statePath,
+		"WARREN_AGENT_KIND=codex",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("end hook failed: %v: %s", err, output)
+	}
+	state, err := ReadAgentState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != "exited" {
+		t.Fatalf("hook state = %q, want exited", state)
+	}
+}
+
+func TestEnsureClaudeBindHookMergesIdempotently(t *testing.T) {
+	t.Setenv("WARREN_DATA_DIR", t.TempDir())
+	claudeDir := t.TempDir()
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "echo user-hook"}]}
+    ]
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := EnsureClaudeBindHook(claudeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("first install must report changed")
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	hooks := document["hooks"].(map[string]any)
+	start := hooks["SessionStart"].([]any)
+	if len(start) != 2 {
+		t.Fatalf("SessionStart entries = %d, want 2 (user + warren)", len(start))
+	}
+	end := hooks["SessionEnd"].([]any)
+	if len(end) != 1 {
+		t.Fatalf("SessionEnd entries = %d, want 1", len(end))
+	}
+	changed, err = EnsureClaudeBindHook(claudeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("second install must be a no-op")
 	}
 }
