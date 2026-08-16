@@ -1400,10 +1400,19 @@ final class WarrenRemoteApplicationModel {
         if nudge {
             // The attach snapshot is fed before Ghostty's display loop
             // necessarily paints; nudge one tick so the old shell appears
-            // immediately instead of after the first resize or keystroke.
+            // instead of after the first resize or keystroke. The writer
+            // parses on a background task, so wait until this first batch has
+            // actually been consumed before drawing: presenting earlier can
+            // leave a black/stale frame even though the snapshot arrived.
             initialRefreshPending = false
             Task { @MainActor [weak surface] in
                 guard let surface else { return }
+                let target = surface.outputWriter.enqueuedSequence
+                let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+                while surface.outputWriter.renderedSequence < target,
+                      ContinuousClock.now < deadline {
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
                 surface.requestDisplayRefresh()
                 // Draw the first snapshot right now when the view is mounted;
                 // if it is not, the mount polls handle it later.
