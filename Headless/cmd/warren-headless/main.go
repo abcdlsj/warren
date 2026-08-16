@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -276,8 +277,8 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 	if err != nil {
 		return nil, err
 	}
-	version, err := client.Version(context.Background())
-	if err == nil && version == ghostline.ProtocolVersion {
+	version, versionErr := client.Version(context.Background())
+	if versionErr == nil && version == ghostline.ProtocolVersion {
 		return client, nil
 	}
 	// The server process predates this daemon's protocol (or reports an older
@@ -285,14 +286,23 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 	// every session and the old process exits, so children keep running. If
 	// that fails, keep serving from the old process: the RFC's failure
 	// contract is that an adoption failure loses nothing.
-	logger.Warn("ghostline server protocol mismatch; upgrading server",
-		"reported", version, "want", ghostline.ProtocolVersion, "error", err)
-	upgraded, upgradeErr := rollingUpgradeGhostlineClient(socketPath, outputDir, logger)
+	trigger := ghostlineUpgradeTrigger(versionErr)
+	upgradeArgs := []any{
+		"from_version", version,
+		"to_version", ghostline.ProtocolVersion,
+		"trigger", trigger,
+	}
+	if versionErr != nil {
+		upgradeArgs = append(upgradeArgs, "version_error", versionErr)
+	}
+	logger.Warn("ghostline server protocol mismatch; upgrading server", upgradeArgs...)
+	upgraded, upgradeErr := rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, logger, version, versionErr)
 	if upgradeErr == nil {
 		return upgraded, nil
 	}
 	logger.Warn("ghostline rolling upgrade failed; keeping current server",
-		"error", upgradeErr, "reported", version)
+		"from_version", version, "to_version", ghostline.ProtocolVersion,
+		"trigger", trigger, "error", upgradeErr)
 	return client, nil
 }
 
@@ -301,14 +311,11 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 // socket path at the new server with a symlink. The old server exits itself
 // after adoption, so its children survive the upgrade.
 func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*ghostline.Client, error) {
+	return rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, logger, "", nil)
+}
+
+func rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir string, logger *slog.Logger, fromVersion string, versionErr error) (upgraded *ghostline.Client, returnErr error) {
 	adminSocket := socketPath + ".admin"
-	if !ghostline.Ping(adminSocket) {
-		return nil, fmt.Errorf("old server has no admin socket at %s", adminSocket)
-	}
-	nextSocket := filepath.Join(
-		filepath.Dir(socketPath),
-		fmt.Sprintf("ghostline-%d.sock", time.Now().UnixNano()),
-	)
 	logFile, err := os.OpenFile(
 		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
@@ -317,7 +324,26 @@ func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Lo
 	if err != nil {
 		return nil, fmt.Errorf("open ghostline log: %w", err)
 	}
-	defer logFile.Close()
+	defer func() {
+		if returnErr != nil {
+			if err := writeGhostlineUpgradeLog(logFile, "failed", fromVersion, ghostline.ProtocolVersion, ghostlineUpgradeTrigger(versionErr), returnErr); err != nil {
+				logger.Warn("unable to write ghostline upgrade failure log", "error", err)
+			}
+		}
+		if err := logFile.Close(); err != nil {
+			logger.Warn("unable to close ghostline log", "error", err)
+		}
+	}()
+	if err := writeGhostlineUpgradeLog(logFile, "start", fromVersion, ghostline.ProtocolVersion, ghostlineUpgradeTrigger(versionErr), versionErr); err != nil {
+		logger.Warn("unable to write ghostline upgrade start log", "error", err)
+	}
+	if !ghostline.Ping(adminSocket) {
+		return nil, fmt.Errorf("old server has no admin socket at %s", adminSocket)
+	}
+	nextSocket := filepath.Join(
+		filepath.Dir(socketPath),
+		fmt.Sprintf("ghostline-%d.sock", time.Now().UnixNano()),
+	)
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("resolve daemon executable: %w", err)
@@ -363,8 +389,29 @@ func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Lo
 			logger.Warn("unable to record upgraded server pid", "path", pidPath, "error", err)
 		}
 	}
-	logger.Info("ghostline server upgraded in place", "socket", socketPath, "server", nextSocket)
+	if err := writeGhostlineUpgradeLog(logFile, "complete", fromVersion, ghostline.ProtocolVersion, ghostlineUpgradeTrigger(versionErr), nil); err != nil {
+		logger.Warn("unable to write ghostline upgrade completion log", "error", err)
+	}
+	logger.Info("ghostline server upgraded in place",
+		"from_version", fromVersion, "to_version", ghostline.ProtocolVersion,
+		"socket", socketPath, "server", nextSocket)
 	return client, nil
+}
+
+func ghostlineUpgradeTrigger(versionErr error) string {
+	if versionErr != nil {
+		return "version_query_failed"
+	}
+	return "protocol_mismatch"
+}
+
+func writeGhostlineUpgradeLog(w io.Writer, phase, fromVersion, toVersion, trigger string, upgradeErr error) error {
+	if upgradeErr != nil {
+		_, err := fmt.Fprintf(w, "ghostline upgrade phase=%s from_version=%q to_version=%q trigger=%q error=%q\n", phase, fromVersion, toVersion, trigger, upgradeErr)
+		return err
+	}
+	_, err := fmt.Fprintf(w, "ghostline upgrade phase=%s from_version=%q to_version=%q trigger=%q\n", phase, fromVersion, toVersion, trigger)
+	return err
 }
 
 // waitForGhostlineExit waits for the old server's admin socket to disappear.
