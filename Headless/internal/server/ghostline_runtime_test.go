@@ -100,7 +100,7 @@ func TestGhostlineRuntimeClearsInheritedNoColor(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	runtime, _ := startGhostlineRuntime(t)
 	ctx := context.Background()
-	if err := runtime.Create(ctx, "warren_ghost_color", t.TempDir(), "sh"); err != nil {
+	if err := runtime.Create(ctx, "warren_ghost_color", t.TempDir(), "sh", nil); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if err := runtime.Input(ctx, "warren_ghost_color", []byte("echo NO_COLOR=[$NO_COLOR]\r")); err != nil {
