@@ -248,9 +248,11 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                 label: "Web",
                 hint: webStatus.tunnelRunning
                     ? "Public sharing is on"
-                    : "Web is stopped",
+                    : (webStatus.isRunning ? "Web is running" : "Web is stopped"),
                 action: onWeb,
-                tint: webStatus.tunnelRunning ? .green : nil
+                tint: webStatus.tunnelRunning
+                    ? .green
+                    : (webStatus.isRunning ? .blue : nil)
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",
@@ -293,11 +295,12 @@ private struct WarrenDesktopEndpointControl: View {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: "server.rack")
                     .font(.system(size: 13, weight: .medium))
+                    .padding(.top, 2)
+                    .padding(.trailing, 2)
                     .accessibilityHidden(true)
                 Circle()
                     .fill(isConnected ? Color.green : Color.orange)
-                    .frame(width: 7, height: 7)
-                    .offset(x: 3, y: -3)
+                    .frame(width: 6, height: 6)
                     .accessibilityHidden(true)
             }
         }
