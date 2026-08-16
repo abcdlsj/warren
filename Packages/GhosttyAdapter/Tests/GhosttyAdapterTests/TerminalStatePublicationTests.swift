@@ -90,4 +90,38 @@ final class TerminalStatePublicationTests: XCTestCase {
         XCTAssertFalse(state.isFocused)
         XCTAssertEqual(counter.value, 1)
     }
+
+    func testTitleAndWorkingDirectoryPublishAfterMainActorHop() async throws {
+        let state = TerminalViewState()
+        let counter = Counter()
+        var cancellables: Set<AnyCancellable> = []
+        state.objectWillChange.sink { counter.value += 1 }.store(in: &cancellables)
+
+        state.terminalDidChangeTitle("codex")
+        state.terminalDidChangeWorkingDirectory("/tmp")
+        XCTAssertEqual(
+            state.title,
+            "",
+            "title must not publish synchronously inside a view update"
+        )
+        XCTAssertNil(
+            state.workingDirectory,
+            "working directory must not publish synchronously inside a view update"
+        )
+
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(state.title, "codex")
+        XCTAssertEqual(state.workingDirectory, "/tmp")
+        XCTAssertEqual(counter.value, 2)
+
+        counter.value = 0
+        state.terminalDidChangeTitle("codex")
+        state.terminalDidChangeWorkingDirectory("/tmp")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(
+            counter.value,
+            0,
+            "identical title/working-directory values must not republish"
+        )
+    }
 }

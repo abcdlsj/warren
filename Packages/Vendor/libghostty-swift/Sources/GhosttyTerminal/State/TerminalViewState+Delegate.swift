@@ -21,7 +21,14 @@ extension TerminalViewState:
     TerminalSurfaceOpenURLDelegate
 {
     public func terminalDidChangeTitle(_ title: String) {
-        self.title = title
+        // Ghostty callbacks run synchronously on the main thread, including
+        // during NSViewRepresentable updates when a surface is (re)created.
+        // Any @Published write here would publish from inside a SwiftUI view
+        // update; defer like the resize/focus writes.
+        Task { @MainActor [weak self] in
+            guard let self, self.title != title else { return }
+            self.title = title
+        }
     }
 
     public func terminalDidResize(_ size: TerminalGridMetrics) {
@@ -52,23 +59,35 @@ extension TerminalViewState:
     }
 
     public func terminalDidRingBell() {
-        bellCount += 1
-        lastBellAt = Date()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.bellCount += 1
+            self.lastBellAt = Date()
+        }
     }
 
     public func terminalDidRequestDesktopNotification(title: String, body: String) {
-        lastDesktopNotificationTitle = title
-        lastDesktopNotificationBody = body
-        lastDesktopNotificationAt = Date()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.lastDesktopNotificationTitle = title
+            self.lastDesktopNotificationBody = body
+            self.lastDesktopNotificationAt = Date()
+        }
     }
 
     public func terminalDidChangeWorkingDirectory(_ path: String) {
-        workingDirectory = path
+        Task { @MainActor [weak self] in
+            guard let self, self.workingDirectory != path else { return }
+            self.workingDirectory = path
+        }
     }
 
     public func terminalDidFinishCommand(exitCode: Int?, durationNanos: UInt64) {
-        lastCommandExitCode = exitCode
-        lastCommandDurationNanos = durationNanos
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.lastCommandExitCode = exitCode
+            self.lastCommandDurationNanos = durationNanos
+        }
     }
 
     public func terminalDidRequestOpenURL(_ url: String, kind: TerminalOpenURLKind) {
