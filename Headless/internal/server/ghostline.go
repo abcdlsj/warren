@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/abcdlsj/ghostline"
 )
@@ -27,14 +29,28 @@ func (r *GhostlineRuntime) Check(ctx context.Context) error {
 }
 
 func (r *GhostlineRuntime) Create(ctx context.Context, name, directory, command string, env []string) error {
+	// The PTY always starts an interactive login shell and the requested
+	// command is typed into it, so quitting an agent TUI leaves a usable
+	// terminal behind. TERM is pinned to a color-capable terminal and
+	// NO_COLOR is cleared regardless of the daemon's own environment,
+	// otherwise agents silently drop colors.
+	sessionEnv := []string{"TERM=xterm-256color", "NO_COLOR="}
+	sessionEnv = append(sessionEnv, env...)
 	session, err := r.client.Start(ctx, ghostline.SessionOptions{
 		Name:        name,
 		Directory:   directory,
-		Command:     command,
-		Environment: env,
+		Command:     "",
+		Environment: sessionEnv,
 	})
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(command) != "" {
+		// Give the login shell a beat to start, then type the command.
+		time.Sleep(400 * time.Millisecond)
+		if err := session.Input(ctx, []byte(command+"\r")); err != nil {
+			return fmt.Errorf("type session command: %w", err)
+		}
 	}
 	r.mu.Lock()
 	r.sessions[name] = session
@@ -156,4 +172,13 @@ func (r *GhostlineRuntime) Recover(ctx context.Context, name string, offset, end
 		return nil, fmt.Errorf("ghostline session not found: %s", name)
 	}
 	return session.Recover(ctx, offset, end)
+}
+
+func (r *GhostlineRuntime) ListCreated(ctx context.Context) (map[string]time.Time, error) {
+	sessions := r.client.Sessions()
+	result := make(map[string]time.Time, len(sessions))
+	for _, session := range sessions {
+		result[session.Name()] = session.CreatedAt()
+	}
+	return result, nil
 }
