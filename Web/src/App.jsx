@@ -408,18 +408,6 @@ export default function App() {
     });
   }, [focusTerminal, refreshTerminal, scheduleTerminalFit]);
 
-  const toggleAgentView = useCallback(view => {
-    setAgentViewOverride(view);
-    if (view !== "terminal") return;
-    // Re-entering the terminal after a chat view must reclaim the shared PTY
-    // geometry right away: touch devices keep protocol focus while viewing,
-    // and desktop needs DOM focus back once the hidden terminal is visible.
-    requestAnimationFrame(() => {
-      if (isCoarsePointer()) requestSessionFocus(true);
-      else focusTerminal();
-    });
-  }, [focusTerminal, requestSessionFocus]);
-
   const scheduleRemoteResize = useCallback(size => {
     pendingTerminalSizeRef.current = size;
     if (resizeTimerRef.current !== null) return;
@@ -461,6 +449,18 @@ export default function App() {
     focusedSessionRef.current = focused ? sessionID : null;
     return true;
   }, [request]);
+
+  const toggleAgentView = useCallback(view => {
+    setAgentViewOverride(view);
+    if (view !== "terminal") return;
+    // Re-entering the terminal after a chat view must reclaim the shared PTY
+    // geometry right away: touch devices keep protocol focus while viewing,
+    // and desktop needs DOM focus back once the hidden terminal is visible.
+    requestAnimationFrame(() => {
+      if (isCoarsePointer()) requestSessionFocus(true);
+      else focusTerminal();
+    });
+  }, [focusTerminal, requestSessionFocus]);
 
   const attachSession = useCallback((sessionID, force = false, autoFocus = true, explicit = true) => {
     if (!sessionID) return;
