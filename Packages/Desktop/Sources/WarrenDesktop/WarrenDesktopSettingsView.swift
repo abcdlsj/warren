@@ -7,6 +7,8 @@ import WarrenDomain
 /// a page-headed detail column (`max-w-5xl`) on the right.
 struct WarrenDesktopSettingsView: View {
     let onBack: () -> Void
+    let defaultRuntime: String?
+    let onSetRuntime: (String) -> Void
 
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var titleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
@@ -21,6 +23,7 @@ struct WarrenDesktopSettingsView: View {
     private enum SettingsSection: String, CaseIterable, Identifiable {
         case terminalFont = "Font"
         case terminalTitle = "Title"
+        case terminalRuntime = "Terminal runtime"
         case webSharing = "Web sharing"
 
         var id: String { rawValue }
@@ -29,6 +32,7 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: "terminal"
             case .terminalTitle: "textformat"
+            case .terminalRuntime: "cpu"
             case .webSharing: "globe"
             }
         }
@@ -37,6 +41,7 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: "Applied to every terminal surface."
             case .terminalTitle: "Build a title from live Session metadata."
+            case .terminalRuntime: "Engine that owns new sessions on the headless daemon."
             case .webSharing: "Publish the Web UI to the public internet."
             }
         }
@@ -45,6 +50,7 @@ struct WarrenDesktopSettingsView: View {
             switch self {
             case .terminalFont: [rawValue, detail, "font", "family", "size", "typography"]
             case .terminalTitle: [rawValue, detail, "title", "template", "placeholder", "preview"]
+            case .terminalRuntime: [rawValue, detail, "ghostline", "tmux", "runtime", "engine", "session", "headless"]
             case .webSharing: [rawValue, detail, "gnar", "share", "public", "tunnel", "internet"]
             }
         }
@@ -52,6 +58,7 @@ struct WarrenDesktopSettingsView: View {
         var isTerminalSection: Bool {
             switch self {
             case .terminalFont, .terminalTitle: true
+            case .terminalRuntime: true
             case .webSharing: false
             }
         }
@@ -248,6 +255,8 @@ struct WarrenDesktopSettingsView: View {
                     terminalFontSection(tokens: tokens)
                 case .terminalTitle:
                     terminalTitleSection(tokens: tokens)
+                case .terminalRuntime:
+                    terminalRuntimeSection(tokens: tokens)
                 case .webSharing:
                     webSharingSection(tokens: tokens)
                 }
@@ -343,6 +352,54 @@ struct WarrenDesktopSettingsView: View {
             Text(
                 "Publishes this Mac's Web UI through the gnar tunnel installed "
                     + "and signed in on this Mac. Run `gnar login --edge <url>` first."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var runtimeSelection: Binding<String> {
+        Binding(
+            get: { defaultRuntime ?? "ghostline" },
+            set: { onSetRuntime($0) }
+        )
+    }
+
+    private func terminalRuntimeSection(tokens: WarrenColorTokens) -> some View {
+        settingsSection("Terminal runtime", section: .terminalRuntime, tokens: tokens) {
+            Picker("Default runtime", selection: runtimeSelection) {
+                Text("ghostline (recommended)").tag("ghostline")
+                Text("tmux").tag("tmux")
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("settings.terminal-runtime.picker")
+
+            Text(
+                "This is a headless-daemon setting: the Desktop and Web are "
+                    + "only clients, and sessions keep the engine they were "
+                    + "created with. Changing the default affects newly "
+                    + "created sessions only."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text("ghostline (recommended)").font(WarrenTypography.body).foregroundStyle(tokens.foreground)
+            Text(
+                "Server-side libghostty-vt snapshots match the client exactly; "
+                    + "a detached server keeps sessions alive across daemon "
+                    + "upgrades; input reaches the PTY verbatim."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Text("tmux").font(WarrenTypography.body).foregroundStyle(tokens.foreground)
+            Text(
+                "Mature and battle-tested, but adds a middle layer that "
+                    + "re-parses and re-renders output, translates input keys, "
+                    + "and can misalign colored history on replay."
             )
             .font(WarrenTypography.supporting)
             .foregroundStyle(tokens.mutedForeground)

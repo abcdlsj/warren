@@ -29,6 +29,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private let onWebStop: () -> Void
     private let onWebOpenURL: (URL) -> Void
     private let onWebCopyURL: (URL) -> Void
+    private let defaultRuntime: String?
+    private let onSetRuntime: (String) -> Void
     @State private var sidebarState: WarrenDesktopSidebarState
     @State private var sidebarTree: WarrenDesktopSidebarTreeState
     @State private var inspectorVisible: Bool
@@ -71,6 +73,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         onWebStop: @escaping () -> Void = {},
         onWebOpenURL: @escaping (URL) -> Void = { _ in },
         onWebCopyURL: @escaping (URL) -> Void = { _ in },
+        defaultRuntime: String? = nil,
+        onSetRuntime: @escaping (String) -> Void = { _ in },
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
         self.projection = projection
@@ -86,6 +90,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.onWebStop = onWebStop
         self.onWebOpenURL = onWebOpenURL
         self.onWebCopyURL = onWebCopyURL
+        self.defaultRuntime = defaultRuntime
+        self.onSetRuntime = onSetRuntime
         _sidebarState = State(initialValue: Self.restoredSidebarState())
         _sidebarTree = State(initialValue: Self.restoredSidebarTree(scope: selectedEndpointID))
         _inspectorVisible = State(initialValue: projection.inspector != nil)
@@ -228,7 +234,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             .accessibilityHidden(settingsPresented)
 
             if settingsPresented {
-                WarrenDesktopSettingsView(onBack: closeSettings)
+                WarrenDesktopSettingsView(
+                    onBack: closeSettings,
+                    defaultRuntime: defaultRuntime,
+                    onSetRuntime: onSetRuntime
+                )
                     .transition(.opacity)
             }
         }

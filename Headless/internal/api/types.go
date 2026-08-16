@@ -50,6 +50,7 @@ type Session struct {
 	Kind        string     `json:"kind"`
 	Command     string     `json:"command,omitempty"`
 	Runtime     string     `json:"runtime"`
+	RuntimeKind string     `json:"runtimeKind,omitempty"`
 	Lifecycle   string     `json:"lifecycle"`
 	Epoch       uint64     `json:"epoch,omitempty"`
 	Sequence    uint64     `json:"sequence,omitempty"`

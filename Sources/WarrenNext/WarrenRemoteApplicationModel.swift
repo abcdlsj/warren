@@ -426,6 +426,9 @@ final class WarrenRemoteApplicationModel {
     private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
+    /// Default engine for new sessions, owned by the headless daemon.
+    private(set) var defaultRuntime: String?
+    @ObservationIgnored private var runtimeSettingsLoaded = false
     /// Set while the daemon has announced an operator-initiated maintenance
     /// window (for example an app install that restarts the daemon). Clients
     /// show an update state instead of treating the disconnect as a failure.
@@ -458,6 +461,8 @@ final class WarrenRemoteApplicationModel {
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
         endpointConfiguration = configuration
+        runtimeSettingsLoaded = false
+        defaultRuntime = nil
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
            let url = URL(string: "http://127.0.0.1:8789/#t=\(configuration.token)") {
@@ -585,6 +590,37 @@ final class WarrenRemoteApplicationModel {
             "name": creation.displayName,
             "path": creation.path,
         ])
+    }
+
+    /// Loads the headless daemon's default runtime. Runtime selection is a
+    /// headless-side decision; the Desktop only reflects and changes it.
+    func loadRuntimeSettings() {
+        guard !runtimeSettingsLoaded, let wire else { return }
+        runtimeSettingsLoaded = true
+        Task { @MainActor [weak self] in
+            do {
+                let data = try await wire.request("settings.get")
+                guard let self,
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let result = object["result"] as? [String: Any],
+                      let kind = result["defaultRuntime"] as? String else { return }
+                self.defaultRuntime = kind
+            } catch {
+                // Settings are not critical; the picker keeps its default.
+            }
+        }
+    }
+
+    func setDefaultRuntime(_ kind: String) {
+        guard let wire else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("settings.put", params: ["defaultRuntime": kind])
+                self?.defaultRuntime = kind
+            } catch {
+                self?.present(error)
+            }
+        }
     }
 
     func createSession(workspaceID: WorkspaceID, request launch: TerminalSessionLaunchRequest) {
@@ -1133,6 +1169,7 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func apply(_ roster: RemoteRoster) {
+        loadRuntimeSettings()
         clearMaintenance()
         guard let hostID = HostID(uuidString: roster.host.id) else { return }
         let host = WarrenDomain.Host(id: hostID, name: roster.host.name)

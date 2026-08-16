@@ -43,7 +43,9 @@ struct WarrenNextCompositionRoot: View {
             onWebStart: { remoteModel.startWebFromUI() },
             onWebStop: { remoteModel.stopWeb() },
             onWebOpenURL: { remoteModel.openWebURL($0) },
-            onWebCopyURL: { remoteModel.copyWebURL($0) }
+            onWebCopyURL: { remoteModel.copyWebURL($0) },
+            defaultRuntime: remoteModel.defaultRuntime,
+            onSetRuntime: { remoteModel.setDefaultRuntime($0) }
         ) { context in
             WarrenNextTerminalSurfaceView(
                 context: context,

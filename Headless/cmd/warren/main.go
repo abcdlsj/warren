@@ -605,6 +605,13 @@ func normalizedParams(values map[string]any, resource, action string) map[string
 			result[key] = value
 		}
 	}
+	if action == "create" && resource == "session" {
+		// The daemon reads runtimeKind; the CLI flag uses kebab-case.
+		if value, ok := result["runtime-kind"]; ok {
+			result["runtimeKind"] = value
+			delete(result, "runtime-kind")
+		}
+	}
 	positions := positionals(values)
 	if len(positions) > 0 {
 		if action == "add" && resource == "project" {

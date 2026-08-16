@@ -126,6 +126,9 @@ verbatim, so there is no tmux paste-vs-key translation and kitty-protocol keys
 The tmux adapter (`--runtime tmux`) is a fully supported alternative runtime;
 ghostline remains the default and recommended choice.
 
+See [docs/runtime.md](../docs/runtime.md) for the full comparison, how to
+switch the default, and why sessions keep the engine they were created with.
+
 Known limits:
 
 - A ghostline server restart still ends its sessions (the server process owns

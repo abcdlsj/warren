@@ -136,6 +136,8 @@ func (s *HTTPServer) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)
 	mux.HandleFunc("GET /v1/ws", s.handleWebSocket)
+	mux.HandleFunc("GET /v1/settings", s.handleSettings)
+	mux.HandleFunc("PUT /v1/settings", s.handleSettings)
 	mux.HandleFunc("POST /v1/maintenance", s.handleMaintenance)
 	mux.HandleFunc("GET /v1/tunnels", s.handleTunnels)
 	mux.HandleFunc("POST /v1/tunnels/start", s.handleTunnelStart)
@@ -230,6 +232,40 @@ func (s *HTTPServer) handleState(writer http.ResponseWriter, request *http.Reque
 	}
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(s.Service.Roster(request.Context()))
+}
+
+// handleSettings reads or updates headless daemon settings. Runtime selection
+// is a headless-side decision: the default engine only affects sessions
+// created afterwards; existing sessions keep their own runtime.
+func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Request) {
+	if !s.authorized(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")) {
+		http.Error(writer, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	switch request.Method {
+	case http.MethodGet:
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"defaultRuntime": s.Service.DefaultRuntime,
+		})
+	case http.MethodPut:
+		var body struct {
+			DefaultRuntime string `json:"defaultRuntime"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
+			http.Error(writer, "invalid settings", http.StatusBadRequest)
+			return
+		}
+		if err := s.Service.SetDefaultRuntime(body.DefaultRuntime); err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"defaultRuntime": s.Service.DefaultRuntime,
+		})
+	default:
+		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *HTTPServer) handleTunnels(writer http.ResponseWriter, request *http.Request) {
@@ -631,6 +667,17 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	switch command.Method {
 	case "roster":
 		return p.writeResult(command.ID, p.server.Service.Roster(ctx))
+	case "settings.get":
+		return p.writeResult(command.ID, map[string]any{
+			"defaultRuntime": p.server.Service.DefaultRuntime,
+		})
+	case "settings.put":
+		if err := p.server.Service.SetDefaultRuntime(stringParam(params, "defaultRuntime")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]any{
+			"defaultRuntime": p.server.Service.DefaultRuntime,
+		})
 	case "project.add":
 		value, err := p.server.Service.AddProject(stringParam(params, "path"), stringParam(params, "name"))
 		if err != nil {
@@ -693,7 +740,14 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		}
 		return p.writeResult(command.ID, map[string]bool{"moved": true})
 	case "session.create":
-		value, err := p.server.Service.CreateSession(ctx, stringParam(params, "workspace"), stringParam(params, "command"), stringParam(params, "kind"), stringParam(params, "title"))
+		value, err := p.server.Service.CreateSession(
+			ctx,
+			stringParam(params, "workspace"),
+			stringParam(params, "command"),
+			stringParam(params, "kind"),
+			stringParam(params, "title"),
+			stringParam(params, "runtimeKind"),
+		)
 		if err != nil {
 			return err
 		}
@@ -768,7 +822,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		// width Ghostty will replay it. If another endpoint owns focus, leave
 		// the runtime alone and let that endpoint's focus handoff resize later.
 		if specified && focusSpecified && !focused && !p.server.Service.hasFocusedPeer(session.ID) {
-			if err := p.server.Service.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+			if err := p.server.Service.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
 				lock.Unlock()
 				resume()
 				p.detach()
@@ -883,7 +937,7 @@ func (p *wsPeer) input(ctx context.Context, data []byte) error {
 		}
 		payload = decoded
 	}
-	if err := p.server.Service.Runtime.Input(ctx, p.attached.Runtime, payload); err != nil {
+	if err := p.server.Service.runtimeFor(*p.attached).Input(ctx, p.attached.Runtime, payload); err != nil {
 		return err
 	}
 	p.server.Service.PingOutput(p.attached.ID)

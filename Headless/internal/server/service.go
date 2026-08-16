@@ -16,6 +16,7 @@ import (
 	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
+	"github.com/abcdlsj/warren/Headless/internal/settings"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
 
@@ -33,8 +34,17 @@ const (
 )
 
 type Service struct {
-	Store         *store.Store
-	Runtime       Runtime
+	Store *store.Store
+	// Runtime is the adapter for DefaultRuntime, kept for compatibility with
+	// existing construction sites and tests.
+	Runtime Runtime
+	// Runtimes maps runtime kind ("ghostline", "tmux") to its adapter.
+	Runtimes map[string]Runtime
+	// DefaultRuntime is the engine used for sessions created without an
+	// explicit kind.
+	DefaultRuntime string
+	// SettingsPath persists DefaultRuntime changes made over the API.
+	SettingsPath  string
 	WorktreeRoot  string
 	MaxSpoolBytes int64
 	RingCapacity  int
@@ -59,6 +69,7 @@ type outputSession struct {
 	mu                sync.Mutex
 	sessionID         string
 	runtimeName       string
+	runtimeKind       string
 	ring              *output.Ring
 	watcher           *ghostline.SpoolWatcher
 	responder         *ghostline.QueryResponder
@@ -97,8 +108,32 @@ type OutputRuntime interface {
 	RemoveSpool(string)
 }
 
-func (s *Service) outputAdapter() OutputRuntime {
-	adapter, _ := s.Runtime.(OutputRuntime)
+// runtimeKindFor resolves the engine for a session, falling back to the
+// daemon default. Runtime selection is a headless-side decision.
+func (s *Service) runtimeKindFor(session api.Session) string {
+	if session.RuntimeKind != "" {
+		return session.RuntimeKind
+	}
+	if s.DefaultRuntime != "" {
+		return s.DefaultRuntime
+	}
+	return settings.DefaultRuntimeKind
+}
+
+// runtimeFor resolves the adapter that owns a session.
+func (s *Service) runtimeFor(session api.Session) Runtime {
+	return s.runtimeForKind(s.runtimeKindFor(session))
+}
+
+func (s *Service) runtimeForKind(kind string) Runtime {
+	if adapter := s.Runtimes[kind]; adapter != nil {
+		return adapter
+	}
+	return s.Runtime
+}
+
+func (s *Service) outputAdapterFor(session api.Session) OutputRuntime {
+	adapter, _ := s.runtimeFor(session).(OutputRuntime)
 	return adapter
 }
 
@@ -179,7 +214,7 @@ func (s *Service) reconcile(ctx context.Context) {
 			s.stopOutput(session.ID, false)
 			continue
 		}
-		if !running(session.Runtime) {
+		if !running(session) {
 			s.markEnded(session.ID)
 			continue
 		}
@@ -193,15 +228,28 @@ func (s *Service) reconcile(ctx context.Context) {
 // state reset, so the daemon must own their cleanup instead of leaking tmux
 // processes indefinitely.
 func (s *Service) reapOrphans(ctx context.Context) {
-	adapter, ok := s.Runtime.(RuntimeCreatedLister)
-	if !ok {
-		return
-	}
 	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	created, err := adapter.ListCreated(probeContext)
-	if err != nil {
-		return
+	createdByRuntime := make(map[string]map[string]time.Time)
+	for kind, adapter := range s.Runtimes {
+		lister, ok := adapter.(RuntimeCreatedLister)
+		if !ok {
+			continue
+		}
+		created, err := lister.ListCreated(probeContext)
+		if err != nil {
+			continue
+		}
+		createdByRuntime[kind] = created
+	}
+	if len(createdByRuntime) == 0 && s.Runtime != nil {
+		// Compatibility path: constructions that only set Runtime manage a
+		// single engine under the empty kind.
+		if lister, ok := s.Runtime.(RuntimeCreatedLister); ok {
+			if created, err := lister.ListCreated(probeContext); err == nil {
+				createdByRuntime[""] = created
+			}
+		}
 	}
 	managed := make(map[string]bool)
 	for _, session := range s.Store.Snapshot().Sessions {
@@ -210,15 +258,21 @@ func (s *Service) reapOrphans(ctx context.Context) {
 		}
 	}
 	now := time.Now()
-	for name, createdAt := range created {
-		if managed[name] || !isWarrenRuntimeName(name) || now.Sub(createdAt) < orphanReapGrace {
-			continue
+	for kind, created := range createdByRuntime {
+		adapter := s.Runtimes[kind]
+		if adapter == nil {
+			adapter = s.Runtime
 		}
-		if err := s.Runtime.Kill(probeContext, name); err != nil {
-			continue
-		}
-		if output := s.outputAdapter(); output != nil {
-			output.RemoveSpool(name)
+		for name, createdAt := range created {
+			if managed[name] || !isWarrenRuntimeName(name) || now.Sub(createdAt) < orphanReapGrace {
+				continue
+			}
+			if err := adapter.Kill(probeContext, name); err != nil {
+				continue
+			}
+			if output, ok := adapter.(OutputRuntime); ok {
+				output.RemoveSpool(name)
+			}
 		}
 	}
 }
@@ -246,7 +300,7 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	defer cancel()
 	running := s.runningSessions(probeContext)
 	for i := range state.Sessions {
-		if state.Sessions[i].Lifecycle == "running" && !running(state.Sessions[i].Runtime) {
+		if state.Sessions[i].Lifecycle == "running" && !running(state.Sessions[i]) {
 			state.Sessions[i].Lifecycle = "ended"
 			state.Sessions[i].EndedAt = &now
 			changed = true
@@ -317,13 +371,32 @@ func sortWorkspaces(workspaces []api.Workspace) {
 	})
 }
 
-func (s *Service) runningSessions(ctx context.Context) func(string) bool {
-	if runtimeAdapter, ok := s.Runtime.(RuntimeLister); ok {
-		if sessions, err := runtimeAdapter.List(ctx); err == nil {
-			return func(name string) bool { return sessions[name] }
+func (s *Service) runningSessions(ctx context.Context) func(api.Session) bool {
+	lists := make(map[string]map[string]bool)
+	for kind, adapter := range s.Runtimes {
+		if lister, ok := adapter.(RuntimeLister); ok {
+			if sessions, err := lister.List(ctx); err == nil {
+				lists[kind] = sessions
+			}
 		}
 	}
-	return func(name string) bool { return s.Runtime.Exists(ctx, name) }
+	if len(lists) == 0 && s.Runtime != nil {
+		if lister, ok := s.Runtime.(RuntimeLister); ok {
+			if sessions, err := lister.List(ctx); err == nil {
+				lists[""] = sessions
+			}
+		}
+	}
+	return func(session api.Session) bool {
+		kind := s.runtimeKindFor(session)
+		if _, ok := lists[kind]; !ok {
+			kind = ""
+		}
+		if sessions := lists[kind]; sessions != nil {
+			return sessions[session.Runtime]
+		}
+		return s.runtimeFor(session).Exists(ctx, session.Runtime)
+	}
 }
 
 func (s *Service) AddProject(path, name string) (api.Project, error) {
@@ -736,7 +809,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 	})
 }
 
-func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title string) (api.Session, error) {
+func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
 	state := s.Store.Snapshot()
 	var workspace *api.Workspace
 	for i := range state.Workspaces {
@@ -762,26 +835,56 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	if title == "" {
 		title = strings.Fields(command)[0]
 	}
-	if err := s.Runtime.Create(ctx, runtimeName, workspace.Path, command); err != nil {
+	sessionKind := runtimeKind
+	if sessionKind == "" {
+		sessionKind = s.DefaultRuntime
+	}
+	if sessionKind == "" {
+		sessionKind = settings.DefaultRuntimeKind
+	}
+	adapter := s.runtimeFor(api.Session{RuntimeKind: sessionKind})
+	if adapter == nil {
+		return api.Session{}, fmt.Errorf("runtime %q is not available", sessionKind)
+	}
+	if err := adapter.Create(ctx, runtimeName, workspace.Path, command); err != nil {
 		return api.Session{}, err
 	}
-	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, CustomTitle: customTitle, Kind: kind, Command: command, Runtime: runtimeName, Lifecycle: "running", CreatedAt: time.Now().UTC()}
+	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, CustomTitle: customTitle, Kind: kind, Command: command, Runtime: runtimeName, RuntimeKind: sessionKind, Lifecycle: "running", CreatedAt: time.Now().UTC()}
 	if err := s.Store.Update(func(value *api.State) error { value.Sessions = append(value.Sessions, session); return nil }); err != nil {
-		_ = s.Runtime.Kill(ctx, runtimeName)
+		_ = adapter.Kill(ctx, runtimeName)
 		return api.Session{}, err
 	}
 	if _, err := s.ensureOutput(ctx, session); err != nil {
-		_ = s.Runtime.Kill(ctx, runtimeName)
+		_ = adapter.Kill(ctx, runtimeName)
 		_ = s.Store.Update(func(value *api.State) error {
 			value.Sessions = filter(value.Sessions, func(item api.Session) bool { return item.ID != id })
 			return nil
 		})
-		if adapter := s.outputAdapter(); adapter != nil {
-			adapter.RemoveSpool(runtimeName)
+		if output := s.outputAdapterFor(session); output != nil {
+			output.RemoveSpool(runtimeName)
 		}
 		return api.Session{}, err
 	}
 	return session, nil
+}
+
+// SetDefaultRuntime changes the engine used for newly created sessions and
+// persists the choice when a settings file is configured. Existing sessions
+// keep their own runtimeKind.
+func (s *Service) SetDefaultRuntime(kind string) error {
+	switch kind {
+	case settings.RuntimeGhostline, settings.RuntimeTmux:
+	default:
+		return fmt.Errorf("unsupported runtime %q (supported: ghostline, tmux)", kind)
+	}
+	if s.Runtimes[kind] == nil && s.Runtime == nil {
+		return fmt.Errorf("runtime %q is not available on this host", kind)
+	}
+	s.DefaultRuntime = kind
+	if s.SettingsPath != "" {
+		return settings.Save(s.SettingsPath, settings.Settings{DefaultRuntime: kind})
+	}
+	return nil
 }
 
 func (s *Service) DeleteSession(ctx context.Context, id string) error {
@@ -801,12 +904,13 @@ func (s *Service) DeleteSession(ctx context.Context, id string) error {
 		return nil
 	}
 	// Only explicit Close Tab / Terminate Session reaches kill-session.
-	if err := s.Runtime.Kill(ctx, session.Runtime); err != nil {
+	adapter := s.runtimeFor(*session)
+	if err := adapter.Kill(ctx, session.Runtime); err != nil {
 		return err
 	}
 	s.stopOutput(id, true)
-	if adapter := s.outputAdapter(); adapter != nil {
-		adapter.RemoveSpool(session.Runtime)
+	if output := s.outputAdapterFor(*session); output != nil {
+		output.RemoveSpool(session.Runtime)
 	}
 	return s.Store.Update(func(value *api.State) error {
 		value.Sessions = filter(value.Sessions, func(item api.Session) bool { return item.ID != id })
@@ -826,10 +930,10 @@ func (s *Service) Session(id string) (api.Session, bool) {
 func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, workspaceID string) error {
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == workspaceID {
-			_ = s.Runtime.Kill(ctx, session.Runtime)
+			_ = s.runtimeFor(session).Kill(ctx, session.Runtime)
 			s.stopOutput(session.ID, true)
-			if adapter := s.outputAdapter(); adapter != nil {
-				adapter.RemoveSpool(session.Runtime)
+			if output := s.outputAdapterFor(session); output != nil {
+				output.RemoveSpool(session.Runtime)
 			}
 		}
 	}
@@ -848,10 +952,10 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	}
 	s.outputMu.Unlock()
 
-	adapter := s.outputAdapter()
+	adapter := s.outputAdapterFor(session)
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring, responder: ghostline.NewQueryResponder()}
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, runtimeKind: s.runtimeKindFor(session), ring: ring, responder: ghostline.NewQueryResponder()}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -873,6 +977,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	outputSession := &outputSession{
 		sessionID:         session.ID,
 		runtimeName:       session.Runtime,
+		runtimeKind:       s.runtimeKindFor(session),
 		responder:         ghostline.NewQueryResponder(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
@@ -958,7 +1063,7 @@ func (s *Service) recordOutput(sessionID string, data []byte) {
 		s.maybePersistCursor(sessionID, epoch, sequence)
 	}
 	for _, reply := range replies {
-		_ = s.Runtime.Input(context.Background(), outputSession.runtimeName, reply)
+		_ = s.runtimeForKind(outputSession.runtimeKind).Input(context.Background(), outputSession.runtimeName, reply)
 	}
 }
 
@@ -1103,8 +1208,8 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// Rendering those bytes as ordinary output avoids the screen reset and
 	// full replay that otherwise flashes black on every reattach.
 	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
-		if recoverer, ok := s.Runtime.(ghostline.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
-			adapter := s.outputAdapter()
+		if recoverer, ok := s.runtimeFor(session).(ghostline.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
+			adapter := s.outputAdapterFor(session)
 			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
 			if sizeErr == nil && anchor.Sequence <= uint64(size) {
 				data, recoverErr := recoverer.Recover(ctx, session.Runtime, int64(anchor.Sequence), size)
@@ -1143,7 +1248,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// advance their anchor until the synced marker arrives.
 	captureContext, cancelCapture := context.WithTimeout(ctx, s.commandTimeout())
 	defer cancelCapture()
-	snapshot, err := s.Runtime.Capture(captureContext, session.Runtime)
+	snapshot, err := s.runtimeFor(session).Capture(captureContext, session.Runtime)
 	if err != nil {
 		return err
 	}
@@ -1156,7 +1261,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 		// Skipping to len(snapshot) would overshoot the spool and make the
 		// watcher misread every attach as an in-place compaction. Measure the
 		// spool size before capturing and re-anchor the byte stream there.
-		adapter := s.outputAdapter()
+		adapter := s.outputAdapterFor(session)
 		size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
 		if sizeErr != nil {
 			return fmt.Errorf("read output spool size before reanchor: %w", sizeErr)
@@ -1257,7 +1362,7 @@ func (s *Service) focusPeerLocked(
 		return false, nil
 	}
 	if resizeSpecified {
-		if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+		if err := s.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
 			return false, err
 		}
 		s.updateResponderSize(session.ID, columns, rows)
@@ -1291,7 +1396,7 @@ func (s *Service) resizeFocusedLocked(
 	if !focused {
 		return false, nil
 	}
-	if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
+	if err := s.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
 		return false, err
 	}
 	s.updateResponderSize(session.ID, columns, rows)
@@ -1400,7 +1505,7 @@ func (s *Service) compactSpool(sessionID string) {
 	if session.ID == "" {
 		return
 	}
-	adapter := s.outputAdapter()
+	adapter := s.outputAdapterFor(session)
 	if adapter == nil {
 		return
 	}
@@ -1443,7 +1548,7 @@ func (s *Service) rotated(sessionID string) {
 
 	captureContext, cancelCapture := context.WithTimeout(context.Background(), s.commandTimeout())
 	defer cancelCapture()
-	snapshot, err := s.Runtime.Capture(captureContext, session.Runtime)
+	snapshot, err := s.runtimeFor(session).Capture(captureContext, session.Runtime)
 	if err != nil {
 		return
 	}
