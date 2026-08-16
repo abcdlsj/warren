@@ -132,9 +132,47 @@ struct WarrenCompositionRoot: View {
         .task {
             updateTerminalFont()
             restoreEndpointSelection()
+            if ProcessInfo.processInfo.environment["WARREN_REPRO_SWITCH_WORKSPACES"] == "1" {
+                Task { @MainActor in await runWorkspaceSwitchRepro() }
+            }
             await monitorEndpointConfiguration()
         }
         .onChange(of: selectedEndpointID) { _, _ in connectSelectedEndpoint() }
+    }
+
+    /// Environment-gated repro harness for the workspace-switch black pane.
+    /// Cycles through live workspaces exactly like sidebar clicks, so the
+    /// failure can be reproduced without Accessibility/UI scripting.
+    @MainActor
+    private func runWorkspaceSwitchRepro() async {
+        let rawInterval = ProcessInfo.processInfo.environment[
+            "WARREN_REPRO_SWITCH_INTERVAL"
+        ]
+        let interval = TimeInterval(rawInterval ?? "") ?? 1.5
+        try? await Task.sleep(for: .seconds(2))
+        var index = 0
+        while !Task.isCancelled {
+            let liveWorkspaceIDs = Set(
+                remoteModel.projection.sessions
+                    .filter { $0.state.isActive }
+                    .map(\.workspaceID)
+            )
+            let workspaces = remoteModel.projection.groups
+                .flatMap(\.workspaces)
+                .filter { liveWorkspaceIDs.contains($0.id) }
+            if workspaces.count >= 2 {
+                let workspace = workspaces[index % workspaces.count]
+                index += 1
+                TerminalDiagnostics.log("repro_select_workspace", [
+                    "workspace": workspace.id.description,
+                    "name": workspace.name,
+                    "index": String(index),
+                    "count": String(workspaces.count),
+                ])
+                remoteModel.perform(.selectWorkspace(workspace.id))
+            }
+            try? await Task.sleep(for: .seconds(interval))
+        }
     }
 
     private func updateTerminalFont() {
@@ -677,6 +715,10 @@ private struct WarrenTerminalSurfaceView: View {
             }
         }
         .onChange(of: context.tab.sessionID) { _, _ in
+            TerminalDiagnostics.log("terminal_tab_switch", [
+                "tab": context.tab.sessionID.map(\.description) ?? "nil",
+                "surfaces": String(surfaces.count),
+            ])
             for surface in surfaces { surface.endSearch() }
             searchQuery = ""
             searchPresented = false

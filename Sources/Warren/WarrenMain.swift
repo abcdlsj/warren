@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import GhosttyAdapter
 import WarrenDesktop
 
 enum WebCommand {
@@ -40,6 +41,10 @@ private extension NSWindow {
 enum WarrenMain {
     @MainActor
     static func main() {
+        TerminalDiagnostics.configure(
+            environment: ProcessInfo.processInfo.environment,
+            arguments: CommandLine.arguments
+        )
         guard let instanceLock = WarrenSingleInstanceLock() else {
             WarrenSingleInstanceLock.activateExistingApplication()
             return

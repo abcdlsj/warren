@@ -115,6 +115,9 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// anything; an explicit tick renders it without waiting for the next
     /// resize or keystroke.
     public func requestDisplayRefresh() {
+        TerminalDiagnostics.log("display_refresh", [
+            "session": id.description,
+        ])
         state.controller.tick()
     }
 
@@ -129,9 +132,26 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// view is mounted, so polling while unmounted stays free of render work.
     @discardableResult
     public func presentNow() -> Bool {
-        guard let raw = state.surface?.rawValue else { return false }
+        let size = state.surfaceSize.map {
+            "\($0.columns)x\($0.rows)"
+        } ?? "nil"
+        guard let raw = state.surface?.rawValue else {
+            TerminalDiagnostics.log("present_now", [
+                "session": id.description,
+                "result": "false",
+                "surfaceReady": "false",
+                "size": size,
+            ])
+            return false
+        }
         state.controller.tick()
         ghostty_surface_draw(raw)
+        TerminalDiagnostics.log("present_now", [
+            "session": id.description,
+            "result": "true",
+            "surfaceReady": "true",
+            "size": size,
+        ])
         return true
     }
 

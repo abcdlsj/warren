@@ -134,14 +134,24 @@ public struct GhosttyManagedSurface: View {
         // while unmounted), then a few delayed draws cover content that
         // arrives after the mount. Frame-rate drawing for seconds starves the
         // main actor and hangs the desktop.
+        TerminalDiagnostics.log("managed_present_start", [
+            "session": surface.id.description,
+            "active": isActive ? "true" : "false",
+        ])
         surface.requestDisplayRefresh()
         DispatchQueue.main.async { [weak surface] in
             surface?.requestDisplayRefresh()
         }
         Task { @MainActor [weak surface] in
             guard let surface else { return }
-            for _ in 0..<60 {
-                if surface.presentNow() {
+            for attempt in 0..<60 {
+                let drew = surface.presentNow()
+                TerminalDiagnostics.log("managed_present_attempt", [
+                    "session": surface.id.description,
+                    "attempt": String(attempt),
+                    "drew": drew ? "true" : "false",
+                ])
+                if drew {
                     break
                 }
                 try? await Task.sleep(for: .milliseconds(50))
@@ -149,7 +159,12 @@ public struct GhosttyManagedSurface: View {
             for delay in [0.1, 0.25, 0.5] {
                 try? await Task.sleep(for: .seconds(delay))
                 surface.requestDisplayRefresh()
-                _ = surface.presentNow()
+                let drew = surface.presentNow()
+                TerminalDiagnostics.log("managed_present_delayed", [
+                    "session": surface.id.description,
+                    "delay": String(delay),
+                    "drew": drew ? "true" : "false",
+                ])
             }
         }
     }
@@ -237,8 +252,25 @@ public final class GhosttyFocusDriver {
         for delay in [0.0, 0.1, 0.3] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 [weak self, weak state] in
-                guard let self, let state,
-                      let (_, target) = self.terminalView(matching: state) else { return }
+                guard let self, let state else {
+                    TerminalDiagnostics.log("fit_present", [
+                        "delay": String(format: "%.2f", delay),
+                        "found": "false",
+                        "reason": "state-gone",
+                    ])
+                    return
+                }
+                let match = self.terminalView(matching: state)
+                TerminalDiagnostics.log("fit_present", [
+                    "delay": String(format: "%.2f", delay),
+                    "found": match != nil ? "true" : "false",
+                    "window": match.map { String($0.0.windowNumber) } ?? "nil",
+                    "bounds": match.map {
+                        "\(Int($0.1.bounds.width))x\(Int($0.1.bounds.height))"
+                    } ?? "nil",
+                    "hidden": match.map { $0.1.isHidden ? "true" : "false" } ?? "nil",
+                ])
+                guard let (_, target) = match else { return }
                 target.fitToSize()
                 present()
             }
@@ -404,6 +436,11 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
     private func configure(_ view: GhosttyWindowProbeView) {
         view.onWindowAvailable = { [weak state, weak focusDriver, weak surface] window in
             guard let state, let focusDriver, let surface else { return }
+            TerminalDiagnostics.log("probe_window_available", [
+                "session": surface.id.description,
+                "window": String(window.windowNumber),
+                "bounds": "\(Int(window.frame.width))x\(Int(window.frame.height))",
+            ])
             focusDriver.register(state, in: window)
             repair()
             // The terminal view just mounted (or was recreated by a worktree
@@ -419,8 +456,18 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
                   let state,
                   let window = view.window,
                   let root = window.contentView,
-                  let terminal = Self.terminalView(matching: state, under: root) else { return }
+                  let terminal = Self.terminalView(matching: state, under: root) else {
+                TerminalDiagnostics.log("probe_apply_hidden", [
+                    "hidden": hidden ? "true" : "false",
+                    "found": "false",
+                ])
+                return
+            }
             terminal.isHidden = hidden
+            TerminalDiagnostics.log("probe_apply_hidden", [
+                "hidden": hidden ? "true" : "false",
+                "found": "true",
+            ])
         }
     }
 
@@ -449,6 +496,13 @@ private final class GhosttyWindowProbeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        TerminalDiagnostics.log("probe_window_move", [
+            "attached": window != nil ? "true" : "false",
+            "window": window.map { String($0.windowNumber) } ?? "nil",
+            "hidden": shouldHide ? "true" : "false",
+            "bounds": "\(Int(bounds.width))x\(Int(bounds.height))",
+            "visible": "\(Int(visibleRect.width))x\(Int(visibleRect.height))",
+        ])
         registerAndRepair()
     }
 

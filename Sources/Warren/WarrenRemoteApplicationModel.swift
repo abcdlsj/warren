@@ -1021,6 +1021,9 @@ final class WarrenRemoteApplicationModel {
     }
 
     func perform(_ action: WarrenDesktopAction) {
+        TerminalDiagnostics.log("action", [
+            "action": String(String(describing: action).prefix(160)),
+        ])
         navigation = WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .restoreNavigation:
@@ -1327,6 +1330,11 @@ final class WarrenRemoteApplicationModel {
               let targetSessionID = sessionID ?? selectedSessionID,
               targetSessionID == selectedSessionID,
               let surface = mountedSurfaces.first(where: { $0.id == targetSessionID }) else { return }
+        TerminalDiagnostics.log("feed_output", [
+            "session": targetSessionID.description,
+            "bytes": String(data.count),
+            "nudge": initialRefreshPending ? "true" : "false",
+        ])
         surface.outputWriter.enqueueRaw(data)
         if initialRefreshPending {
             // The attach snapshot is fed before Ghostty's display loop
@@ -1338,7 +1346,11 @@ final class WarrenRemoteApplicationModel {
                 surface.requestDisplayRefresh()
                 // Draw the first snapshot right now when the view is mounted;
                 // if it is not, the mount polls handle it later.
-                _ = surface.presentNow()
+                let drew = surface.presentNow()
+                TerminalDiagnostics.log("feed_nudge", [
+                    "session": surface.id.description,
+                    "drew": drew ? "true" : "false",
+                ])
             }
         }
     }
@@ -1416,6 +1428,11 @@ final class WarrenRemoteApplicationModel {
             sessionWorkspaceIDs: sessionWorkspaces,
             connectionState: .attached
         )
+        TerminalDiagnostics.log("roster_apply", [
+            "tabs": String(tabs.count),
+            "selectedTab": navigation.selectedTabID ?? "nil",
+            "mounted": String(mountedSurfaces.count),
+        ])
         let liveTabSessionIDs = Set(tabs.compactMap(\.sessionID))
         for surface in mountedSurfaces where !liveTabSessionIDs.contains(surface.id) {
             surface.outputWriter.shutdown()
@@ -1474,6 +1491,10 @@ final class WarrenRemoteApplicationModel {
         guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
             return
         }
+        TerminalDiagnostics.log("attach_start", [
+            "session": sessionID.description,
+            "existing": existingSurface != nil ? "true" : "false",
+        ])
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
         }
@@ -1506,6 +1527,10 @@ final class WarrenRemoteApplicationModel {
         // Keep a bounded fallback so a renderer that cannot obtain metrics
         // still attaches and can converge through its later resize callback.
         let size = await waitForSurfaceSize(surface, generation: generation)
+        TerminalDiagnostics.log("attach_size", [
+            "session": sessionID.description,
+            "size": size.map { "\($0.columns)x\($0.rows)" } ?? "nil",
+        ])
         guard generation == attachGeneration,
               selectedSessionID == sessionID,
               mountedSurfaces.first === surface else { return }
@@ -1522,6 +1547,9 @@ final class WarrenRemoteApplicationModel {
             guard generation == attachGeneration,
                   selectedSessionID == sessionID else { return }
             attachedSessionID = sessionID
+            TerminalDiagnostics.log("attach_complete", [
+                "session": sessionID.description,
+            ])
             scheduleInitialPresent(surface, generation: generation)
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
@@ -1555,6 +1583,9 @@ final class WarrenRemoteApplicationModel {
     /// a mounted view; the later inline draws cover the same path a resize
     /// would otherwise take to reveal the frame.
     private func scheduleInitialPresent(_ surface: GhosttySurface, generation: UInt64) {
+        TerminalDiagnostics.log("present_schedule_start", [
+            "session": surface.id.description,
+        ])
         surface.requestDisplayRefresh()
         _ = surface.presentNow()
         Task { @MainActor [weak self, weak surface] in
@@ -1564,10 +1595,16 @@ final class WarrenRemoteApplicationModel {
             // so poll cheaply until a real draw succeeds, then a few delayed
             // draws cover snapshots that arrive after the mount. Do not keep
             // drawing at frame rate: that starves the main actor.
-            for _ in 0..<60 {
+            for attempt in 0..<60 {
                 guard generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
-                if surface.presentNow() {
+                let drew = surface.presentNow()
+                TerminalDiagnostics.log("present_poll", [
+                    "session": surface.id.description,
+                    "attempt": String(attempt),
+                    "drew": drew ? "true" : "false",
+                ])
+                if drew {
                     break
                 }
                 try? await Task.sleep(for: .milliseconds(50))
@@ -1577,7 +1614,12 @@ final class WarrenRemoteApplicationModel {
                 guard generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
                 surface.requestDisplayRefresh()
-                _ = surface.presentNow()
+                let drew = surface.presentNow()
+                TerminalDiagnostics.log("present_delayed", [
+                    "session": surface.id.description,
+                    "delay": String(delay),
+                    "drew": drew ? "true" : "false",
+                ])
             }
         }
     }
@@ -1606,6 +1648,10 @@ final class WarrenRemoteApplicationModel {
 
     private func selectSession(_ id: TerminalSessionID) {
         guard let session = projection.sessions.first(where: { $0.id == id }) else { return }
+        TerminalDiagnostics.log("select_session", [
+            "session": id.description,
+            "workspace": session.workspaceID.description,
+        ])
         navigation = WarrenDesktopNavigationState(
             selection: .workspace(session.workspaceID),
             selectedTabID: Self.tabID(id)
