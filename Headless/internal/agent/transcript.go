@@ -656,9 +656,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			return []api.AgentEvent{event}
 		case "turn_aborted":
 			p.tracker.TurnAborted()
-			event.Type = "system"
-			event.Content = "Turn aborted"
-			return []api.AgentEvent{event}
+			return nil
 		case "agent_message":
 			content := firstNonEmpty(payload.Message, contentString(payload.Content), payload.Text)
 			if content == "" {
