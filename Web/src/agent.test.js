@@ -39,19 +39,24 @@ test("groupAgentEvents pairs tool calls with their outputs", () => {
   assert.equal(blocks[1].items[0].outputs[0].output, "file.txt\n");
 });
 
-test("groupAgentEvents collapses adjacent reasoning into one group", () => {
+test("groupAgentEvents folds a whole turn's reasoning and tools together", () => {
   const blocks = groupAgentEvents([
     { seq: 1, type: "user", content: "hello" },
     { seq: 2, type: "reasoning", content: "think one" },
-    { seq: 3, type: "reasoning", content: "think two" },
-    { seq: 4, type: "assistant", content: "done" },
+    { seq: 3, type: "assistant", content: "checking" },
+    { seq: 4, type: "tool_call", callId: "call-1", toolName: "Bash", toolInput: { command: "ls" } },
+    { seq: 5, type: "tool_output", callId: "call-1", toolStatus: "success", output: "a\n" },
+    { seq: 6, type: "reasoning", content: "think two" },
+    { seq: 7, type: "assistant", content: "done" },
   ]);
-  assert.deepEqual(blocks.map(block => block.kind), ["user", "reasoning_group", "assistant"]);
+  assert.deepEqual(blocks.map(block => block.kind), ["user", "reasoning_group", "tool_group", "assistant", "assistant"]);
   assert.equal(blocks[1].events.length, 2);
   assert.deepEqual(blocks[1].events.map(event => event.content), ["think one", "think two"]);
+  assert.equal(blocks[2].items.length, 1);
+  assert.equal(blocks[2].items[0].call.toolName, "Bash");
 });
 
-test("groupAgentEvents collapses adjacent tool calls into one group", () => {
+test("groupAgentEvents folds standalone tool runs without a user message", () => {
   const blocks = groupAgentEvents([
     { seq: 1, type: "tool_call", callId: "call-1", toolName: "Bash", toolInput: { command: "ls" } },
     { seq: 2, type: "tool_output", callId: "call-1", toolStatus: "success", output: "a\n" },
@@ -63,13 +68,13 @@ test("groupAgentEvents collapses adjacent tool calls into one group", () => {
   assert.deepEqual(blocks[0].items.map(item => item.call.toolName), ["Bash", "Edit"]);
 });
 
-test("groupAgentEvents keeps separated tool groups separate", () => {
+test("groupAgentEvents resets folding at each user message", () => {
   const blocks = groupAgentEvents([
     { seq: 1, type: "tool_call", callId: "call-1", toolName: "Bash", toolInput: { command: "ls" } },
-    { seq: 2, type: "assistant", content: "checking" },
+    { seq: 2, type: "user", content: "again" },
     { seq: 3, type: "tool_call", callId: "call-2", toolName: "Edit", toolInput: { file_path: "x.ts" } },
   ]);
-  assert.deepEqual(blocks.map(block => block.kind), ["tool_group", "assistant", "tool_group"]);
+  assert.deepEqual(blocks.map(block => block.kind), ["tool_group", "user", "tool_group"]);
   assert.equal(blocks[0].items.length, 1);
   assert.equal(blocks[2].items.length, 1);
 });

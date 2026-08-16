@@ -22,17 +22,64 @@ export function mergeAgentEvents(existing = [], incoming = []) {
  * Groups a flat transcript into renderable blocks. A tool_call and its
  * matching tool_output(s) become one tool block so the UI can show the call
  * and its result as a single compact step instead of two separate cards.
- * Adjacent reasoning blocks and adjacent tool blocks are then collapsed into
- * groups so a busy turn reads as a conversation first: one folded "Thinking"
- * strip and one folded tools strip instead of a wall of cards.
+ * Every user message opens a turn. All reasoning and tool blocks produced
+ * inside that turn fold into one "Thinking" strip and one tools strip that
+ * sit right after the user message, so assistant text fragments never split
+ * a busy turn into a wall of cards.
  */
 export function groupAgentEvents(events = []) {
   const blocks = [];
   const pending = new Map();
+  let turn = null;
+  let turnStart = -1;
+
+  const beginTurn = withPlaceholders => {
+    turn = { reasoning: [], tools: [] };
+    turnStart = -1;
+    if (withPlaceholders) {
+      turnStart = blocks.length;
+      blocks.push({ kind: "reasoning_group", events: turn.reasoning });
+      blocks.push({ kind: "tool_group", items: turn.tools });
+    }
+  };
+
+  const endTurn = () => {
+    if (!turn) return;
+    if (turnStart >= 0) {
+      for (let index = turnStart; index < blocks.length;) {
+        const block = blocks[index];
+        const empty = (block.kind === "reasoning_group" && block.events.length === 0)
+          || (block.kind === "tool_group" && block.items.length === 0);
+        if (empty) {
+          blocks.splice(index, 1);
+        } else {
+          index += 1;
+        }
+      }
+    } else {
+      if (turn.reasoning.length) {
+        blocks.push({ kind: "reasoning_group", events: turn.reasoning });
+      }
+      if (turn.tools.length) {
+        blocks.push({ kind: "tool_group", items: turn.tools });
+      }
+    }
+    turn = null;
+    turnStart = -1;
+  };
+
   for (const event of events) {
-    if (event.type === "tool_call") {
+    if (event.type === "user") {
+      endTurn();
+      blocks.push({ kind: "user", event });
+      beginTurn(true);
+    } else if (event.type === "reasoning") {
+      if (!turn) beginTurn(false);
+      turn.reasoning.push(event);
+    } else if (event.type === "tool_call") {
+      if (!turn) beginTurn(false);
       const block = { kind: "tool", call: event, outputs: [] };
-      blocks.push(block);
+      turn.tools.push(block);
       if (event.callId) pending.set(event.callId, block);
     } else if (event.type === "tool_output") {
       const block = event.callId ? pending.get(event.callId) : null;
@@ -45,31 +92,6 @@ export function groupAgentEvents(events = []) {
       blocks.push({ kind: event.type, event });
     }
   }
-  return collapseAncillaryBlocks(blocks);
-}
-
-function collapseAncillaryBlocks(blocks) {
-  const collapsed = [];
-  const push = block => {
-    const last = collapsed[collapsed.length - 1];
-    if (block.kind === "reasoning" && last?.kind === "reasoning_group") {
-      last.events.push(block.event);
-      return;
-    }
-    if (block.kind === "tool" && last?.kind === "tool_group") {
-      last.items.push(block);
-      return;
-    }
-    if (block.kind === "reasoning") {
-      collapsed.push({ kind: "reasoning_group", events: [block.event] });
-      return;
-    }
-    if (block.kind === "tool") {
-      collapsed.push({ kind: "tool_group", items: [block] });
-      return;
-    }
-    collapsed.push(block);
-  };
-  for (const block of blocks) push(block);
-  return collapsed;
+  endTurn();
+  return blocks;
 }

@@ -222,7 +222,7 @@ function ToolGroup({ items }) {
       <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ToolIcon name={items[0]?.call?.toolName} />
         <span className="agent-tool-name">{toolGroupTitle(items)}</span>
-        {toolGroupSummary(items) && <code className="agent-tool-summary">{toolGroupSummary(items)}</code>}
+        {!open && toolGroupSummary(items) && <code className="agent-tool-summary">{toolGroupSummary(items)}</code>}
         <span className="agent-tool-status">{statusText(status)}</span>
         <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
       </button>
