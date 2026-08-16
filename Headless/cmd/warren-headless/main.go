@@ -44,6 +44,7 @@ func main() {
 	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", ""), "default runtime kind: ghostline or tmux (overrides settings.json)")
 	ghostlineSocket := flag.String("ghostline-socket", env("WARREN_GHOSTLINE_SOCKET", filepath.Join(configDir, "ghostline.sock")), "ghostline server socket path")
 	ghostlineServe := flag.Bool("ghostline-serve", false, "internal: run the ghostline session server (spawned by the daemon)")
+	ghostlineAdoptFrom := flag.String("adopt-from", "", "internal: adopt sessions from this old server admin socket")
 	settingsFile := flag.String("settings-file", env("WARREN_SETTINGS_FILE", filepath.Join(configDir, "settings.json")), "headless settings file")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
@@ -61,7 +62,7 @@ func main() {
 	// --ghostline-serve so PTY sessions are owned by an independent process
 	// that survives daemon upgrades and restarts.
 	if *ghostlineServe {
-		runGhostlineServe(*ghostlineSocket, *outputDir)
+		runGhostlineServe(*ghostlineSocket, *outputDir, *ghostlineAdoptFrom)
 		return
 	}
 
@@ -204,8 +205,8 @@ func listenerPort(listener net.Listener) string {
 // runGhostlineServe owns PTY sessions in a child process. The daemon spawns
 // it detached with --ghostline-serve; it listens on the Unix socket until
 // terminated, so daemon upgrades and restarts never end sessions.
-func runGhostlineServe(socketPath, outputDir string) {
-	pidPath := filepath.Join(filepath.Dir(socketPath), "ghostline.pid")
+func runGhostlineServe(socketPath, outputDir, adoptFrom string) {
+	pidPath := socketPath + ".pid"
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve: write pid:", err)
 	}
@@ -214,6 +215,18 @@ func runGhostlineServe(socketPath, outputDir string) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
 		os.Exit(1)
+	}
+	if adoptFrom != "" {
+		adoptContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		adopted, adoptErr := server.Adopt(adoptContext, adoptFrom)
+		cancel()
+		if adoptErr != nil {
+			fmt.Fprintf(os.Stderr, "ghostline serve: adopt from %s: %v\n", adoptFrom, adoptErr)
+			os.Exit(1)
+		}
+		if adopted > 0 {
+			fmt.Fprintf(os.Stderr, "ghostline serve: adopted %d session(s)\n", adopted)
+		}
 	}
 	if err := server.Serve(context.Background(), socketPath); err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
@@ -235,15 +248,115 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 		return client, nil
 	}
 	// The server process predates this daemon's protocol (or reports an older
-	// version). Restart it explicitly so upgrades do not fail with confusing
-	// RPC errors; the server's sessions end with it, which is the documented
-	// trade-off until rolling upgrades land (RFC 0002).
-	logger.Warn("ghostline server protocol mismatch; restarting server",
+	// version). Prefer a rolling upgrade (RFC 0002): a fresh server adopts
+	// every session and the old process exits, so children keep running. If
+	// that fails, fall back to a plain restart, which ends sessions.
+	logger.Warn("ghostline server protocol mismatch; upgrading server",
 		"reported", version, "want", ghostline.ProtocolVersion, "error", err)
+	if upgraded, upgradeErr := rollingUpgradeGhostlineClient(socketPath, outputDir, logger); upgradeErr == nil {
+		return upgraded, nil
+	} else {
+		logger.Warn("ghostline rolling upgrade failed; restarting server", "error", upgradeErr)
+	}
 	if stopErr := stopGhostlineServer(socketPath); stopErr != nil {
 		return nil, stopErr
 	}
 	return connectGhostlineClient(socketPath, outputDir)
+}
+
+// rollingUpgradeGhostlineClient starts a fresh server on a temporary socket,
+// lets it adopt every session from the old server, and then points the stable
+// socket path at the new server with a symlink. The old server exits itself
+// after adoption, so its children survive the upgrade.
+func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*ghostline.Client, error) {
+	adminSocket := socketPath + ".admin"
+	if !ghostline.Ping(adminSocket) {
+		return nil, fmt.Errorf("old server has no admin socket at %s", adminSocket)
+	}
+	nextSocket := filepath.Join(
+		filepath.Dir(socketPath),
+		fmt.Sprintf("ghostline-%d.sock", time.Now().UnixNano()),
+	)
+	logFile, err := os.OpenFile(
+		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0o600,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("open ghostline log: %w", err)
+	}
+	defer logFile.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("resolve daemon executable: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client, err := ghostline.Connect(ctx, ghostline.ConnectOptions{
+		Socket: nextSocket,
+		Spawn: []string{
+			executable,
+			"--ghostline-serve",
+			"--ghostline-socket", nextSocket,
+			"--output-dir", outputDir,
+			"--adopt-from", adminSocket,
+		},
+		Log:          logFile,
+		ReadyTimeout: 15 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("start upgraded server: %w", err)
+	}
+	// The new server only binds its socket after adoption finishes, so a
+	// successful Connect means every session moved over. Wait for the old
+	// server to exit before replacing the stable path, otherwise its cleanup
+	// would unlink the new symlink.
+	if err := waitForGhostlineExit(adminSocket, 5*time.Second); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("old server did not exit after adoption: %w", err)
+	}
+	if err := replaceWithSymlink(socketPath, nextSocket); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("point stable socket at upgraded server: %w", err)
+	}
+	if pid := client.PID(); pid > 0 {
+		pidPath := socketPath + ".pid"
+		if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0o600); err != nil {
+			logger.Warn("unable to record upgraded server pid", "path", pidPath, "error", err)
+		}
+	}
+	logger.Info("ghostline server upgraded in place", "socket", socketPath, "server", nextSocket)
+	return client, nil
+}
+
+// waitForGhostlineExit waits for the old server's admin socket to disappear.
+func waitForGhostlineExit(adminSocket string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for ghostline.Ping(adminSocket) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if ghostline.Ping(adminSocket) {
+		return fmt.Errorf("admin socket %s still accepting", adminSocket)
+	}
+	return nil
+}
+
+// replaceWithSymlink atomically points stable at target by creating a
+// temporary symlink and renaming it over the old socket path.
+func replaceWithSymlink(stable, target string) error {
+	if err := os.Remove(stable); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove old socket: %w", err)
+	}
+	temp := stable + ".tmp"
+	_ = os.Remove(temp)
+	if err := os.Symlink(filepath.Base(target), temp); err != nil {
+		return fmt.Errorf("create socket symlink: %w", err)
+	}
+	if err := os.Rename(temp, stable); err != nil {
+		_ = os.Remove(temp)
+		return fmt.Errorf("install socket symlink: %w", err)
+	}
+	return nil
 }
 
 func connectGhostlineClient(socketPath, outputDir string) (*ghostline.Client, error) {
@@ -282,8 +395,13 @@ func connectGhostlineClient(socketPath, outputDir string) (*ghostline.Client, er
 // stopGhostlineServer terminates the running server via its pid file and
 // waits for the socket to disappear.
 func stopGhostlineServer(socketPath string) error {
-	pidPath := filepath.Join(filepath.Dir(socketPath), "ghostline.pid")
+	pidPath := socketPath + ".pid"
 	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		// Servers started before per-socket pid files wrote the shared
+		// ghostline.pid; keep that path as a compatibility fallback.
+		data, err = os.ReadFile(filepath.Join(filepath.Dir(socketPath), "ghostline.pid"))
+	}
 	if err == nil {
 		if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data))); parseErr == nil && pid > 0 {
 			_ = syscall.Kill(pid, syscall.SIGTERM)

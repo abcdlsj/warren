@@ -58,8 +58,9 @@ Not so good:
 - Newer and less battle-tested than tmux; the API is still evolving.
 - Requires libghostty-vt, which must be built with Zig and is currently
   bundled as a prebuilt dylib for macOS arm64.
-- A restart of the ghostline server itself ends its sessions (the daemon
-  reconnects and service returns, but the processes are gone).
+- A forced restart of the ghostline server process ends its sessions. Normal
+  protocol upgrades are rolled in place: a fresh server adopts every session
+  from the old one before the old process exits, so children keep running.
 
 ## tmux
 

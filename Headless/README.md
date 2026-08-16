@@ -131,8 +131,9 @@ switch the default, and why sessions keep the engine they were created with.
 
 Known limits:
 
-- A ghostline server restart still ends its sessions (the server process owns
-  the PTY masters); the server is a stable low-level component and restarts
-  rarely, unlike the daemon or desktop.
+- A forced ghostline server restart still ends its sessions (the server
+  process owns the PTY masters). Protocol upgrades are rolled in place: the
+  daemon starts a fresh server, adopts every session over the admin socket,
+  and retires the old process without ending children.
 - The ghostline module bundles a prebuilt libghostty-vt dylib for macOS
   arm64; other platforms must rebuild it (see the ghostline README).

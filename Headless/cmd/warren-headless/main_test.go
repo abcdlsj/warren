@@ -54,3 +54,36 @@ func TestEnsureTokenFileRestoresOwnedTokenAfterReplacement(t *testing.T) {
 		t.Fatalf("restored token = %q, want owned-token", got)
 	}
 }
+
+func TestReplaceWithSymlinkPointsStableAtTarget(t *testing.T) {
+	dir := t.TempDir()
+	stable := filepath.Join(dir, "ghostline.sock")
+	target := filepath.Join(dir, "ghostline-1.sock")
+	if err := os.WriteFile(stable, nil, 0o600); err != nil {
+		t.Fatalf("create old socket path: %v", err)
+	}
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatalf("create target path: %v", err)
+	}
+	if err := replaceWithSymlink(stable, target); err != nil {
+		t.Fatalf("replaceWithSymlink: %v", err)
+	}
+	info, err := os.Lstat(stable)
+	if err != nil {
+		t.Fatalf("lstat stable: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("stable is not a symlink: %v", info.Mode())
+	}
+	resolved, err := filepath.EvalSymlinks(stable)
+	if err != nil {
+		t.Fatalf("eval symlink: %v", err)
+	}
+	targetResolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("eval target: %v", err)
+	}
+	if resolved != targetResolved {
+		t.Fatalf("stable resolves to %q, want %q", resolved, targetResolved)
+	}
+}
