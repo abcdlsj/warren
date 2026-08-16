@@ -24,9 +24,17 @@ enum WarrenDesktopTabTitle {
         }
         let directory = directoryName(tab: tab, session: session, workspace: workspace)
         let command = resolvedCommand(tab: tab, session: session)
-        if command.isEmpty {
-            return directory
+        if directory.isEmpty {
+            let title = session?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let title, !title.isEmpty {
+                return title
+            }
+            if !tab.title.isEmpty {
+                return tab.title
+            }
+            return command.isEmpty ? "Shell" : command
         }
+        if command.isEmpty { return directory }
         return "\(command) — \(directory)"
     }
 
@@ -38,9 +46,8 @@ enum WarrenDesktopTabTitle {
         let path = session?.workingDirectory.isEmpty == false
             ? session!.workingDirectory
             : (workspace?.path ?? "")
-        guard !path.isEmpty else { return tab.title }
-        let name = URL(fileURLWithPath: path).lastPathComponent
-        return name.isEmpty ? tab.title : name
+        guard !path.isEmpty else { return "" }
+        return URL(fileURLWithPath: path).lastPathComponent
     }
 
     private static func resolvedCommand(

@@ -164,6 +164,10 @@ test("terminal tab title falls back without a directory", () => {
   assert.equal(terminalTabTitle({ title: "Shell" }, {}), "Shell");
 });
 
+test("terminal tab title falls back to agent kind without a directory", () => {
+  assert.equal(terminalTabTitle({ title: "Codex", kind: "codex", process: "" }, {}), "Codex");
+});
+
 test("HTML escaping is safe for text and attributes", () => {
   assert.equal(escapeHTML(`<a title="x">&</a>`), "&lt;a title=&quot;x&quot;&gt;&amp;&lt;/a&gt;");
 });

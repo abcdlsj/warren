@@ -534,6 +534,24 @@ final class WarrenDesktopTests: XCTestCase {
             ),
             "Shell"
         )
+
+        let codexTab = ClientTab(id: "tab-codex", title: "Codex", kind: .codex)
+        let codexSession = WarrenDesktopSession(
+            id: TerminalSessionID(),
+            workspaceID: WorkspaceID(),
+            title: "Codex",
+            kind: .codex,
+            runtimeProcess: "",
+            workingDirectory: ""
+        )
+        XCTAssertEqual(
+            WarrenDesktopTabTitle.displayTitle(
+                tab: codexTab,
+                session: codexSession,
+                workspace: nil
+            ),
+            "Codex"
+        )
     }
 
     func testTabTitlePrefersCustomSessionTitle() {
