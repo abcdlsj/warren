@@ -102,7 +102,7 @@ func main() {
 			fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
 		}
 	}
-	ghostlineClient, err := ensureGhostlineClient(*ghostlineSocket, *outputDir)
+	ghostlineClient, err := ensureGhostlineClient(*ghostlineSocket, *outputDir, logger)
 	if err != nil {
 		fatal(err)
 	}
@@ -205,6 +205,11 @@ func listenerPort(listener net.Listener) string {
 // it detached with --ghostline-serve; it listens on the Unix socket until
 // terminated, so daemon upgrades and restarts never end sessions.
 func runGhostlineServe(socketPath, outputDir string) {
+	pidPath := filepath.Join(filepath.Dir(socketPath), "ghostline.pid")
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, "ghostline serve: write pid:", err)
+	}
+	defer os.Remove(pidPath)
 	server, err := ghostline.NewServer(ghostline.Options{OutputDir: outputDir})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
@@ -220,7 +225,28 @@ func runGhostlineServe(socketPath, outputDir string) {
 // when the socket is not yet accepting. Sessions survive daemon restarts
 // because the server process owns them; the returned client is intentionally
 // never closed by the daemon so the server keeps running.
-func ensureGhostlineClient(socketPath, outputDir string) (*ghostline.Client, error) {
+func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*ghostline.Client, error) {
+	client, err := connectGhostlineClient(socketPath, outputDir)
+	if err != nil {
+		return nil, err
+	}
+	version, err := client.Version(context.Background())
+	if err == nil && version == ghostline.ProtocolVersion {
+		return client, nil
+	}
+	// The server process predates this daemon's protocol (or reports an older
+	// version). Restart it explicitly so upgrades do not fail with confusing
+	// RPC errors; the server's sessions end with it, which is the documented
+	// trade-off until rolling upgrades land (RFC 0002).
+	logger.Warn("ghostline server protocol mismatch; restarting server",
+		"reported", version, "want", ghostline.ProtocolVersion, "error", err)
+	if stopErr := stopGhostlineServer(socketPath); stopErr != nil {
+		return nil, stopErr
+	}
+	return connectGhostlineClient(socketPath, outputDir)
+}
+
+func connectGhostlineClient(socketPath, outputDir string) (*ghostline.Client, error) {
 	logFile, err := os.OpenFile(
 		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
@@ -251,6 +277,26 @@ func ensureGhostlineClient(socketPath, outputDir string) (*ghostline.Client, err
 		return nil, fmt.Errorf("connect ghostline server: %w", err)
 	}
 	return client, nil
+}
+
+// stopGhostlineServer terminates the running server via its pid file and
+// waits for the socket to disappear.
+func stopGhostlineServer(socketPath string) error {
+	pidPath := filepath.Join(filepath.Dir(socketPath), "ghostline.pid")
+	data, err := os.ReadFile(pidPath)
+	if err == nil {
+		if pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data))); parseErr == nil && pid > 0 {
+			_ = syscall.Kill(pid, syscall.SIGTERM)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for ghostline.Ping(socketPath) && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if ghostline.Ping(socketPath) {
+		return fmt.Errorf("ghostline server did not stop after restart request")
+	}
+	return nil
 }
 
 func loadOrCreateToken(path string) (string, error) {
