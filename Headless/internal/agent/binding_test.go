@@ -229,6 +229,64 @@ func TestHookScriptInfersProviderFromHookCommand(t *testing.T) {
 	}
 }
 
+func TestHookCommandPassesProviderThroughShell(t *testing.T) {
+	t.Setenv("WARREN_DATA_DIR", t.TempDir())
+	claudeDir := t.TempDir()
+	if _, err := EnsureClaudeBindHook(claudeDir); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	hooks := document["hooks"].(map[string]any)
+	start := hooks["SessionStart"].([]any)
+	command := ""
+	for _, entry := range start {
+		item, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, hook := range item["hooks"].([]any) {
+			config, ok := hook.(map[string]any)
+			if !ok {
+				continue
+			}
+			text, _ := config["command"].(string)
+			if strings.Contains(text, hookCommandMarker) {
+				command = text
+			}
+		}
+	}
+	if command == "" {
+		t.Fatal("Warren SessionStart hook command not found in Claude settings")
+	}
+
+	bindPath := filepath.Join(t.TempDir(), "bind.json")
+	statePath := filepath.Join(t.TempDir(), "bind.state")
+	run := exec.Command("bash", "-c", command)
+	run.Stdin = strings.NewReader(`{"session_id":"thread-9","transcript_path":"/work/claude.jsonl","cwd":"/work","hook_event_name":"SessionStart"}`)
+	run.Env = append(os.Environ(),
+		"WARREN_BIND_FILE="+bindPath,
+		"WARREN_STATE_FILE="+statePath,
+	)
+	if output, err := run.CombinedOutput(); err != nil {
+		t.Fatalf("hook via installed command failed: %v: %s", err, output)
+	}
+	binding, err := ReadBinding(bindPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding == nil || binding.Provider != "claude" {
+		t.Fatalf("binding = %#v, want claude provider", binding)
+	}
+}
+
 func TestAgentBindHookScriptMarksSessionEnd(t *testing.T) {
 	t.Setenv("WARREN_DATA_DIR", t.TempDir())
 	codexHome := t.TempDir()
@@ -245,6 +303,32 @@ func TestAgentBindHookScriptMarksSessionEnd(t *testing.T) {
 	)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("end hook failed: %v: %s", err, output)
+	}
+	state, err := ReadAgentState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != "exited" {
+		t.Fatalf("hook state = %q, want exited", state)
+	}
+}
+
+func TestAgentBindHookScriptMarksSessionEndWithoutSessionID(t *testing.T) {
+	t.Setenv("WARREN_DATA_DIR", t.TempDir())
+	codexHome := t.TempDir()
+	if _, err := EnsureCodexBindHook(codexHome); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
+	statePath := filepath.Join(t.TempDir(), "bind.state")
+	command := exec.Command("bash", scriptPath)
+	command.Stdin = strings.NewReader(`{"hook_event_name":"SessionEnd"}`)
+	command.Env = append(os.Environ(),
+		"WARREN_STATE_FILE="+statePath,
+		"WARREN_AGENT_KIND=codex",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("end hook without session id failed: %v: %s", err, output)
 	}
 	state, err := ReadAgentState(statePath)
 	if err != nil {

@@ -39,8 +39,11 @@ const (
 	// agent activity back to the surrounding shell.
 	BindEnvState = "WARREN_STATE_FILE"
 	// hookCommandMarker identifies the Warren-managed hook entry so repeated
-	// daemon starts can merge idempotently.
-	hookCommandMarker = "# warren-agent-bind-v1"
+	// daemon starts can merge idempotently. It is also the first argument to
+	// the hook script; the provider follows it as a real shell argument (the
+	// old form used a `#` comment, which swallowed the provider for manual
+	// shell overlays).
+	hookCommandMarker = "warren-agent-bind-v1"
 )
 
 // BindEnvironment returns the runtime environment entries a session needs so
@@ -326,16 +329,7 @@ const agentBindHookScript = `#!/bin/sh
 # warren-agent-bind-v1
 [ -n "$WARREN_BIND_FILE" ] || [ -n "$WARREN_STATE_FILE" ] || exit 0
 input=$(cat)
-session_id=$(printf '%s' "$input" | sed -nE 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
-transcript_path=$(printf '%s' "$input" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
-cwd=$(printf '%s' "$input" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 hook_event=$(printf '%s' "$input" | sed -nE 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
-[ -n "$session_id" ] || session_id=$(printf '%s' "$input" | sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
-[ -n "$session_id" ] || exit 0
-provider=${WARREN_AGENT_KIND}
-if [ -z "$provider" ]; then
-  provider=${2:-codex}
-fi
 if [ "$hook_event" = "SessionEnd" ]; then
   [ -n "$WARREN_STATE_FILE" ] || exit 0
   dir=$(dirname "$WARREN_STATE_FILE")
@@ -345,6 +339,15 @@ if [ "$hook_event" = "SessionEnd" ]; then
   mv -f "$temporary" "$WARREN_STATE_FILE" 2>/dev/null || exit 0
   printf '%s\n' '{"continue":true}'
   exit 0
+fi
+session_id=$(printf '%s' "$input" | sed -nE 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
+transcript_path=$(printf '%s' "$input" | sed -nE 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
+cwd=$(printf '%s' "$input" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
+[ -n "$session_id" ] || session_id=$(printf '%s' "$input" | sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
+[ -n "$session_id" ] || exit 0
+provider=${WARREN_AGENT_KIND}
+if [ -z "$provider" ]; then
+  provider=${2:-codex}
 fi
 [ -n "$WARREN_BIND_FILE" ] || exit 0
 [ -n "$transcript_path" ] || exit 0

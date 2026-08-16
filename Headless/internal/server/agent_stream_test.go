@@ -412,6 +412,26 @@ func TestAgentStateFileReflectsShellReturn(t *testing.T) {
 	}
 }
 
+func TestExitedAgentActivityIsNotResurrectedByWatcher(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: newMemoryRuntime(t)}
+	service.lazyInit()
+
+	service.recordAgentActivity("session-agent", api.AgentActivityExited)
+	service.recordAgentActivity("session-agent", api.AgentActivityReady)
+	if got := service.agentActivity("session-agent"); got != api.AgentActivityExited {
+		t.Fatalf("activity after watcher-style ready update = %q, want exited", got)
+	}
+
+	service.forceAgentActivity("session-agent", api.AgentActivityReady)
+	if got := service.agentActivity("session-agent"); got != api.AgentActivityReady {
+		t.Fatalf("activity after SessionStart reset = %q, want ready", got)
+	}
+}
+
 func readAgentEvents(t *testing.T, connection interface {
 	SetReadDeadline(time.Time) error
 	ReadMessage() (int, []byte, error)

@@ -98,7 +98,7 @@ CLI works against the local daemon without extra setup. On a remote host, use
 
 The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `project.move` and `workspace.move` persist the sidebar order on the Host (both accept `id` and an optional `before`; omitting `before` moves the entry to the end). `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
-The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / funnel; all require Bearer token authentication.
+The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / gnar; all require Bearer token authentication. The gnar edge is configured through `gnarEdge` in `~/.warren/settings.json` (or `WARREN_GNAR_EDGE`) and can be read or updated with `GET/PUT /v1/settings` or the `settings.get` / `settings.put` WebSocket methods.
 
 Operators can announce a planned restart with `POST /v1/maintenance` (Bearer
 token required). The daemon broadcasts a `{"t":"maintenance","state":"starting","message":...}`
@@ -171,6 +171,9 @@ so several agents in the same workspace never mix transcripts:
   `~/.warren/agent-bind/<warren-session-id>.json` and resets the state file;
   `SessionEnd` marks the state file exited so the status light returns to
   the surrounding shell. The daemon starts the watcher from the exact file.
+  If the CLI is killed without running `SessionEnd`, the daemon also watches
+  whether the transcript is still held open by a live process and marks the
+  session exited once it is gone.
 - Every Warren session, including a plain Shell tab, inherits the same
   binding environment. A Codex/Claude CLI started manually inside that shell
   is bound by the same hooks: the tab shows agent activity while it runs and

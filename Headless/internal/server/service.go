@@ -72,7 +72,12 @@ type Service struct {
 	// AgentHooks installs the Warren-managed Codex hook that reports the
 	// CLI session ID and transcript path. Nil disables installation; the
 	// finder then remains the best-effort fallback.
-	AgentHooks    func() error
+	AgentHooks func() error
+	// AgentLiveness reports whether the agent CLI that owns a transcript is
+	// still alive. Nil uses the default lsof-based check; a false result is
+	// only trusted after the transcript has been idle for the liveness
+	// grace period so a starting CLI is never misread as exited.
+	AgentLiveness func(context.Context, string) bool
 	MaxSpoolBytes int64
 	// MaxSpoolReplayBytes bounds raw spool replay during attach. Gaps larger
 	// than this fall back to a screen-resetting snapshot reanchor instead of
@@ -122,6 +127,9 @@ type agentSession struct {
 	// transcript yet, so reconcile does not walk the whole CLI directory tree
 	// on every one-second tick.
 	lastFind time.Time
+	// lastLiveness throttles the external liveness probe for exited-looking
+	// transcripts (idle transcript plus no process holding it open).
+	lastLiveness time.Time
 }
 
 type Runtime interface {
@@ -304,6 +312,7 @@ func (s *Service) reconcile(ctx context.Context) {
 		}
 		_, _ = s.ensureOutput(ctx, session)
 		s.applyAgentState(session)
+		s.applyAgentLiveness(probeContext, session)
 		_, _ = s.ensureAgent(probeContext, session)
 	}
 }
@@ -1328,6 +1337,12 @@ func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, 
 		}
 		existing.mu.Unlock()
 	}
+	state, _ := agent.ReadAgentState(agent.StatePath(sessionID))
+	if state == api.AgentActivityExited {
+		existing.mu.Lock()
+		existing.activity = api.AgentActivityExited
+		existing.mu.Unlock()
+	}
 	s.agentsMu.Unlock()
 	if rebinding {
 		// A session switch (e.g. `/clear`) starts a fresh projection: bump
@@ -1452,22 +1467,38 @@ func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent, a
 	}
 	s.lazyInit()
 	s.agentsMu.Lock()
+	effectiveActivity := activity
 	if entry := s.agents[sessionID]; entry != nil {
 		entry.mu.Lock()
 		entry.events = append(entry.events, events...)
 		if len(entry.events) > 2000 {
 			entry.events = append([]api.AgentEvent(nil), entry.events[len(entry.events)-2000:]...)
 		}
-		entry.activity = activity
+		if entry.activity == api.AgentActivityExited && activity != api.AgentActivityExited {
+			effectiveActivity = entry.activity
+		} else {
+			entry.activity = activity
+			effectiveActivity = entry.activity
+		}
 		entry.mu.Unlock()
 	}
 	s.agentsMu.Unlock()
-	s.broadcastAgentIncrements(sessionID, events, activity)
+	s.broadcastAgentIncrements(sessionID, events, effectiveActivity)
 }
 
 // recordAgentActivity forwards a state change that arrived without new
 // transcript events, such as a tool call that has been waiting too long.
 func (s *Service) recordAgentActivity(sessionID string, activity api.AgentActivity) {
+	s.setAgentActivity(sessionID, activity, false)
+}
+
+// forceAgentActivity records a state transition that must override an exited
+// marker, such as a new SessionStart resetting the shell overlay to ready.
+func (s *Service) forceAgentActivity(sessionID string, activity api.AgentActivity) {
+	s.setAgentActivity(sessionID, activity, true)
+}
+
+func (s *Service) setAgentActivity(sessionID string, activity api.AgentActivity, force bool) {
 	s.lazyInit()
 	s.agentsMu.Lock()
 	entry := s.agents[sessionID]
@@ -1476,6 +1507,11 @@ func (s *Service) recordAgentActivity(sessionID string, activity api.AgentActivi
 		s.agents[sessionID] = entry
 	}
 	entry.mu.Lock()
+	if !force && entry.activity == api.AgentActivityExited && activity != api.AgentActivityExited {
+		entry.mu.Unlock()
+		s.agentsMu.Unlock()
+		return
+	}
 	entry.activity = activity
 	entry.mu.Unlock()
 	s.agentsMu.Unlock()
@@ -1641,7 +1677,7 @@ func (s *Service) applyAgentState(session api.Session) {
 		}
 	case api.AgentActivityReady:
 		if current == api.AgentActivityExited {
-			s.recordAgentActivity(session.ID, state)
+			s.forceAgentActivity(session.ID, state)
 		}
 	}
 }
