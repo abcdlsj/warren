@@ -159,7 +159,11 @@ public enum TerminalDiagnostics {
     }
 
     private static func openForAppend(_ url: URL) -> FileHandle? {
-        FileManager.default.createFile(atPath: url.path, contents: nil)
-        return try? FileHandle(forWritingTo: url)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forUpdating: url) else { return nil }
+        handle.seekToEndOfFile()
+        return handle
     }
 }

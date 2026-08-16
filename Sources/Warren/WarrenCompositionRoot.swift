@@ -733,6 +733,15 @@ private struct ConnectingPlaceholder: View {
         .task {
             try? await Task.sleep(for: .milliseconds(200))
             visible = true
+            TerminalDiagnostics.log("connecting_placeholder_shown", [
+                "title": title,
+                "updating": updating ? "true" : "false",
+            ])
+        }
+        .onDisappear {
+            TerminalDiagnostics.log("connecting_placeholder_hidden", [
+                "title": title,
+            ])
         }
     }
 }
