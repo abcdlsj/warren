@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/server"
+	"github.com/abcdlsj/warren/Headless/internal/settings"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 	"github.com/abcdlsj/warren/Headless/internal/tlscert"
 	"github.com/abcdlsj/warren/Headless/internal/tunnel"
@@ -40,7 +42,10 @@ func main() {
 	hostName := flag.String("name", env("WARREN_HOST_NAME", ""), "host display name")
 	// tmux-socket is only consulted by the tmux runtime.
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
-	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", "ghostline"), "runtime backend: ghostline (default, recommended) or tmux (alternative)")
+	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", ""), "default runtime kind: ghostline or tmux (overrides settings.json)")
+	ghostlineSocket := flag.String("ghostline-socket", env("WARREN_GHOSTLINE_SOCKET", filepath.Join(configDir, "ghostline.sock")), "ghostline server socket path")
+	ghostlineServe := flag.Bool("ghostline-serve", false, "internal: run the ghostline session server (spawned by the daemon)")
+	settingsFile := flag.String("settings-file", env("WARREN_SETTINGS_FILE", filepath.Join(configDir, "settings.json")), "headless settings file")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
@@ -50,6 +55,14 @@ func main() {
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
+		return
+	}
+
+	// Internal subprocess mode: the daemon spawns this binary with
+	// --ghostline-serve so PTY sessions are owned by an independent process
+	// that survives daemon upgrades and restarts.
+	if *ghostlineServe {
+		runGhostlineServe(*ghostlineSocket, *outputDir)
 		return
 	}
 
@@ -66,23 +79,54 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	// ghostline is the default and recommended runtime: server-side PTY
-	// sessions with libghostty-vt snapshots. tmux is a fully supported
-	// alternative runtime for environments that prefer or require it.
-	var runtimeAdapter server.Runtime
-	switch *runtimeMode {
-	case "tmux":
-		tmuxAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
-		if err := tmuxAdapter.Check(nil); err != nil {
-			fatal(err)
-		}
-		runtimeAdapter = tmuxAdapter
-	case "ghostline", "pty": // "pty" is the historical alias for ghostline.
-		runtimeAdapter = ghostline.NewPTY(*outputDir)
-	default:
-		fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
+	// Runtime selection is a headless-side decision. Both engines are always
+	// registered so existing sessions keep working no matter which engine
+	// created them; DefaultRuntime only picks the engine for new sessions.
+	loadedSettings, err := settings.Load(*settingsFile)
+	if err != nil {
+		fatal(err)
 	}
-	service := &server.Service{Store: state, Runtime: runtimeAdapter, WorktreeRoot: *worktreeRoot}
+	defaultKind := loadedSettings.Normalized()
+	runtimeSet := false
+	flag.Visit(func(entry *flag.Flag) {
+		if entry.Name == "runtime" {
+			runtimeSet = true
+		}
+	})
+	if runtimeSet {
+		switch *runtimeMode {
+		case settings.RuntimeGhostline, "pty": // "pty" is the historical alias.
+			defaultKind = settings.RuntimeGhostline
+		case settings.RuntimeTmux:
+			defaultKind = settings.RuntimeTmux
+		default:
+			fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
+		}
+	}
+	if err := ensureGhostlineServer(*ghostlineSocket, *outputDir); err != nil {
+		fatal(err)
+	}
+	runtimes := map[string]server.Runtime{
+		settings.RuntimeGhostline: ghostline.NewClient(*ghostlineSocket),
+	}
+	tmuxAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
+	if err := tmuxAdapter.Check(nil); err != nil {
+		logger.Warn("tmux runtime unavailable", "error", err)
+	} else {
+		runtimes[settings.RuntimeTmux] = tmuxAdapter
+	}
+	runtimeAdapter := runtimes[defaultKind]
+	if runtimeAdapter == nil {
+		fatal(fmt.Errorf("default runtime %q is not available", defaultKind))
+	}
+	service := &server.Service{
+		Store:          state,
+		Runtime:        runtimeAdapter,
+		Runtimes:       runtimes,
+		DefaultRuntime: defaultKind,
+		SettingsPath:   *settingsFile,
+		WorktreeRoot:   *worktreeRoot,
+	}
 	serviceContext, stopService := context.WithCancel(context.Background())
 	service.Start(serviceContext)
 	defer func() {
@@ -155,6 +199,58 @@ func listenerPort(listener net.Listener) string {
 		return strconv.Itoa(address.Port)
 	}
 	return "8789"
+}
+
+// runGhostlineServe owns PTY sessions in a child process. The daemon spawns
+// it detached with --ghostline-serve; it listens on the Unix socket until
+// terminated, so daemon upgrades and restarts never end sessions.
+func runGhostlineServe(socketPath, outputDir string) {
+	server, err := ghostline.NewServer(ghostline.Options{OutputDir: outputDir})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
+		os.Exit(1)
+	}
+	if err := server.Serve(socketPath); err != nil {
+		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
+		os.Exit(1)
+	}
+}
+
+// ensureGhostlineServer connects to the session server, spawning it detached
+// when the socket is not yet accepting. Sessions survive daemon restarts
+// because the server process owns them.
+func ensureGhostlineServer(socketPath, outputDir string) error {
+	if ghostline.Ping(socketPath) {
+		return nil
+	}
+	logFile, err := os.OpenFile(
+		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("open ghostline log: %w", err)
+	}
+	defer logFile.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve daemon executable: %w", err)
+	}
+	command := exec.Command(
+		executable,
+		"--ghostline-serve",
+		"--ghostline-socket", socketPath,
+		"--output-dir", outputDir,
+	)
+	command.Stdout = logFile
+	command.Stderr = logFile
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("start ghostline server: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return ghostline.NewClient(socketPath).WaitReady(ctx, 5*time.Second)
 }
 
 func loadOrCreateToken(path string) (string, error) {
