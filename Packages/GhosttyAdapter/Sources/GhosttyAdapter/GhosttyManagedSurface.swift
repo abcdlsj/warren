@@ -518,9 +518,14 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
 
 private enum GhosttyDiagnosticsFormat {
     static func finiteSize(_ size: CGSize) -> String {
-        let width = size.width.isFinite ? String(Int(size.width)) : "inf"
-        let height = size.height.isFinite ? String(Int(size.height)) : "inf"
-        return "\(width)x\(height)"
+        "\(finitePart(size.width))x\(finitePart(size.height))"
+    }
+
+    private static func finitePart(_ value: CGFloat) -> String {
+        guard value.isFinite else { return "inf" }
+        if value > 1_000_000 { return ">1M" }
+        if value < -1_000_000 { return "<-1M" }
+        return String(Int(value))
     }
 }
 
