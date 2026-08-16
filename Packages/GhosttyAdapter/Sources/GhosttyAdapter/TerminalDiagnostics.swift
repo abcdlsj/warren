@@ -136,7 +136,7 @@ public enum TerminalDiagnostics {
     }
 
     private static func appendLocked(_ line: String) {
-        guard let handle = store.handle,
+        guard store.handle != nil,
               let data = line.data(using: .utf8) else { return }
         if store.bytesWritten + data.count > maxFileBytes {
             rotateLocked()
