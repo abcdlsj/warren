@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/abcdlsj/warren/Headless/internal/api"
 )
 
 // kindRecordingRuntime records which engine handled a session and implements
@@ -11,19 +13,29 @@ import (
 type kindRecordingRuntime struct {
 	mu       sync.Mutex
 	kind     string
+	sessions map[string]bool
 	created  []string
 	resized  int
 	captured int
 	killed   []string
 }
 
+func newKindRecordingRuntime(kind string) *kindRecordingRuntime {
+	return &kindRecordingRuntime{kind: kind, sessions: map[string]bool{}}
+}
+
 func (r *kindRecordingRuntime) Create(_ context.Context, name, _, _ string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.sessions[name] = true
 	r.created = append(r.created, name)
 	return nil
 }
-func (r *kindRecordingRuntime) Exists(context.Context, string) bool { return true }
+func (r *kindRecordingRuntime) Exists(_ context.Context, name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sessions[name]
+}
 func (r *kindRecordingRuntime) Capture(context.Context, string) ([]byte, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -40,6 +52,7 @@ func (r *kindRecordingRuntime) Resize(context.Context, string, int, int) error {
 func (r *kindRecordingRuntime) Kill(_ context.Context, name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	delete(r.sessions, name)
 	r.killed = append(r.killed, name)
 	return nil
 }
@@ -47,8 +60,8 @@ func (r *kindRecordingRuntime) Kill(_ context.Context, name string) error {
 func newCoexistService(t *testing.T) (*Service, *kindRecordingRuntime, *kindRecordingRuntime) {
 	t.Helper()
 	state := newStateWithSession(t, "session-coexist", "warren_coexist")
-	ghostlineRuntime := &kindRecordingRuntime{kind: "ghostline"}
-	tmuxRuntime := &kindRecordingRuntime{kind: "tmux"}
+	ghostlineRuntime := newKindRecordingRuntime("ghostline")
+	tmuxRuntime := newKindRecordingRuntime("tmux")
 	service := &Service{
 		Store:          state,
 		Runtime:        ghostlineRuntime,
@@ -56,6 +69,41 @@ func newCoexistService(t *testing.T) (*Service, *kindRecordingRuntime, *kindReco
 		DefaultRuntime: "ghostline",
 	}
 	return service, ghostlineRuntime, tmuxRuntime
+}
+
+func TestAdoptRuntimeKindFixesLegacySessions(t *testing.T) {
+	service, ghostlineRuntime, tmuxRuntime := newCoexistService(t)
+	ctx := context.Background()
+
+	// A legacy session owned by tmux gets its runtimeKind fixed.
+	tmuxRuntime.mu.Lock()
+	tmuxRuntime.sessions["warren_legacy_tmux"] = true
+	tmuxRuntime.mu.Unlock()
+	adopted, changed := service.adoptRuntimeKind(ctx, api.Session{Runtime: "warren_legacy_tmux"})
+	if !changed || adopted.RuntimeKind != "tmux" {
+		t.Fatalf("adopt tmux = %+v, changed=%v", adopted, changed)
+	}
+
+	// A legacy session owned by ghostline gets fixed the other way.
+	ghostlineRuntime.mu.Lock()
+	ghostlineRuntime.sessions["warren_legacy_ghost"] = true
+	ghostlineRuntime.mu.Unlock()
+	adopted, changed = service.adoptRuntimeKind(ctx, api.Session{Runtime: "warren_legacy_ghost"})
+	if !changed || adopted.RuntimeKind != "ghostline" {
+		t.Fatalf("adopt ghostline = %+v, changed=%v", adopted, changed)
+	}
+
+	// No runtime owns the session: unchanged, so the caller can end it.
+	adopted, changed = service.adoptRuntimeKind(ctx, api.Session{Runtime: "warren_nobody"})
+	if changed || adopted.RuntimeKind != "" {
+		t.Fatalf("adopt nobody = %+v, changed=%v", adopted, changed)
+	}
+
+	// Sessions that already record a kind are left alone.
+	adopted, changed = service.adoptRuntimeKind(ctx, api.Session{Runtime: "warren_known", RuntimeKind: "tmux"})
+	if changed || adopted.RuntimeKind != "tmux" {
+		t.Fatalf("adopt known = %+v, changed=%v", adopted, changed)
+	}
 }
 
 func TestCreateSessionRoutesToRequestedRuntime(t *testing.T) {

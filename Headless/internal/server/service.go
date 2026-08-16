@@ -214,12 +214,44 @@ func (s *Service) reconcile(ctx context.Context) {
 			s.stopOutput(session.ID, false)
 			continue
 		}
-		if !running(session) {
+		adopted, changed := s.adoptRuntimeKind(probeContext, session)
+		if changed {
+			s.persistRuntimeKind(adopted)
+		}
+		if !running(adopted) {
 			s.markEnded(session.ID)
 			continue
 		}
 		_, _ = s.ensureOutput(ctx, session)
 	}
+}
+
+// adoptRuntimeKind assigns a definitive engine to a legacy session created
+// before sessions recorded runtimeKind. Whichever registered runtime still
+// owns the session name wins, so old tmux sessions survive a default-runtime
+// switch instead of being mistaken for ghostline ones (or vice versa).
+func (s *Service) adoptRuntimeKind(ctx context.Context, session api.Session) (api.Session, bool) {
+	if session.RuntimeKind != "" {
+		return session, false
+	}
+	for kind, adapter := range s.Runtimes {
+		if adapter != nil && adapter.Exists(ctx, session.Runtime) {
+			session.RuntimeKind = kind
+			return session, true
+		}
+	}
+	return session, false
+}
+
+func (s *Service) persistRuntimeKind(session api.Session) {
+	_ = s.Store.Update(func(value *api.State) error {
+		for i := range value.Sessions {
+			if value.Sessions[i].ID == session.ID && value.Sessions[i].RuntimeKind == "" {
+				value.Sessions[i].RuntimeKind = session.RuntimeKind
+			}
+		}
+		return nil
+	})
 }
 
 // reapOrphans kills sessions that Warren created but state no longer owns:
@@ -300,7 +332,11 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	defer cancel()
 	running := s.runningSessions(probeContext)
 	for i := range state.Sessions {
-		if state.Sessions[i].Lifecycle == "running" && !running(state.Sessions[i]) {
+		adopted, _ := s.adoptRuntimeKind(probeContext, state.Sessions[i])
+		if adopted.RuntimeKind != "" && state.Sessions[i].RuntimeKind == "" {
+			state.Sessions[i].RuntimeKind = adopted.RuntimeKind
+		}
+		if state.Sessions[i].Lifecycle == "running" && !running(adopted) {
 			state.Sessions[i].Lifecycle = "ended"
 			state.Sessions[i].EndedAt = &now
 			changed = true
