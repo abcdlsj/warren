@@ -1,4 +1,4 @@
-const CACHE = "warren-vite-v5";
+const CACHE = "warren-vite-v6";
 const SHELL = [
   "/", "/manifest.webmanifest", "/icon.svg", "/favicon-16.png", "/favicon-32.png", "/icon-192.png", "/icon-512.png",
   "/apple-touch-icon.png", "/assets/app.js", "/assets/app.css",

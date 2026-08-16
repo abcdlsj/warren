@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,11 +9,17 @@ export function AgentView({ session, events = [], onSend }) {
   const inputRef = useRef(null);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
+  const model = useMemo(() => {
+    for (let index = events.length - 1; index >= 0; index--) {
+      if (events[index].model) return events[index].model;
+    }
+    return "";
+  }, [events]);
 
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 140;
+    const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 160;
     if (followsBottom) list.scrollTop = list.scrollHeight;
   }, [events.length]);
 
@@ -27,17 +33,21 @@ export function AgentView({ session, events = [], onSend }) {
 
   return (
     <div className="agent-view">
-      {session.agentSessionId && (
-        <div className="agent-binding" title={session.transcriptPath || session.agentSessionId}>
-          Session <code>{session.agentSessionId}</code>
-          {session.transcriptPath && <span className="agent-binding-file">{basename(session.transcriptPath)}</span>}
-        </div>
-      )}
+      <div className="agent-header">
+        <div className="agent-header-title">{session.title || "Agent"}</div>
+        {(model || session.agentSessionId) && (
+          <div className="agent-header-meta">
+            {model && <span className="agent-header-model">{model}</span>}
+            {session.agentSessionId && <span className="agent-header-session">{shortID(session.agentSessionId)}</span>}
+          </div>
+        )}
+      </div>
       <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
         {blocks.length === 0 ? (
           <div className="agent-empty">
-            <div className="agent-empty-title">Start a conversation</div>
-            <div className="agent-empty-hint">Messages and tool activity will appear here.</div>
+            <div className="agent-empty-mark" aria-hidden="true">✦</div>
+            <div className="agent-empty-title">What can I help you with?</div>
+            <div className="agent-empty-hint">Messages, tool calls and results will appear here.</div>
           </div>
         ) : (
           blocks.map((block, index) => <AgentBlock key={blockKindKey(block, index)} block={block} />)
@@ -66,10 +76,16 @@ export function AgentView({ session, events = [], onSend }) {
           autoComplete="off"
           spellCheck="false"
         />
-        <button type="submit" disabled={!draft.trim()}>Send</button>
+        <button type="submit" className="agent-send" disabled={!draft.trim()} aria-label="Send">
+          <SendIcon />
+        </button>
       </form>
     </div>
   );
+}
+
+function shortID(id) {
+  return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
 function blockKindKey(block, index) {
@@ -82,11 +98,17 @@ function AgentBlock({ block }) {
   case "user":
   case "assistant": {
     const event = block.event;
-    return (
-      <div className={`agent-message ${event.type}`}>
-        <div className="agent-role">
-          {event.type === "user" ? (event.sidechain ? "Subagent prompt" : "You") : (event.sidechain ? "Subagent" : "Assistant")}
+    if (event.type === "user") {
+      return (
+        <div className="agent-message user">
+          <div className="agent-bubble">
+            <MarkdownContent value={event.content || ""} />
+          </div>
         </div>
+      );
+    }
+    return (
+      <div className="agent-message assistant">
         <MarkdownContent value={event.content || ""} />
         {(event.model || event.usage || event.stopReason) && (
           <div className="agent-meta">
@@ -99,26 +121,22 @@ function AgentBlock({ block }) {
     );
   }
   case "tool":
-    return <ToolBlock block={block} />;
+    return <ToolCard block={block} />;
   case "tool_output": {
     const event = block.event;
     return (
-      <details className={`agent-tool ${event.toolStatus || "success"}`}>
-        <summary>
-          <StatusDot status={event.toolStatus || "success"} />
-          <span>{event.toolName || "Tool"} output</span>
-        </summary>
+      <div className={`agent-tool-card ${event.toolStatus || "success"}`}>
+        <div className="agent-tool-head">
+          <ToolIcon name={event.toolName} />
+          <span className="agent-tool-name">{displayToolName(event.toolName)}</span>
+          <span className="agent-tool-status">{statusText(event.toolStatus)}</span>
+        </div>
         <ToolOutputBody event={event} />
-      </details>
+      </div>
     );
   }
   case "reasoning":
-    return (
-      <details className="agent-reasoning">
-        <summary>Thinking</summary>
-        <MarkdownContent value={block.event.content || ""} />
-      </details>
-    );
+    return <ReasoningCard content={block.event.content || ""} />;
   case "usage":
     return (
       <div className="agent-system">
@@ -129,14 +147,12 @@ function AgentBlock({ block }) {
   case "error":
     return (
       <div className="agent-error">
-        <div className="agent-role">Error</div>
         <pre className="agent-body">{block.event.error || block.event.content || ""}</pre>
       </div>
     );
   case "attachment":
     return (
       <div className="agent-attachment">
-        <div className="agent-role">Attachment</div>
         <pre className="agent-body">{block.event.content || ""}</pre>
       </div>
     );
@@ -157,36 +173,60 @@ function AgentBlock({ block }) {
   }
 }
 
-function ToolBlock({ block }) {
+function ToolCard({ block }) {
   const call = block.call;
   const lastOutput = block.outputs.at(-1);
-  const status = lastOutput?.toolStatus || (block.outputs.length ? "success" : "");
+  const status = lastOutput?.toolStatus || (block.outputs.length ? "success" : "running");
+  const [open, setOpen] = useState(false);
   const summary = toolSummary(call);
   return (
-    <details className={`agent-tool ${status || "running"}`}>
-      <summary>
-        <StatusDot status={status || "running"} />
-        <span className="agent-tool-name">{call.toolName || "Tool"}</span>
+    <div className={`agent-tool-card ${status}`}>
+      <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ToolIcon name={call.toolName} />
+        <span className="agent-tool-name">{displayToolName(call.toolName)}</span>
         {summary && <code className="agent-tool-summary">{summary}</code>}
-        {call.files?.length > 0 && <FileList files={call.files} inline />}
-      </summary>
-      {call.toolInput !== undefined && (
-        <div className="agent-tool-input">
-          <div className="agent-tool-label">Input</div>
-          <pre className="agent-body">{JSON.stringify(call.toolInput, null, 2)}</pre>
+        <span className="agent-tool-status">{statusText(status)}</span>
+        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="agent-tool-body">
+          {call.toolInput !== undefined && (
+            <div className="agent-tool-section">
+              <div className="agent-tool-label">Input</div>
+              <pre className="agent-body">{JSON.stringify(call.toolInput, null, 2)}</pre>
+            </div>
+          )}
+          {block.outputs.map(output => <ToolOutputBody key={output.seq} event={output} />)}
+          {call.files?.length > 0 && <FileList files={call.files} />}
+          {!block.outputs.length && (
+            <div className="agent-tool-label">Waiting for output…</div>
+          )}
         </div>
       )}
-      {block.outputs.map(output => <ToolOutputBody key={output.seq} event={output} />)}
-      {!block.outputs.length && (
-        <div className="agent-tool-label">Waiting for output…</div>
+    </div>
+  );
+}
+
+function ReasoningCard({ content }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="agent-reasoning">
+      <button type="button" className="agent-reasoning-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={`agent-reasoning-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
+        <span className="agent-reasoning-label">Thinking</span>
+      </button>
+      {open && (
+        <div className="agent-reasoning-body">
+          <MarkdownContent value={content} />
+        </div>
       )}
-    </details>
+    </div>
   );
 }
 
 function ToolOutputBody({ event }) {
   return (
-    <div className={`agent-tool-output ${event.toolStatus || "success"}`}>
+    <div className="agent-tool-output">
       {event.error && <div className="agent-tool-error">{event.error}</div>}
       {(event.output || "") !== "" && <pre className="agent-body">{event.output}</pre>}
       {event.files?.length > 0 && <FileList files={event.files} />}
@@ -194,8 +234,70 @@ function ToolOutputBody({ event }) {
   );
 }
 
-function StatusDot({ status }) {
-  return <span className={`agent-status-dot ${status}`} aria-hidden="true" />;
+function statusText(status) {
+  switch (status) {
+  case "error": return "Failed";
+  case "interrupted": return "Interrupted";
+  case "running": return "Running…";
+  default: return "Completed";
+  }
+}
+
+function displayToolName(name) {
+  const names = {
+    Bash: "Shell",
+    shell: "Shell",
+    Edit: "Edit file",
+    Read: "Read file",
+    Grep: "Search files",
+    Glob: "Find files",
+    WebSearch: "Web search",
+    web_search: "Web search",
+    ApplyPatch: "Apply patch",
+    Task: "Subagent",
+    Write: "Write file",
+  };
+  return names[name] || name || "Tool";
+}
+
+function ToolIcon({ name }) {
+  const key = String(name || "").toLowerCase();
+  const path = toolIconPath(key);
+  return (
+    <span className="agent-tool-icon" aria-hidden="true">
+      {path}
+    </span>
+  );
+}
+
+function toolIconPath(key) {
+  if (key.includes("bash") || key.includes("shell")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 3l6 5-6 5V3zm7 10h5v-1H9v1z" fill="currentColor"/></svg>;
+  }
+  if (key.includes("edit") || key.includes("write") || key.includes("apply")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M11.3 1.3l3.4 3.4-9 9H2v-3.7l9.3-8.7z" fill="currentColor"/></svg>;
+  }
+  if (key.includes("read") || key.includes("glob")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 3h12v10H2V3zm1 1v8h10V4H3zm2 2h6v1H5V6zm0 2h6v1H5V8zm0 2h4v1H5v-1z" fill="currentColor"/></svg>;
+  }
+  if (key.includes("grep") || key.includes("search")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M6.5 2a4.5 4.5 0 102.8 8l3.4 3.4 1-1L10.2 9A4.5 4.5 0 006.5 2zm0 1a3.5 3.5 0 110 7 3.5 3.5 0 010-7z" fill="currentColor"/></svg>;
+  }
+  if (key.includes("web") || key.includes("http")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-1 1.1A5.9 5.9 0 003.1 6H6V2.1zM7 2v4h2V2H7zm3 .4V6h2.9A5.9 5.9 0 0010 2.4zM2.2 7h3v2h-3A6 6 0 012.2 7zm4 0v2h3.6V7H6.2zm4.6 0h3a6 6 0 01.2 2h-3V7zM3.1 10h2.9v3.9A5.9 5.9 0 013.1 10zm3.9 3.9V10H9v3.9A6 6 0 017 13.9zM10 10v3.9a5.9 5.9 0 002.9-3.9H10z" fill="currentColor"/></svg>;
+  }
+  if (key.includes("task")) {
+    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 1l1.8 4.6L14.5 7 9.8 8.8 8 13.5 6.2 8.8 1.5 7l4.7-1.4L8 1z" fill="currentColor"/></svg>;
+  }
+  return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 2h10v2H3V2zm0 5h10v2H3V7zm0 5h7v2H3v-2z" fill="currentColor"/></svg>;
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2L1.5 1.8zm3.6 7.2l-1.2 3.5 7.4-3.5-7.4-3.5 1.2 3.5z" fill="currentColor"/>
+    </svg>
+  );
 }
 
 function toolSummary(call) {
@@ -233,13 +335,13 @@ function UsageChip({ usage }) {
   return <span className="agent-usage-chip">{parts.join(" · ")}</span>;
 }
 
-function FileList({ files, inline = false }) {
+function FileList({ files }) {
   return (
-    <span className={`agent-files${inline ? " inline" : ""}`}>
+    <div className="agent-files">
       {files.map((file, index) => (
         <span className="agent-file" key={`${file}-${index}`}>{basename(file)}</span>
       ))}
-    </span>
+    </div>
   );
 }
 
