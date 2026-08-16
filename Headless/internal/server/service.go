@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
-	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
 
@@ -60,7 +60,8 @@ type outputSession struct {
 	sessionID         string
 	runtimeName       string
 	ring              *output.Ring
-	watcher           *runtime.SpoolWatcher
+	watcher           *ghostline.SpoolWatcher
+	responder         *ghostline.QueryResponder
 	persistedSequence uint64
 	reanchorRequired  bool
 }
@@ -850,7 +851,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapter()
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring}
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, ring: ring, responder: ghostline.NewQueryResponder()}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -872,10 +873,11 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	outputSession := &outputSession{
 		sessionID:         session.ID,
 		runtimeName:       session.Runtime,
+		responder:         ghostline.NewQueryResponder(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}
-	watcher, err := runtime.NewSpoolWatcher(
+	watcher, err := ghostline.NewSpoolWatcher(
 		adapter.SpoolPath(session.Runtime),
 		spoolOffset,
 		func(data []byte) { s.recordOutput(session.ID, data) },
@@ -932,15 +934,20 @@ func (s *Service) commandTimeout() time.Duration {
 func (s *Service) recordOutput(sessionID string, data []byte) {
 	s.outputMu.Lock()
 	outputSession := s.outputs[sessionID]
+	attached := len(s.peers[sessionID]) > 0
 	s.outputMu.Unlock()
 	if outputSession == nil {
 		return
 	}
+	var replies [][]byte
 	for _, chunk := range output.SplitPayload(data) {
 		outputSession.mu.Lock()
 		frame, err := outputSession.ring.Append(sessionID, chunk)
 		epoch := outputSession.ring.Epoch
 		sequence := outputSession.ring.Upper()
+		if !attached {
+			replies = append(replies, outputSession.responder.Feed(chunk)...)
+		}
 		outputSession.mu.Unlock()
 		if err != nil {
 			continue
@@ -949,6 +956,9 @@ func (s *Service) recordOutput(sessionID string, data []byte) {
 		// a peer cannot keep up and has to reconnect.
 		s.broadcastFrame(frame)
 		s.maybePersistCursor(sessionID, epoch, sequence)
+	}
+	for _, reply := range replies {
+		_ = s.Runtime.Input(context.Background(), outputSession.runtimeName, reply)
 	}
 }
 
@@ -1088,6 +1098,46 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 		return peer.enqueueSynced(session.ID, recovery.Epoch, recovery.Upper)
 	}
 
+	// Spool recovery: when the ring evicted the client's anchor, the PTY
+	// runtime can still serve the exact tail from its append-only spool.
+	// Rendering those bytes as ordinary output avoids the screen reset and
+	// full replay that otherwise flashes black on every reattach.
+	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
+		if recoverer, ok := s.Runtime.(ghostline.SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
+			adapter := s.outputAdapter()
+			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
+			if sizeErr == nil && anchor.Sequence <= uint64(size) {
+				data, recoverErr := recoverer.Recover(ctx, session.Runtime, int64(anchor.Sequence), size)
+				if recoverErr == nil && len(data) > 0 {
+					if err := outputSession.watcher.SkipTo(size); err != nil {
+						return err
+					}
+					upper := uint64(size)
+					outputSession.mu.Lock()
+					outputSession.ring.Reset(recovery.Epoch, upper)
+					outputSession.persistedSequence = upper
+					outputSession.reanchorRequired = false
+					outputSession.mu.Unlock()
+					if err := peer.enqueueAttached(session.ID, recovery.Epoch, uint64(anchor.Sequence), false); err != nil {
+						return err
+					}
+					sequence := uint64(anchor.Sequence)
+					for _, chunk := range output.SplitPayload(data) {
+						encoded, encodeErr := output.EncodeOutput(session.ID, recovery.Epoch, sequence, chunk)
+						if encodeErr != nil {
+							return encodeErr
+						}
+						if !peer.enqueueBinary(encoded) {
+							return errors.New("outbound queue overflow during spool recovery")
+						}
+						sequence += uint64(len(chunk))
+					}
+					return peer.enqueueSynced(session.ID, recovery.Epoch, upper)
+				}
+			}
+		}
+	}
+
 	// Reanchor: capture the real tmux screen and replay it as a snapshot
 	// reset. Snapshot frames reuse the current upper sequence; clients do not
 	// advance their anchor until the synced marker arrives.
@@ -1210,6 +1260,7 @@ func (s *Service) focusPeerLocked(
 		if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
 			return false, err
 		}
+		s.updateResponderSize(session.ID, columns, rows)
 		resized = true
 	}
 	s.outputMu.Lock()
@@ -1243,7 +1294,16 @@ func (s *Service) resizeFocusedLocked(
 	if err := s.Runtime.Resize(ctx, session.Runtime, columns, rows); err != nil {
 		return false, err
 	}
+	s.updateResponderSize(session.ID, columns, rows)
 	return true, nil
+}
+
+func (s *Service) updateResponderSize(sessionID string, columns, rows int) {
+	s.outputMu.Lock()
+	defer s.outputMu.Unlock()
+	if outputSession := s.outputs[sessionID]; outputSession != nil {
+		outputSession.responder.Resize(columns, rows)
+	}
 }
 
 func (s *Service) focusPeer(

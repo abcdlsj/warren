@@ -144,6 +144,26 @@ func (runtime *spoolRuntime) RemoveSpool(name string) {
 	_ = os.Remove(runtime.SpoolPath(name))
 }
 
+func (runtime *spoolRuntime) Recover(_ context.Context, name string, offset, end int64) ([]byte, error) {
+	data, err := os.ReadFile(runtime.SpoolPath(name))
+	if err != nil {
+		return nil, err
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > int64(len(data)) {
+		return nil, os.ErrNotExist
+	}
+	if end > int64(len(data)) {
+		end = int64(len(data))
+	}
+	if end < offset {
+		end = offset
+	}
+	return data[offset:end], nil
+}
+
 func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 	state := newStateWithSession(t, "session-stream", "runtime-stream")
 	runtime := newSpoolRuntime(t)
@@ -208,6 +228,59 @@ func TestStreamedAttachReplaysTailAndNeverDuplicates(t *testing.T) {
 		t.Fatal("duplicate output arrived after recovery")
 	}
 	_ = connection.SetReadDeadline(time.Time{})
+}
+
+// TestStreamedAttachRecoversFromSpoolAfterRingEviction verifies the PTY
+// runtime path: when the client's anchor has been evicted from the ring but
+// the append-only spool still covers it, attach must stream the missing tail
+// without a screen-resetting reanchor.
+func TestStreamedAttachRecoversFromSpoolAfterRingEviction(t *testing.T) {
+	state := newStateWithSession(t, "session-spool-recover", "runtime-spool-recover")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-spool-recover", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.SpoolPath("runtime-spool-recover"), bytes.Repeat([]byte("A"), 300), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, RingMaxBytes: 128}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	// First attach reanchors from the whole spool and anchors at byte 300.
+	attachBrowser(t, connection, "session-spool-recover", nil)
+	readBrowserMessage(t, connection, "attached")
+	readBinaryFrame(t, connection)
+	synced := readBrowserMessage(t, connection, "synced")
+	anchor := anchorFromMessage(t, synced)
+	if anchor.Sequence != 300 {
+		t.Fatalf("first anchor sequence = %d, want 300", anchor.Sequence)
+	}
+	sendDetach(t, connection)
+
+	// Append enough output to evict the anchor from the 128-byte ring while
+	// the spool still covers it.
+	if err := runtime.Input(context.Background(), "runtime-spool-recover", bytes.Repeat([]byte("B"), 200)); err != nil {
+		t.Fatal(err)
+	}
+	waitForRingUpper(t, service, "session-spool-recover", 500)
+
+	attachBrowser(t, connection, "session-spool-recover", &anchor)
+	attached := readBrowserMessage(t, connection, "attached")
+	if attached["reanchor"] == true {
+		t.Fatalf("spool recovery must not reanchor, got %#v", attached)
+	}
+	if attachedAnchor := anchorFromMessage(t, attached); attachedAnchor.Sequence != 300 {
+		t.Fatalf("spool recovery attached sequence = %d, want 300", attachedAnchor.Sequence)
+	}
+	delta := readBinaryFrame(t, connection)
+	if delta.Sequence != 300 || string(delta.Payload) != string(bytes.Repeat([]byte("B"), 200)) {
+		t.Fatalf("spool recovery delta = %#v", delta)
+	}
+	readBrowserMessage(t, connection, "synced")
 }
 
 func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
