@@ -72,12 +72,7 @@ type Service struct {
 	// AgentHooks installs the Warren-managed Codex hook that reports the
 	// CLI session ID and transcript path. Nil disables installation; the
 	// finder then remains the best-effort fallback.
-	AgentHooks func() error
-	// AgentLiveness reports whether the agent CLI that owns a transcript is
-	// still alive. Nil uses the default lsof-based check; a false result is
-	// only trusted after the transcript has been idle for the liveness
-	// grace period so a starting CLI is never misread as exited.
-	AgentLiveness func(context.Context, string) bool
+	AgentHooks    func() error
 	MaxSpoolBytes int64
 	// MaxSpoolReplayBytes bounds raw spool replay during attach. Gaps larger
 	// than this fall back to a screen-resetting snapshot reanchor instead of
@@ -127,9 +122,6 @@ type agentSession struct {
 	// transcript yet, so reconcile does not walk the whole CLI directory tree
 	// on every one-second tick.
 	lastFind time.Time
-	// lastLiveness throttles the external liveness probe for exited-looking
-	// transcripts (idle transcript plus no process holding it open).
-	lastLiveness time.Time
 }
 
 type Runtime interface {
@@ -312,7 +304,6 @@ func (s *Service) reconcile(ctx context.Context) {
 		}
 		_, _ = s.ensureOutput(ctx, session)
 		s.applyAgentState(session)
-		s.applyAgentLiveness(probeContext, session)
 		_, _ = s.ensureAgent(probeContext, session)
 	}
 }
@@ -1308,7 +1299,15 @@ func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, 
 	s.lazyInit()
 	s.agentsMu.Lock()
 	existing := s.agents[sessionID]
+	state, _ := agent.ReadAgentState(agent.StatePath(sessionID))
 	if existing != nil && existing.watcher != nil && existing.watcher.Path() == transcriptPath {
+		if seedReady && state != api.AgentActivityExited {
+			existing.mu.Lock()
+			if existing.activity == api.AgentActivityExited {
+				existing.activity = api.AgentActivityReady
+			}
+			existing.mu.Unlock()
+		}
 		s.agentsMu.Unlock()
 		return existing
 	}
@@ -1332,12 +1331,11 @@ func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, 
 	}
 	if seedReady {
 		existing.mu.Lock()
-		if existing.activity == "" {
+		if existing.activity == "" || existing.activity == api.AgentActivityExited {
 			existing.activity = api.AgentActivityReady
 		}
 		existing.mu.Unlock()
 	}
-	state, _ := agent.ReadAgentState(agent.StatePath(sessionID))
 	if state == api.AgentActivityExited {
 		existing.mu.Lock()
 		existing.activity = api.AgentActivityExited

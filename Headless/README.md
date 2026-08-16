@@ -171,9 +171,6 @@ so several agents in the same workspace never mix transcripts:
   `~/.warren/agent-bind/<warren-session-id>.json` and resets the state file;
   `SessionEnd` marks the state file exited so the status light returns to
   the surrounding shell. The daemon starts the watcher from the exact file.
-  If the CLI is killed without running `SessionEnd`, the daemon also watches
-  whether the transcript is still held open by a live process and marks the
-  session exited once it is gone.
 - Every Warren session, including a plain Shell tab, inherits the same
   binding environment. A Codex/Claude CLI started manually inside that shell
   is bound by the same hooks: the tab shows agent activity while it runs and

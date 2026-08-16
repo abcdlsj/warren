@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
@@ -149,7 +148,7 @@ func TestPlainShellSessionHasNoAgentActivity(t *testing.T) {
 	}
 }
 
-func TestAgentLivenessClearsShellOverlayAfterExit(t *testing.T) {
+func TestShellOverlayResetsReadyAfterExitOnSameTranscript(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("WARREN_DATA_DIR", directory)
 	transcriptPath := filepath.Join(directory, "rollout-shell.jsonl")
@@ -158,23 +157,13 @@ func TestAgentLivenessClearsShellOverlayAfterExit(t *testing.T) {
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(transcriptPath, old, old); err != nil {
-		t.Fatal(err)
-	}
 
 	state := newStateWithSession(t, "session-shell", "runtime-shell")
 	runtime := newSpoolRuntime(t)
 	if err := runtime.Create(context.Background(), "runtime-shell", directory, "", nil); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{
-		Store:   state,
-		Runtime: runtime,
-		AgentLiveness: func(context.Context, string) bool {
-			return false
-		},
-	}
+	service := &Service{Store: state, Runtime: runtime}
 	service.lazyInit()
 	session := state.Snapshot().Sessions[0]
 	if err := agent.WriteBinding(agent.BindPath(session.ID), agent.Binding{
@@ -191,84 +180,15 @@ func TestAgentLivenessClearsShellOverlayAfterExit(t *testing.T) {
 	if _, err := service.ensureAgent(context.Background(), session); err != nil {
 		t.Fatal(err)
 	}
-	if got := service.agentActivity(session.ID); got != api.AgentActivityReady {
-		t.Fatalf("activity before liveness = %q, want ready", got)
-	}
-
-	service.applyAgentLiveness(context.Background(), session)
-	stateValue, err := agent.ReadAgentState(agent.StatePath(session.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stateValue != api.AgentActivityExited {
-		t.Fatalf("state after liveness = %q, want exited", stateValue)
-	}
-	active := state.Snapshot().Sessions[0]
-	entry, err := service.ensureAgent(context.Background(), active)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if entry != nil {
-		t.Fatal("shell overlay must be torn down after liveness exit")
-	}
-	if got := service.agentActivity(session.ID); got != "" {
-		t.Fatalf("activity after clear = %q, want empty", got)
-	}
-	roster := service.Roster(context.Background())
-	for _, candidate := range roster.Sessions {
-		if candidate.ID == session.ID && candidate.AgentActivity != "" {
-			t.Fatalf("roster activity = %q, want empty", candidate.AgentActivity)
-		}
-	}
-}
-
-func TestAgentLivenessKeepsLiveTranscript(t *testing.T) {
-	directory := t.TempDir()
-	t.Setenv("WARREN_DATA_DIR", directory)
-	transcriptPath := filepath.Join(directory, "rollout-shell.jsonl")
-	if err := os.WriteFile(transcriptPath, []byte(
-		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`+"\n",
-	), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-time.Minute)
-	if err := os.Chtimes(transcriptPath, old, old); err != nil {
-		t.Fatal(err)
-	}
-
-	state := newStateWithSession(t, "session-shell", "runtime-shell")
-	runtime := newSpoolRuntime(t)
-	if err := runtime.Create(context.Background(), "runtime-shell", directory, "", nil); err != nil {
-		t.Fatal(err)
-	}
-	service := &Service{
-		Store:   state,
-		Runtime: runtime,
-		AgentLiveness: func(context.Context, string) bool {
-			return true
-		},
-	}
-	service.lazyInit()
-	session := state.Snapshot().Sessions[0]
-	if err := agent.WriteBinding(agent.BindPath(session.ID), agent.Binding{
-		Provider:       "codex",
-		SessionID:      "thread-shell",
-		TranscriptPath: transcriptPath,
-		Cwd:            directory,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	service.forceAgentActivity(session.ID, api.AgentActivityExited)
 	if err := agent.WriteAgentState(agent.StatePath(session.ID), api.AgentActivityReady); err != nil {
 		t.Fatal(err)
 	}
-
-	service.applyAgentLiveness(context.Background(), session)
-	stateValue, err := agent.ReadAgentState(agent.StatePath(session.ID))
-	if err != nil {
+	if _, err := service.ensureAgent(context.Background(), session); err != nil {
 		t.Fatal(err)
 	}
-	if stateValue != api.AgentActivityReady {
-		t.Fatalf("state with live process = %q, want ready", stateValue)
+	if got := service.agentActivity(session.ID); got != api.AgentActivityReady {
+		t.Fatalf("activity after same-transcript SessionStart = %q, want ready", got)
 	}
 }
 
