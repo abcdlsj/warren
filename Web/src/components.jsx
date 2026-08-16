@@ -120,7 +120,6 @@ export function Sidebar({
     <aside className="sidebar" aria-label="Projects and workspaces">
       <div className="brand">
         <img className="brand-mark" src={webAssetURL("icon.svg")} alt="Warren" />
-        <span>Warren</span>
         <span className={`connection${connection.online ? " online" : ""}`}>
           <span className="connection-dot" />
           <span>{connection.message}</span>

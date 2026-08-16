@@ -1113,7 +1113,18 @@ export default function App() {
   const deleteSession = useCallback(session => {
     const label = session.title || session.id;
     if (!window.confirm(`Delete session "${label}"? This kills its terminal process.`)) return;
-    request("session.delete", { id: session.id }, () => {});
+    request("session.delete", { id: session.id }, () => {
+      // If the deleted session owns the visible terminal, clear it right away
+      // instead of waiting for the next roster broadcast. The empty-state
+      // overlay is opaque, but the xterm surface behind it must not keep the
+      // last agent screen.
+      const current = appStateRef.current;
+      if (current.activeSession === session.id || current.attachedSession === session.id) {
+        terminalRef.current?.clear();
+        recoveryAnchorRef.current = null;
+        reanchorRequiredRef.current = false;
+      }
+    });
   }, [request]);
 
   const sessionContextMenu = useCallback((event, session) => {
