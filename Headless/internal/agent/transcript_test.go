@@ -64,6 +64,29 @@ func TestReadNewNormalizesCodexTranscript(t *testing.T) {
 	}
 }
 
+func TestCodexDeveloperAndInjectedContextCollapseToSystemInstructions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-instructions.jsonl")
+	writeLines(t, path,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions> long policy"}]}}`,
+		`{"timestamp":"2026-08-16T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"}]}}`,
+		`{"timestamp":"2026-08-16T10:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Real question"}]}}`,
+	)
+	events, _, err := readNew(path, 0, newParser("codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, event := range events {
+		kinds = append(kinds, event.Type)
+	}
+	if got, want := strings.Join(kinds, ","), "system_instructions,system_instructions,user"; got != want {
+		t.Fatalf("event kinds = %q, want %q", got, want)
+	}
+	if events[2].Content != "Real question" {
+		t.Fatalf("last user content = %q", events[2].Content)
+	}
+}
+
 func TestReadNewNormalizesClaudeTranscript(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	writeLines(t, path,

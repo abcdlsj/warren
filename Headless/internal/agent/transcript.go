@@ -472,23 +472,27 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		switch payload.Type {
 		case "message":
 			event.ID = payload.ID
-			switch payload.Role {
-			case "user":
-				event.Type = "user"
-			case "developer":
-				event.Type = "system"
-			default:
-				event.Type = "assistant"
-				event.Model = p.codexModel
+		switch payload.Role {
+		case "user":
+			event.Type = "user"
+		case "developer":
+			event.Type = "system_instructions"
+		default:
+			event.Type = "assistant"
+			event.Model = p.codexModel
 			}
 			event.Content = contentString(payload.Content)
 			if event.Content == "" {
-				return nil
-			}
-			if event.Type == "user" {
+			return nil
+		}
+		if event.Type == "user" {
+			if isSystemInjectedUserContext(event.Content) {
+				event.Type = "system_instructions"
+			} else {
 				p.lastUserContent = event.Content
 			}
-			return []api.AgentEvent{event}
+		}
+		return []api.AgentEvent{event}
 		case "reasoning":
 			event.ID = payload.ID
 			event.Type = "reasoning"
@@ -572,6 +576,17 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 	default:
 		return nil
 	}
+}
+
+// isSystemInjectedUserContext detects the startup context Codex injects as a
+// user-role message (permissions instructions, AGENTS.md, environment
+// context, collaboration mode). It is scaffolding, not a real user turn, so
+// the UI collapses it instead of rendering it as a message.
+func isSystemInjectedUserContext(content string) bool {
+	return strings.HasPrefix(content, "<environment_context>") ||
+		strings.HasPrefix(content, "# AGENTS.md") ||
+		strings.HasPrefix(content, "<collaboration_mode>") ||
+		strings.Contains(content, "<permissions instructions>")
 }
 
 func codexReasoningContent(payload codexPayload) string {

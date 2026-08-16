@@ -110,13 +110,7 @@ function AgentBlock({ block }) {
     return (
       <div className="agent-message assistant">
         <MarkdownContent value={event.content || ""} />
-        {(event.model || event.usage || event.stopReason) && (
-          <div className="agent-meta">
-            {event.model && <span>{event.model}</span>}
-            {event.usage && <UsageChip usage={event.usage} />}
-            {event.stopReason && <span>Stopped: {event.stopReason}</span>}
-          </div>
-        )}
+        <MessageMeta event={event} />
       </div>
     );
   }
@@ -137,6 +131,8 @@ function AgentBlock({ block }) {
   }
   case "reasoning":
     return <ReasoningCard content={block.event.content || ""} />;
+  case "system_instructions":
+    return <SystemInstructionsCard content={block.event.content || ""} />;
   case "usage":
     return (
       <div className="agent-system">
@@ -171,6 +167,49 @@ function AgentBlock({ block }) {
       </details>
     );
   }
+}
+
+function MessageMeta({ event }) {
+  const [open, setOpen] = useState(false);
+  if (!event.model && !event.usage && !event.stopReason) return null;
+  return (
+    <div className="agent-meta">
+      <button
+        type="button"
+        className="agent-meta-toggle"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        title="Message details"
+      >
+        <span className="agent-meta-dot" aria-hidden="true">i</span>
+      </button>
+      {open && (
+        <div className="agent-meta-popover">
+          {event.model && <div className="agent-meta-row"><span>Model</span><code>{event.model}</code></div>}
+          {event.usage && <UsageChip usage={event.usage} />}
+          {event.stopReason && <div className="agent-meta-row"><span>Stopped</span><code>{event.stopReason}</code></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SystemInstructionsCard({ content }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="agent-system-instructions">
+      <button type="button" className="agent-system-instructions-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className={`agent-reasoning-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
+        <span>System instructions</span>
+        <span className="agent-system-instructions-size">{content.length} chars</span>
+      </button>
+      {open && (
+        <div className="agent-system-instructions-body">
+          <pre className="agent-body">{content}</pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ToolCard({ block }) {
