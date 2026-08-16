@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -41,6 +42,8 @@ func main() {
 	// tmux-socket is only consulted by the deprecated tmux fallback runtime.
 	tmuxSocket := flag.String("tmux-socket", env("WARREN_TMUX_SOCKET", "warren-headless"), "tmux socket name")
 	runtimeMode := flag.String("runtime", env("WARREN_RUNTIME", "ghostline"), "runtime backend: ghostline (default) or tmux (deprecated fallback for environments without libghostty-vt; not maintained)")
+	ghostlineSocket := flag.String("ghostline-socket", env("WARREN_GHOSTLINE_SOCKET", filepath.Join(configDir, "ghostline.sock")), "ghostline server socket path")
+	ghostlineServe := flag.Bool("ghostline-serve", false, "internal: run the ghostline session server (spawned by the daemon)")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
 	outputDir := flag.String("output-dir", env("WARREN_OUTPUT_DIR", filepath.Join(configDir, "output")), "per-session tmux output spool directory")
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
@@ -50,6 +53,14 @@ func main() {
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
+		return
+	}
+
+	// Internal subprocess mode: the daemon spawns this binary with
+	// --ghostline-serve so PTY sessions are owned by an independent process
+	// that survives daemon upgrades and restarts.
+	if *ghostlineServe {
+		runGhostlineServe(*ghostlineSocket, *outputDir)
 		return
 	}
 
@@ -79,7 +90,10 @@ func main() {
 		}
 		runtimeAdapter = tmuxAdapter
 	case "ghostline", "pty": // "pty" is the historical alias for ghostline.
-		runtimeAdapter = ghostline.NewPTY(*outputDir)
+		if err := ensureGhostlineServer(*ghostlineSocket, *outputDir); err != nil {
+			fatal(err)
+		}
+		runtimeAdapter = ghostline.NewClient(*ghostlineSocket)
 	default:
 		fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
 	}
@@ -156,6 +170,58 @@ func listenerPort(listener net.Listener) string {
 		return strconv.Itoa(address.Port)
 	}
 	return "8789"
+}
+
+// runGhostlineServe owns PTY sessions in a child process. The daemon spawns
+// it detached with --ghostline-serve; it listens on the Unix socket until
+// terminated, so daemon upgrades and restarts never end sessions.
+func runGhostlineServe(socketPath, outputDir string) {
+	server, err := ghostline.NewServer(ghostline.Options{OutputDir: outputDir})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
+		os.Exit(1)
+	}
+	if err := server.Serve(socketPath); err != nil {
+		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
+		os.Exit(1)
+	}
+}
+
+// ensureGhostlineServer connects to the session server, spawning it detached
+// when the socket is not yet accepting. Sessions survive daemon restarts
+// because the server process owns them.
+func ensureGhostlineServer(socketPath, outputDir string) error {
+	if ghostline.Ping(socketPath) {
+		return nil
+	}
+	logFile, err := os.OpenFile(
+		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("open ghostline log: %w", err)
+	}
+	defer logFile.Close()
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve daemon executable: %w", err)
+	}
+	command := exec.Command(
+		executable,
+		"--ghostline-serve",
+		"--ghostline-socket", socketPath,
+		"--output-dir", outputDir,
+	)
+	command.Stdout = logFile
+	command.Stderr = logFile
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("start ghostline server: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return ghostline.NewClient(socketPath).WaitReady(ctx, 5*time.Second)
 }
 
 func loadOrCreateToken(path string) (string, error) {

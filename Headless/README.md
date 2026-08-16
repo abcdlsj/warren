@@ -102,22 +102,24 @@ Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.w
 
 `warren-headless` defaults to the
 [ghostline](https://github.com/abcdlsj/ghostline) runtime: one
-pseudo-terminal per session owned by the daemon, with a server-side
-libghostty-vt emulator rendering screen snapshots (visible grid + scrollback,
-SGR preserved) at the client's size. The output pipeline is unchanged: raw
-PTY bytes are appended to the same spool files, so recovery anchors and
-reanchor behave identically, and clients still render with their own terminal
-emulator. Input is written to the PTY verbatim, so there is no tmux
-paste-vs-key translation and kitty-protocol keys (for example Shift+Enter)
-reach the application unchanged.
+pseudo-terminal per session. Sessions are owned by a detached ghostline
+server process (`ghostline serve`, spawned automatically on first start and
+reconnected over `~/.warren/ghostline.sock`), so daemon upgrades and restarts
+never end sessions. A server-side libghostty-vt emulator renders screen
+snapshots (visible grid + scrollback, SGR preserved) at the client's size.
+The output pipeline is unchanged: raw PTY bytes are appended to the same
+spool files, so recovery anchors and reanchor behave identically, and clients
+still render with their own terminal emulator. Input is written to the PTY
+verbatim, so there is no tmux paste-vs-key translation and kitty-protocol keys
+(for example Shift+Enter) reach the application unchanged.
 
 The tmux adapter (`--runtime tmux`) is kept only as a minimal fallback for
 environments that cannot run ghostline and is no longer maintained.
 
 Known limits:
 
-- A daemon restart closes the PTY master and ends its sessions. tmux sessions
-  survive a daemon restart because tmux owns them; adopting existing PTY
-  children is not implemented yet.
-- Building `warren-headless` with the PTY runtime requires the local
-  `ghostline` checkout (see its README for the libghostty-vt build steps).
+- A ghostline server restart still ends its sessions (the server process owns
+  the PTY masters); the server is a stable low-level component and restarts
+  rarely, unlike the daemon or desktop.
+- The ghostline module bundles a prebuilt libghostty-vt dylib for macOS
+  arm64; other platforms must rebuild it (see the ghostline README).
