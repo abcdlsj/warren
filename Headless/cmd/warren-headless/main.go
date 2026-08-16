@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -103,11 +102,12 @@ func main() {
 			fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
 		}
 	}
-	if err := ensureGhostlineServer(*ghostlineSocket, *outputDir); err != nil {
+	ghostlineClient, err := ensureGhostlineClient(*ghostlineSocket, *outputDir)
+	if err != nil {
 		fatal(err)
 	}
 	runtimes := map[string]server.Runtime{
-		settings.RuntimeGhostline: ghostline.NewClient(*ghostlineSocket),
+		settings.RuntimeGhostline: server.NewGhostlineRuntime(ghostlineClient),
 	}
 	tmuxAdapter := &runtime.Tmux{Socket: *tmuxSocket, OutputDir: *outputDir}
 	if err := tmuxAdapter.Check(nil); err != nil {
@@ -210,47 +210,47 @@ func runGhostlineServe(socketPath, outputDir string) {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
 		os.Exit(1)
 	}
-	if err := server.Serve(socketPath); err != nil {
+	if err := server.Serve(context.Background(), socketPath); err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
 		os.Exit(1)
 	}
 }
 
-// ensureGhostlineServer connects to the session server, spawning it detached
+// ensureGhostlineClient connects to the session server, spawning it detached
 // when the socket is not yet accepting. Sessions survive daemon restarts
-// because the server process owns them.
-func ensureGhostlineServer(socketPath, outputDir string) error {
-	if ghostline.Ping(socketPath) {
-		return nil
-	}
+// because the server process owns them; the returned client is intentionally
+// never closed by the daemon so the server keeps running.
+func ensureGhostlineClient(socketPath, outputDir string) (*ghostline.Client, error) {
 	logFile, err := os.OpenFile(
 		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
 		0o600,
 	)
 	if err != nil {
-		return fmt.Errorf("open ghostline log: %w", err)
+		return nil, fmt.Errorf("open ghostline log: %w", err)
 	}
 	defer logFile.Close()
 	executable, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve daemon executable: %w", err)
-	}
-	command := exec.Command(
-		executable,
-		"--ghostline-serve",
-		"--ghostline-socket", socketPath,
-		"--output-dir", outputDir,
-	)
-	command.Stdout = logFile
-	command.Stderr = logFile
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("start ghostline server: %w", err)
+		return nil, fmt.Errorf("resolve daemon executable: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return ghostline.NewClient(socketPath).WaitReady(ctx, 5*time.Second)
+	client, err := ghostline.Connect(ctx, ghostline.ConnectOptions{
+		Socket: socketPath,
+		Spawn: []string{
+			executable,
+			"--ghostline-serve",
+			"--ghostline-socket", socketPath,
+			"--output-dir", outputDir,
+		},
+		Log:          logFile,
+		ReadyTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("connect ghostline server: %w", err)
+	}
+	return client, nil
 }
 
 func loadOrCreateToken(path string) (string, error) {
