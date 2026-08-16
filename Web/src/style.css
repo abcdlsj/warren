@@ -139,6 +139,8 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-files { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
 .agent-file { padding:1px 7px; border:1px solid var(--ring); border-radius:999px; color:var(--sub); font:10.5px ui-monospace,monospace; white-space:nowrap; }
 .agent-usage-chip { color:var(--sub); font:10.5px ui-monospace,monospace; }
+.agent-usage-foot { align-self:flex-start; margin:-6px 0 0; padding:0 3px; color:var(--sub); font:10px/1.4 ui-monospace,monospace; opacity:.72; }
+.agent-usage-foot .agent-usage-chip { color:inherit; }
 .agent-reasoning { width:100%; }
 .agent-reasoning-head { display:flex; align-items:center; gap:6px; padding:3px 8px; border:0; background:transparent; color:var(--sub); font-size:11.5px; font-style:italic; cursor:pointer; }
 .agent-reasoning-head:hover { color:var(--fg); }

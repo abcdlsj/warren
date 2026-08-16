@@ -139,8 +139,7 @@ function AgentBlock({ block }) {
     return <SystemInstructionsCard content={block.event.content || ""} />;
   case "usage":
     return (
-      <div className="agent-system">
-        {block.event.model && `${block.event.model} · `}
+      <div className="agent-usage-foot">
         <UsageChip usage={block.event.usage} />
       </div>
     );

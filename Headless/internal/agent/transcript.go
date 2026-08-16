@@ -420,7 +420,10 @@ type codexPayload struct {
 	CallID    string          `json:"call_id"`
 	Arguments string          `json:"arguments"`
 	Action    struct {
-		Command string `json:"command"`
+		Command string   `json:"command"`
+		Type    string   `json:"type"`
+		Queries []string `json:"queries"`
+		URL     string   `json:"url"`
 	} `json:"action"`
 	Output  json.RawMessage `json:"output"`
 	Summary json.RawMessage `json:"summary"`
@@ -431,12 +434,7 @@ type codexPayload struct {
 		Type    string          `json:"type"`
 		Content json.RawMessage `json:"content"`
 	} `json:"item"`
-	WebSearchAction struct {
-		Type    string   `json:"type"`
-		Queries []string `json:"queries"`
-		URL     string   `json:"url"`
-	} `json:"action"`
-	Info    struct {
+	Info struct {
 		Model           string          `json:"model"`
 		LastTokenUsage  json.RawMessage `json:"last_token_usage"`
 		TotalTokenUsage json.RawMessage `json:"total_token_usage"`
@@ -483,27 +481,27 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		switch payload.Type {
 		case "message":
 			event.ID = payload.ID
-		switch payload.Role {
-		case "user":
-			event.Type = "user"
-		case "developer":
-			event.Type = "system_instructions"
-		default:
-			event.Type = "assistant"
-			event.Model = p.codexModel
+			switch payload.Role {
+			case "user":
+				event.Type = "user"
+			case "developer":
+				event.Type = "system_instructions"
+			default:
+				event.Type = "assistant"
+				event.Model = p.codexModel
 			}
 			event.Content = contentString(payload.Content)
 			if event.Content == "" {
-			return nil
-		}
-		if event.Type == "user" {
-			if isSystemInjectedUserContext(event.Content) {
-				event.Type = "system_instructions"
-			} else {
-				p.lastUserContent = event.Content
+				return nil
 			}
-		}
-		return []api.AgentEvent{event}
+			if event.Type == "user" {
+				if isSystemInjectedUserContext(event.Content) {
+					event.Type = "system_instructions"
+				} else {
+					p.lastUserContent = event.Content
+				}
+			}
+			return []api.AgentEvent{event}
 		case "reasoning":
 			event.ID = payload.ID
 			event.Type = "reasoning"
@@ -546,12 +544,12 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.ToolName = "web_search"
 			event.CallID = payload.ID
 			event.ToolStatus = normalizeToolStatus(payload.Status)
-			input := map[string]any{"type": payload.WebSearchAction.Type}
-			if len(payload.WebSearchAction.Queries) > 0 {
-				input["queries"] = payload.WebSearchAction.Queries
+			input := map[string]any{"type": payload.Action.Type}
+			if len(payload.Action.Queries) > 0 {
+				input["queries"] = payload.Action.Queries
 			}
-			if payload.WebSearchAction.URL != "" {
-				input["url"] = payload.WebSearchAction.URL
+			if payload.Action.URL != "" {
+				input["url"] = payload.Action.URL
 			}
 			event.ToolInput = input
 			return []api.AgentEvent{event}
