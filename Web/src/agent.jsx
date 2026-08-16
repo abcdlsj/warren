@@ -213,7 +213,7 @@ function AgentBlock({ block }) {
     return (
       <div className={`agent-tool-card ${event.toolStatus || "success"}`}>
         <div className="agent-tool-head">
-          <ToolIcon name={event.toolName} />
+          <span className={`agent-tool-chevron open`} aria-hidden="true">▸</span>
           <span className="agent-tool-name">{displayToolName(event.toolName)}</span>
           <span className="agent-tool-status">{statusText(event.toolStatus)}</span>
         </div>
@@ -224,12 +224,7 @@ function AgentBlock({ block }) {
   case "system_instructions":
     return null;
   case "usage":
-    if (!block.event.usage) return null;
-    return (
-      <div className="agent-usage-foot">
-        <UsageChip usage={block.event.usage} />
-      </div>
-    );
+    return null;
   case "error":
     return (
       <div className="agent-error">
@@ -267,11 +262,9 @@ function ActivityGroup({ block }) {
   return (
     <div className={`agent-activity-group ${status}`}>
       <button type="button" className="agent-activity-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ToolIcon name={tools[0]?.call?.toolName} />
         <span className="agent-activity-title">{activityTitle(reasoning.length, tools.length)}</span>
         {!open && toolGroupSummary(tools) && <code className="agent-tool-summary">{toolGroupSummary(tools)}</code>}
         <span className="agent-tool-status">{statusText(status)}</span>
-        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
       </button>
       {open && (
         <div className="agent-activity-body">
@@ -305,11 +298,10 @@ function ToolCard({ block, defaultOpen = false }) {
   return (
     <div className={`agent-tool-card ${status}`}>
       <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <ToolIcon name={call.toolName} />
+        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
         <span className="agent-tool-name">{displayToolName(call.toolName)}</span>
         {summary && <code className="agent-tool-summary">{summary}</code>}
         {!isWebSearch && <span className="agent-tool-status">{statusText(status)}</span>}
-        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
       </button>
       {open && (
         <div className="agent-tool-body">
@@ -397,38 +389,6 @@ function displayToolName(name) {
   return names[name] || name || "Tool";
 }
 
-function ToolIcon({ name }) {
-  const key = String(name || "").toLowerCase();
-  const path = toolIconPath(key);
-  return (
-    <span className="agent-tool-icon" aria-hidden="true">
-      {path}
-    </span>
-  );
-}
-
-function toolIconPath(key) {
-  if (key.includes("bash") || key.includes("shell")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 3l6 5-6 5V3zm7 10h5v-1H9v1z" fill="currentColor"/></svg>;
-  }
-  if (key.includes("edit") || key.includes("write") || key.includes("apply")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M11.3 1.3l3.4 3.4-9 9H2v-3.7l9.3-8.7z" fill="currentColor"/></svg>;
-  }
-  if (key.includes("read") || key.includes("glob")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 3h12v10H2V3zm1 1v8h10V4H3zm2 2h6v1H5V6zm0 2h6v1H5V8zm0 2h4v1H5v-1z" fill="currentColor"/></svg>;
-  }
-  if (key.includes("grep") || key.includes("search")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M6.5 2a4.5 4.5 0 102.8 8l3.4 3.4 1-1L10.2 9A4.5 4.5 0 006.5 2zm0 1a3.5 3.5 0 110 7 3.5 3.5 0 010-7z" fill="currentColor"/></svg>;
-  }
-  if (key.includes("web") || key.includes("http")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-1 1.1A5.9 5.9 0 003.1 6H6V2.1zM7 2v4h2V2H7zm3 .4V6h2.9A5.9 5.9 0 0010 2.4zM2.2 7h3v2h-3A6 6 0 012.2 7zm4 0v2h3.6V7H6.2zm4.6 0h3a6 6 0 01.2 2h-3V7zM3.1 10h2.9v3.9A5.9 5.9 0 013.1 10zm3.9 3.9V10H9v3.9A6 6 0 017 13.9zM10 10v3.9a5.9 5.9 0 002.9-3.9H10z" fill="currentColor"/></svg>;
-  }
-  if (key.includes("task")) {
-    return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 1l1.8 4.6L14.5 7 9.8 8.8 8 13.5 6.2 8.8 1.5 7l4.7-1.4L8 1z" fill="currentColor"/></svg>;
-  }
-  return <svg viewBox="0 0 16 16" width="12" height="12"><path d="M3 2h10v2H3V2zm0 5h10v2H3V7zm0 5h7v2H3v-2z" fill="currentColor"/></svg>;
-}
-
 function SendIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
@@ -473,16 +433,6 @@ function MarkdownContent({ value }) {
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{value}</ReactMarkdown>
     </div>
   );
-}
-
-function UsageChip({ usage }) {
-  const parts = [];
-  if (usage.inputTokens) parts.push(`${usage.inputTokens} in`);
-  if (usage.outputTokens) parts.push(`${usage.outputTokens} out`);
-  if (usage.reasoningOutputTokens) parts.push(`${usage.reasoningOutputTokens} reasoning`);
-  if (usage.totalTokens) parts.push(`${usage.totalTokens} total`);
-  if (!parts.length) return null;
-  return <span className="agent-usage-chip">{parts.join(" · ")}</span>;
 }
 
 function FileList({ files }) {
