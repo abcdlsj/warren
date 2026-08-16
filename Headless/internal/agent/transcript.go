@@ -604,14 +604,10 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.Type = "reasoning"
 			event.Content = truncate(content, maxEventContent)
 			return []api.AgentEvent{event}
-		case "task_started":
-			event.Type = "system"
-			event.Content = "Task started"
-			return []api.AgentEvent{event}
-		case "task_complete":
-			event.Type = "system"
-			event.Content = "Task complete"
-			return []api.AgentEvent{event}
+		case "task_started", "task_complete", "thread_settings_applied":
+			// Internal lifecycle bookkeeping; the assistant message and tool
+			// activity already carry the user-visible state.
+			return nil
 		default:
 			if payload.Type == "user_message" {
 				content := contentString(payload.Content)

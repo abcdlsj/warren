@@ -219,16 +219,17 @@ function SystemInstructionsCard({ content }) {
 function ToolCard({ block }) {
   const call = block.call;
   const lastOutput = block.outputs.at(-1);
-  const status = lastOutput?.toolStatus || (block.outputs.length ? "success" : "running");
+  const status = lastOutput?.toolStatus || call.toolStatus || (block.outputs.length ? "success" : "running");
   const [open, setOpen] = useState(false);
-  const summary = toolSummary(call);
+  const summary = toolDisplay(call, status);
+  const isWebSearch = call.toolName === "web_search";
   return (
     <div className={`agent-tool-card ${status}`}>
       <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <ToolIcon name={call.toolName} />
         <span className="agent-tool-name">{displayToolName(call.toolName)}</span>
         {summary && <code className="agent-tool-summary">{summary}</code>}
-        <span className="agent-tool-status">{statusText(status)}</span>
+        {!isWebSearch && <span className="agent-tool-status">{statusText(status)}</span>}
         <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
       </button>
       {open && (
@@ -352,7 +353,20 @@ function toolSummary(call) {
   if (typeof input.query === "string") return input.query;
   if (typeof input.pattern === "string") return input.pattern;
   if (typeof input.prompt === "string") return input.prompt;
+  if (typeof input.url === "string") return input.url;
+  if (Array.isArray(input.queries)) return input.queries.join(", ");
   return "";
+}
+
+function toolDisplay(call, status) {
+  if (call.toolName !== "web_search") return toolSummary(call);
+  const input = call.toolInput || {};
+  const target = toolSummary(call);
+  if (status === "running") return `Searching the web${target ? ` for ${target}` : ""}…`;
+  if (status === "success") return `Searched the web for ${target || "results"}`;
+  if (status === "error") return `Web search failed${target ? ` · ${target}` : ""}`;
+  if (status === "interrupted") return `Web search interrupted${target ? ` · ${target}` : ""}`;
+  return target || "Web search";
 }
 
 function basename(path) {
