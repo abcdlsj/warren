@@ -180,13 +180,16 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
     /// Writes bytes into Ghostty synchronously (used by tests and initial
     /// snapshots where ordering with in-flight feed work is not a concern).
     public func receive(_ payload: Data) {
-        lock.lock()
-        defer { lock.unlock() }
         ansiObserver.receive(payload)
         inMemory.receive(payload)
     }
 
     /// Cancels the background feed and drops pending bytes.
+    ///
+    /// The in-flight drain may still be inside Ghostty's host-managed write
+    /// path; it exits once the main runloop pumps again. A synchronous wait
+    /// here would hold the main thread and re-create the exact deadlock this
+    /// writer avoids, so shutdown only cancels and clears.
     public func shutdown() {
         lock.lock()
         feedTask?.cancel()
@@ -215,29 +218,53 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
                 buffer.take(maxBytes: budgetBytes)
             }
             guard let slice else {
-                lock.withLock { feedTask = nil }
-                return
+                if exitIfDrained() { return }
+                continue
             }
 
+            // Ghostty's host-managed write path can block until the main
+            // runloop services the surface. Never hold the writer lock across
+            // this call: the main thread enqueues the next slice and would
+            // deadlock against a drain blocked inside Ghostty. Take under the
+            // lock, write outside it. The ANSI observer and the in-memory
+            // session each guard their own state, so concurrent access is safe.
+            let isCurrentEpoch = lock.withLock { buffer.epoch == slice.epoch }
+            guard isCurrentEpoch else {
+                // A reanchor reset the stream while this slice was in flight;
+                // it is stale and must not be rendered.
+                continue
+            }
+
+            ansiObserver.receive(slice.payload)
+            inMemory.receive(slice.payload)
+
             lock.withLock {
-                ansiObserver.receive(slice.payload)
-                inMemory.receive(slice.payload)
                 latestRenderedEpoch = slice.epoch
                 latestRenderedSequence = slice.endSequence
             }
 
             let hasMore = lock.withLock { !buffer.isEmpty }
-            if !hasMore {
-                lock.withLock { feedTask = nil }
+            if !hasMore, exitIfDrained() {
                 return
             }
             do {
                 try await Task.sleep(for: yield)
             } catch {
-                lock.withLock { feedTask = nil }
                 return
             }
         }
         lock.withLock { feedTask = nil }
+    }
+
+    /// Atomically decides whether this drain can exit. `feedTask` is cleared
+    /// only while the buffer is empty, so an enqueue that lands at the same
+    /// moment always finds either a live drain or `feedTask == nil` to
+    /// restart one — no enqueued bytes are left behind.
+    private func exitIfDrained() -> Bool {
+        lock.withLock {
+            guard buffer.isEmpty else { return false }
+            feedTask = nil
+            return true
+        }
     }
 }
