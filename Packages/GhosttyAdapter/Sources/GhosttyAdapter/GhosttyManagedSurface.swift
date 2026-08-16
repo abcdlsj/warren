@@ -127,17 +127,25 @@ public struct GhosttyManagedSurface: View {
     }
 
     private func requestImmediateDisplayRefresh() {
-        // Re-entering a shell (tab switch, settings dismissal) can recreate
-        // the AppKit view while the renderer is still settling. Request a
-        // renderer-thread frame immediately and once more after the runloop.
+        // Re-entering a shell (tab switch, worktree switch, settings
+        // dismissal) can recreate the AppKit view while the renderer is
+        // still settling. Request renderer-thread frames immediately, then
+        // poll for a real inline present: the fixed-delay paths (refreshLayout
+        // and a single late presentNow) all skip silently while the view is
+        // not mounted, which left the pane black until a manual window resize.
         surface.requestDisplayRefresh()
         DispatchQueue.main.async { [weak surface] in
             surface?.requestDisplayRefresh()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak surface] in
-            // A hidden surface may be on a stale/black framebuffer after
-            // re-entry. Force one inline present once the view has settled.
-            surface?.presentNow()
+        Task { @MainActor [weak surface] in
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let surface else { return }
+                surface.requestDisplayRefresh()
+                if surface.presentNow() {
+                    return
+                }
+            }
         }
     }
 }
