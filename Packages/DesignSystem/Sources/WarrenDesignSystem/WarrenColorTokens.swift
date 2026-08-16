@@ -32,9 +32,6 @@ public struct WarrenColorTokens: Sendable {
     public let fillHover: Color
     public let fillSelected: Color
     public let tertiaryWash: Color
-    /// Inactive tabs use Superset's `bg-border/20` wash rather than the
-    /// foreground-derived sidebar hover wash.
-    public let tabInactiveHover: Color
 
     private init(
         background: Color,
@@ -53,8 +50,7 @@ public struct WarrenColorTokens: Sendable {
         inputSurface: Color,
         fillHover: Color,
         fillSelected: Color,
-        tertiaryWash: Color,
-        tabInactiveHover: Color
+        tertiaryWash: Color
     ) {
         self.background = background
         self.foreground = foreground
@@ -73,7 +69,6 @@ public struct WarrenColorTokens: Sendable {
         self.fillHover = fillHover
         self.fillSelected = fillSelected
         self.tertiaryWash = tertiaryWash
-        self.tabInactiveHover = tabInactiveHover
     }
 
     /// Superset globals.css dark fallback values.
@@ -91,8 +86,7 @@ public struct WarrenColorTokens: Sendable {
         sidebarOpacity: 0.35,
         hoverOpacity: 0.07,
         selectedOpacity: 0.10,
-        tertiaryOpacity: 0.05,
-        tabHoverOpacity: 0.20
+        tertiaryOpacity: 0.05
     )
 
     /// Warren currently ships only Superset's default Ember dark appearance.
@@ -114,8 +108,7 @@ public struct WarrenColorTokens: Sendable {
         sidebarOpacity: Double,
         hoverOpacity: Double,
         selectedOpacity: Double,
-        tertiaryOpacity: Double,
-        tabHoverOpacity: Double
+        tertiaryOpacity: Double
     ) -> Self {
         Self(
             background: background,
@@ -146,8 +139,7 @@ public struct WarrenColorTokens: Sendable {
             inputSurface: Color(red: 24 / 255, green: 22 / 255, blue: 21 / 255),
             fillHover: foreground.opacity(hoverOpacity),
             fillSelected: foreground.opacity(selectedOpacity),
-            tertiaryWash: foreground.opacity(tertiaryOpacity),
-            tabInactiveHover: border.opacity(tabHoverOpacity)
+            tertiaryWash: foreground.opacity(tertiaryOpacity)
         )
     }
 }

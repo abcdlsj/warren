@@ -66,11 +66,11 @@ struct WarrenDesktopTabItem: View {
                 .background(Color.clear)
                 .contentShape(.rect)
             }
-            // Selection is owned by the outer tab surface (background +
-            // hairline stroke). The inner button must not add the shared
-            // selected wash on top, or the active tab reads brighter than
-            // the confirmed design.
-            .buttonStyle(WarrenInteractiveRowStyle(isSelected: false, isFocused: isTabFocused, cornerRadius: 0))
+            // Selection and hover backgrounds are owned by the outer tab
+            // surface (background + hairline stroke). The inner button only
+            // adds focus and press feedback, so the active tab never picks
+            // up an extra wash while the pointer rests on it.
+            .buttonStyle(WarrenTabButtonStyle(isFocused: isTabFocused))
             .focused($isTabFocused)
             .disabled(tab.sessionID == nil)
             .foregroundStyle(
@@ -126,7 +126,7 @@ struct WarrenDesktopTabItem: View {
         .background(
             isSelected
                 ? tokens.background
-                : (isHovered ? tokens.tabInactiveHover : .clear)
+                : (isHovered ? tokens.fillHover : .clear)
         )
         .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isHovered)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isSelected)
@@ -161,6 +161,33 @@ struct WarrenDesktopTabItem: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Tab \(displayTitle)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+/// Tab-specific button feedback: focus ring and press opacity only.
+///
+/// Unlike the shared row style, this never paints a hover background.
+/// Selection and hover washes are drawn once by `WarrenDesktopTabItem`'s
+/// outer surface so the active tab keeps its pure background.
+private struct WarrenTabButtonStyle: ButtonStyle {
+    var isFocused: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        configuration.label
+            .opacity(isEnabled ? (configuration.isPressed ? 0.82 : 1) : 0.42)
+            .overlay {
+                Rectangle()
+                    .stroke(isFocused ? tokens.focusRing : .clear, lineWidth: isFocused ? 1 : 0)
+            }
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.1),
+                value: configuration.isPressed
+            )
     }
 }
 
