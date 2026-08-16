@@ -32,7 +32,11 @@ export function AgentView({ session, events = [], onSend }) {
   };
 
   return (
-    <div className="agent-view">
+    <div
+      className="agent-view"
+      onPointerDown={event => event.stopPropagation()}
+      onClick={event => event.stopPropagation()}
+    >
       <div className="agent-header">
         <div className="agent-header-title">{session.title || "Agent"}</div>
         {(model || session.agentSessionId) && (

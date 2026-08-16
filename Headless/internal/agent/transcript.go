@@ -425,6 +425,17 @@ type codexPayload struct {
 	Output  json.RawMessage `json:"output"`
 	Summary json.RawMessage `json:"summary"`
 	Text    string          `json:"text"`
+	Message string          `json:"message"`
+	Status  string          `json:"status"`
+	Item    struct {
+		Type    string          `json:"type"`
+		Content json.RawMessage `json:"content"`
+	} `json:"item"`
+	WebSearchAction struct {
+		Type    string   `json:"type"`
+		Queries []string `json:"queries"`
+		URL     string   `json:"url"`
+	} `json:"action"`
 	Info    struct {
 		Model           string          `json:"model"`
 		LastTokenUsage  json.RawMessage `json:"last_token_usage"`
@@ -529,9 +540,25 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				return nil
 			}
 			return []api.AgentEvent{event}
+		case "web_search_call":
+			event.ID = payload.ID
+			event.Type = "tool_call"
+			event.ToolName = "web_search"
+			event.CallID = payload.ID
+			event.ToolStatus = normalizeToolStatus(payload.Status)
+			input := map[string]any{"type": payload.WebSearchAction.Type}
+			if len(payload.WebSearchAction.Queries) > 0 {
+				input["queries"] = payload.WebSearchAction.Queries
+			}
+			if payload.WebSearchAction.URL != "" {
+				input["url"] = payload.WebSearchAction.URL
+			}
+			event.ToolInput = input
+			return []api.AgentEvent{event}
 		default:
 			event.Type = "unknown"
-			event.Content = truncate(string(record.Payload), maxEventContent)
+			event.ID = payload.ID
+			event.Content = codexFallbackContent(payload, record.Payload)
 			return []api.AgentEvent{event}
 		}
 	case "event_msg":
@@ -560,6 +587,31 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.Type = "system"
 			event.Content = "Turn aborted"
 			return []api.AgentEvent{event}
+		case "agent_message":
+			content := firstNonEmpty(payload.Message, contentString(payload.Content), payload.Text)
+			if content == "" {
+				return nil
+			}
+			event.Type = "assistant"
+			event.Model = p.codexModel
+			event.Content = truncate(content, maxEventContent)
+			return []api.AgentEvent{event}
+		case "agent_reasoning":
+			content := firstNonEmpty(payload.Text, contentString(payload.Summary), contentString(payload.Content))
+			if content == "" {
+				return nil
+			}
+			event.Type = "reasoning"
+			event.Content = truncate(content, maxEventContent)
+			return []api.AgentEvent{event}
+		case "task_started":
+			event.Type = "system"
+			event.Content = "Task started"
+			return []api.AgentEvent{event}
+		case "task_complete":
+			event.Type = "system"
+			event.Content = "Task complete"
+			return []api.AgentEvent{event}
 		default:
 			if payload.Type == "user_message" {
 				content := contentString(payload.Content)
@@ -575,6 +627,35 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		}
 	default:
 		return nil
+	}
+}
+
+// codexFallbackContent extracts whatever human-readable text an unrecognized
+// response item carries instead of dumping the raw JSON envelope.
+func codexFallbackContent(payload codexPayload, raw json.RawMessage) string {
+	for _, candidate := range []string{
+		payload.Message,
+		payload.Text,
+		contentString(payload.Content),
+		contentString(payload.Summary),
+	} {
+		if candidate != "" {
+			return truncate(candidate, maxEventContent)
+		}
+	}
+	return truncate(string(raw), maxEventContent)
+}
+
+func normalizeToolStatus(status string) string {
+	switch status {
+	case "completed":
+		return "success"
+	case "failed":
+		return "error"
+	case "interrupted", "cancelled":
+		return "interrupted"
+	default:
+		return "running"
 	}
 }
 
@@ -711,6 +792,13 @@ type claudeRecord struct {
 		StructuredPatch string `json:"structuredPatch"`
 		Interrupted     bool   `json:"interrupted"`
 	} `json:"toolUseResult"`
+	Attachment struct {
+		Type      string          `json:"type"`
+		HookName  string          `json:"hookName"`
+		HookEvent string          `json:"hookEvent"`
+		Content   json.RawMessage `json:"content"`
+		ExitCode  int             `json:"exitCode"`
+	} `json:"attachment"`
 }
 
 type claudeBlock struct {
@@ -857,7 +945,10 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				}
 			default:
 				event.Type = "unknown"
-				event.Content = truncate(string(record.Message.Content), maxEventContent)
+				event.Content = truncate(
+					firstNonEmpty(block.Text, block.Thinking, contentString(block.Content), string(record.Message.Content)),
+					maxEventContent,
+				)
 			}
 			if event.Content != "" || event.ToolName != "" {
 				events = append(events, event)
@@ -888,11 +979,41 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			Timestamp:  timestamp,
 		}}
 	case "attachment":
+		kind := record.Attachment.Type
+		if kind == "" {
+			kind = "attachment"
+		}
+		if strings.HasPrefix(kind, "hook_") {
+			label := record.Attachment.HookName
+			if label == "" {
+				label = record.Attachment.HookEvent
+			}
+			event := api.AgentEvent{
+				Provider:  "claude",
+				ID:        record.UUID,
+				Type:      "system",
+				Content:   "Hook: " + label,
+				Timestamp: timestamp,
+			}
+			if output := contentString(record.Attachment.Content); output != "" {
+				event.Content += " · " + truncate(output, 240)
+			}
+			return []api.AgentEvent{event}
+		}
+		if kind == "agent_listing_delta" || kind == "skill_listing" {
+			return []api.AgentEvent{{
+				Provider:  "claude",
+				ID:        record.UUID,
+				Type:      "system_instructions",
+				Content:   truncate(contentString(record.Attachment.Content), maxEventContent),
+				Timestamp: timestamp,
+			}}
+		}
 		return []api.AgentEvent{{
 			Provider:  "claude",
 			ID:        record.UUID,
 			Type:      "attachment",
-			Content:   truncate(contentString(record.Content), maxEventContent),
+			Content:   truncate(firstNonEmpty(contentString(record.Attachment.Content), contentString(record.Content)), maxEventContent),
 			Timestamp: timestamp,
 		}}
 	default:

@@ -288,6 +288,14 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
   .settings-content { padding:24px 20px 44px; }
   .settings-fields { grid-template-columns:1fr; }
   .search-panel { width:min(720px,calc(100vw - 20px)); margin-top:max(12px,calc(50vh - 300px)); }
+  .agent-events { gap:10px; padding:14px 12px 12px; }
+  .agent-header { justify-content:flex-start; padding:8px 12px 7px; }
+  .agent-header-meta { margin-left:auto; }
+  .agent-message.assistant { padding-right:30px; }
+  .agent-bubble { max-width:88%; }
+  .agent-input { padding:8px 10px calc(10px + env(safe-area-inset-bottom)); }
+  .agent-input textarea { font-size:15px; }
+  .agent-tool-summary { max-width:42vw; }
 }
 @media (pointer:coarse) {
   .terminal-search { display:none; }

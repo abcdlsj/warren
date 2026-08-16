@@ -1320,7 +1320,7 @@ export default function App() {
               onNewSession={() => createSession("shell")}
             />
           </section>
-          <MobileKeys onInput={sendInput} />
+          {!agentViewActive && <MobileKeys onInput={sendInput} />}
         </main>
       </div>
       <SettingsPage

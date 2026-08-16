@@ -87,6 +87,61 @@ func TestCodexDeveloperAndInjectedContextCollapseToSystemInstructions(t *testing
 	}
 }
 
+func TestCodexWebSearchAndStreamingMessagesNormalize(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-web.jsonl")
+	writeLines(t, path,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"web_search_call","id":"call-1","status":"completed","action":{"type":"search","queries":["site:example.com codex"]}}}`,
+		`{"timestamp":"2026-08-16T10:00:01Z","type":"response_item","payload":{"type":"web_search_call","id":"call-2","status":"failed","action":{"type":"open_page","url":"https://example.com/a"}}}`,
+		`{"timestamp":"2026-08-16T10:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"Let me look at that file"}}`,
+		`{"timestamp":"2026-08-16T10:00:03Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"Checking read scope"}}`,
+		`{"timestamp":"2026-08-16T10:00:04Z","type":"response_item","payload":{"type":"plan","id":"plan-1","content":[{"type":"output_text","text":"Proposed plan"}]}}`,
+	)
+	events, _, err := readNew(path, 0, newParser("codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, event := range events {
+		kinds = append(kinds, event.Type)
+	}
+	if got, want := strings.Join(kinds, ","), "tool_call,tool_call,assistant,reasoning,unknown"; got != want {
+		t.Fatalf("event kinds = %q, want %q", got, want)
+	}
+	if events[0].ToolName != "web_search" || events[0].ToolStatus != "success" {
+		t.Fatalf("web search success = %#v", events[0])
+	}
+	if events[1].ToolStatus != "error" {
+		t.Fatalf("web search failure = %#v", events[1])
+	}
+	if events[2].Content != "Let me look at that file" || events[3].Content != "Checking read scope" {
+		t.Fatalf("streaming events = %#v", events[2:4])
+	}
+	if events[4].Content != "Proposed plan" {
+		t.Fatalf("unknown fallback should extract inner text, got %q", events[4].Content)
+	}
+}
+
+func TestClaudeHookAttachmentBecomesSystem(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session-hooks.jsonl")
+	writeLines(t, path,
+		`{"type":"attachment","uuid":"a1","timestamp":"2026-08-16T10:00:00Z","attachment":{"type":"hook_success","hookName":"SessionStart:startup","hookEvent":"SessionStart","content":"","stdout":"done"}}`,
+		`{"type":"attachment","uuid":"a2","timestamp":"2026-08-16T10:00:01Z","attachment":{"type":"skill_listing","content":"- skill: demo"}}`,
+	)
+	events, _, err := readNew(path, 0, newParser("claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %#v", events)
+	}
+	if events[0].Type != "system" || !strings.HasPrefix(events[0].Content, "Hook: SessionStart:startup") {
+		t.Fatalf("hook attachment = %#v", events[0])
+	}
+	if events[1].Type != "system_instructions" {
+		t.Fatalf("skill listing = %#v", events[1])
+	}
+}
+
 func TestReadNewNormalizesClaudeTranscript(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	writeLines(t, path,
