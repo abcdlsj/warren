@@ -1,6 +1,6 @@
 # Warren Headless
 
-Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, and tmux runtimes on a remote host. Both the Desktop and the CLI are clients; a client disconnecting never ends a Session.
+Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, and ghostline/tmux runtimes on a Host (local Mac or remote VPS). Both the Desktop and the CLI are clients; a client disconnecting never ends a Session.
 
 ## Installation
 
@@ -35,7 +35,8 @@ Default files:
 
 - State: `~/.warren/state.json`
 - Token: `~/.warren/token`
-- tmux socket: `warren-headless`
+- ghostline socket: `~/.warren/ghostline.sock` (default runtime)
+- tmux socket: `warren-headless` (alternative runtime)
 - Worktrees: `~/.warren/worktrees/`
 
 From your Mac, `warren ssh` starts the remote daemon, fetches the token, saves the endpoint, and sets up port forwarding:
@@ -106,7 +107,7 @@ script calls this endpoint before replacing the daemon binary.
 
 ## Output Pipeline
 
-Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default) via `tmux pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring or the spool gap is small, otherwise it sends a screen snapshot and reanchors. Raw spool replay is bounded to the same order as the in-memory ring, so a long-detached session never replays tens of megabytes of terminal bytes. Every client has its own outbound queue; a slow client only disconnects itself.
+Each Session's raw PTY bytes are written to a dedicated append-only spool (`~/.warren/output/<runtime>.out` by default); ghostline writes its own spool, while tmux uses `pipe-pane -o -O`. The Host's SpoolWatcher reads continuously from a persisted offset, writes into a bounded OutputRing, and broadcasts to clients as DENB binary frames (`sessionID/epoch/sequence/payloadLength`). On reconnect, a client sends its last confirmed Recovery Anchor; the Host replays the exact bytes while the Anchor is still in the Ring or the spool gap is small, otherwise it sends a screen snapshot and reanchors. Raw spool replay is bounded to the same order as the in-memory ring, so a long-detached session never replays tens of megabytes of terminal bytes. Every client has its own outbound queue; a slow client only disconnects itself.
 
 ## Runtime
 

@@ -26,7 +26,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 | Path | What it is |
 | --- | --- |
 | `Sources/Warren/` | macOS desktop app (SwiftUI + Ghostty) |
-| `Packages/` | Domain, desktop, ghostty adapter, protocol, transport, state store, design-system, and observation packages |
+| `Packages/` | Domain, client core, desktop, ghostty adapter, protocol, terminal renderer, transport, state store, design-system, and observation packages |
 | `Headless/` | Go headless daemon (`warren-headless`) and CLI (`warren`) |
 | `RelayService/` | Go Relay control plane |
 | `Web/` | React + Vite Web/PWA client |
@@ -83,7 +83,7 @@ mise run relay:dev
 | `mise run relay:dev` | Start a local Relay, connect Warren, and open Remote Web |
 | `mise run relay:pair` | Generate and open another Remote Web pairing URL |
 | `mise run relay:status` | Show local Relay and Host presence |
-| `mise run relay:stop` | Stop the local Relay without quitting Warren or tmux |
+| `mise run relay:stop` | Stop the local Relay without quitting Warren or terminal sessions |
 | `mise run brand:assets` | Regenerate macOS and Web brand assets |
 | `mise run package` | Build a release app and package a zip |
 
@@ -92,6 +92,7 @@ mise run relay:dev
 - [DESIGN.md](DESIGN.md) — product and system design, domain model, architecture, and acceptance criteria
 - [GLOSSARY.md](GLOSSARY.md) — shared terminology
 - [docs/headless-architecture.md](docs/headless-architecture.md) — headless and remote connection architecture
+- [docs/runtime.md](docs/runtime.md) — ghostline and tmux runtime comparison
 - [Headless/README.md](Headless/README.md) — headless daemon and CLI
 - [RelayService/README.md](RelayService/README.md) — Relay control plane
 - [Web/README.md](Web/README.md) — Web/PWA client

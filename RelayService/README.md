@@ -1,6 +1,6 @@
 # Warren Relay Service
 
-Warren Relay is an independently deployable remote control plane. It stores Host identity, online presence, and revocation generations, and forwards WebSocket frames; Projects, Workspaces, Sessions, tmux, and Terminal output exist only on the macOS Host. Relay never records or parses terminal business frames.
+Warren Relay is an independently deployable remote control plane. It stores Host identity, online presence, and revocation generations, and forwards WebSocket frames; Projects, Workspaces, Sessions, Runtimes, and Terminal output exist only on the Host. Relay never records or parses terminal business frames.
 
 ## One-Command Experience
 
@@ -17,7 +17,7 @@ Daily commands:
 ```bash
 mise run relay:pair    # open another remote client
 mise run relay:status  # show Relay and Host status
-mise run relay:stop    # stop only the Relay; keep Warren running and tmux alive
+mise run relay:stop    # stop only the Relay; keep Warren running and terminal sessions alive
 ```
 
 Connecting to a deployed public Relay is also one command; the admin token is only needed for the first registration of this Mac:
@@ -68,7 +68,7 @@ curl -sS -X POST https://relay.example.com/v1/hosts \
   -d "{\"id\":\"$WARREN_HOST_ID\",\"name\":\"My Mac\"}"
 ```
 
-Configure the returned credential in the launch environment of Warren.app the first time. Warren imports it into the macOS Keychain and reads it on later launches; control-plane secrets are stripped from the environment of every tmux/shell child process:
+Configure the returned credential in the launch environment of Warren.app the first time. Warren imports it into the macOS Keychain and reads it on later launches; control-plane secrets are stripped from the environment of every shell/runtime child process:
 
 ```bash
 env WARREN_CONTROL_PLANE_URL=https://relay.example.com \

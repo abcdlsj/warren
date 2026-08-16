@@ -26,10 +26,11 @@ _Avoid_: Session
 The opaque association between a Warren Terminal Session and its runtime
 backend. It is recovery metadata, not a second terminal resource.
 
-**tmux Runtime Session**:
-The tmux-owned process container currently bound one-to-one to a Warren Terminal
-Session. It is an implementation of the runtime boundary, not Warren's durable
-Session identity.
+**Runtime Session**:
+The process container owned by a runtime adapter — a ghostline PTY by default,
+or a tmux session for the alternative runtime — bound one-to-one to a Warren
+Terminal Session. It is an implementation of the runtime boundary, not
+Warren's durable Session identity.
 _Avoid_: Session
 
 **Agent Conversation**:

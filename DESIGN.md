@@ -19,7 +19,7 @@ The system must keep stable boundaries for a future iOS native client, Session s
 3. tmux is a replaceable Runtime Adapter, not a product domain model.
 4. In Warren v1, an open Tab corresponds to one Warren Terminal Session; closing a Tab explicitly terminates that Session's Runtime. Switching Workspaces or quitting the Client does not additionally terminate Tabs/Sessions that are still retained in the client layout.
 5. Only Close Tab or an explicit Terminate Session ends a Runtime; switching Workspaces, detaching, and quitting the Client never end a still-running Session.
-6. The UI only displays projections and sends typed intents; it never directly manipulates tmux, the database, or the Ghostty lifecycle.
+6. The UI only displays projections and sends typed intents; it never directly manipulates the Runtime, the daemon store, or the Ghostty lifecycle.
 7. Every state kind has exactly one write authority; caches and projections must not become a second authority.
 8. Every async operation carries an immutable target ID and Request ID; it never infers its target from the current selection when it completes.
 9. Local and future network connections share the same application protocol.
@@ -29,7 +29,7 @@ The system must keep stable boundaries for a future iOS native client, Session s
 
 ### 3.1 Resources
 
-**Host**: execution node holding the real state of Projects, Workspaces, Terminal Sessions, and Runtimes. A Host can be the local Host Service on the current Mac, or `warren-headless` on a remote VPS.
+**Host**: execution node holding the real state of Projects, Workspaces, Terminal Sessions, and Runtimes. A Host is a `warren-headless` daemon, either on the current Mac or on a remote VPS.
 
 **Project**: identity of a Git repository. Projects organize Workspaces; they are not terminal working directories.
 
@@ -37,7 +37,7 @@ The system must keep stable boundaries for a future iOS native client, Session s
 
 **Terminal Session**: interactive terminal context on a Host. It belongs to exactly one Workspace and is accessed through an open Tab; closing the Tab ends the Session. Sessions still running when the Client quits can be kept by the Host and restored after restart.
 
-**Runtime Binding**: persistent mapping from a Terminal Session to its concrete runtime implementation. In phase one, one Warren Session maps to one dedicated tmux session and one pane.
+**Runtime Binding**: persistent mapping from a Terminal Session to its concrete runtime implementation. In phase one, one Warren Session maps to one runtime process: a ghostline PTY by default, or a tmux session when the alternative runtime is selected.
 
 ### 3.2 Clients
 
@@ -61,7 +61,7 @@ The system must keep stable boundaries for a future iOS native client, Session s
 
 ### 3.3 Import and Automation
 
-**Superset Import**: onboarding operation that reads Project and Workspace metadata from a local Superset database and copies it into Warren-owned data in one pass. It is not a sync.
+**Superset Import**: onboarding operation that reads Project and Workspace metadata from Superset's CLI JSON output and copies it into Warren-owned data in one pass. It is not a sync.
 
 **Import Receipt**: durable record of a successful import, containing source, version, time, and summary. After success, Warren no longer prompts automatically or re-imports.
 
@@ -120,8 +120,8 @@ Terminal Session
 12. App initialization must not auto-create shell, Codex, or Claude Sessions.
 13. Selecting a Workspace with no Tabs must idempotently create a default Shell Tab; repeated selection must not create duplicates.
 14. The app allows only one foreground Client Instance; repeated launches activate the existing instance and then exit.
-15. Quitting the app must end the Client process but must not kill created tmux Sessions.
-16. Import must not modify Superset data, Git repositories, worktrees, or tmux.
+15. Quitting the app must end the Client process but must not kill created Runtime sessions (ghostline PTYs or tmux sessions).
+16. Import must not modify Superset data, Git repositories, worktrees, or runtimes.
 
 ## 6. Module Boundaries
 
@@ -131,18 +131,16 @@ macOS UI
 Client Application
   ├── Client Layout Store
   └── Renderer Coordinator → Ghostty Adapter
-  ↓ Host Protocol
-Local Transport
-  ↓
-Host Service
+  ↓ versioned WebSocket API
+warren-headless
   ├── Resource Service
   ├── Session Service
   ├── Import Service
-  ├── Host Store
-  └── Terminal Runtime → tmux Adapter
+  ├── JSON Host Store
+  └── Terminal Runtime → ghostline / tmux Adapter
 ```
 
-Dependencies may only point inward to protocol and domain values. SwiftUI, Ghostty, tmux, SQLite, the Superset schema, and WebSocket are edge adapters.
+Dependencies may only point inward to protocol and domain values. SwiftUI, Ghostty, ghostline, tmux, the Superset schema, and WebSocket are edge adapters.
 
 ### 6.1 Future Extension Boundaries
 
@@ -153,12 +151,12 @@ Endpoint Resolver
         ↓
 Local IPC / Direct WebSocket / Relay Transport
         ↓
-Host Service or Host Daemon
+warren-headless daemon
 ```
 
 The macOS Client uses a versioned WebSocket API for both Local and Server. `warren-headless` is the deployment form of a Host, owning an independent resource tree and ghostline/tmux runtime. Switching endpoints only replaces the client projection and renderer; it does not migrate or terminate resources on the other Host.
 
-SSH only bootstraps the remote daemon and forwards a loopback port. Once `warren ssh` establishes reachability, Desktop and CLI continue over the same WebSocket API; Git, tmux, and resource semantics must not be encoded into the SSH transport.
+SSH only bootstraps the remote daemon and forwards a loopback port. Once `warren ssh` establishes reachability, Desktop and CLI continue over the same WebSocket API; Git, Runtime, and resource semantics must not be encoded into the SSH transport.
 
 Tailscale, LAN, Cloudflare Tunnel, and gnar only provide network reachability; they are not part of the business model. The central Relay Service only provides Host registration, discovery, pairing, revocation, signaling, and WebSocket relay; Sessions and processes remain owned by the Host.
 
@@ -170,55 +168,62 @@ The remote control plane is an independently deployable process. Each Host is is
 
 Session sharing is added incrementally through Principals, Share Grants, Capabilities, and multiple Attachments, without changing the resource tree.
 
-## 7. Local Data Design
+## 7. Data Design
 
-Warren uses its own versioned SQLite database with WAL, foreign keys, and a busy timeout enabled. JSON files must not carry concurrent resource state.
+Host resource state is owned by the `warren-headless` daemon and persisted
+atomically in JSON. The daemon serializes writes through one mutex and commits
+with a temp-file rename; every commit bumps a revision used for change
+broadcasts.
 
-Default directories:
-
-```text
-~/Library/Application Support/Warren/
-├── state.sqlite3
-├── state.sqlite3-wal
-├── state.sqlite3-shm
-├── runtime/
-│   └── <session-id>/output.log
-├── diagnostics/
-└── lock/
-```
-
-Tests must be able to override the data directory and tmux socket through explicit launch arguments without touching user data.
-
-Minimal data set:
+Default files under `~/.warren/`:
 
 ```text
-schema_migrations(version, applied_at)
-hosts(id, kind, display_name, created_at)
-projects(id, host_id, name, repository_path, repository_identity, created_at, updated_at)
-workspaces(id, project_id, name, path, branch, kind, created_at, updated_at)
-terminal_sessions(id, workspace_id, title, kind, lifecycle, created_at, ended_at)
-runtime_bindings(session_id, adapter, runtime_identifier, metadata, output_epoch, output_sequence)
-client_windows(id, device_id, active_workspace_id, geometry, updated_at)
-workspace_views(window_id, workspace_id, active_tab_id, updated_at)
-tabs(id, window_id, workspace_id, session_id, position, created_at)
-import_receipts(id, source_kind, source_identity, source_version, summary, completed_at)
-request_receipts(request_id, command_kind, resource_id, completed_at)
+~/.warren/
+├── state.json        # Projects, Workspaces, Sessions, sidebar order, runtime bindings, import receipts
+├── config.json       # CLI/Desktop endpoint list and current endpoint
+├── settings.json     # daemon settings such as defaultRuntime
+├── token             # authentication token
+├── output/           # per-session raw PTY spools
+├── worktrees/        # Git worktrees created by Warren
+├── ghostline.sock    # ghostline server socket (when ghostline runtime is used)
+└── tls/              # LAN HTTPS local CA and certificates
 ```
+
+Tests override state path, output directory, runtime socket, and worktree root
+through explicit flags or environment variables without touching user data.
+
+Minimal data set in `state.json`:
+
+- Host identity and display name.
+- Projects, Workspaces, and their sidebar order.
+- Terminal Sessions with lifecycle and output position (`epoch`/`sequence`).
+- Runtime Bindings with adapter (`ghostline` or `tmux`), runtime identifier,
+  and recovery metadata.
+- Superset Import Receipts and request receipts for idempotency.
+
+Client window layout and Tabs are device-local presentation state, not Host
+resources; the desktop persists navigation preferences locally.
 
 Constraints:
 
 - Projects are deduplicated by normalized repository identity.
 - Workspaces are deduplicated by normalized real path within a Host.
-- A Session's Workspace foreign key must not be null.
-- A Tab's Workspace must match its Session's Workspace.
-- Tab positions within a Window are unique and continuously normalized.
-- All migrations are transactional and provide forward migrations from the previous published schema.
+- A Session belongs to exactly one Workspace.
+- Runtime Binding records the engine a Session was created with and never
+  migrates Sessions between engines.
+- Sidebar order is normalized within each Host.
+- Output positions are monotonic per Session and drive recovery anchors.
 
 ## 8. Superset One-Time Import
 
 ### 8.1 Source
 
-Phase one reads `~/.superset/local.db` by default. Users may explicitly select another file. Reads must be read-only and detect required tables and columns before importing; Warren must not assume Superset's future schema stays unchanged.
+Superset Import uses Superset's public CLI JSON interface
+(`superset projects list --local --json` and
+`superset workspaces list --local --project <id> --json`) instead of parsing
+private SQLite schema. The CLI is resolved from `~/.superset/bin/superset`,
+`PATH`, or the `SUPERSET_CLI_PATH` environment variable. Reads must stay
+read-only; Warren must not assume Superset's future schema stays unchanged.
 
 Imported objects:
 
@@ -228,7 +233,7 @@ Imported objects:
 
 Explicitly not imported:
 
-- tmux sessions, terminal tabs, panes, terminal output.
+- runtime sessions, terminal tabs, panes, terminal output.
 - Superset accounts, organizations, tasks, Automations, and cloud identities.
 - UI window state and credentials.
 
@@ -236,24 +241,29 @@ Explicitly not imported:
 
 ```text
 Select Import from Superset
-→ open and identify schema read-only
+→ query Superset CLI JSON read-only
 → build candidate Projects/Workspaces
 → validate realpath, Git common-dir, and branch
 → show importable, duplicate, missing, and invalid summary
-→ write Warren IDs in one SQLite transaction
+→ write Warren IDs in one atomic daemon state update
 → write Import Receipt
 → select the first valid Workspace
 ```
 
 On failure the whole transaction rolls back, leaving no half-imported data or Receipt. After success, Warren no longer checks Superset automatically and sets up no file watchers. Re-import is an explicit diagnostic capability, not part of the phase-one main flow.
 
-## 9. Session and tmux Design
+## 9. Session and Runtime Design
 
 ### 9.1 Mapping
 
-One Terminal Session maps to one uniquely named tmux session. Phase one uses only its first pane; tmux windows/panes are not exposed as UI domain objects.
+One Terminal Session maps to one runtime process. The default ghostline
+runtime owns one PTY per Session; the tmux alternative maps one Session to one
+uniquely named tmux session and uses only its first pane. Runtime
+windows/panes are never exposed as UI domain objects.
 
-The tmux session name is derived from the Warren Session ID, never from user titles, branches, or paths, so renaming or character escaping cannot affect identity.
+Runtime identifiers are derived from the Warren Session ID, never from user
+titles, branches, or paths, so renaming or character escaping cannot affect
+identity.
 
 ### 9.2 Creation
 
@@ -261,25 +271,35 @@ The tmux session name is derived from the Warren Session ID, never from user tit
 CreateSession(workspaceID, launchSpec, requestID)
 → validate Workspace and request idempotency
 → subscribe to Runtime output
-→ create tmux detached
+→ create Runtime (ghostline PTY, or detached tmux session)
 → set working directory, TERM, size, and shell environment
-→ install the output pipe
+→ install the output spool
 → persist Session and Runtime Binding
 → return resource events
 → Client Layout creates and activates the Tab
 ```
 
-The interactive shell starts directly as the foreground process of the tmux pane. Preset commands must not simulate keystrokes after a fixed sleep; the Runtime must provide a reliable way to start commands and preserve a full interactive TTY.
+The interactive shell starts directly as the foreground process of the PTY or
+tmux pane. Preset commands must not simulate keystrokes after a fixed sleep;
+the Runtime must provide a reliable way to start commands and preserve a full
+interactive TTY.
 
 ### 9.3 Input
 
-Ordinary byte input uses `load-buffer` and `paste-buffer -d` with a unique tmux buffer, serialized per Session for ordering. Special keys and signals use explicit operations; control actions such as `Ctrl-C` are never encoded as ordinary business strings.
+ghostline writes input bytes to the PTY verbatim. The tmux runtime uses
+`load-buffer` and `paste-buffer -d` with a unique buffer, serialized per
+Session for ordering. Special keys and signals use explicit operations;
+control actions such as `Ctrl-C` are never encoded as ordinary business
+strings.
 
 Any input must validate the Attachment, Input Lease, and Session lifecycle. Input failure must not break the connection or the app globally.
 
 ### 9.4 Output and Color
 
-`tmux pipe-pane` produces raw PTY bytes. The Host does not strip ANSI, OSC, Unicode, or control sequences; Ghostty parses and renders them on the client side, so colors from Codex, Claude, shells, and TUIs are preserved.
+The Runtime writes raw PTY bytes to a per-Session spool (ghostline writes its
+own spool; tmux uses `pipe-pane`). The Host does not strip ANSI, OSC, Unicode,
+or control sequences; Ghostty and xterm parse and render them on the client
+side, so colors from Codex, Claude, shells, and TUIs are preserved.
 
 Output goes to both:
 
@@ -298,11 +318,19 @@ Resize uses one worker per Session with latest-wins semantics; after a Surface b
 
 - Close Tab: terminate the Runtime, record the Session as ended, then remove the local Tab and Surface; ended Sessions cannot be reopened, only a new Tab/Session can be created.
 - Detach: disconnect one Attachment without ending the Session.
-- Terminate Session: ask the Runtime to end tmux and record ended state.
-- Quit Client: stop UI, connections, and observation tasks; tmux keeps running.
-- Relaunch: the Host Store restores resources, and the Runtime Adapter detects and adopts live tmux; missing Runtimes are marked ended and must not stay stuck in connecting.
+- Terminate Session: ask the Runtime to end the ghostline PTY or tmux session
+  and record ended state.
+- Quit Client: stop UI, connections, and observation tasks; the Runtime keeps
+  running.
+- Relaunch: the daemon restores resources, and the Runtime Adapter detects and
+  adopts live ghostline PTYs or tmux sessions; missing Runtimes are marked
+  ended and must not stay stuck in connecting.
 
-The Runtime uses a single lifecycle watcher. Each round runs one `list-sessions` to fetch the live tmux set and compares it against all managed Sessions; no per-Session polling processes. Transient command failures do not produce ended events. The watcher must stop when no managed Sessions remain.
+The Runtime uses a single lifecycle watcher. For tmux it runs one
+`list-sessions` per round and compares against all managed Sessions; the
+ghostline server tracks its own PTYs. There are no per-Session polling
+processes. Transient command failures do not produce ended events. The watcher
+must stop when no managed Sessions remain.
 
 ## 10. macOS Interaction Design
 
@@ -326,7 +354,7 @@ Behavior requirements:
 - Projects are collapsed by default; Workspaces appear only after explicit expansion, and newly added Projects are collapsed by default.
 - Besides a dedicated add button, the whole Project row is the expand/collapse hot zone; expanding does not implicitly create a Session.
 - The whole Workspace row is the hot zone for selecting and entering a Session; no small, easy-to-misclick add buttons remain.
-- Clicking a Workspace must switch immediately without waiting for tmux, Git, or disk operations.
+- Clicking a Workspace must switch immediately without waiting for the daemon, Git, or disk operations.
 - After clicking a Workspace with no Tabs, show a non-interactive `Starting Shell…` loading Tab and content progress state immediately, then create the default Shell in that Workspace's serial command queue. Rapid repeated clicks share the same in-flight operation; on success the loading Tab is replaced in place; on failure it is removed and a recoverable error is shown. If the user has already navigated elsewhere, the creation result must not steal the selection back.
 - Clicking a Tab must switch the Active Session immediately and hand focus to Ghostty.
 - Presets create a Session in the Workspace captured at click time; switching Workspaces must not change the in-flight request target.
@@ -358,7 +386,7 @@ The Web Client uses the same Project → Workspace → Session information archi
 Performance goals:
 
 - Local navigation and Tab switching complete in one main-thread transaction without waiting for I/O.
-- Each tmux lifecycle observation round starts at most one query process; query frequency does not grow with Session count.
+- Each runtime lifecycle observation round starts at most one query process; query frequency does not grow with Session count.
 - Input writes to the Runtime must not be blocked by persistence or the global Snapshot.
 - PTY output must not be backpressured by database writes.
 - A single Workspace failure must not freeze other Workspaces or the whole window.
@@ -373,16 +401,16 @@ Acceptance must not depend on screenshots, must not move the mouse, and must not
 
 **Semantic UI snapshot**: the real Views expose a read-only semantic tree with Accessibility Identifier, role, label, value, enabled, selected, focused, frame, and children. It describes what the user can operate on, without pixels.
 
-**Terminal probe**: records Runtime state, actual tmux dimensions, Attachment/Lease, input sequences, Recovery Anchor, raw output summaries, and parsed cell/style summaries. Color acceptance reads post-ANSI cell attributes, never screenshots.
+**Terminal probe**: records Runtime state, actual PTY dimensions, Attachment/Lease, input sequences, Recovery Anchor, raw output summaries, and parsed cell/style summaries. Color acceptance reads post-ANSI cell attributes, never screenshots.
 
 ### 12.2 Test Execution
 
-Tests use an isolated temporary directory and an isolated tmux server:
+Tests use an isolated temporary directory and an isolated daemon/runtime:
 
 ```text
 Warren Test Process
 ├── data-dir = mktemp
-├── tmux socket = warren-test-<uuid>
+├── runtime socket = warren-test-<uuid>
 ├── deterministic clock / request IDs
 ├── offscreen, never-key NSWindow
 └── test observation socket
@@ -425,7 +453,7 @@ Failure reports must identify the last successful invariant, the first violating
 - iOS native client.
 - Multi-person sharing and permission UI.
 - Automation scheduler.
-- tmux multi-window/pane to UI Pane mapping.
+- Runtime multi-window/pane to UI Pane mapping (tmux alternative).
 - Cross-device real-time Client Layout sync.
 - CRDT.
 

@@ -144,16 +144,10 @@ broadcast-path changes are expected.
 No structural change needed. Verify that `GhosttyManagedSurface` still calls
 `presentNow()` / display refresh when a retained surface becomes active.
 
-### 5. Legacy local renderer (optional)
-
-`WarrenRendererCoordinator` only mounts the active session and is used by
-headless acceptance. Adding the same retention flag there is out of scope for
-the desktop UX fix but can be mirrored later for consistency.
-
 ## Edge cases and risks
 
 - Hidden surfaces must keep the same viewport size as the active surface or
-  tmux receives wrong resize events. The current ZStack already enforces a
+  the runtime receives wrong resize events. The current ZStack already enforces a
   shared frame; keep that invariant.
 - Multi-session subscriptions increase per-peer outbound pressure. The
   existing "queue overflow disconnects only this peer" semantics remain, but
@@ -181,4 +175,3 @@ the desktop UX fix but can be mirrored later for consistency.
 1. Daemon multi-session output subscriptions with tests.
 2. Client retention logic in `WarrenRemoteApplicationModel`.
 3. Settings UI and preference wiring.
-4. (Optional) Legacy `WarrenRendererCoordinator` parity.
