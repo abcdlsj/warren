@@ -92,6 +92,30 @@ public struct WarrenDesktopSessionPreset: Identifiable, Hashable, Sendable {
         default: nil
         }
     }
+
+    /// Returns the launch request with the user's Settings overrides applied.
+    /// Commands are typed into a plain shell first, so quitting an agent CLI
+    /// leaves the terminal alive; an empty shell command opens a bare shell.
+    func resolvedRequest(
+        shellCommand: String,
+        claudeCommand: String,
+        codexCommand: String
+    ) -> TerminalSessionLaunchRequest {
+        let command: String?
+        switch id {
+        case "shell":
+            command = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : shellCommand
+        case "claude":
+            command = claudeCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "claude" : claudeCommand
+        case "codex":
+            command = codexCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "codex --dangerously-bypass-hook-trust"
+                : codexCommand
+        default:
+            command = request.command
+        }
+        return TerminalSessionLaunchRequest(kind: request.kind, command: command, title: request.title)
+    }
 }
 
 extension TerminalSessionKind {

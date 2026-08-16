@@ -90,6 +90,9 @@ public enum WarrenPreferenceKey {
     public static let terminalTitleTemplate = "terminal.titleTemplate"
     public static let terminalFontFamily = "terminal.fontFamily"
     public static let terminalFontSize = "terminal.fontSize"
+    public static let presetCommandShell = "terminal.presetCommand.shell"
+    public static let presetCommandClaude = "terminal.presetCommand.claude"
+    public static let presetCommandCodex = "terminal.presetCommand.codex"
     public static let gnarSharingEnabled = "web.gnarSharingEnabled"
 }
 

@@ -16,6 +16,12 @@ struct WarrenDesktopSettingsView: View {
     private var fontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
     private var fontSize = TerminalFontPreference.defaultSize
+    @AppStorage(WarrenPreferenceKey.presetCommandShell)
+    private var shellCommand = ""
+    @AppStorage(WarrenPreferenceKey.presetCommandClaude)
+    private var claudeCommand = "claude"
+    @AppStorage(WarrenPreferenceKey.presetCommandCodex)
+    private var codexCommand = "codex --dangerously-bypass-hook-trust"
     @AppStorage(WarrenPreferenceKey.gnarSharingEnabled)
     private var gnarSharingEnabled = true
     @Environment(\.colorScheme) private var colorScheme
@@ -24,6 +30,7 @@ struct WarrenDesktopSettingsView: View {
         case terminalFont = "Font"
         case terminalTitle = "Title"
         case terminalRuntime = "Terminal runtime"
+        case presets = "Presets"
         case webSharing = "Web sharing"
 
         var id: String { rawValue }
@@ -33,6 +40,7 @@ struct WarrenDesktopSettingsView: View {
             case .terminalFont: "terminal"
             case .terminalTitle: "textformat"
             case .terminalRuntime: "cpu"
+            case .presets: "hammer"
             case .webSharing: "globe"
             }
         }
@@ -42,6 +50,7 @@ struct WarrenDesktopSettingsView: View {
             case .terminalFont: "Applied to every terminal surface."
             case .terminalTitle: "Build a title from live Session metadata."
             case .terminalRuntime: "Engine that owns new sessions on the headless daemon."
+            case .presets: "Commands launched by the Shell, Claude and Codex buttons."
             case .webSharing: "Publish the Web UI to the public internet."
             }
         }
@@ -51,14 +60,14 @@ struct WarrenDesktopSettingsView: View {
             case .terminalFont: [rawValue, detail, "font", "family", "size", "typography"]
             case .terminalTitle: [rawValue, detail, "title", "template", "placeholder", "preview"]
             case .terminalRuntime: [rawValue, detail, "ghostline", "tmux", "runtime", "engine", "session", "headless"]
+            case .presets: [rawValue, detail, "preset", "command", "launch", "shell", "claude", "codex", "agent"]
             case .webSharing: [rawValue, detail, "gnar", "share", "public", "tunnel", "internet"]
             }
         }
 
         var isTerminalSection: Bool {
             switch self {
-            case .terminalFont, .terminalTitle: true
-            case .terminalRuntime: true
+            case .terminalFont, .terminalTitle, .terminalRuntime, .presets: true
             case .webSharing: false
             }
         }
@@ -257,6 +266,8 @@ struct WarrenDesktopSettingsView: View {
                     terminalTitleSection(tokens: tokens)
                 case .terminalRuntime:
                     terminalRuntimeSection(tokens: tokens)
+                case .presets:
+                    presetsSection(tokens: tokens)
                 case .webSharing:
                     webSharingSection(tokens: tokens)
                 }
@@ -265,6 +276,9 @@ struct WarrenDesktopSettingsView: View {
                     titleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
                     fontFamily = TerminalFontPreference.defaultFamily
                     fontSize = TerminalFontPreference.defaultSize
+                    shellCommand = ""
+                    claudeCommand = "claude"
+                    codexCommand = "codex --dangerously-bypass-hook-trust"
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(tokens.mutedForeground)
@@ -341,6 +355,40 @@ struct WarrenDesktopSettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
+        }
+    }
+
+    private func presetsSection(tokens: WarrenColorTokens) -> some View {
+        settingsSection("Launch commands", section: .presets, tokens: tokens) {
+            VStack(alignment: .leading, spacing: WarrenSpacing.xlarge) {
+                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+                    Text("Shell").font(WarrenTypography.bodyEmphasis)
+                    TextField("default shell (empty)", text: $shellCommand)
+                        .textFieldStyle(.roundedBorder)
+                        .font(WarrenTypography.code)
+                }
+                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+                    Text("Claude").font(WarrenTypography.bodyEmphasis)
+                    TextField("claude", text: $claudeCommand)
+                        .textFieldStyle(.roundedBorder)
+                        .font(WarrenTypography.code)
+                }
+                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
+                    Text("Codex").font(WarrenTypography.bodyEmphasis)
+                    TextField("codex --dangerously-bypass-hook-trust", text: $codexCommand)
+                        .textFieldStyle(.roundedBorder)
+                        .font(WarrenTypography.code)
+                }
+            }
+            Text(
+                "Commands are typed into a plain shell after it opens, so "
+                    + "quitting an agent with Ctrl+C / Ctrl+D keeps the "
+                    + "terminal tab alive. Leave Shell empty for a bare "
+                    + "terminal."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

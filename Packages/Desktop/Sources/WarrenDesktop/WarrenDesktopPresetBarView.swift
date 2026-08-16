@@ -13,6 +13,12 @@ struct WarrenDesktopPresetBar: View {
     let onLaunch: (TerminalSessionLaunchRequest) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(WarrenPreferenceKey.presetCommandShell)
+    private var shellCommand = ""
+    @AppStorage(WarrenPreferenceKey.presetCommandClaude)
+    private var claudeCommand = "claude"
+    @AppStorage(WarrenPreferenceKey.presetCommandCodex)
+    private var codexCommand = "codex --dangerously-bypass-hook-trust"
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
@@ -24,7 +30,11 @@ struct WarrenDesktopPresetBar: View {
             HStack(spacing: WarrenSpacing.small) {
                 ForEach(WarrenDesktopSessionPreset.pinned) { preset in
                     Button {
-                        onLaunch(preset.request)
+                        onLaunch(preset.resolvedRequest(
+                            shellCommand: shellCommand,
+                            claudeCommand: claudeCommand,
+                            codexCommand: codexCommand
+                        ))
                     } label: {
                         HStack(spacing: 6) {
                             WarrenPresetIcon(preset: preset)
