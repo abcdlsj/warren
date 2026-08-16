@@ -121,6 +121,47 @@ func TestCodexWebSearchAndStreamingMessagesNormalize(t *testing.T) {
 	}
 }
 
+func TestCodexDeduplicatesTwinStreamingEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-twin.jsonl")
+	writeLines(t, path,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"reasoning","content":[{"type":"reasoning","text":"Think once"}]}}`,
+		`{"timestamp":"2026-08-16T10:00:01Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"Think once"}}`,
+		`{"timestamp":"2026-08-16T10:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Reply once"}]}}`,
+		`{"timestamp":"2026-08-16T10:00:03Z","type":"event_msg","payload":{"type":"agent_message","message":"Reply once"}}`,
+		`{"timestamp":"2026-08-16T10:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}}`,
+		`{"timestamp":"2026-08-16T10:00:05Z","type":"response_item","payload":{"type":"function_call","call_id":"call-1","name":"Bash","arguments":"{\"command\":\"ls\"}"}}`,
+		`{"timestamp":"2026-08-16T10:00:06Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":4,"output_tokens":5,"total_tokens":9}}}}`,
+	)
+	events, _, err := readNew(path, 0, newParser("codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, event := range events {
+		kinds = append(kinds, event.Type)
+	}
+	// Reasoning and assistant appear once. Usage events stay in the stream;
+	// the web client decides where to surface them.
+	if got, want := strings.Join(kinds, ","), "reasoning,assistant,usage,tool_call,usage"; got != want {
+		t.Fatalf("event kinds = %q, want %q", got, want)
+	}
+}
+
+func TestCodexApprovedPrefixNoticeIsHidden(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-approved.jsonl")
+	writeLines(t, path,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"Approved command prefix saved:\n- [\"glab\", \"mr\", \"view\"]"}]}}`,
+		`{"timestamp":"2026-08-16T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Real user turn"}]}}`,
+	)
+	events, _, err := readNew(path, 0, newParser("codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Type != "user" {
+		t.Fatalf("events = %#v, want only the real user turn", events)
+	}
+}
+
 func TestClaudeHookAttachmentBecomesSystem(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session-hooks.jsonl")
 	writeLines(t, path,

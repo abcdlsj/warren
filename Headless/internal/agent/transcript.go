@@ -386,6 +386,12 @@ type parser struct {
 	codexModel      string
 	codexCallTool   map[string]string
 	lastUserContent string
+	// Older Codex rollouts write each turn twice: once as response_item and
+	// once as a streaming event_msg. These fields deduplicate the twin
+	// renderings so the UI does not show every message or thought twice.
+	lastAssistantContent string
+	lastReasoningContent string
+	lastEventType        string
 }
 
 func newParser(provider string) *parser {
@@ -494,6 +500,12 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			if event.Content == "" {
 				return nil
 			}
+			if event.Type == "assistant" {
+				if event.Content == p.lastAssistantContent {
+					return nil
+				}
+				p.lastAssistantContent = event.Content
+			}
 			if event.Type == "user" {
 				if isSystemInjectedUserContext(event.Content) {
 					event.Type = "system_instructions"
@@ -501,6 +513,10 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 					p.lastUserContent = event.Content
 				}
 			}
+			if event.Type == "system_instructions" && strings.HasPrefix(event.Content, "Approved command prefix saved") {
+				return nil
+			}
+			p.lastEventType = event.Type
 			return []api.AgentEvent{event}
 		case "reasoning":
 			event.ID = payload.ID
@@ -509,6 +525,11 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			if event.Content == "" {
 				return nil
 			}
+			if event.Content == p.lastReasoningContent {
+				return nil
+			}
+			p.lastReasoningContent = event.Content
+			p.lastEventType = "reasoning"
 			return []api.AgentEvent{event}
 		case "function_call", "local_shell_call":
 			event.ID = payload.ID
@@ -527,6 +548,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			if event.CallID != "" {
 				p.codexCallTool[event.CallID] = event.ToolName
 			}
+			p.lastEventType = "tool_call"
 			return []api.AgentEvent{event}
 		case "function_call_output", "custom_tool_call_output":
 			event.ID = payload.ID
@@ -537,6 +559,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			if event.Output == "" {
 				return nil
 			}
+			p.lastEventType = "tool_output"
 			return []api.AgentEvent{event}
 		case "web_search_call":
 			event.ID = payload.ID
@@ -552,6 +575,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				input["url"] = payload.Action.URL
 			}
 			event.ToolInput = input
+			p.lastEventType = "tool_call"
 			return []api.AgentEvent{event}
 		default:
 			event.Type = "unknown"
@@ -590,17 +614,27 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			if content == "" {
 				return nil
 			}
+			if content == p.lastAssistantContent {
+				return nil
+			}
+			p.lastAssistantContent = content
 			event.Type = "assistant"
 			event.Model = p.codexModel
 			event.Content = truncate(content, maxEventContent)
+			p.lastEventType = "assistant"
 			return []api.AgentEvent{event}
 		case "agent_reasoning":
 			content := firstNonEmpty(payload.Text, contentString(payload.Summary), contentString(payload.Content))
 			if content == "" {
 				return nil
 			}
+			if content == p.lastReasoningContent {
+				return nil
+			}
+			p.lastReasoningContent = content
 			event.Type = "reasoning"
 			event.Content = truncate(content, maxEventContent)
+			p.lastEventType = "reasoning"
 			return []api.AgentEvent{event}
 		case "task_started", "task_complete", "thread_settings_applied":
 			// Internal lifecycle bookkeeping; the assistant message and tool
@@ -615,6 +649,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				p.lastUserContent = content
 				event.Type = "user"
 				event.Content = content
+				p.lastEventType = "user"
 				return []api.AgentEvent{event}
 			}
 			return nil

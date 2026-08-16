@@ -54,7 +54,15 @@ export function AgentView({ session, events = [], onSend }) {
             <div className="agent-empty-hint">Messages, tool calls and results will appear here.</div>
           </div>
         ) : (
-          blocks.map((block, index) => <AgentBlock key={blockKindKey(block, index)} block={block} />)
+          blocks.map((block, index) => {
+            // Token usage is only useful right after an assistant reply;
+            // intermediate counts between tool calls are noise.
+            if (block.kind === "usage") {
+              const previous = blocks[index - 1];
+              if (!previous || previous.kind !== "assistant" || !block.event.usage) return null;
+            }
+            return <AgentBlock key={blockKindKey(block, index)} block={block} />;
+          })
         )}
       </div>
       <form
@@ -138,6 +146,7 @@ function AgentBlock({ block }) {
   case "system_instructions":
     return <SystemInstructionsCard content={block.event.content || ""} />;
   case "usage":
+    if (!block.event.usage) return null;
     return (
       <div className="agent-usage-foot">
         <UsageChip usage={block.event.usage} />
