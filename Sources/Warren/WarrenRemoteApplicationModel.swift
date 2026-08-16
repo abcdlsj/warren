@@ -1375,7 +1375,16 @@ final class WarrenRemoteApplicationModel {
                 TerminalDiagnostics.log("feed_nudge", [
                     "session": surface.id.description,
                     "drew": drew ? "true" : "false",
+                    "viewVisible": surface.terminalViewIsPresentable
+                        ? "true" : "false",
                 ])
+                if drew, !surface.terminalViewIsPresentable {
+                    TerminalDiagnostics.log("present_stall_suspected", [
+                        "session": surface.id.description,
+                        "reason": "snapshot-drew-without-visible-view",
+                        "view": surface.terminalViewDescription,
+                    ])
+                }
             }
         }
     }

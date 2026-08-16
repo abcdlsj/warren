@@ -477,7 +477,7 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
                 _ = surface.presentNow()
             }
         }
-        view.onApplyHidden = { [weak view, weak state] hidden in
+        view.onApplyHidden = { [weak view, weak state, weak surface] hidden in
             guard let view,
                   let state,
                   let window = view.window,
@@ -486,13 +486,16 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
                 TerminalDiagnostics.log("probe_apply_hidden", [
                     "hidden": hidden ? "true" : "false",
                     "found": "false",
+                    "session": surface?.id.description ?? "nil",
                 ])
                 return
             }
+            surface?.mountedTerminalView = terminal
             terminal.isHidden = hidden
             TerminalDiagnostics.log("probe_apply_hidden", [
                 "hidden": hidden ? "true" : "false",
                 "found": "true",
+                "session": surface?.id.description ?? "nil",
             ])
         }
     }

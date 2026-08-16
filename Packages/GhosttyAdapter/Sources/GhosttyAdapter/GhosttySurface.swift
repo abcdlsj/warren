@@ -28,6 +28,10 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
+    /// The AppKit terminal view currently backing this surface, kept weak so
+    /// a recreated view is reflected on the next lookup. Used by diagnostics
+    /// to distinguish "draw was called" from "draw could reach the screen".
+    public weak var mountedTerminalView: TerminalView?
 
     public init(
         id: TerminalSessionID,
@@ -135,24 +139,64 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         let size = state.surfaceSize.map {
             "\($0.columns)x\($0.rows)"
         } ?? "nil"
+        let view = mountedTerminalView
+        let viewAttached = view?.window != nil
+        let viewHidden = view?.isHidden ?? true
+        let viewVisible = view.map {
+            $0.window != nil && !$0.isHidden && !$0.visibleRect.isEmpty
+        } ?? false
         guard let raw = state.surface?.rawValue else {
             TerminalDiagnostics.log("present_now", [
                 "session": id.description,
                 "result": "false",
                 "surfaceReady": "false",
                 "size": size,
+                "viewAttached": viewAttached ? "true" : "false",
+                "viewHidden": viewHidden ? "true" : "false",
+                "viewVisible": viewVisible ? "true" : "false",
             ])
             return false
         }
         state.controller.tick()
         ghostty_surface_draw(raw)
-        TerminalDiagnostics.logVerbose("present_now", [
+        let fields = [
             "session": id.description,
             "result": "true",
             "surfaceReady": "true",
             "size": size,
-        ])
+            "viewAttached": viewAttached ? "true" : "false",
+            "viewHidden": viewHidden ? "true" : "false",
+            "viewVisible": viewVisible ? "true" : "false",
+        ]
+        if viewVisible {
+            TerminalDiagnostics.logVerbose("present_now", fields)
+        } else {
+            // A draw was issued while the view could not present it. This is
+            // the closest cheap signal we can emit for a transient black pane
+            // without enabling the full Ghostty render log on the hot path.
+            TerminalDiagnostics.log("present_now", fields)
+            TerminalDiagnostics.log("present_stall_suspected", [
+                "session": id.description,
+                "reason": view == nil
+                    ? "no-mounted-view"
+                    : (!viewAttached ? "view-not-attached"
+                        : (viewHidden ? "view-hidden" : "view-not-visible")),
+                "view": terminalViewDescription,
+            ])
+        }
         return true
+    }
+
+    public var terminalViewIsPresentable: Bool {
+        guard let view = mountedTerminalView else { return false }
+        return view.window != nil && !view.isHidden && !view.visibleRect.isEmpty
+    }
+
+    public var terminalViewDescription: String {
+        guard let view = mountedTerminalView else { return "nil" }
+        let size = GhosttyDiagnosticsFormat.finiteSize(view.visibleRect.size)
+        return "attached=\(view.window != nil ? "true" : "false") "
+            + "hidden=\(view.isHidden ? "true" : "false") visible=\(size)"
     }
 
     public func apply(font: TerminalFontPreference) {
