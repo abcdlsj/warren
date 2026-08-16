@@ -408,6 +408,18 @@ export default function App() {
     });
   }, [focusTerminal, refreshTerminal, scheduleTerminalFit]);
 
+  const toggleAgentView = useCallback(view => {
+    setAgentViewOverride(view);
+    if (view !== "terminal") return;
+    // Re-entering the terminal after a chat view must reclaim the shared PTY
+    // geometry right away: touch devices keep protocol focus while viewing,
+    // and desktop needs DOM focus back once the hidden terminal is visible.
+    requestAnimationFrame(() => {
+      if (isCoarsePointer()) requestSessionFocus(true);
+      else focusTerminal();
+    });
+  }, [focusTerminal, requestSessionFocus]);
+
   const scheduleRemoteResize = useCallback(size => {
     pendingTerminalSizeRef.current = size;
     if (resizeTimerRef.current !== null) return;
@@ -1034,21 +1046,37 @@ export default function App() {
     const releaseWindowFocus = () => {
       if (!isCoarsePointer()) requestSessionFocus(false);
     };
-    const claimWindowFocus = () => {
-      // Another endpoint (usually a phone) can claim the shared PTY while
-      // this tab is in the background. When the desktop tab regains focus,
-      // reclaim protocol focus with the current viewport size right away;
-      // waiting for a click leaves the shell stuck at the mobile geometry.
-      // DOM focus is intentionally left alone so an open search/settings
-      // input keeps its keyboard focus.
-      if (!isCoarsePointer()) requestSessionFocus(true);
+    const claimTerminalFocus = () => {
+      // A plain window refocus (no tab visibility change) should not steal
+      // the shared PTY while search/settings keeps DOM focus. Only reclaim
+      // when the terminal itself still owns DOM focus.
+      if (!isCoarsePointer()
+        && terminal.element?.contains(document.activeElement)) {
+        requestSessionFocus(true);
+      }
     };
+    const claimAfterVisibility = () => {
+      // Another endpoint (usually a phone) can claim the shared PTY while
+      // this tab was hidden. Reclaim protocol focus with the current
+      // viewport size on return so the shell is not stuck at the other
+      // endpoint's geometry. DOM focus is intentionally left alone so an
+      // open search/settings input keeps its keyboard focus. Touch devices
+      // also reclaim here because they deliberately keep protocol focus
+      // while viewing but must re-assert it after a background handoff.
+      if (document.hasFocus()) requestSessionFocus(true);
+    };
+    let wasHidden = false;
     const handleVisibilityChange = () => {
-      if (document.hidden) releaseWindowFocus();
-      else claimWindowFocus();
+      if (document.hidden) {
+        wasHidden = true;
+        releaseWindowFocus();
+      } else if (wasHidden) {
+        wasHidden = false;
+        claimAfterVisibility();
+      }
     };
     window.addEventListener("blur", releaseWindowFocus);
-    window.addEventListener("focus", claimWindowFocus);
+    window.addEventListener("focus", claimTerminalFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     const resizeObserver = new ResizeObserver(() => scheduleTerminalFit());
     resizeObserver.observe(terminalHost);
@@ -1073,7 +1101,7 @@ export default function App() {
       terminal.textarea?.removeEventListener("focus", onTerminalFocus);
       terminal.textarea?.removeEventListener("blur", onTerminalBlur);
       window.removeEventListener("blur", releaseWindowFocus);
-      window.removeEventListener("focus", claimWindowFocus);
+      window.removeEventListener("focus", claimTerminalFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -1474,7 +1502,7 @@ export default function App() {
               agentViewActive={agentViewActive}
               agentModel={agentModel}
               onAttachSession={attachSession}
-              onToggleAgentView={setAgentViewOverride}
+              onToggleAgentView={toggleAgentView}
               onOpenMenu={() => setDrawerOpen(true)}
               onOpenSearch={() => setSearchOpen(true)}
               onNewSession={() => setSessionSheetOpen(true)}
@@ -1503,11 +1531,11 @@ export default function App() {
                   </span>
                 )}
                 {isAgentSession && (agentViewActive ? (
-                  <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
+                  <button type="button" className="pane-action" onClick={() => toggleAgentView("terminal")}>
                     Terminal
                   </button>
                 ) : (
-                  <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
+                  <button type="button" className="pane-action" onClick={() => toggleAgentView("agent")}>
                     Agent
                   </button>
                 ))}

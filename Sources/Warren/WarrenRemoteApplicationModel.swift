@@ -597,6 +597,9 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var focusedSessionID: TerminalSessionID?
     @ObservationIgnored private var pendingFocusSessionID: TerminalSessionID?
     @ObservationIgnored private var pendingFocusSize: TerminalSize?
+    @ObservationIgnored private var pendingFocusResizeSize: TerminalSize?
+    @ObservationIgnored private var focusClaimInFlight = false
+    @ObservationIgnored private var focusClaimGeneration = 0
     @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var initialRefreshPending = false
     @ObservationIgnored private var currentRoster: RemoteRoster?
@@ -697,6 +700,9 @@ final class WarrenRemoteApplicationModel {
         focusedSessionID = nil
         pendingFocusSessionID = nil
         pendingFocusSize = nil
+        pendingFocusResizeSize = nil
+        focusClaimInFlight = false
+        focusClaimGeneration += 1
         pendingInput.removeAll(keepingCapacity: true)
         initialRefreshPending = false
         attachGeneration &+= 1
@@ -1118,8 +1124,18 @@ final class WarrenRemoteApplicationModel {
 
     func resize(columns: Int, rows: Int) {
         guard let sessionID = selectedSessionID,
-              attachedSessionID == sessionID,
-              focusedSessionID == sessionID else { return }
+              attachedSessionID == sessionID else { return }
+        let size = TerminalSize(columns: columns, rows: rows)
+        guard focusedSessionID == sessionID else {
+            // The very first Ghostty metric can arrive while the focus claim
+            // is still in flight. Remember the latest size and apply it as
+            // soon as the daemon confirms ownership instead of dropping it.
+            if focusClaimInFlight || pendingFocusSessionID == sessionID {
+                pendingFocusResizeSize = size
+            }
+            return
+        }
+        pendingFocusResizeSize = nil
         TerminalDiagnostics.log("resize_request", [
             "session": sessionID.description,
             "cols": String(columns),
@@ -1165,6 +1181,9 @@ final class WarrenRemoteApplicationModel {
             pendingFocusSessionID = nil
             pendingFocusSize = nil
         }
+        pendingFocusResizeSize = nil
+        focusClaimInFlight = false
+        focusClaimGeneration += 1
         guard selectedSessionID == sessionID else { return }
         focusTask?.cancel()
         focusedSessionID = nil
@@ -1177,7 +1196,10 @@ final class WarrenRemoteApplicationModel {
               selectedSessionID == sessionID,
               attachedSessionID == sessionID else { return }
         focusTask?.cancel()
-        focusTask = Task { @MainActor [weak self] in
+        focusClaimGeneration += 1
+        let generation = focusClaimGeneration
+        focusClaimInFlight = focused
+        focusTask = Task { @MainActor [weak self, generation] in
             guard let self else { return }
             do {
                 var params = ["focused": focused ? "true" : "false"]
@@ -1187,18 +1209,26 @@ final class WarrenRemoteApplicationModel {
                 }
                 let data = try await wire.request("session.focus", params: params)
                 let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-                guard self.selectedSessionID == sessionID,
+                guard self.focusClaimGeneration == generation,
+                      self.selectedSessionID == sessionID,
                       self.attachedSessionID == sessionID else { return }
+                self.focusClaimInFlight = false
                 if focused {
                     self.focusedSessionID = (result?["focused"] as? Bool == true) ? sessionID : nil
+                    if let pending = self.pendingFocusResizeSize {
+                        self.pendingFocusResizeSize = nil
+                        self.resize(columns: pending.columns, rows: pending.rows)
+                    }
                 } else if self.focusedSessionID == sessionID {
                     self.focusedSessionID = nil
                 }
             } catch is CancellationError {
                 return
             } catch {
-                guard self.selectedSessionID == sessionID,
+                guard self.focusClaimGeneration == generation,
+                      self.selectedSessionID == sessionID,
                       self.attachedSessionID == sessionID else { return }
+                self.focusClaimInFlight = false
                 self.present(error)
             }
         }
@@ -1493,6 +1523,9 @@ final class WarrenRemoteApplicationModel {
             focusedSessionID = nil
             pendingFocusSessionID = nil
             pendingFocusSize = nil
+            pendingFocusResizeSize = nil
+            focusClaimInFlight = false
+            focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
             shutdownAllMountedSurfaces()
         }
@@ -1502,6 +1535,9 @@ final class WarrenRemoteApplicationModel {
             focusedSessionID = nil
             pendingFocusSessionID = nil
             pendingFocusSize = nil
+            pendingFocusResizeSize = nil
+            focusClaimInFlight = false
+            focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
             shutdownAllMountedSurfaces()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
@@ -1538,11 +1574,16 @@ final class WarrenRemoteApplicationModel {
         ])
         if let previousSessionID = selectedSessionID, previousSessionID != sessionID {
             pendingInput.removeAll(keepingCapacity: true)
+            pendingFocusSessionID = nil
+            pendingFocusSize = nil
+            pendingFocusResizeSize = nil
         }
         attachGeneration &+= 1
         let generation = attachGeneration
         attachedSessionID = nil
         focusedSessionID = nil
+        focusClaimInFlight = false
+        focusClaimGeneration += 1
         let surface: GhosttySurface
         if let existingSurface {
             surface = existingSurface
