@@ -1272,7 +1272,8 @@ export default function App() {
   }, [selectedAgentEvents]);
   const isAgentSession = Boolean(
     selectedSession
-      && (selectedSession.kind === "codex" || selectedSession.kind === "claude"),
+      && (selectedSession.kind === "codex" || selectedSession.kind === "claude"
+        || selectedSession.agentSessionId),
   );
   const agentViewActive = Boolean(
     isAgentSession
