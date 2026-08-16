@@ -39,7 +39,7 @@ test("groupAgentEvents pairs tool calls with their outputs", () => {
   assert.equal(blocks[1].tools[0].outputs[0].output, "file.txt\n");
 });
 
-test("groupAgentEvents folds a turn and keeps interleaved order for expansion", () => {
+test("groupAgentEvents folds a turn at its last activity position", () => {
   const blocks = groupAgentEvents([
     { seq: 1, type: "user", content: "hello" },
     { seq: 2, type: "reasoning", content: "think one" },
@@ -49,12 +49,12 @@ test("groupAgentEvents folds a turn and keeps interleaved order for expansion", 
     { seq: 6, type: "reasoning", content: "think two" },
     { seq: 7, type: "assistant", content: "done" },
   ]);
-  assert.deepEqual(blocks.map(block => block.kind), ["user", "activity_group", "assistant", "assistant"]);
-  assert.equal(blocks[1].reasoning.length, 2);
-  assert.deepEqual(blocks[1].reasoning.map(event => event.content), ["think one", "think two"]);
-  assert.equal(blocks[1].tools.length, 1);
-  assert.equal(blocks[1].tools[0].call.toolName, "Bash");
-  assert.deepEqual(blocks[1].order.map(item => item.kind), ["reasoning", "tool", "reasoning"]);
+  assert.deepEqual(blocks.map(block => block.kind), ["user", "assistant", "activity_group", "assistant"]);
+  assert.equal(blocks[2].reasoning.length, 2);
+  assert.deepEqual(blocks[2].reasoning.map(event => event.content), ["think one", "think two"]);
+  assert.equal(blocks[2].tools.length, 1);
+  assert.equal(blocks[2].tools[0].call.toolName, "Bash");
+  assert.deepEqual(blocks[2].order.map(item => item.kind), ["reasoning", "tool", "reasoning"]);
 });
 
 test("groupAgentEvents folds standalone tool runs without a user message", () => {
