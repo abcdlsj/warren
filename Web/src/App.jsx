@@ -47,6 +47,7 @@ const storageKeys = {
   fontFamily: "warren.terminalFontFamily",
   fontSize: "warren.terminalFontSize",
   titleTemplate: "warren.terminalTitleTemplate",
+  presetCommands: "warren.presetCommands",
 };
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
@@ -97,10 +98,15 @@ const previewWorkspace = {
   branch: "main",
   path: "/Users/me/Workspace/warren",
 };
+const defaultPresetCommands = {
+  shell: "",
+  claude: "claude",
+  codex: "codex --dangerously-bypass-hook-trust",
+};
 const sessionPresets = [
   { kind: "shell", label: "Shell", title: "Shell" },
-  { kind: "claude", label: "Claude", title: "Claude Code", command: "claude" },
-  { kind: "codex", label: "Codex", title: "Codex", command: "codex --dangerously-bypass-hook-trust" },
+  { kind: "claude", label: "Claude", title: "Claude Code" },
+  { kind: "codex", label: "Codex", title: "Codex" },
 ];
 
 export default function App() {
@@ -112,6 +118,7 @@ export default function App() {
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem(storageKeys.fontFamily) || defaultFontFamily);
   const [fontSize, setFontSize] = useState(() => Number(localStorage.getItem(storageKeys.fontSize)) || defaultFontSize);
   const [titleTemplate, setTitleTemplate] = useState(() => localStorage.getItem(storageKeys.titleTemplate) || defaultTitleTemplate);
+  const [presetCommands, setPresetCommands] = useState(() => loadPresetCommands());
   const [connectionStatus, setConnectionStatus] = useState({ message: "Connecting…", online: false });
   const [emptyOverride, setEmptyOverride] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -452,7 +459,7 @@ export default function App() {
     const sent = request("session.create", {
       workspace: workspaceID,
       kind: preset.kind,
-      command: preset.command || "",
+      command: presetCommands[preset.kind] || "",
       title: preset.title,
     }, result => {
       const sessionID = result?.id;
@@ -463,7 +470,15 @@ export default function App() {
       message: sent ? `Starting ${preset.title}…` : "Waiting for connection…",
     });
     if (!sent) connectionRef.current?.reconnectNow();
-  }, [attachSession, request]);
+  }, [attachSession, presetCommands, request]);
+
+  const updatePresetCommand = useCallback((kind, command) => {
+    setPresetCommands(previous => {
+      const next = { ...previous, [kind]: command };
+      localStorage.setItem(storageKeys.presetCommands, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const openWorkspace = useCallback(workspaceID => {
     chooseWorkspace(workspaceID);
@@ -1223,6 +1238,8 @@ export default function App() {
     setTitleTemplate(defaultTitleTemplate);
     setFontFamily(defaultFontFamily);
     setFontSize(defaultFontSize);
+    setPresetCommands({ ...defaultPresetCommands });
+    localStorage.removeItem(storageKeys.presetCommands);
   }, []);
 
   const selectedAgentEvents = selectedSession
@@ -1328,12 +1345,14 @@ export default function App() {
         fontFamily={fontFamily}
         fontSize={fontSize}
         titleTemplate={titleTemplate}
+        presetCommands={presetCommands}
         titlePreview={titlePreview}
         placeholders={Object.entries(titlePlaceholders)}
         onClose={closeSettings}
         onFontFamilyChange={updateFontFamily}
         onFontSizeChange={updateFontSize}
         onTitleTemplateChange={updateTitleTemplate}
+        onPresetCommandChange={updatePresetCommand}
         onAppendPlaceholder={appendPlaceholder}
         onRestore={restoreDefaults}
       />
@@ -1356,6 +1375,14 @@ function loadSet(key) {
     return new Set(JSON.parse(localStorage.getItem(key) || "[]"));
   } catch {
     return new Set();
+  }
+}
+
+function loadPresetCommands() {
+  try {
+    return { ...defaultPresetCommands, ...JSON.parse(localStorage.getItem(storageKeys.presetCommands) || "{}") };
+  } catch {
+    return { ...defaultPresetCommands };
   }
 }
 

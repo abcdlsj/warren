@@ -627,12 +627,14 @@ export function SettingsPage({
   fontFamily,
   fontSize,
   titleTemplate,
+  presetCommands,
   titlePreview,
   placeholders,
   onClose,
   onFontFamilyChange,
   onFontSizeChange,
   onTitleTemplateChange,
+  onPresetCommandChange,
   onAppendPlaceholder,
   onRestore,
 }) {
@@ -651,6 +653,12 @@ export function SettingsPage({
       label: "Title",
       description: "Build a title from live Session metadata.",
       keywords: ["title", "template", "placeholder", "preview"],
+    },
+    {
+      id: "presets",
+      label: "Presets",
+      description: "Commands launched by the Shell, Claude and Codex buttons.",
+      keywords: ["preset", "command", "launch", "shell", "claude", "codex", "agent"],
     },
   ], []);
 
@@ -713,7 +721,7 @@ export function SettingsPage({
               key={section.id}
               onClick={() => setActiveSection(section.id)}
             >
-              {section.id === "font" ? terminalIcon : <TitleIcon />}
+              {section.id === "font" ? terminalIcon : section.id === "title" ? <TitleIcon /> : <PresetIcon />}
               <span>{section.label}</span>
             </button>
           ))}
@@ -740,6 +748,31 @@ export function SettingsPage({
                   </label>
                 </div>
                 <div className="font-preview" style={{ fontFamily, fontSize: `${fontSize}px` }}>Aa&nbsp;&nbsp;The quick brown fox&nbsp;&nbsp;0123456789</div>
+              </section>
+            ) : activeSection === "presets" ? (
+              <section className="settings-section">
+                <header className="settings-page-heading">
+                  <h2>Launch commands</h2>
+                  <p>Edited in a terminal session after the shell starts, so quitting an agent keeps the tab alive.</p>
+                </header>
+                <div className="settings-fields">
+                  {["shell", "claude", "codex"].map(kind => (
+                    <label key={kind}>
+                      {kind === "shell" ? "Shell" : kind === "claude" ? "Claude" : "Codex"}
+                      <input
+                        value={presetCommands[kind] || ""}
+                        onChange={event => onPresetCommandChange(kind, event.target.value)}
+                        placeholder={kind === "shell" ? "default shell (empty)" : `command for ${kind}`}
+                        autoComplete="off"
+                        spellCheck="false"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="settings-note">
+                  Leave Shell empty to open a plain terminal. Claude and Codex run inside the shell, so you can exit
+                  them with Ctrl+C / Ctrl+D and keep the session.
+                </p>
               </section>
             ) : (
               <section className="settings-section">
@@ -768,6 +801,14 @@ export function SettingsPage({
         </div>
       </div>
     </section>
+  );
+}
+
+function PresetIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+      <path d="M2 4.5h8v1H2v-1zm0 3h8v1H2v-1zm0 3h5v1H2v-1zm10.2-4.2l1.8 1.7-1.8 1.7-.7-.7 1.1-1-1.1-1 .7-.7z" fill="currentColor"/>
+    </svg>
   );
 }
 
