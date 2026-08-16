@@ -12,10 +12,10 @@ let package = Package(
         .library(name: "GhosttyAdapter", targets: ["GhosttyAdapter"]),
     ],
     dependencies: [
-        .package(
-            url: "https://github.com/jiweiyuan/libghostty-swift",
-            from: "1.0.16"
-        ),
+        // Vendored because the embedder must answer the Ghostty open-url
+        // action synchronously (see docs/lessons.md #002); upstream
+        // libghostty-swift is still at storage.1.0.16 and has no fix.
+        .package(path: "../Vendor/libghostty-swift"),
         .package(path: "../Domain"),
         .package(path: "../TerminalRenderer"),
     ],

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import GhosttyKit
 import GhosttyTerminal
 import WarrenDomain
@@ -81,6 +82,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             workingDirectory: workingDirectory
         )
         self.state = state
+
+        // Consume Ghostty's open-url action with Warren's own semantics.
+        // Without a handler the embedded apprt falls back to spawning
+        // `/usr/bin/open`, which floods os_log when a TUI renders a
+        // clickable-but-missing path (see docs/lessons.md #002).
+        state.openURLHandler = { [weak self] url, kind in
+            Task { @MainActor in
+                self?.handleOpenURL(url, kind: kind)
+            }
+        }
     }
 
     public func markRendered(epoch: UInt64, sequence: UInt64) {
@@ -198,6 +209,26 @@ public final class GhosttySurface: Identifiable, ObservableObject {
 
     public var view: TerminalSurfaceView {
         TerminalSurfaceView(context: state)
+    }
+
+    /// Warren's open semantics for terminal links. Only non-empty URLs with a
+    /// known scheme or existing absolute paths are opened, through
+    /// NSWorkspace; missing paths and empty targets are ignored. Ghostty's
+    /// `/usr/bin/open` fallback is never used.
+    private func handleOpenURL(_ url: String, kind: TerminalOpenURLKind) {
+        _ = kind
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let components = URLComponents(string: trimmed),
+           let scheme = components.scheme?.lowercased(),
+           let target = components.url,
+           ["http", "https", "mailto", "tel", "file"].contains(scheme) {
+            NSWorkspace.shared.open(target)
+            return
+        }
+        let path = (trimmed as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 }
 
