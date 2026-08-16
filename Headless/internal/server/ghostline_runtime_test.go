@@ -96,6 +96,19 @@ func TestGhostlineRuntimeLifecycle(t *testing.T) {
 	}
 }
 
+func TestGhostlineRuntimeClearsInheritedNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	runtime, _ := startGhostlineRuntime(t)
+	ctx := context.Background()
+	if err := runtime.Create(ctx, "warren_ghost_color", t.TempDir(), "sh"); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := runtime.Input(ctx, "warren_ghost_color", []byte("echo NO_COLOR=[$NO_COLOR]\r")); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	waitGhostlineOutput(t, runtime, "warren_ghost_color", "NO_COLOR=[]")
+}
+
 // TestGhostlineRuntimeAdoptsAfterRestart simulates a daemon restart: a fresh
 // adapter instance re-adopts the session from the same server.
 func TestGhostlineRuntimeAdoptsAfterRestart(t *testing.T) {

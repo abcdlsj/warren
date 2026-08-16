@@ -31,6 +31,11 @@ func (r *GhostlineRuntime) Create(ctx context.Context, name, directory, command 
 		Name:      name,
 		Directory: directory,
 		Command:   command,
+		// A background daemon can inherit NO_COLOR from whatever launched it
+		// (for example a terminal agent's non-interactive tool environment).
+		// Interactive PTY sessions should keep colors by default; users who
+		// want no color can set it in their own shell config.
+		Environment: []string{"NO_COLOR="},
 	})
 	if err != nil {
 		return err
