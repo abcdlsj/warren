@@ -251,8 +251,8 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                     : (webStatus.isRunning ? "Web is running" : "Web is stopped"),
                 action: onWeb,
                 tint: webStatus.tunnelRunning
-                    ? .green
-                    : (webStatus.isRunning ? .blue : nil)
+                    ? .blue
+                    : (webStatus.isRunning ? .green : nil)
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",

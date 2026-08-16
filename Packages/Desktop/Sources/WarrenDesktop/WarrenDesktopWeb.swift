@@ -146,7 +146,7 @@ public struct WarrenDesktopWebPanel: View {
             if let secureURL = status.secureURL {
                 HStack(spacing: WarrenSpacing.xs) {
                     Circle()
-                        .fill(Color.green)
+                        .fill(Color.blue)
                         .frame(width: 6, height: 6)
                     Text(secureURL.absoluteString)
                         .font(.system(size: 11, design: .monospaced))
@@ -210,13 +210,13 @@ private struct WarrenDesktopWebCommandButton: View {
         Button(action: action) {
             Text(title)
                 .font(WarrenTypography.chromeLabel)
-                .foregroundStyle(isEmphasized ? Color.green : tokens.mutedForeground)
+                .foregroundStyle(isEmphasized ? Color.blue : tokens.mutedForeground)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: WarrenLayoutMetrics.compactControlHeight
                 )
                 .background(
-                    isEmphasized ? Color.green.opacity(0.12) : Color.clear
+                    isEmphasized ? Color.blue.opacity(0.12) : Color.clear
                 )
                 .contentShape(.rect)
         }
