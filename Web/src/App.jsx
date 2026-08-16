@@ -28,6 +28,7 @@ import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
 import {
+  ActivityDot,
   EmptyTerminal,
   ContextMenu,
   MobileKeys,
@@ -199,6 +200,9 @@ export default function App() {
   const selectedSession = activeSession ? catalog.sessions.get(activeSession) || null : null;
   const paneTitle = selectedSession
     ? renderTerminalTitle(titleTemplate, selectedSession, selectedWorkspace, catalog.host)
+    : "";
+  const agentActivity = selectedSession
+    ? agentStateBySession[selectedSession.id]?.activity || selectedSession.activity || ""
     : "";
   const titlePreview = renderTerminalTitle(
     titleTemplate,
@@ -663,6 +667,7 @@ export default function App() {
           [message.session]: {
             epoch: message.epoch,
             events: mergeAgentEvents(base, message.events),
+            activity: message.activity || current?.activity || "",
           },
         };
       });
@@ -1314,8 +1319,9 @@ export default function App() {
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title">
             <span>{paneTitle}</span>
-            {isAgentSession && (agentModel || selectedSession?.agentSessionId) && (
+            {isAgentSession && (agentActivity || agentModel || selectedSession?.agentSessionId) && (
               <span className="pane-agent-meta">
+                <ActivityDot activity={agentActivity} />
                 {agentModel && <span className="pane-agent-model">{agentModel}</span>}
                 {selectedSession?.agentSessionId && <code className="pane-agent-session">{shortSessionID(selectedSession.agentSessionId)}</code>}
               </span>

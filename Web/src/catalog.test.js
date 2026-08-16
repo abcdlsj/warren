@@ -40,6 +40,7 @@ test("catalog keeps agent binding fields on sessions", () => {
         lifecycle: "running",
         agentSessionId: "thread-1",
         transcriptPath: "/work/rollout.jsonl",
+        activity: "working",
       }],
     },
   }));
@@ -47,6 +48,7 @@ test("catalog keeps agent binding fields on sessions", () => {
   assert.equal(session.kind, "codex");
   assert.equal(session.agentSessionId, "thread-1");
   assert.equal(session.transcriptPath, "/work/rollout.jsonl");
+  assert.equal(session.activity, "working");
 });
 
 test("custom session titles win over derived tab titles", () => {

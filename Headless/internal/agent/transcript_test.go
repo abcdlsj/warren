@@ -213,11 +213,11 @@ func TestWatcherTailsNewLines(t *testing.T) {
 
 	var mu sync.Mutex
 	var seen []api.AgentEvent
-	watcher := Start("session-1", "codex", path, func(events []api.AgentEvent) {
+	watcher := Start("session-1", "codex", path, func(events []api.AgentEvent, _ api.AgentActivity) {
 		mu.Lock()
 		seen = append(seen, events...)
 		mu.Unlock()
-	})
+	}, nil)
 	defer watcher.Close()
 
 	deadline := time.Now().Add(3 * time.Second)

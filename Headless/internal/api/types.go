@@ -59,10 +59,26 @@ type Session struct {
 	// Claude session ID) bound to this Warren session.
 	AgentSessionID string `json:"agentSessionId,omitempty"`
 	// TranscriptPath is the JSONL transcript projected by the agent watcher.
-	TranscriptPath string     `json:"transcriptPath,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	EndedAt        *time.Time `json:"endedAt,omitempty"`
+	TranscriptPath string `json:"transcriptPath,omitempty"`
+	// AgentActivity is the live activity of an agent session. It is
+	// presentation state overlaid on roster snapshots only and is never
+	// persisted with the session record.
+	AgentActivity AgentActivity `json:"activity,omitempty"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	EndedAt       *time.Time    `json:"endedAt,omitempty"`
 }
+
+// AgentActivity is the live state of an agent conversation as projected from
+// its transcript. Clients render it as a status light beside the session.
+type AgentActivity string
+
+const (
+	AgentActivityReady           AgentActivity = "ready"
+	AgentActivityWorking         AgentActivity = "working"
+	AgentActivityWaitingForInput AgentActivity = "waitingForInput"
+	AgentActivityFailed          AgentActivity = "failed"
+	AgentActivityExited          AgentActivity = "exited"
+)
 
 // AgentEvent is one normalized message or tool transition from a Codex or
 // Claude transcript. It is a projection of the TUI process's own JSONL log;
@@ -107,8 +123,9 @@ type AgentMessage struct {
 	Session string `json:"session"`
 	// Epoch identifies one Host process's agent projection. Clients reset
 	// their event history when the epoch changes after a daemon restart.
-	Epoch  uint64       `json:"epoch,omitempty"`
-	Events []AgentEvent `json:"events"`
+	Epoch    uint64        `json:"epoch,omitempty"`
+	Activity AgentActivity `json:"activity,omitempty"`
+	Events   []AgentEvent  `json:"events"`
 }
 
 type State struct {

@@ -98,9 +98,10 @@ type outputSession struct {
 }
 
 type agentSession struct {
-	mu      sync.Mutex
-	watcher *agent.Watcher
-	events  []api.AgentEvent
+	mu       sync.Mutex
+	watcher  *agent.Watcher
+	events   []api.AgentEvent
+	activity api.AgentActivity
 	// lastFind throttles transcript discovery while a CLI has not written a
 	// transcript yet, so reconcile does not walk the whole CLI directory tree
 	// on every one-second tick.
@@ -451,6 +452,17 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 		}
 		return state.Sessions[i].CreatedAt.Before(state.Sessions[j].CreatedAt)
 	})
+	for i := range state.Sessions {
+		session := &state.Sessions[i]
+		if session.Lifecycle != "running" || (session.Kind != "codex" && session.Kind != "claude") {
+			continue
+		}
+		if activity := s.agentActivity(session.ID); activity != "" {
+			session.AgentActivity = activity
+		} else {
+			session.AgentActivity = api.AgentActivityReady
+		}
+	}
 	return state, revision
 }
 
@@ -1196,9 +1208,17 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 		transcriptPath = found
 	}
 	s.persistAgentMeta(session.ID, agentSessionID, transcriptPath)
-	watcher := agent.Start(session.ID, session.Kind, transcriptPath, func(events []api.AgentEvent) {
-		s.recordAgentEvents(session.ID, events)
-	})
+	watcher := agent.Start(
+		session.ID,
+		session.Kind,
+		transcriptPath,
+		func(events []api.AgentEvent, activity api.AgentActivity) {
+			s.recordAgentEvents(session.ID, events, activity)
+		},
+		func(activity api.AgentActivity) {
+			s.recordAgentActivity(session.ID, activity)
+		},
+	)
 	s.agentsMu.Lock()
 	current := s.agents[session.ID]
 	if current == nil || current.watcher != nil {
@@ -1267,7 +1287,7 @@ func (s *Service) persistAgentMeta(sessionID, agentSessionID, transcriptPath str
 
 // recordAgentEvents stores a bounded event history and forwards the batch to
 // every peer attached to the session.
-func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent) {
+func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent, activity api.AgentActivity) {
 	if len(events) == 0 {
 		return
 	}
@@ -1279,10 +1299,28 @@ func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent) {
 		if len(entry.events) > 2000 {
 			entry.events = append([]api.AgentEvent(nil), entry.events[len(entry.events)-2000:]...)
 		}
+		entry.activity = activity
 		entry.mu.Unlock()
 	}
 	s.agentsMu.Unlock()
-	s.broadcastAgentEvents(sessionID, events)
+	s.broadcastAgentEvents(sessionID, events, activity)
+}
+
+// recordAgentActivity forwards a state change that arrived without new
+// transcript events, such as a tool call that has been waiting too long.
+func (s *Service) recordAgentActivity(sessionID string, activity api.AgentActivity) {
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	if entry != nil {
+		entry.mu.Lock()
+		entry.activity = activity
+		entry.mu.Unlock()
+	}
+	s.agentsMu.Unlock()
+	if entry != nil {
+		s.broadcastAgentEvents(sessionID, nil, activity)
+	}
 }
 
 func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
@@ -1298,6 +1336,19 @@ func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
 	return append([]api.AgentEvent(nil), entry.events...)
 }
 
+func (s *Service) agentActivity(sessionID string) api.AgentActivity {
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	s.agentsMu.Unlock()
+	if entry == nil {
+		return ""
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	return entry.activity
+}
+
 func (s *Service) stopAgent(sessionID string) {
 	s.lazyInit()
 	s.agentsMu.Lock()
@@ -1309,7 +1360,7 @@ func (s *Service) stopAgent(sessionID string) {
 	}
 }
 
-func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent) {
+func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent, activity api.AgentActivity) {
 	lock := s.broadcastLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -1320,7 +1371,7 @@ func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent
 	}
 	s.outputMu.Unlock()
 	for _, peer := range peers {
-		if err := peer.enqueueAgentEvents(sessionID, events); err != nil {
+		if err := peer.enqueueAgentEvents(sessionID, events, activity); err != nil {
 			s.detachPeer(peer, sessionID)
 		}
 	}
@@ -1630,7 +1681,7 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 		return err
 	}
 	if history := s.agentHistory(session.ID); len(history) > 0 {
-		return peer.enqueueAgentEvents(session.ID, history)
+		return peer.enqueueAgentEvents(session.ID, history, s.agentActivity(session.ID))
 	}
 	return nil
 }

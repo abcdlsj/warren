@@ -74,12 +74,15 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	readBinaryFrame(t, connection)
 	readBrowserMessage(t, connection, "synced")
 
-	initial := readAgentEvents(t, connection)
+	initial, initialActivity := readAgentEvents(t, connection)
 	if len(initial) != 1 {
 		t.Fatalf("initial agent events = %#v, want 1", initial)
 	}
 	if initial[0]["type"] != "assistant" {
 		t.Fatalf("initial event type = %#v", initial[0]["type"])
+	}
+	if initialActivity != api.AgentActivityReady {
+		t.Fatalf("initial activity = %q, want ready", initialActivity)
 	}
 
 	file, err := os.OpenFile(transcriptPath, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -95,9 +98,18 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 		t.Fatal(closeErr)
 	}
 
-	live := readAgentEvents(t, connection)
+	live, liveActivity := readAgentEvents(t, connection)
 	if len(live) != 1 || live[0]["content"] != "live prompt" {
 		t.Fatalf("live agent events = %#v", live)
+	}
+	if liveActivity != api.AgentActivityWorking {
+		t.Fatalf("live activity = %q, want working", liveActivity)
+	}
+	roster := service.Roster(context.Background())
+	for _, candidate := range roster.Sessions {
+		if candidate.ID == "session-agent" && candidate.AgentActivity != api.AgentActivityWorking {
+			t.Fatalf("roster activity = %q, want working", candidate.AgentActivity)
+		}
 	}
 	if history := service.agentHistory("session-agent"); len(history) != 2 {
 		t.Fatalf("history length = %d, want 2", len(history))
@@ -266,7 +278,7 @@ func TestEnsureAgentDoesNotStealAnotherSessionsTranscript(t *testing.T) {
 func readAgentEvents(t *testing.T, connection interface {
 	SetReadDeadline(time.Time) error
 	ReadMessage() (int, []byte, error)
-}) []map[string]any {
+}) ([]map[string]any, api.AgentActivity) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	if err := connection.SetReadDeadline(deadline); err != nil {
@@ -279,13 +291,14 @@ func readAgentEvents(t *testing.T, connection interface {
 			t.Fatalf("agent message never arrived: %v", err)
 		}
 		var message struct {
-			Type   string           `json:"t"`
-			Events []map[string]any `json:"events"`
+			Type     string            `json:"t"`
+			Activity api.AgentActivity `json:"activity"`
+			Events   []map[string]any  `json:"events"`
 		}
 		if json.Unmarshal(data, &message) != nil || message.Type != "agent" {
 			continue
 		}
-		return message.Events
+		return message.Events, message.Activity
 	}
 }
 

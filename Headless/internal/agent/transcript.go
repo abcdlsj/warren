@@ -223,31 +223,38 @@ func defaultClaudeProjectsRoot() string {
 // lines. A truncated file restarts from byte zero without re-emitting the
 // already-served prefix, which is acceptable for a best-effort side channel.
 type Watcher struct {
-	sessionID string
-	provider  string
-	path      string
-	interval  time.Duration
-	onEvents  func([]api.AgentEvent)
-	parser    *parser
+	sessionID  string
+	provider   string
+	path       string
+	interval   time.Duration
+	onEvents   func([]api.AgentEvent, api.AgentActivity)
+	onActivity func(api.AgentActivity)
+	parser     *parser
 
-	mu     sync.Mutex
-	events []api.AgentEvent
-	stop   chan struct{}
-	done   chan struct{}
-	once   sync.Once
+	mu           sync.Mutex
+	events       []api.AgentEvent
+	lastActivity api.AgentActivity
+	stop         chan struct{}
+	done         chan struct{}
+	once         sync.Once
 }
 
 // Start begins tailing path immediately in a background goroutine.
-func Start(sessionID, provider, path string, onEvents func([]api.AgentEvent)) *Watcher {
+func Start(
+	sessionID, provider, path string,
+	onEvents func([]api.AgentEvent, api.AgentActivity),
+	onActivity func(api.AgentActivity),
+) *Watcher {
 	watcher := &Watcher{
-		sessionID: sessionID,
-		provider:  provider,
-		path:      path,
-		interval:  watchInterval,
-		onEvents:  onEvents,
-		parser:    newParser(provider),
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
+		sessionID:  sessionID,
+		provider:   provider,
+		path:       path,
+		interval:   watchInterval,
+		onEvents:   onEvents,
+		onActivity: onActivity,
+		parser:     newParser(provider),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 	go watcher.loop()
 	return watcher
@@ -286,7 +293,8 @@ func (w *Watcher) loop() {
 				events[index].Sequence = sequence
 			}
 			w.append(events)
-			w.onEvents(events)
+			w.lastActivity = w.parser.Activity()
+			w.onEvents(events, w.lastActivity)
 		}
 	}
 	ticker := time.NewTicker(w.interval)
@@ -307,7 +315,13 @@ func (w *Watcher) loop() {
 					events[index].Sequence = sequence
 				}
 				w.append(events)
-				w.onEvents(events)
+				w.lastActivity = w.parser.Activity()
+				w.onEvents(events, w.lastActivity)
+			}
+			w.parser.Tick(time.Now())
+			if activity := w.parser.Activity(); activity != w.lastActivity {
+				w.lastActivity = activity
+				w.onActivity(activity)
 			}
 		}
 	}
@@ -382,6 +396,7 @@ func readNew(path string, offset int64, parser *parser) ([]api.AgentEvent, int64
 
 type parser struct {
 	provider        string
+	tracker         ActivityTracker
 	codexModel      string
 	codexCallTool   map[string]string
 	lastUserContent string
@@ -394,10 +409,33 @@ type parser struct {
 }
 
 func newParser(provider string) *parser {
-	return &parser{provider: provider, codexCallTool: map[string]string{}}
+	return &parser{
+		provider:      provider,
+		tracker:       *NewActivityTracker(),
+		codexCallTool: map[string]string{},
+	}
 }
 
 func (p *parser) parse(line []byte) []api.AgentEvent {
+	events := p.parseLine(line)
+	for index := range events {
+		p.tracker.Observe(events[index])
+	}
+	return events
+}
+
+// Activity is the presentation state after every line parsed so far.
+func (p *parser) Activity() api.AgentActivity {
+	return p.tracker.Activity()
+}
+
+// Tick lets the tracker notice work that stalled without new transcript
+// lines, such as a tool call waiting on user approval.
+func (p *parser) Tick(now time.Time) {
+	p.tracker.Tick(now)
+}
+
+func (p *parser) parseLine(line []byte) []api.AgentEvent {
 	switch p.provider {
 	case "codex":
 		return p.parseCodex(line)
@@ -600,6 +638,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.Content = "Token usage"
 			return []api.AgentEvent{event}
 		case "turn_aborted":
+			p.tracker.TurnAborted()
 			event.Type = "system"
 			event.Content = "Turn aborted"
 			return []api.AgentEvent{event}
@@ -630,9 +669,14 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.Content = truncate(content, maxEventContent)
 			p.lastEventType = "reasoning"
 			return []api.AgentEvent{event}
-		case "task_started", "task_complete", "thread_settings_applied":
-			// Internal lifecycle bookkeeping; the assistant message and tool
-			// activity already carry the user-visible state.
+		case "task_started":
+			p.tracker.TurnStarted()
+			return nil
+		case "task_complete":
+			p.tracker.TurnComplete()
+			return nil
+		case "thread_settings_applied":
+			// Internal bookkeeping with no user-visible event.
 			return nil
 		default:
 			if payload.Type == "user_message" {
