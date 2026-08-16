@@ -208,6 +208,12 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         process.executableURL = daemonExecutableURL()
         process.arguments = []
         var childEnvironment = ProcessInfo.processInfo.environment
+        // A background daemon must not inherit an ambient NO_COLOR that only
+        // applies to the launching agent's non-interactive commands. Terminal
+        // sessions can still opt out by setting NO_COLOR in their own shell
+        // config; dropping the inherited value keeps interactive TUIs colored
+        // by default.
+        childEnvironment.removeValue(forKey: "NO_COLOR")
         childEnvironment["PATH"] = executableSearchPath(from: childEnvironment["PATH"])
         process.environment = childEnvironment
         process.terminationHandler = { [weak self] _ in
