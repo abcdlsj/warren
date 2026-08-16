@@ -56,10 +56,10 @@ func TestReadNewNormalizesCodexTranscript(t *testing.T) {
 	for _, event := range events {
 		kinds = append(kinds, event.Type)
 	}
-	if got, want := strings.Join(kinds, ","), "system,assistant,tool_call,tool_output,user"; got != want {
+	if got, want := strings.Join(kinds, ","), "assistant,tool_call,tool_output,user"; got != want {
 		t.Fatalf("event kinds = %q, want %q", got, want)
 	}
-	if events[1].Content != "Hello" || events[2].ToolName != "Bash" || events[3].Output != "file.txt\n" {
+	if events[0].Content != "Hello" || events[1].ToolName != "Bash" || events[2].Output != "file.txt\n" {
 		t.Fatalf("normalized events = %#v", events)
 	}
 }
@@ -209,7 +209,7 @@ func TestReadNewNormalizesClaudeTranscript(t *testing.T) {
 
 func TestWatcherTailsNewLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout-live.jsonl")
-	writeLines(t, path, `{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"t","cwd":"/work"}}`)
+	writeLines(t, path, `{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`)
 
 	var mu sync.Mutex
 	var seen []api.AgentEvent
@@ -349,10 +349,10 @@ func TestCodexTokenUsageEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 {
-		t.Fatalf("events = %#v, want 2", events)
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want only the usage event", events)
 	}
-	usage := events[1]
+	usage := events[0]
 	if usage.Type != "usage" || usage.Model != "gpt-5" || usage.Usage == nil {
 		t.Fatalf("usage event = %#v", usage)
 	}

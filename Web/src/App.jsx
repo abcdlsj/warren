@@ -1252,6 +1252,12 @@ export default function App() {
   const selectedAgentEvents = selectedSession
     ? agentStateBySession[selectedSession.id]?.events || []
     : [];
+  const agentModel = useMemo(() => {
+    for (let index = selectedAgentEvents.length - 1; index >= 0; index--) {
+      if (selectedAgentEvents[index].model) return selectedAgentEvents[index].model;
+    }
+    return "";
+  }, [selectedAgentEvents]);
   const isAgentSession = Boolean(
     selectedSession
       && (selectedSession.kind === "codex" || selectedSession.kind === "claude"),
@@ -1297,6 +1303,12 @@ export default function App() {
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title">
             <span>{paneTitle}</span>
+            {isAgentSession && (agentModel || selectedSession?.agentSessionId) && (
+              <span className="pane-agent-meta">
+                {agentModel && <span className="pane-agent-model">{agentModel}</span>}
+                {selectedSession?.agentSessionId && <code className="pane-agent-session">{shortSessionID(selectedSession.agentSessionId)}</code>}
+              </span>
+            )}
             {isAgentSession && (agentViewActive ? (
               <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
                 Terminal
@@ -1391,6 +1403,10 @@ function loadPresetCommands() {
   } catch {
     return { ...defaultPresetCommands };
   }
+}
+
+function shortSessionID(id) {
+  return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
 function clamp(value, minimum, maximum) {

@@ -457,21 +457,16 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 	}
 	switch record.Type {
 	case "session_meta":
-		event.Type = "system"
-		event.Content = "Session started"
-		return []api.AgentEvent{event}
+		// Session bookkeeping; the conversation itself carries the visible
+		// state, so this adds only noise to the UI.
+		return nil
 	case "turn_context":
 		var payload codexPayload
 		if json.Unmarshal(record.Payload, &payload) != nil || payload.Model == "" || payload.Model == p.codexModel {
 			return nil
 		}
 		p.codexModel = payload.Model
-		event.Type = "system"
-		event.Content = "Using " + payload.Model
-		if payload.Effort != "" {
-			event.Content += " (" + payload.Effort + " effort)"
-		}
-		return []api.AgentEvent{event}
+		return nil
 	case "compacted":
 		event.Type = "system"
 		event.Content = "History compacted"

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -9,12 +9,6 @@ export function AgentView({ session, events = [], onSend }) {
   const inputRef = useRef(null);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
-  const model = useMemo(() => {
-    for (let index = events.length - 1; index >= 0; index--) {
-      if (events[index].model) return events[index].model;
-    }
-    return "";
-  }, [events]);
 
   useEffect(() => {
     const list = listRef.current;
@@ -37,15 +31,6 @@ export function AgentView({ session, events = [], onSend }) {
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
-      <div className="agent-header">
-        <div className="agent-header-title">{session.title || "Agent"}</div>
-        {(model || session.agentSessionId) && (
-          <div className="agent-header-meta">
-            {model && <span className="agent-header-model">{model}</span>}
-            {session.agentSessionId && <span className="agent-header-session">{shortID(session.agentSessionId)}</span>}
-          </div>
-        )}
-      </div>
       <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
         {blocks.length === 0 ? (
           <div className="agent-empty">
@@ -96,10 +81,6 @@ export function AgentView({ session, events = [], onSend }) {
   );
 }
 
-function shortID(id) {
-  return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
-}
-
 function blockKindKey(block, index) {
   const id = block.call?.id || block.event?.id || block.event?.seq || block.call?.seq;
   return `${block.kind}-${id || index}`;
@@ -122,7 +103,6 @@ function AgentBlock({ block }) {
     return (
       <div className="agent-message assistant">
         <MarkdownContent value={event.content || ""} />
-        <MessageMeta event={event} />
       </div>
     );
   }
@@ -144,7 +124,7 @@ function AgentBlock({ block }) {
   case "reasoning":
     return <ReasoningCard content={block.event.content || ""} />;
   case "system_instructions":
-    return <SystemInstructionsCard content={block.event.content || ""} />;
+    return null;
   case "usage":
     if (!block.event.usage) return null;
     return (
@@ -179,49 +159,6 @@ function AgentBlock({ block }) {
       </details>
     );
   }
-}
-
-function MessageMeta({ event }) {
-  const [open, setOpen] = useState(false);
-  if (!event.model && !event.usage && !event.stopReason) return null;
-  return (
-    <div className="agent-meta">
-      <button
-        type="button"
-        className="agent-meta-toggle"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        title="Message details"
-      >
-        <span className="agent-meta-dot" aria-hidden="true">i</span>
-      </button>
-      {open && (
-        <div className="agent-meta-popover">
-          {event.model && <div className="agent-meta-row"><span>Model</span><code>{event.model}</code></div>}
-          {event.usage && <UsageChip usage={event.usage} />}
-          {event.stopReason && <div className="agent-meta-row"><span>Stopped</span><code>{event.stopReason}</code></div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SystemInstructionsCard({ content }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="agent-system-instructions">
-      <button type="button" className="agent-system-instructions-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={`agent-reasoning-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
-        <span>System instructions</span>
-        <span className="agent-system-instructions-size">{content.length} chars</span>
-      </button>
-      {open && (
-        <div className="agent-system-instructions-body">
-          <pre className="agent-body">{content}</pre>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function ToolCard({ block }) {

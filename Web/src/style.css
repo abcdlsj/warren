@@ -78,14 +78,14 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .pane-title span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .pane-title .pane-action { flex:0 0 auto; height:20px; margin-left:auto; padding:0 8px; border:1px solid var(--ring); border-radius:5px; background:transparent; color:var(--sub); font-size:11px; cursor:pointer; }
 .pane-title .pane-action:hover { color:var(--fg); background:var(--fill-hover); }
+.pane-title .pane-agent-meta { display:flex; align-items:center; gap:8px; min-width:0; margin-left:auto; overflow:hidden; }
+.pane-title .pane-agent-meta ~ .pane-action { margin-left:0; }
+.pane-title .pane-agent-model { color:var(--amber); font-weight:500; white-space:nowrap; }
+.pane-title .pane-agent-session { color:var(--sub); white-space:nowrap; }
 .terminal-shell { position:relative; min-width:0; min-height:0; background:var(--bg); }
 #terminal { position:absolute; inset:6px 5px 4px 8px; }
 #terminal[hidden] { display:none; }
 .agent-view { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
-.agent-header { flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:10px; padding:9px 16px 7px; border-bottom:1px solid var(--muted); background:rgba(20,20,20,.55); }
-.agent-header-title { font-size:13px; font-weight:500; color:var(--fg); }
-.agent-header-meta { display:flex; align-items:center; gap:8px; color:var(--sub); font:10.5px ui-monospace,monospace; }
-.agent-header-model { color:var(--amber); }
 .agent-events { flex:1 1 auto; min-height:0; width:100%; max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:12px; padding:22px 22px 16px; overflow-y:auto; overscroll-behavior:contain; }
 .agent-empty { margin:auto; text-align:center; color:var(--sub); padding-bottom:80px; }
 .agent-empty-mark { font-size:30px; color:var(--amber); }
@@ -95,7 +95,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-message.user { display:flex; justify-content:flex-end; }
 .agent-bubble { max-width:min(82%,720px); padding:9px 14px; border-radius:16px 16px 5px 16px; background:rgba(255,255,255,.09); }
 .agent-bubble .agent-markdown { font-size:14px; }
-.agent-message.assistant { position:relative; padding:2px 36px 0 0; }
+.agent-message.assistant { padding:2px 0 0; }
 .agent-body { margin:0; font:12px/1.55 ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
 .agent-markdown { color:var(--fg); font:14px/1.65 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",sans-serif; overflow-wrap:anywhere; }
 .agent-markdown > :first-child { margin-top:0; }
@@ -110,14 +110,6 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-markdown blockquote { margin:.4em 0; padding-left:10px; border-left:2px solid var(--ring); color:var(--sub); }
 .agent-markdown ul, .agent-markdown ol { padding-left:20px; margin:.4em 0; }
 .agent-markdown a { color:#7ec0f5; }
-.agent-meta { position:absolute; top:2px; right:2px; z-index:4; }
-.agent-meta-toggle { display:grid; place-items:center; width:24px; height:24px; padding:0; border:1px solid transparent; border-radius:50%; background:transparent; color:var(--sub); cursor:pointer; }
-.agent-meta-toggle:hover { color:var(--fg); background:var(--fill-hover); }
-.agent-meta-dot { font:italic 600 11px ui-monospace,monospace; }
-.agent-meta-popover { position:absolute; top:28px; right:0; display:flex; flex-direction:column; gap:6px; min-width:220px; padding:9px 11px; border:1px solid var(--ring); border-radius:10px; background:#2d2d2b; box-shadow:0 8px 28px rgba(0,0,0,.45); color:var(--sub); font-size:11px; }
-.agent-meta-row { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
-.agent-meta-row code { color:var(--fg); font:11px ui-monospace,monospace; text-align:right; overflow-wrap:anywhere; }
-.agent-meta-popover .agent-usage-chip { color:var(--fg); }
 .agent-tool-card { width:100%; border:1px solid var(--muted); border-radius:10px; background:rgba(255,255,255,.035); overflow:hidden; }
 .agent-tool-card.error { border-color:rgba(239,68,68,.4); }
 .agent-tool-card.interrupted { border-color:rgba(245,158,11,.4); }
@@ -149,12 +141,6 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-reasoning-chevron.open { transform:rotate(90deg); }
 .agent-reasoning-body { padding:2px 10px 10px 26px; }
 .agent-reasoning .agent-markdown { color:var(--sub); font-size:12.5px; }
-.agent-system-instructions { width:100%; }
-.agent-system-instructions-head { display:flex; align-items:center; gap:7px; width:100%; padding:3px 8px; border:0; background:transparent; color:var(--sub); font-size:11px; cursor:pointer; }
-.agent-system-instructions-head:hover { color:var(--fg); }
-.agent-system-instructions-size { margin-left:auto; font:10px ui-monospace,monospace; opacity:.75; }
-.agent-system-instructions-body { padding:2px 10px 10px 26px; }
-.agent-system-instructions-body pre { max-height:260px; overflow:auto; margin:0; padding:7px 9px; border-radius:7px; background:rgba(0,0,0,.26); color:var(--sub); }
 .agent-system { align-self:center; margin:4px 0; padding:2px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:var(--sub); font-size:10.5px; }
 .agent-error, .agent-attachment { width:100%; padding:7px 11px; border-left:3px solid rgba(239,68,68,.6); border-radius:5px; background:rgba(239,68,68,.07); }
 .agent-error .agent-body { color:#ef8b8b; }
@@ -295,9 +281,6 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
   .settings-fields { grid-template-columns:1fr; }
   .search-panel { width:min(720px,calc(100vw - 20px)); margin-top:max(12px,calc(50vh - 300px)); }
   .agent-events { gap:10px; padding:14px 12px 12px; }
-  .agent-header { justify-content:flex-start; padding:8px 12px 7px; }
-  .agent-header-meta { margin-left:auto; }
-  .agent-message.assistant { padding-right:30px; }
   .agent-bubble { max-width:88%; }
   .agent-input { padding:8px 10px calc(10px + env(safe-area-inset-bottom)); }
   .agent-input textarea { font-size:15px; }

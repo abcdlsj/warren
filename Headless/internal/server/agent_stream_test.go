@@ -27,7 +27,7 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	directory := t.TempDir()
 	transcriptPath := filepath.Join(directory, "rollout-agent.jsonl")
 	if err := os.WriteFile(transcriptPath, []byte(
-		`{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"thread-1","cwd":"`+directory+`"}}`+"\n",
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`+"\n",
 	), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	if len(initial) != 1 {
 		t.Fatalf("initial agent events = %#v, want 1", initial)
 	}
-	if initial[0]["type"] != "system" {
+	if initial[0]["type"] != "assistant" {
 		t.Fatalf("initial event type = %#v", initial[0]["type"])
 	}
 
@@ -293,7 +293,7 @@ func TestAgentHistoryIncludesInitialAndLiveEvents(t *testing.T) {
 	directory := t.TempDir()
 	transcriptPath := filepath.Join(directory, "rollout-agent.jsonl")
 	if err := os.WriteFile(transcriptPath, []byte(strings.Join([]string{
-		`{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"t","cwd":"` + directory + `"}}`,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}`,
 	}, "\n")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
