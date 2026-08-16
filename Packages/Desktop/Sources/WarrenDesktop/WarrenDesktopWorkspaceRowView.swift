@@ -186,7 +186,7 @@ struct WarrenDesktopActivityIndicator: View {
         guard !reduceMotion else { return false }
         return switch activity {
         case .working, .waitingForInput, .failed: true
-        case .ready: false
+        case .ready, .exited: false
         }
     }
 
@@ -196,6 +196,7 @@ struct WarrenDesktopActivityIndicator: View {
         case .waitingForInput: Color(red: 234 / 255, green: 179 / 255, blue: 8 / 255)
         case .working: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
         case .ready: Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)
+        case .exited: Color.gray
         }
     }
 
@@ -205,6 +206,7 @@ struct WarrenDesktopActivityIndicator: View {
         case .waitingForInput: "Session needs input"
         case .working: "Agent working"
         case .ready: "Agent ready"
+        case .exited: "Session exited"
         }
     }
 }

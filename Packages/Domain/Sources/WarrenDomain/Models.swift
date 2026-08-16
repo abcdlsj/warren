@@ -269,6 +269,7 @@ public enum AgentActivityState: String, Codable, CaseIterable, Hashable, Sendabl
     case waitingForInput
     case failed
     case ready
+    case exited
 }
 
 /// A value-only request for starting one terminal session.

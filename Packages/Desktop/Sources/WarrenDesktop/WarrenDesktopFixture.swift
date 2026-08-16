@@ -371,6 +371,7 @@ private extension AgentActivityState {
         case .waitingForInput: 4
         case .working: 3
         case .ready: 1
+        case .exited: 0
         }
     }
 }

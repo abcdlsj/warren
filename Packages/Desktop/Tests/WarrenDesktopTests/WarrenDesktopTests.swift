@@ -208,6 +208,7 @@ final class WarrenDesktopTests: XCTestCase {
         WarrenDesktopTabBar(
             tabs: tabs,
             tabTitles: Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.title) }),
+            tabActivities: [:],
             pinnedSessionIDs: [],
             selectedTabID: tabs.first?.id,
             chromeMode: .workspace,

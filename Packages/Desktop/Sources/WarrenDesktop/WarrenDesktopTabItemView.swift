@@ -1,11 +1,13 @@
 import SwiftUI
 import WarrenClientCore
 import WarrenDesignSystem
+import WarrenDomain
 import WarrenObservation
 
 struct WarrenDesktopTabItem: View {
     let tab: ClientTab
     let displayTitle: String
+    let activity: AgentActivityState?
     let isSelected: Bool
     let isPinned: Bool
     let onSelect: () -> Void
@@ -42,6 +44,10 @@ struct WarrenDesktopTabItem: View {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(tokens.mutedForeground)
+                            .accessibilityHidden(true)
+                    }
+                    if let activity {
+                        WarrenDesktopActivityIndicator(activity: activity)
                             .accessibilityHidden(true)
                     }
                     Text(displayTitle)

@@ -89,6 +89,7 @@ private struct RemoteRoster: Decodable, Sendable {
         let command: String?
         let lifecycle: String
         let pinned: Bool?
+        let activity: String?
     }
 
     let host: Host
@@ -114,6 +115,7 @@ private struct RemoteRoster: Decodable, Sendable {
 
 private enum RemoteWireEvent: Sendable {
     case roster(RemoteRoster)
+    case agent(sessionID: TerminalSessionID, activity: AgentActivityState)
     case output(Data)
     case framedOutput(sessionID: TerminalSessionID, epoch: UInt64, sequence: UInt64, payload: Data)
     case anchor(sessionID: TerminalSessionID, epoch: UInt64, sequence: UInt64, reanchor: Bool)
@@ -435,6 +437,12 @@ private actor WarrenRemoteWire {
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   let roster = try? JSONDecoder().decode(RemoteRoster.self, from: encoded) {
             return await eventBuffer.send(.roster(roster))
+        } else if type == "agent",
+                  let sessionString = object["session"] as? String,
+                  let sessionID = TerminalSessionID(uuidString: sessionString),
+                  let activityString = object["activity"] as? String,
+                  let activity = AgentActivityState(rawValue: activityString) {
+            return await eventBuffer.send(.agent(sessionID: sessionID, activity: activity))
         } else if type == "maintenance" {
             return await eventBuffer.send(.maintenance(message: object["message"] as? String))
         } else if type == "attached" || type == "synced" {
@@ -588,6 +596,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
+    @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
 
     init() {
@@ -627,6 +636,7 @@ final class WarrenRemoteApplicationModel {
         if let wire { Task { await wire.close() } }
         wire = nil
         currentRoster = nil
+        agentActivityBySessionID.removeAll()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
     }
@@ -1249,6 +1259,11 @@ final class WarrenRemoteApplicationModel {
         case .roster(let roster):
             currentRoster = roster
             apply(roster)
+        case .agent(let sessionID, let activity):
+            agentActivityBySessionID[sessionID] = activity
+            if let currentRoster {
+                apply(currentRoster)
+            }
         case .maintenance(let message):
             maintenanceMessage = message?.isEmpty == false ? message : "Warren is updating"
             maintenanceResetTask?.cancel()
@@ -1372,10 +1387,14 @@ final class WarrenRemoteApplicationModel {
                 pinned: value.pinned ?? false,
                 kind: TerminalSessionKind(rawValue: value.kind) ?? .custom,
                 state: value.lifecycle == "running" ? .attached : .exited,
+                activity: agentActivityBySessionID[id]
+                    ?? AgentActivityState(rawValue: value.activity ?? ""),
                 runtimeProcess: value.command ?? "",
                 workingDirectory: workspacePaths[workspaceID] ?? ""
             )
         }
+        let liveSessionIDs = Set(remoteSessions.map(\.1))
+        agentActivityBySessionID = agentActivityBySessionID.filter { liveSessionIDs.contains($0.key) }
         // Ended sessions stay in the projection for history, but they are
         // not openable tabs: attaching to them would fail and leave the user
         // staring at a terminal that cannot accept input.

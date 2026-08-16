@@ -113,6 +113,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 )
             )
         })
+        let tabActivities = Dictionary(uniqueKeysWithValues: projection.sessions.compactMap { session in
+            session.activity.map { (session.id, $0) }
+        })
         let pinnedSessionIDs = Set(
             projection.sessions.filter(\.pinned).map(\.id)
         )
@@ -144,6 +147,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     WarrenDesktopTabBar(
                         tabs: presentation.tabs,
                         tabTitles: tabTitles,
+                        tabActivities: tabActivities,
                         pinnedSessionIDs: pinnedSessionIDs,
                         selectedTabID: navigation.selectedTabID,
                         chromeMode: chromeMode,

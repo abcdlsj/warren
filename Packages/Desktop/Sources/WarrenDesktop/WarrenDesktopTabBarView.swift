@@ -9,6 +9,7 @@ import WarrenDomain
 struct WarrenDesktopTabBar: View {
     let tabs: [ClientTab]
     let tabTitles: [String: String]
+    let tabActivities: [TerminalSessionID: AgentActivityState]
     let pinnedSessionIDs: Set<TerminalSessionID>
     let selectedTabID: String?
     let chromeMode: WarrenDesktopChromeMode
@@ -73,6 +74,7 @@ struct WarrenDesktopTabBar: View {
                             WarrenDesktopTabItem(
                                 tab: tab,
                                 displayTitle: tabTitles[tab.id] ?? tab.title,
+                                activity: tab.sessionID.flatMap { tabActivities[$0] },
                                 isSelected: selectedTabID == tab.id,
                                 isPinned: tab.sessionID.map(pinnedSessionIDs.contains) ?? false,
                                 onSelect: { onSelectTab(tab.id) },
