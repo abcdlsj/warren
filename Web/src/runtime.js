@@ -8,6 +8,12 @@ const rawParams = injectedParams.startsWith("__WARREN_")
 const params = new URLSearchParams(rawParams.replace(/^[?#]/, ""));
 const relayHostID = relayHostMeta?.content || "__WARREN_RELAY_HOST_ID__";
 const usesControlPlane = !relayHostID.startsWith("__WARREN_");
+// The daemon can serve the UI from a path prefix (for example gnar's
+// /t/<name>), so app-level URLs must resolve relative to the current
+// directory instead of the origin root.
+const appBase = location.pathname.endsWith("/")
+  ? location.pathname
+  : `${location.pathname}/`;
 const tokenStorageKey = usesControlPlane
   ? `warren.accessToken.${relayHostID}`
   : "warren.accessToken";
@@ -32,19 +38,19 @@ export function webSocketURL() {
   const port = usesControlPlane || hostParam ? "" : (location.port || "8789");
   const path = usesControlPlane
     ? `/v1/client/connect?host_id=${encodeURIComponent(relayHostID)}`
-    : "/v1/ws";
+    : `${appBase}v1/ws`;
   return `${protocol}//${host}${port ? `:${port}` : ""}${path}`;
 }
 
 export function serviceWorkerURL() {
   return usesControlPlane
     ? `/h/${encodeURIComponent(relayHostID)}/service-worker.js`
-    : "/service-worker.js";
+    : `${appBase}service-worker.js`;
 }
 
 export function webAssetURL(name) {
   const resource = String(name).replace(/^\/+/, "");
   return usesControlPlane
     ? `/h/${encodeURIComponent(relayHostID)}/${resource}`
-    : `/${resource}`;
+    : `${appBase}${resource}`;
 }
