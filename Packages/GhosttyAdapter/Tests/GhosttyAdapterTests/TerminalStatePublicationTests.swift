@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import GhosttyTerminal
 import XCTest
@@ -123,5 +124,29 @@ final class TerminalStatePublicationTests: XCTestCase {
             0,
             "identical title/working-directory values must not republish"
         )
+    }
+
+    func testColorSchemePublishFromAppKitLifecycleHopsOffViewUpdate() async throws {
+        _ = NSApplication.shared
+        let state = TerminalViewState()
+        let view = AppTerminalView(frame: .zero)
+        view.delegate = state
+        view.controller = state.controller
+        state.adopt(terminalColorScheme: .dark)
+
+        let counter = Counter()
+        var cancellables: Set<AnyCancellable> = []
+        state.objectWillChange.sink { counter.value += 1 }.store(in: &cancellables)
+
+        view.appearance = NSAppearance(named: .aqua)
+        view.viewDidChangeEffectiveAppearance()
+        XCTAssertEqual(
+            counter.value,
+            0,
+            "color scheme must not publish synchronously inside a view update"
+        )
+
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(counter.value, 1)
     }
 }

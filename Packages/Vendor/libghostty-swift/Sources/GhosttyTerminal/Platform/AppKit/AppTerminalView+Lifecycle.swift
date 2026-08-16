@@ -318,7 +318,13 @@
                let viewState = delegate as? TerminalViewState,
                viewState.controller === controller
             {
-                viewState.adopt(terminalColorScheme: scheme)
+                // viewDidMoveToWindow / viewDidChangeEffectiveAppearance can
+                // run inside a SwiftUI update. adopt() publishes objectWillChange
+                // synchronously, so defer it one main-actor hop like the other
+                // TerminalViewState delegate writes.
+                Task { @MainActor [weak viewState] in
+                    viewState?.adopt(terminalColorScheme: scheme)
+                }
             } else {
                 controller?.setColorScheme(scheme)
             }
