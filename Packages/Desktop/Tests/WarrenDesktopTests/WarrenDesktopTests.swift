@@ -178,6 +178,42 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(observed, [true])
     }
 
+    func testOverflowFadeScrollViewRefreshesEdgesAfterViewportResize() {
+        var observed: [Bool] = []
+        let scroll = WarrenOverflowFadeScrollView(
+            .horizontal,
+            fadeLength: 36,
+            surface: .black,
+            showsEdgeChevrons: true,
+            onHorizontalOverflowChange: { observed.append($0) }
+        ) {
+            HStack(spacing: 0) {
+                ForEach(0..<12, id: \.self) { _ in
+                    Color.white.frame(width: 150, height: 36)
+                }
+            }
+        }
+
+        let hostingView = NSHostingView(rootView: scroll)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 500, height: 36)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(observed, [true])
+
+        hostingView.setFrameSize(NSSize(width: 2000, height: 36))
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(observed, [true, false])
+
+        hostingView.setFrameSize(NSSize(width: 500, height: 36))
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(observed, [true, false, true])
+    }
+
     private func descendantViews<T: NSView>(
         of view: NSView,
         as type: T.Type

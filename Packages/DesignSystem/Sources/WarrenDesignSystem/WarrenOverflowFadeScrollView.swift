@@ -30,6 +30,7 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     @State private var canScrollRight = false
     @State private var hasOverflowX = false
     @State private var hasOverflowY = false
+    @State private var contentFrame = CGRect.zero
     @Environment(\.colorScheme) private var colorScheme
 
     public init(
@@ -66,7 +67,11 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                 }
                 .coordinateSpace(name: spaceName)
                 .onPreferenceChange(WarrenOverflowFadeMetricsKey.self) { metrics in
+                    contentFrame = metrics.frame
                     updateEdges(contentFrame: metrics.frame, viewport: viewport.size)
+                }
+                .onChange(of: viewport.size) { _, newSize in
+                    updateEdges(contentFrame: contentFrame, viewport: newSize)
                 }
                 .overlay(alignment: .top) {
                     if axes.contains(.vertical), canScrollTop {
