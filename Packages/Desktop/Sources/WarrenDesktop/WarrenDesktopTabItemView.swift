@@ -134,6 +134,13 @@ struct WarrenDesktopTabItem: View {
             Rectangle()
                 .stroke(isSelected ? tokens.border : .clear, lineWidth: isSelected ? 1 : 0)
         }
+        .overlay(alignment: .trailing) {
+            // Tabs separate with a hairline. The active tab keeps its own
+            // stroke instead, so the boundary never doubles.
+            Rectangle()
+                .fill(isSelected ? .clear : tokens.border)
+                .frame(width: WarrenSpacing.hairline)
+        }
         .overlay(alignment: .bottom) {
             // Active tabs flow into pane content by covering the bar's bottom
             // border. Inactive tabs keep the unbroken 1px separator.
