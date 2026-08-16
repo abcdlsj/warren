@@ -1388,9 +1388,7 @@ final class WarrenRemoteApplicationModel {
                       generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
                 surface.requestDisplayRefresh()
-                if surface.presentNow() {
-                    return
-                }
+                _ = surface.presentNow()
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }

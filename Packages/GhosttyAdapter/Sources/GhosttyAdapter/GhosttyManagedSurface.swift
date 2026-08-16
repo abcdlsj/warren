@@ -44,6 +44,7 @@ public struct GhosttyManagedSurface: View {
             .background {
                 GhosttyWindowProbe(
                     state: surface.state,
+                    surface: surface,
                     focusDriver: focusDriver,
                     hidden: !isActive
                 ) {
@@ -141,11 +142,10 @@ public struct GhosttyManagedSurface: View {
             for _ in 0..<190 {
                 guard let surface else { return }
                 surface.requestDisplayRefresh()
-                if surface.presentNow() {
-                    return
-                }
-                // One display frame between attempts: a mounted view is
-                // presented within a frame instead of waiting up to 100ms.
+                _ = surface.presentNow()
+                // Keep drawing at frame rate for the first seconds after
+                // activation so content that arrives after the view mounts
+                // (attach snapshots, layout settling) is never left black.
                 try? await Task.sleep(for: .milliseconds(16))
             }
         }
@@ -220,6 +220,28 @@ public final class GhosttyFocusDriver {
                       let (_, target) = self.terminalView(matching: state) else { return }
                 target.fitToSize()
                 onRefreshed()
+            }
+        }
+    }
+
+    /// Fits and presents a terminal view once it is mounted, retrying at one
+    /// display frame until the view appears (up to ~3s). Worktree and tab
+    /// switches recreate the AppKit view; fixed-delay callbacks can all run
+    /// before it mounts, leaving the pane black until a manual window resize.
+    public func fitAndPresent(
+        of state: TerminalViewState,
+        present: @escaping () -> Void
+    ) {
+        Task { @MainActor [weak self, weak state] in
+            for _ in 0..<190 {
+                guard let self, let state,
+                      let (_, target) = self.terminalView(matching: state) else {
+                    try? await Task.sleep(for: .milliseconds(16))
+                    continue
+                }
+                target.fitToSize()
+                present()
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -360,6 +382,7 @@ private final class WeakWindow {
 
 private struct GhosttyWindowProbe: NSViewRepresentable {
     let state: TerminalViewState
+    let surface: GhosttySurface
     let focusDriver: GhosttyFocusDriver
     let hidden: Bool
     let repair: () -> Void
@@ -380,10 +403,18 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
     }
 
     private func configure(_ view: GhosttyWindowProbeView) {
-        view.onWindowAvailable = { [weak state, weak focusDriver] window in
-            guard let state, let focusDriver else { return }
+        view.onWindowAvailable = { [weak state, weak focusDriver, weak surface] window in
+            guard let state, let focusDriver, let surface else { return }
             focusDriver.register(state, in: window)
             repair()
+            // The terminal view just mounted (or was recreated by a worktree
+            // or tab switch). Fit and draw it immediately, and keep retrying
+            // at frame rate so a late layout or a snapshot that arrives after
+            // the first draw is still presented without a manual resize.
+            focusDriver.fitAndPresent(of: state) {
+                surface.requestDisplayRefresh()
+                _ = surface.presentNow()
+            }
         }
         view.onApplyHidden = { [weak view, weak state] hidden in
             guard let view,
