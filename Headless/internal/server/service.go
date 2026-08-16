@@ -18,6 +18,7 @@ import (
 	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/output"
+	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/settings"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 	"github.com/abcdlsj/warren/Headless/internal/tunnel"
@@ -87,6 +88,10 @@ type Service struct {
 	// lock and paused output watcher instead of wedging the session until the
 	// daemon restarts.
 	CommandTimeout time.Duration
+	// ProbeForeground enables live foreground process metadata from runtime
+	// adapters that support it. Disabled by default so roster snapshots stay
+	// cheap; clients fall back to launch command and workspace path.
+	ProbeForeground bool
 
 	outputMu       sync.Mutex
 	outputs        map[string]*outputSession
@@ -477,6 +482,14 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 		session := &state.Sessions[i]
 		if session.Lifecycle != "running" {
 			continue
+		}
+		if s.ProbeForeground {
+			if provider, ok := s.runtimeFor(*session).(runtime.RuntimeMetadataProvider); ok {
+				if metadata, err := provider.Metadata(probeContext, session.Runtime); err == nil {
+					session.Process = metadata.Process
+					session.Directory = metadata.Directory
+				}
+			}
 		}
 		if activity := s.agentActivity(session.ID); activity != "" {
 			session.AgentActivity = activity

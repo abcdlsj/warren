@@ -47,6 +47,7 @@ func main() {
 	ghostlineSocket := flag.String("ghostline-socket", env("WARREN_GHOSTLINE_SOCKET", filepath.Join(configDir, "ghostline.sock")), "ghostline server socket path")
 	ghostlineServe := flag.Bool("ghostline-serve", false, "internal: run the ghostline session server (spawned by the daemon)")
 	ghostlineAdoptFrom := flag.String("adopt-from", "", "internal: adopt sessions from this old server admin socket")
+	ghostlineProbeForeground := flag.Bool("ghostline-probe-foreground", envBool("WARREN_GHOSTLINE_PROBE_FOREGROUND", false), "probe OS-level foreground metadata in ghostline (default off)")
 	settingsFile := flag.String("settings-file", env("WARREN_SETTINGS_FILE", filepath.Join(configDir, "settings.json")), "headless settings file")
 	logFile := flag.String("log-file", env("WARREN_LOG_FILE", filepath.Join(configDir, "headless.log")), "daemon log file (empty disables file logging)")
 	worktreeRoot := flag.String("worktree-root", env("WARREN_WORKTREE_ROOT", "~/.warren/worktrees"), "worktree root")
@@ -66,7 +67,7 @@ func main() {
 	// --ghostline-serve so PTY sessions are owned by an independent process
 	// that survives daemon upgrades and restarts.
 	if *ghostlineServe {
-		runGhostlineServe(*ghostlineSocket, *outputDir, *ghostlineAdoptFrom)
+		runGhostlineServe(*ghostlineSocket, *outputDir, *ghostlineAdoptFrom, *ghostlineProbeForeground)
 		return
 	}
 
@@ -129,7 +130,7 @@ func main() {
 			fatal(fmt.Errorf("unknown runtime %q (supported: ghostline, tmux)", *runtimeMode))
 		}
 	}
-	ghostlineClient, err := ensureGhostlineClient(*ghostlineSocket, *outputDir, logger)
+	ghostlineClient, err := ensureGhostlineClient(*ghostlineSocket, *outputDir, *ghostlineProbeForeground, logger)
 	if err != nil {
 		fatal(err)
 	}
@@ -152,14 +153,15 @@ func main() {
 		fatal(fmt.Errorf("default runtime %q is not available", defaultKind))
 	}
 	service := &server.Service{
-		Store:          state,
-		Runtime:        runtimeAdapter,
-		Runtimes:       runtimes,
-		DefaultRuntime: defaultKind,
-		Settings:       loadedSettings,
-		SettingsPath:   *settingsFile,
-		WorktreeRoot:   *worktreeRoot,
-		AgentFinder:    agent.DefaultFinder{},
+		Store:           state,
+		Runtime:         runtimeAdapter,
+		Runtimes:        runtimes,
+		DefaultRuntime:  defaultKind,
+		ProbeForeground: *ghostlineProbeForeground,
+		Settings:        loadedSettings,
+		SettingsPath:    *settingsFile,
+		WorktreeRoot:    *worktreeRoot,
+		AgentFinder:     agent.DefaultFinder{},
 		AgentHooks: func() error {
 			if _, err := agent.EnsureCodexBindHook(agent.CodexHome()); err != nil {
 				return err
@@ -295,13 +297,16 @@ func openLogFile(path string) (*os.File, error) {
 // runGhostlineServe owns PTY sessions in a child process. The daemon spawns
 // it detached with --ghostline-serve; it listens on the Unix socket until
 // terminated, so daemon upgrades and restarts never end sessions.
-func runGhostlineServe(socketPath, outputDir, adoptFrom string) {
+func runGhostlineServe(socketPath, outputDir, adoptFrom string, probeForeground bool) {
 	pidPath := socketPath + ".pid"
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve: write pid:", err)
 	}
 	defer os.Remove(pidPath)
-	server, err := ghostline.NewServer(ghostline.Options{OutputDir: outputDir})
+	server, err := ghostline.NewServer(ghostline.Options{
+		OutputDir:       outputDir,
+		ProbeForeground: probeForeground,
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
 		os.Exit(1)
@@ -343,7 +348,7 @@ func ghostlineAdoptionFatal(adopted int, adoptErr error) bool {
 // when the socket is not yet accepting. Sessions survive daemon restarts
 // because the server process owns them; the returned client is intentionally
 // never closed by the daemon so the server keeps running.
-func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*ghostline.Client, error) {
+func ensureGhostlineClient(socketPath, outputDir string, probeForeground bool, logger *slog.Logger) (*ghostline.Client, error) {
 	client, err := connectGhostlineClient(socketPath, outputDir)
 	if err != nil {
 		return nil, err
@@ -367,7 +372,7 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 		upgradeArgs = append(upgradeArgs, "version_error", versionErr)
 	}
 	logger.Warn("ghostline server protocol mismatch; upgrading server", upgradeArgs...)
-	upgraded, upgradeErr := rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, logger, version, versionErr)
+	upgraded, upgradeErr := rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, probeForeground, logger, version, versionErr)
 	if upgradeErr == nil {
 		return upgraded, nil
 	}
@@ -381,11 +386,11 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 // lets it adopt every session from the old server, and then points the stable
 // socket path at the new server with a symlink. The old server exits itself
 // after adoption, so its children survive the upgrade.
-func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*ghostline.Client, error) {
-	return rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, logger, "", nil)
+func rollingUpgradeGhostlineClient(socketPath, outputDir string, probeForeground bool, logger *slog.Logger) (*ghostline.Client, error) {
+	return rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir, probeForeground, logger, "", nil)
 }
 
-func rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir string, logger *slog.Logger, fromVersion string, versionErr error) (upgraded *ghostline.Client, returnErr error) {
+func rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir string, probeForeground bool, logger *slog.Logger, fromVersion string, versionErr error) (upgraded *ghostline.Client, returnErr error) {
 	adminSocket := socketPath + ".admin"
 	logFile, err := os.OpenFile(
 		filepath.Join(filepath.Dir(socketPath), "ghostline.log"),
@@ -429,6 +434,7 @@ func rollingUpgradeGhostlineClientWithVersion(socketPath, outputDir string, logg
 			"--ghostline-socket", nextSocket,
 			"--output-dir", outputDir,
 			"--adopt-from", adminSocket,
+			"--ghostline-probe-foreground=" + strconv.FormatBool(probeForeground),
 		},
 		Log:          logFile,
 		ReadyTimeout: 15 * time.Second,
@@ -659,5 +665,17 @@ func env(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 func fatal(err error) { fmt.Fprintln(os.Stderr, "warren-headless:", err); os.Exit(1) }

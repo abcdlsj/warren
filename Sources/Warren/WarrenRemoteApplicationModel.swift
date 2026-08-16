@@ -86,6 +86,8 @@ private struct RemoteRoster: Decodable, Sendable {
         let customTitle: String?
         let kind: String
         let command: String?
+        let process: String?
+        let directory: String?
         let lifecycle: String
         let pinned: Bool?
         let activity: String?
@@ -1479,8 +1481,8 @@ final class WarrenRemoteApplicationModel {
                 state: value.lifecycle == "running" ? .attached : .exited,
                 activity: agentActivityBySessionID[id]
                     ?? AgentActivityState(rawValue: value.activity ?? ""),
-                runtimeProcess: value.command ?? "",
-                workingDirectory: workspacePaths[workspaceID] ?? ""
+                runtimeProcess: value.process ?? value.command ?? "",
+                workingDirectory: value.directory ?? workspacePaths[workspaceID] ?? ""
             )
         }
         let liveSessionIDs = Set(remoteSessions.map(\.1))

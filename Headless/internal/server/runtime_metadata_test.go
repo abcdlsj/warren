@@ -1,0 +1,64 @@
+package server
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/runtime"
+	"github.com/abcdlsj/warren/Headless/internal/store"
+)
+
+type metadataRuntime struct {
+	memoryRuntime
+	process   string
+	directory string
+}
+
+func (r *metadataRuntime) Metadata(context.Context, string) (runtime.RuntimeMetadata, error) {
+	return runtime.RuntimeMetadata{Process: r.process, Directory: r.directory}, nil
+}
+
+func TestRosterOverlaysRuntimeMetadata(t *testing.T) {
+	directory := t.TempDir()
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test-host")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	adapter := &metadataRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{"runtime-live": {}}},
+		process:       "codex",
+		directory:     "/work/live",
+	}
+	service := &Service{
+		Store:           state,
+		Runtime:         adapter,
+		Runtimes:        map[string]Runtime{"test": adapter},
+		DefaultRuntime:  "test",
+		ProbeForeground: true,
+		WorktreeRoot:    filepath.Join(directory, "worktrees"),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Sessions = append(value.Sessions, api.Session{
+			ID:          "session-1",
+			WorkspaceID: "workspace-1",
+			Runtime:     "runtime-live",
+			RuntimeKind: "test",
+			Lifecycle:   "running",
+			CreatedAt:   time.Now().UTC(),
+		})
+		return nil
+	}); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	roster, _ := service.RosterVersion(context.Background())
+	if len(roster.Sessions) != 1 {
+		t.Fatalf("roster sessions = %d, want 1", len(roster.Sessions))
+	}
+	session := roster.Sessions[0]
+	if session.Process != "codex" || session.Directory != "/work/live" {
+		t.Fatalf("roster metadata = %q/%q, want codex//work/live", session.Process, session.Directory)
+	}
+}

@@ -51,6 +51,50 @@ test("catalog keeps agent binding fields on sessions", () => {
   assert.equal(session.activity, "working");
 });
 
+test("roster carries live process and directory over launch command", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    state: {
+      projects: [{ id: "project" }],
+      workspaces: [{ id: "workspace", project: "project", path: "/work/start" }],
+      sessions: [{
+        id: "session",
+        workspace: "workspace",
+        title: "Shell",
+        kind: "shell",
+        command: "zsh",
+        process: "codex",
+        directory: "/work/live",
+        lifecycle: "running",
+      }],
+    },
+  }));
+  const session = catalog.sessions.get("session");
+  assert.equal(session.process, "codex");
+  assert.equal(session.directory, "/work/live");
+  assert.equal(
+    terminalTabTitle(session, { path: "/work/start" }),
+    "codex — live",
+  );
+});
+
+test("roster falls back to launch command when process is absent", () => {
+  const session = workspaceTabs(buildCatalog(rosterFromMessage({
+    state: {
+      workspaces: [{ id: "workspace", project: "project", path: "/work/start" }],
+      sessions: [{
+        id: "session",
+        workspace: "workspace",
+        title: "Codex",
+        kind: "codex",
+        command: "codex",
+        lifecycle: "running",
+      }],
+    },
+  })), "workspace")[0];
+  assert.equal(session.process, "codex");
+  assert.equal(terminalTabTitle(session, { path: "/work/start" }), "codex — start");
+});
+
 test("custom session titles win over derived tab titles", () => {
   assert.equal(
     terminalTabTitle(

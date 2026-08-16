@@ -49,6 +49,10 @@ type Session struct {
 	CustomTitle string `json:"customTitle,omitempty"`
 	Kind        string `json:"kind"`
 	Command     string `json:"command,omitempty"`
+	// Process and Directory are live runtime metadata overlaid on roster
+	// snapshots only; they are never persisted with the session record.
+	Process     string `json:"process,omitempty"`
+	Directory   string `json:"directory,omitempty"`
 	Runtime     string `json:"runtime"`
 	RuntimeKind string `json:"runtimeKind,omitempty"`
 	Lifecycle   string `json:"lifecycle"`

@@ -341,6 +341,24 @@ func (t *Tmux) ListCreated(ctx context.Context) (map[string]time.Time, error) {
 	return sessions, nil
 }
 
+// Metadata reports the pane's current foreground command and working
+// directory, the tmux equivalent of the ghostline foreground probe.
+func (t *Tmux) Metadata(ctx context.Context, runtimeName string) (RuntimeMetadata, error) {
+	pane, err := t.PaneTarget(ctx, runtimeName)
+	if err != nil {
+		return RuntimeMetadata{}, err
+	}
+	output, err := t.command(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}\t#{pane_current_path}").Output()
+	if err != nil {
+		return RuntimeMetadata{}, fmt.Errorf("query tmux metadata: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	fields := strings.SplitN(strings.TrimSpace(string(output)), "\t", 2)
+	if len(fields) != 2 {
+		return RuntimeMetadata{}, fmt.Errorf("unexpected tmux metadata: %q", strings.TrimSpace(string(output)))
+	}
+	return RuntimeMetadata{Process: fields[0], Directory: fields[1]}, nil
+}
+
 func (t *Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	target := runtimeName + ":0.0"
 	// Query the cursor and capture the pane in one tmux command sequence. A

@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,13 +13,17 @@ import (
 )
 
 func startGhostlineRuntime(t *testing.T) (*GhostlineRuntime, *ghostline.Client) {
+	return startGhostlineRuntimeWithOptions(t, ghostline.Options{OutputDir: t.TempDir()})
+}
+
+func startGhostlineRuntimeWithOptions(t *testing.T, options ghostline.Options) (*GhostlineRuntime, *ghostline.Client) {
 	t.Helper()
 	socketDir, err := os.MkdirTemp("", "ghostline-")
 	if err != nil {
 		t.Fatalf("socket dir: %v", err)
 	}
 	socket := filepath.Join(socketDir, "ghostline.sock")
-	server, err := ghostline.NewServer(ghostline.Options{OutputDir: t.TempDir()})
+	server, err := ghostline.NewServer(options)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -107,6 +112,51 @@ func TestGhostlineRuntimeClearsInheritedNoColor(t *testing.T) {
 		t.Fatalf("Input: %v", err)
 	}
 	waitGhostlineOutput(t, runtime, "warren_ghost_color", "NO_COLOR=[]")
+}
+
+func TestGhostlineRuntimeMetadataDisabledByDefault(t *testing.T) {
+	runtime, _ := startGhostlineRuntime(t)
+	ctx := context.Background()
+	if err := runtime.Create(ctx, "warren_ghost_meta", t.TempDir(), "sh", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	metadata, err := runtime.Metadata(ctx, "warren_ghost_meta")
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if metadata.Process != "" || metadata.Directory != "" {
+		t.Fatalf("Metadata = %+v, want empty when probing is disabled", metadata)
+	}
+}
+
+func TestGhostlineRuntimeMetadataProbesForeground(t *testing.T) {
+	runtime, _ := startGhostlineRuntimeWithOptions(t, ghostline.Options{
+		OutputDir:       t.TempDir(),
+		ProbeForeground: true,
+	})
+	ctx := context.Background()
+	directory := t.TempDir()
+	if err := runtime.Create(ctx, "warren_ghost_meta_on", directory, "sh", nil); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := runtime.Input(ctx, "warren_ghost_meta_on", []byte("cd "+directory+" && exec sleep 30\r")); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	wantDirectory, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		metadata, err := runtime.Metadata(ctx, "warren_ghost_meta_on")
+		if err == nil && strings.Contains(metadata.Process, "sleep") {
+			if gotDirectory, resolveErr := filepath.EvalSymlinks(metadata.Directory); resolveErr == nil && gotDirectory == wantDirectory {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("runtime metadata did not converge for ghostline session")
 }
 
 // TestGhostlineRuntimeAdoptsAfterRestart simulates a daemon restart: a fresh

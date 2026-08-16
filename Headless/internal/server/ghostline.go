@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/ghostline"
+	"github.com/abcdlsj/warren/Headless/internal/runtime"
 )
 
 // GhostlineRuntime adapts ghostline's session-handle API to the name-based
@@ -181,4 +182,23 @@ func (r *GhostlineRuntime) ListCreated(ctx context.Context) (map[string]time.Tim
 		result[session.Name()] = session.CreatedAt()
 	}
 	return result, nil
+}
+
+// Metadata reports the foreground process snapshot from ghostline when the
+// server was started with ProbeForeground enabled. Older servers without the
+// capability return empty metadata without failing the roster.
+func (r *GhostlineRuntime) Metadata(ctx context.Context, name string) (runtime.RuntimeMetadata, error) {
+	session := r.session(ctx, name)
+	if session == nil {
+		return runtime.RuntimeMetadata{}, fmt.Errorf("ghostline session not found: %s", name)
+	}
+	provider, ok := session.(ghostline.MetadataProvider)
+	if !ok {
+		return runtime.RuntimeMetadata{}, nil
+	}
+	metadata, err := provider.Metadata(ctx)
+	if err != nil {
+		return runtime.RuntimeMetadata{}, err
+	}
+	return runtime.RuntimeMetadata{Process: metadata.Process, Directory: metadata.Directory}, nil
 }
