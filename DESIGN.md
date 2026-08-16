@@ -181,7 +181,7 @@ Default files under `~/.warren/`:
 ~/.warren/
 ├── state.json        # Projects, Workspaces, Sessions, sidebar order, runtime bindings, import receipts
 ├── config.json       # CLI/Desktop endpoint list and current endpoint
-├── settings.json     # daemon settings such as defaultRuntime
+├── settings.json     # daemon settings such as defaultRuntime and gnarEdge
 ├── token             # authentication token
 ├── output/           # per-session raw PTY spools
 ├── worktrees/        # Git worktrees created by Warren

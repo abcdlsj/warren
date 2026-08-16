@@ -53,6 +53,7 @@ func main() {
 	cloudflaredPath := flag.String("cloudflared-path", os.Getenv("WARREN_CLOUDFLARED_PATH"), "cloudflared binary path")
 	tailscalePath := flag.String("tailscale-path", os.Getenv("WARREN_TAILSCALE_PATH"), "tailscale binary path")
 	gnarPath := flag.String("gnar-path", os.Getenv("WARREN_GNAR_PATH"), "gnar binary path")
+	gnarEdge := flag.String("gnar-edge", env("WARREN_GNAR_EDGE", ""), "gnar edge URL (overrides settings.json)")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
@@ -71,6 +72,20 @@ func main() {
 	loadedSettings, err := settings.Load(*settingsFile)
 	if err != nil {
 		fatal(err)
+	}
+	gnarEdgeValue := loadedSettings.GnarEdge
+	gnarEdgeExplicit := false
+	flag.Visit(func(entry *flag.Flag) {
+		if entry.Name == "gnar-edge" {
+			gnarEdgeExplicit = true
+		}
+	})
+	if gnarEdgeExplicit {
+		gnarEdgeValue = *gnarEdge
+	} else if gnarEdgeValue == "" {
+		// Fall back to the launcher environment when the settings file does
+		// not pin an edge, so a single gnar login or GNAR_EDGE still works.
+		gnarEdgeValue = *gnarEdge
 	}
 	// Strip launcher-only pager/TERM semantics (agent/CI shells export
 	// GIT_PAGER=cat, PAGER=cat, TERM=dumb) before ghostline/tmux children
@@ -184,6 +199,7 @@ func main() {
 	}
 	webBaseURL := "http://127.0.0.1:" + listenerPort(listener)
 	tunnelManager := tunnel.NewManager(logger, webBaseURL, *cloudflaredPath, *tailscalePath, *gnarPath)
+	tunnelManager.SetGnarEdge(gnarEdgeValue)
 	httpHandler.Tunnels = tunnelManager
 	logger.Info("warren headless ready", "listen", listener.Addr().String(), "host", state.Snapshot().Host.Name, "version", version, "tokenFile", *tokenPath)
 	go func() {

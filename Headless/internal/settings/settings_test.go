@@ -23,6 +23,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	value := Settings{
 		DefaultRuntime: RuntimeTmux,
 		RuntimeEnv:     map[string]string{"GIT_PAGER": "less", "TERM": "xterm-256color"},
+		GnarEdge:       "https://gnar.example.com",
 	}
 	if err := Save(path, value); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -36,6 +37,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.RuntimeEnv["GIT_PAGER"] != "less" || loaded.RuntimeEnv["TERM"] != "xterm-256color" {
 		t.Fatalf("loaded runtimeEnv = %#v", loaded.RuntimeEnv)
+	}
+	if loaded.GnarEdge != "https://gnar.example.com" {
+		t.Fatalf("loaded gnarEdge = %q", loaded.GnarEdge)
 	}
 }
 

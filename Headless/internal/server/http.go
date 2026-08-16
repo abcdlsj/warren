@@ -250,11 +250,13 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"defaultRuntime": s.Service.DefaultRuntime,
 			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
+			"gnarEdge":       s.Service.Settings.GnarEdge,
 		})
 	case http.MethodPut:
 		var body struct {
 			DefaultRuntime string            `json:"defaultRuntime"`
 			RuntimeEnv     map[string]string `json:"runtimeEnv"`
+			GnarEdge       *string           `json:"gnarEdge"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
 			http.Error(writer, "invalid settings", http.StatusBadRequest)
@@ -264,13 +266,21 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 		if runtimeEnv == nil {
 			runtimeEnv = s.Service.Settings.RuntimeEnv
 		}
-		if err := s.Service.UpdateSettings(body.DefaultRuntime, runtimeEnv); err != nil {
+		gnarEdge := s.Service.Settings.GnarEdge
+		if body.GnarEdge != nil {
+			gnarEdge = *body.GnarEdge
+		}
+		if err := s.Service.UpdateSettings(body.DefaultRuntime, runtimeEnv, gnarEdge); err != nil {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
+		}
+		if s.Tunnels != nil {
+			s.Tunnels.SetGnarEdge(s.Service.Settings.GnarEdge)
 		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"defaultRuntime": s.Service.DefaultRuntime,
 			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
+			"gnarEdge":       s.Service.Settings.GnarEdge,
 		})
 	default:
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
@@ -706,18 +716,27 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		return p.writeResult(command.ID, map[string]any{
 			"defaultRuntime": p.server.Service.DefaultRuntime,
 			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
+			"gnarEdge":       p.server.Service.Settings.GnarEdge,
 		})
 	case "settings.put":
 		runtimeEnv := stringMapParam(params, "runtimeEnv")
 		if runtimeEnv == nil {
 			runtimeEnv = p.server.Service.Settings.RuntimeEnv
 		}
-		if err := p.server.Service.UpdateSettings(stringParam(params, "defaultRuntime"), runtimeEnv); err != nil {
+		gnarEdge := p.server.Service.Settings.GnarEdge
+		if _, specified := params["gnarEdge"]; specified {
+			gnarEdge = stringParam(params, "gnarEdge")
+		}
+		if err := p.server.Service.UpdateSettings(stringParam(params, "defaultRuntime"), runtimeEnv, gnarEdge); err != nil {
 			return err
+		}
+		if p.server.Tunnels != nil {
+			p.server.Tunnels.SetGnarEdge(p.server.Service.Settings.GnarEdge)
 		}
 		return p.writeResult(command.ID, map[string]any{
 			"defaultRuntime": p.server.Service.DefaultRuntime,
 			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
+			"gnarEdge":       p.server.Service.Settings.GnarEdge,
 		})
 	case "project.add":
 		value, err := p.server.Service.AddProject(stringParam(params, "path"), stringParam(params, "name"))

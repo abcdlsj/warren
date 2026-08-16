@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -133,6 +135,39 @@ sleep 30
 	}
 	if _, ok := manager.Status()[KindGnar]; ok {
 		t.Fatal("gnar state remained after stop")
+	}
+}
+
+func TestGnarPassesConfiguredEdge(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "gnar-args")
+	t.Setenv("GNAR_ARGS_FILE", argsFile)
+	binary := writeScript(t, `#!/bin/sh
+printf '%s\n' "$@" > "$GNAR_ARGS_FILE"
+printf '%s\n' '{"type":"tunnel_ready","public_url":"https://warren-host.gnar.example.com","target":"http://127.0.0.1:8789","account":null,"reserved":false}'
+sleep 30
+`)
+	manager := NewManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), "http://127.0.0.1:8789", "", "", binary)
+	manager.SetGnarEdge("https://edge.example.com")
+
+	if _, err := manager.Start(KindGnar); err != nil {
+		t.Fatalf("start gnar: %v", err)
+	}
+	defer manager.Stop(KindGnar)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if manager.Status()[KindGnar].URL != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	data, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read gnar args: %v", err)
+	}
+	args := strings.Fields(string(data))
+	if !slices.Contains(args, "--edge") || !slices.Contains(args, "https://edge.example.com") {
+		t.Fatalf("gnar args = %q, want --edge https://edge.example.com", args)
 	}
 }
 

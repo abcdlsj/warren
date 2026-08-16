@@ -40,6 +40,7 @@ type Manager struct {
 	cloudflaredPath string
 	tailscalePath   string
 	gnarPath        string
+	gnarEdge        string
 	pollInterval    time.Duration
 	pollAttempts    int
 
@@ -111,6 +112,14 @@ func (m *Manager) Status() map[string]Status {
 		}
 	}
 	return result
+}
+
+// SetGnarEdge changes the edge server used by future gnar starts. An empty
+// value lets gnar fall back to its own default.
+func (m *Manager) SetGnarEdge(edge string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gnarEdge = edge
 }
 
 func (m *Manager) startCloudflared() (Status, error) {
@@ -308,7 +317,11 @@ func (m *Manager) startGnar() (Status, error) {
 		m.mu.Unlock()
 		return Status{}, errors.New("gnar binary not found; install it or set WARREN_GNAR_PATH")
 	}
-	args := append([]string{m.target, "--no-tui", "--json"}, gnarNameArgs()...)
+	args := []string{m.target, "--no-tui", "--json"}
+	if m.gnarEdge != "" {
+		args = append(args, "--edge", m.gnarEdge)
+	}
+	args = append(args, gnarNameArgs()...)
 	command := exec.Command(path, args...)
 	stdout, err := command.StdoutPipe()
 	if err != nil {

@@ -29,6 +29,9 @@ type Settings struct {
 	// daemon's built-in environment sanitization, so explicit values win;
 	// an empty value unsets the variable instead of passing an empty string.
 	RuntimeEnv map[string]string `json:"runtimeEnv,omitempty"`
+	// GnarEdge is the gnar edge server used for public Web sharing. Empty
+	// lets gnar use its own default (GNAR_EDGE or the single signed-in edge).
+	GnarEdge string `json:"gnarEdge,omitempty"`
 }
 
 // Normalized returns the effective default runtime kind.

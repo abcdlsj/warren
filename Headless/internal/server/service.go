@@ -1052,13 +1052,13 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 // SetDefaultRuntime changes the engine used for newly created sessions while
 // preserving the configured runtime environment overrides.
 func (s *Service) SetDefaultRuntime(kind string) error {
-	return s.UpdateSettings(kind, s.Settings.RuntimeEnv)
+	return s.UpdateSettings(kind, s.Settings.RuntimeEnv, s.Settings.GnarEdge)
 }
 
 // UpdateSettings changes the engine used for newly created sessions and the
-// runtime environment overrides, persisting both when a settings file is
-// configured. Existing sessions keep their own runtimeKind.
-func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string) error {
+// runtime environment overrides and the gnar edge, persisting them when a
+// settings file is configured. Existing sessions keep their own runtimeKind.
+func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string, gnarEdge string) error {
 	switch kind {
 	case settings.RuntimeGhostline, settings.RuntimeTmux:
 	default:
@@ -1068,7 +1068,7 @@ func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string) erro
 		return fmt.Errorf("runtime %q is not available on this host", kind)
 	}
 	s.DefaultRuntime = kind
-	s.Settings = settings.Settings{DefaultRuntime: kind, RuntimeEnv: runtimeEnv}
+	s.Settings = settings.Settings{DefaultRuntime: kind, RuntimeEnv: runtimeEnv, GnarEdge: gnarEdge}
 	if s.SettingsPath != "" {
 		return settings.Save(s.SettingsPath, s.Settings)
 	}
