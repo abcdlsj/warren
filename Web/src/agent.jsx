@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { groupAgentEvents } from "./agent.js";
+
 export function AgentView({ session, events = [], onSend }) {
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const [draft, setDraft] = useState("");
+  const blocks = groupAgentEvents(events);
 
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
-    const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
+    const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 140;
     if (followsBottom) list.scrollTop = list.scrollHeight;
   }, [events.length]);
 
@@ -30,11 +33,14 @@ export function AgentView({ session, events = [], onSend }) {
           {session.transcriptPath && <span className="agent-binding-file">{basename(session.transcriptPath)}</span>}
         </div>
       )}
-      <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} transcript`}>
-        {events.length === 0 ? (
-          <div className="agent-empty">Waiting for agent events…</div>
+      <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
+        {blocks.length === 0 ? (
+          <div className="agent-empty">
+            <div className="agent-empty-title">Start a conversation</div>
+            <div className="agent-empty-hint">Messages and tool activity will appear here.</div>
+          </div>
         ) : (
-          events.map(event => <AgentEventCard key={event.seq} event={event} />)
+          blocks.map((block, index) => <AgentBlock key={blockKindKey(block, index)} block={block} />)
         )}
       </div>
       <form
@@ -54,7 +60,7 @@ export function AgentView({ session, events = [], onSend }) {
               submit();
             }
           }}
-          placeholder={`Send a message to ${session.title || "agent"}…`}
+          placeholder={`Message ${session.title || "agent"}…`}
           aria-label="Message"
           rows={1}
           autoComplete="off"
@@ -66,94 +72,147 @@ export function AgentView({ session, events = [], onSend }) {
   );
 }
 
-function basename(path) {
-  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return index >= 0 ? path.slice(index + 1) : path;
+function blockKindKey(block, index) {
+  const id = block.call?.id || block.event?.id || block.event?.seq || block.call?.seq;
+  return `${block.kind}-${id || index}`;
 }
 
-function AgentEventCard({ event }) {
-  switch (event.type) {
+function AgentBlock({ block }) {
+  switch (block.kind) {
   case "user":
-  case "assistant":
+  case "assistant": {
+    const event = block.event;
     return (
       <div className={`agent-message ${event.type}`}>
         <div className="agent-role">
           {event.type === "user" ? (event.sidechain ? "Subagent prompt" : "You") : (event.sidechain ? "Subagent" : "Assistant")}
-          {event.model && <span className="agent-model">{event.model}</span>}
         </div>
         <MarkdownContent value={event.content || ""} />
-        {event.stopReason && <div className="agent-stop-reason">Stopped: {event.stopReason}</div>}
-        {event.usage && <UsageChip usage={event.usage} />}
+        {(event.model || event.usage || event.stopReason) && (
+          <div className="agent-meta">
+            {event.model && <span>{event.model}</span>}
+            {event.usage && <UsageChip usage={event.usage} />}
+            {event.stopReason && <span>Stopped: {event.stopReason}</span>}
+          </div>
+        )}
       </div>
     );
+  }
+  case "tool":
+    return <ToolBlock block={block} />;
+  case "tool_output": {
+    const event = block.event;
+    return (
+      <details className={`agent-tool ${event.toolStatus || "success"}`}>
+        <summary>
+          <StatusDot status={event.toolStatus || "success"} />
+          <span>{event.toolName || "Tool"} output</span>
+        </summary>
+        <ToolOutputBody event={event} />
+      </details>
+    );
+  }
   case "reasoning":
     return (
       <details className="agent-reasoning">
         <summary>Thinking</summary>
-        <MarkdownContent value={event.content || ""} />
+        <MarkdownContent value={block.event.content || ""} />
       </details>
-    );
-  case "tool_call":
-    return (
-      <div className="agent-tool-call">
-        <div className="agent-tool-name">{event.toolName || "Tool"}</div>
-        {event.toolInput !== undefined && (
-          <pre className="agent-body">{JSON.stringify(event.toolInput, null, 2)}</pre>
-        )}
-        {event.files?.length > 0 && <FileList files={event.files} />}
-      </div>
-    );
-  case "tool_output":
-    return (
-      <div className={`agent-tool-output ${event.toolStatus || "success"}`}>
-        <details>
-          <summary>
-            {event.toolName ? `${event.toolName} output` : "Tool output"}
-            {event.toolStatus === "error" && " — failed"}
-            {event.toolStatus === "interrupted" && " — interrupted"}
-          </summary>
-          {event.error && <div className="agent-tool-error">{event.error}</div>}
-          <pre className="agent-body">{event.output || ""}</pre>
-          {event.files?.length > 0 && <FileList files={event.files} />}
-        </details>
-      </div>
     );
   case "usage":
     return (
-      <div className="agent-usage">
-        {event.model && <span className="agent-model">{event.model}</span>}
-        <UsageChip usage={event.usage} />
+      <div className="agent-system">
+        {block.event.model && `${block.event.model} · `}
+        <UsageChip usage={block.event.usage} />
       </div>
     );
   case "error":
     return (
       <div className="agent-error">
         <div className="agent-role">Error</div>
-        <pre className="agent-body">{event.error || event.content || ""}</pre>
+        <pre className="agent-body">{block.event.error || block.event.content || ""}</pre>
       </div>
     );
   case "attachment":
     return (
       <div className="agent-attachment">
         <div className="agent-role">Attachment</div>
-        <pre className="agent-body">{event.content || ""}</pre>
+        <pre className="agent-body">{block.event.content || ""}</pre>
       </div>
     );
   case "system":
     return (
       <div className="agent-system">
-        {event.content || ""}
-        {event.durationMs ? ` · ${formatDuration(event.durationMs)}` : ""}
+        {block.event.content || "System"}
+        {block.event.durationMs ? ` · ${formatDuration(block.event.durationMs)}` : ""}
       </div>
     );
   default:
     return (
       <details className="agent-unknown">
         <summary>Unknown event</summary>
-        <pre className="agent-body">{JSON.stringify(event, null, 2)}</pre>
+        <pre className="agent-body">{JSON.stringify(block.event, null, 2)}</pre>
       </details>
     );
   }
+}
+
+function ToolBlock({ block }) {
+  const call = block.call;
+  const lastOutput = block.outputs.at(-1);
+  const status = lastOutput?.toolStatus || (block.outputs.length ? "success" : "");
+  const summary = toolSummary(call);
+  return (
+    <details className={`agent-tool ${status || "running"}`}>
+      <summary>
+        <StatusDot status={status || "running"} />
+        <span className="agent-tool-name">{call.toolName || "Tool"}</span>
+        {summary && <code className="agent-tool-summary">{summary}</code>}
+        {call.files?.length > 0 && <FileList files={call.files} inline />}
+      </summary>
+      {call.toolInput !== undefined && (
+        <div className="agent-tool-input">
+          <div className="agent-tool-label">Input</div>
+          <pre className="agent-body">{JSON.stringify(call.toolInput, null, 2)}</pre>
+        </div>
+      )}
+      {block.outputs.map(output => <ToolOutputBody key={output.seq} event={output} />)}
+      {!block.outputs.length && (
+        <div className="agent-tool-label">Waiting for output…</div>
+      )}
+    </details>
+  );
+}
+
+function ToolOutputBody({ event }) {
+  return (
+    <div className={`agent-tool-output ${event.toolStatus || "success"}`}>
+      {event.error && <div className="agent-tool-error">{event.error}</div>}
+      {(event.output || "") !== "" && <pre className="agent-body">{event.output}</pre>}
+      {event.files?.length > 0 && <FileList files={event.files} />}
+    </div>
+  );
+}
+
+function StatusDot({ status }) {
+  return <span className={`agent-status-dot ${status}`} aria-hidden="true" />;
+}
+
+function toolSummary(call) {
+  const input = call.toolInput;
+  if (!input || typeof input !== "object") return "";
+  if (typeof input.command === "string") return input.command;
+  if (typeof input.file_path === "string") return input.file_path;
+  if (typeof input.path === "string") return input.path;
+  if (typeof input.query === "string") return input.query;
+  if (typeof input.pattern === "string") return input.pattern;
+  if (typeof input.prompt === "string") return input.prompt;
+  return "";
+}
+
+function basename(path) {
+  const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return index >= 0 ? path.slice(index + 1) : path;
 }
 
 function MarkdownContent({ value }) {
@@ -174,13 +233,13 @@ function UsageChip({ usage }) {
   return <span className="agent-usage-chip">{parts.join(" · ")}</span>;
 }
 
-function FileList({ files }) {
+function FileList({ files, inline = false }) {
   return (
-    <div className="agent-files">
+    <span className={`agent-files${inline ? " inline" : ""}`}>
       {files.map((file, index) => (
-        <span className="agent-file" key={`${file}-${index}`}>{file}</span>
+        <span className="agent-file" key={`${file}-${index}`}>{basename(file)}</span>
       ))}
-    </div>
+    </span>
   );
 }
 

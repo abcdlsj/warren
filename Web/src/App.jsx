@@ -1228,10 +1228,12 @@ export default function App() {
   const selectedAgentEvents = selectedSession
     ? agentStateBySession[selectedSession.id]?.events || []
     : [];
-  const agentViewActive = Boolean(
+  const isAgentSession = Boolean(
     selectedSession
-      && (selectedSession.kind === "codex" || selectedSession.kind === "claude")
-      && selectedAgentEvents.length > 0
+      && (selectedSession.kind === "codex" || selectedSession.kind === "claude"),
+  );
+  const agentViewActive = Boolean(
+    isAgentSession
       && agentViewOverride !== "terminal",
   );
 
@@ -1271,20 +1273,15 @@ export default function App() {
           <PresetBar presets={sessionPresets} onCreateSession={createSession} />
           <div className="pane-title">
             <span>{paneTitle}</span>
-            {agentViewActive ? (
+            {isAgentSession && (agentViewActive ? (
               <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
                 Terminal
               </button>
             ) : (
-              selectedSession
-              && (selectedSession.kind === "codex" || selectedSession.kind === "claude")
-              && selectedAgentEvents.length > 0
-              && (
-                <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
-                  Agent
-                </button>
-              )
-            )}
+              <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
+                Agent
+              </button>
+            ))}
           </div>
           <section
             className="terminal-shell"

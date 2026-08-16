@@ -17,3 +17,30 @@ export function mergeAgentEvents(existing = [], incoming = []) {
     .sort((left, right) => left.seq - right.seq)
     .slice(-agentEventLimit);
 }
+
+/**
+ * Groups a flat transcript into renderable blocks. A tool_call and its
+ * matching tool_output(s) become one tool block so the UI can show the call
+ * and its result as a single compact step instead of two separate cards.
+ */
+export function groupAgentEvents(events = []) {
+  const blocks = [];
+  const pending = new Map();
+  for (const event of events) {
+    if (event.type === "tool_call") {
+      const block = { kind: "tool", call: event, outputs: [] };
+      blocks.push(block);
+      if (event.callId) pending.set(event.callId, block);
+    } else if (event.type === "tool_output") {
+      const block = event.callId ? pending.get(event.callId) : null;
+      if (block) {
+        block.outputs.push(event);
+      } else {
+        blocks.push({ kind: "tool_output", event });
+      }
+    } else {
+      blocks.push({ kind: event.type, event });
+    }
+  }
+  return blocks;
+}
