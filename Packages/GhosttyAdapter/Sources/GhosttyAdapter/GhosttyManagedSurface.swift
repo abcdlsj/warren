@@ -164,7 +164,7 @@ public struct GhosttyManagedSurface: View {
                 "session": surface.id.description,
                 "success": drewOnce ? "true" : "false",
             ])
-            for delay in [0.1, 0.25, 0.5] {
+            for delay in [0.1, 0.25, 0.5, 1.0, 2.0] {
                 try? await Task.sleep(for: .seconds(delay))
                 surface.requestDisplayRefresh()
                 let drew = surface.presentNow()
@@ -265,7 +265,7 @@ public final class GhosttyFocusDriver {
         of state: TerminalViewState,
         present: @escaping () -> Void
     ) {
-        for delay in [0.0, 0.1, 0.3] {
+        for delay in [0.0, 0.1, 0.3, 1.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 [weak self, weak state] in
                 guard let self, let state else {

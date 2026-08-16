@@ -1714,7 +1714,7 @@ final class WarrenRemoteApplicationModel {
                 }
                 try? await Task.sleep(for: .milliseconds(50))
             }
-            for delay in [0.1, 0.25, 0.5] {
+            for delay in [0.1, 0.25, 0.5, 1.0, 2.0] {
                 try? await Task.sleep(for: .seconds(delay))
                 guard generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
