@@ -91,6 +91,7 @@ type Service struct {
 	outputs        map[string]*outputSession
 	peers          map[string]map[*wsPeer]struct{}
 	focusedPeers   map[string]*wsPeer
+	runtimeSizes   map[string]ghostline.Size
 	broadcastLocks map[string]*sync.Mutex
 	agentsMu       sync.Mutex
 	agents         map[string]*agentSession
@@ -205,6 +206,9 @@ func (s *Service) lazyInitLocked() {
 	}
 	if s.focusedPeers == nil {
 		s.focusedPeers = map[string]*wsPeer{}
+	}
+	if s.runtimeSizes == nil {
+		s.runtimeSizes = map[string]ghostline.Size{}
 	}
 	if s.broadcastLocks == nil {
 		s.broadcastLocks = map[string]*sync.Mutex{}
@@ -2062,11 +2066,10 @@ func (s *Service) focusPeerLocked(
 		return false, nil
 	}
 	if resizeSpecified {
-		if err := s.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
+		resized, err = s.resizeRuntime(ctx, session, columns, rows)
+		if err != nil {
 			return false, err
 		}
-		s.updateResponderSize(session.ID, columns, rows)
-		resized = true
 	}
 	s.outputMu.Lock()
 	// A peer can disconnect while Runtime.Resize is in flight. Do not hand
@@ -2096,9 +2099,30 @@ func (s *Service) resizeFocusedLocked(
 	if !focused {
 		return false, nil
 	}
+	return s.resizeRuntime(ctx, session, columns, rows)
+}
+
+// resizeRuntime applies a new viewport to the shared runtime and records the
+// size we last applied. Ghostline sends SIGWINCH to the child on every
+// Resize, even when the dimensions are unchanged, so repeated claims of the
+// same viewport (roster-driven focus requests, duplicate browser callbacks)
+// make TUIs redraw and flicker. The recorded size also lets the server
+// answer same-size focus/resize requests as accurate no-ops.
+func (s *Service) resizeRuntime(ctx context.Context, session api.Session, columns, rows int) (bool, error) {
+	size := ghostline.Size{Columns: columns, Rows: rows}
+	s.lazyInit()
+	s.outputMu.Lock()
+	current, known := s.runtimeSizes[session.ID]
+	s.outputMu.Unlock()
+	if known && current == size {
+		return false, nil
+	}
 	if err := s.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
 		return false, err
 	}
+	s.outputMu.Lock()
+	s.runtimeSizes[session.ID] = size
+	s.outputMu.Unlock()
 	s.updateResponderSize(session.ID, columns, rows)
 	return true, nil
 }
@@ -2165,6 +2189,7 @@ func (s *Service) stopOutput(sessionID string, notify bool) {
 	}
 	delete(s.peers, sessionID)
 	delete(s.focusedPeers, sessionID)
+	delete(s.runtimeSizes, sessionID)
 	s.outputMu.Unlock()
 	if outputSession != nil && outputSession.watcher != nil {
 		outputSession.watcher.Close()

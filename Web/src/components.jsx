@@ -568,11 +568,19 @@ export function MobileKeys({ onInput }) {
     // events fire per frame; following them continuously resizes the shell
     // and makes the terminal canvas flicker.
     const OPEN_THRESHOLD_PX = 24;
+    const SETTLE_MS = 100;
     let keyboardOpen = false;
     let appliedInset = 0;
+    let settleTimer = null;
     const apply = inset => {
       main.style.paddingBottom = inset > 0 ? `${inset}px` : "";
       bar.classList.toggle("keyboard-open", inset > 0);
+    };
+    const clearSettle = () => {
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+      }
     };
     const update = () => {
       // Cross-platform keyboard inset: Android resizes the layout viewport
@@ -583,16 +591,24 @@ export function MobileKeys({ onInput }) {
       const inset = keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop);
       if (keyboardOpen) {
         if (inset === 0) {
+          clearSettle();
           keyboardOpen = false;
           appliedInset = 0;
           apply(0);
-        } else if (inset > appliedInset) {
-          // Follow a keyboard that grows taller (IME/layout switch), but
-          // never shrink mid-animation so the shell does not jitter.
+          return;
+        }
+        if (inset <= appliedInset) return;
+        // A keyboard that grows taller (IME/layout switch) streams resize
+        // events per frame. Wait for the stream to settle so the shell does
+        // not reflow on every frame, then lift it to the final height.
+        clearSettle();
+        settleTimer = setTimeout(() => {
+          settleTimer = null;
           appliedInset = inset;
           apply(inset);
-        }
+        }, SETTLE_MS);
       } else if (inset > OPEN_THRESHOLD_PX) {
+        clearSettle();
         keyboardOpen = true;
         appliedInset = inset;
         apply(inset);
@@ -603,6 +619,7 @@ export function MobileKeys({ onInput }) {
     viewport.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     return () => {
+      clearSettle();
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);

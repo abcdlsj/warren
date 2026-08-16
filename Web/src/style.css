@@ -286,7 +286,7 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
   .agent-events { gap:14px; padding:18px 14px 14px; }
   .agent-bubble { max-width:88%; }
   .agent-input { padding:8px 10px calc(10px + env(safe-area-inset-bottom)); }
-  .agent-input textarea { font-size:15px; }
+  .agent-input textarea { font-size:16px; height:46px; }
   .agent-tool-summary { max-width:42vw; }
   .pane-title .pane-agent-session { display:none; }
 }

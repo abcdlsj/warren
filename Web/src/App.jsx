@@ -443,17 +443,20 @@ export default function App() {
     return true;
   }, [request]);
 
-  const attachSession = useCallback((sessionID, force = false, autoFocus = true) => {
+  const attachSession = useCallback((sessionID, force = false, autoFocus = true, explicit = true) => {
     if (!sessionID) return;
     const state = appStateRef.current;
     autoFocusOnAttachRef.current = autoFocus;
     if (!force && sessionID === state.attachedSession) {
-      // Clicking the tab of the already-attached session is an explicit entry
-      // into that shell; claim focus immediately instead of waiting for an
-      // attach round-trip that will never arrive.
-      refreshTerminal();
-      if (isCoarsePointer()) requestSessionFocus(true);
-      else terminalRef.current?.focus();
+      // Roster broadcasts re-enter this branch too, but the session is
+      // already attached and streaming. Only an explicit entry (tab click)
+      // should force a repaint and reclaim focus; doing both on every roster
+      // makes mobile redraw the terminal and re-signal the PTY constantly.
+      if (explicit) {
+        refreshTerminal();
+        if (isCoarsePointer()) requestSessionFocus(true);
+        else terminalRef.current?.focus();
+      }
       return;
     }
     const changed = sessionID !== state.activeSession;
@@ -579,8 +582,8 @@ export default function App() {
     }
 
     setConnectionStatus({ message: "Connected", online: true });
-    if (state.activeSession) attachSession(state.activeSession, false, false);
-    else if (nextTabs.length) attachSession(nextTabs[0].id, false, false);
+    if (state.activeSession) attachSession(state.activeSession, false, false, false);
+    else if (nextTabs.length) attachSession(nextTabs[0].id, false, false, false);
     else if (activeTabWasRemoved) request("session.detach");
   }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, request]);
 
@@ -1016,7 +1019,13 @@ export default function App() {
       if (!isCoarsePointer()) requestSessionFocus(false);
     };
     const claimWindowFocus = () => {
-      if (terminal.element?.contains(document.activeElement)) requestSessionFocus(true);
+      // Another endpoint (usually a phone) can claim the shared PTY while
+      // this tab is in the background. When the desktop tab regains focus,
+      // reclaim protocol focus with the current viewport size right away;
+      // waiting for a click leaves the shell stuck at the mobile geometry.
+      // DOM focus is intentionally left alone so an open search/settings
+      // input keeps its keyboard focus.
+      if (!isCoarsePointer()) requestSessionFocus(true);
     };
     const handleVisibilityChange = () => {
       if (document.hidden) releaseWindowFocus();

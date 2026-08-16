@@ -863,13 +863,12 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		// width Ghostty will replay it. If another endpoint owns focus, leave
 		// the runtime alone and let that endpoint's focus handoff resize later.
 		if specified && focusSpecified && !focused && !p.server.Service.hasFocusedPeer(session.ID) {
-			if err := p.server.Service.runtimeFor(session).Resize(ctx, session.Runtime, columns, rows); err != nil {
+			if _, err := p.server.Service.resizeRuntime(ctx, session, columns, rows); err != nil {
 				lock.Unlock()
 				resume()
 				p.detach()
 				return err
 			}
-			p.server.Service.updateResponderSize(session.ID, columns, rows)
 		}
 		p.logInfo("attach: resize done", "session", id)
 		if err := p.writeResult(command.ID, session); err != nil {

@@ -636,6 +636,18 @@ func TestOnlyFocusedPeerCanResizeSharedRuntime(t *testing.T) {
 	if !newOwner["resized"] {
 		t.Fatal("current focus owner resize was ignored")
 	}
+	sameSize := requestResult[map[string]bool](t, second, "session.focus", map[string]any{
+		"focused": true, "cols": 78, "rows": 28,
+	})
+	if sameSize["resized"] {
+		t.Fatal("same-size focus unexpectedly resized the runtime")
+	}
+	sameSizeResize := requestResult[map[string]bool](t, second, "session.resize", map[string]any{
+		"cols": 78, "rows": 28,
+	})
+	if sameSizeResize["resized"] {
+		t.Fatal("same-size resize unexpectedly resized the runtime")
+	}
 
 	_, resizes = runtime.snapshotOrder()
 	want := []recordedResize{{columns: 101, rows: 33}, {columns: 77, rows: 27}, {columns: 78, rows: 28}}
