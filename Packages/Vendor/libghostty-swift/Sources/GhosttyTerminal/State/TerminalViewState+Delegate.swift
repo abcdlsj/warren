@@ -25,11 +25,26 @@ extension TerminalViewState:
     }
 
     public func terminalDidResize(_ size: TerminalGridMetrics) {
-        surfaceSize = size
+        // Ghostty can report grid metrics synchronously from AppKit layout and
+        // NSViewRepresentable updates (fitToSize -> synchronizeMetrics).
+        // Writing the @Published property here publishes from inside a SwiftUI
+        // view update, which SwiftUI rejects with a runtime fault and can
+        // re-enter layout forever. Defer one main-actor hop so SwiftUI
+        // observes the value outside the current transaction; the value is
+        // unchanged.
+        Task { @MainActor [weak self] in
+            guard let self, self.surfaceSize != size else { return }
+            self.surfaceSize = size
+        }
     }
 
     public func terminalDidChangeFocus(_ focused: Bool) {
-        isFocused = focused
+        // makeFirstResponder/synchronizeFocus can run inside a SwiftUI update
+        // and publish isFocused mid-transaction. Same deferral as resize.
+        Task { @MainActor [weak self] in
+            guard let self, self.isFocused != focused else { return }
+            self.isFocused = focused
+        }
     }
 
     public func terminalDidClose(processAlive: Bool) {
