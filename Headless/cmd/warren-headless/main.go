@@ -312,8 +312,14 @@ func rollingUpgradeGhostlineClient(socketPath, outputDir string, logger *slog.Lo
 	// server to exit before replacing the stable path, otherwise its cleanup
 	// would unlink the new symlink.
 	if err := waitForGhostlineExit(adminSocket, 5*time.Second); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("old server did not exit after adoption: %w", err)
+		// Adoption already committed; the old server has no sessions left, so
+		// stopping it via its pid file is safe even if the exit handshake was
+		// lost.
+		logger.Warn("old ghostline server did not exit after adoption; stopping it", "error", err)
+		if stopErr := stopGhostlineServer(socketPath); stopErr != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("old server did not exit after adoption: %v (stop: %w)", err, stopErr)
+		}
 	}
 	if err := replaceWithSymlink(socketPath, nextSocket); err != nil {
 		_ = client.Close()
