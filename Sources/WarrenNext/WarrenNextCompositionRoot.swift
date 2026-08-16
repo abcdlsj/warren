@@ -587,15 +587,10 @@ private struct WarrenNextTerminalSurfaceView: View {
     var body: some View {
         Group {
             if surfaces.isEmpty {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(maintenanceMessage == nil
-                        ? "Connecting \(context.tab.title)…"
-                        : "Updating Warren…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ConnectingPlaceholder(
+                    title: context.tab.title,
+                    updating: maintenanceMessage != nil
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 GeometryReader { proxy in
@@ -707,6 +702,34 @@ private struct WarrenNextTerminalSurfaceView: View {
                 }
             )
             surface.requestDisplayRefresh()
+        }
+    }
+}
+
+/// Delays the "Connecting…" spinner so a fast attach does not flash it. The
+/// placeholder stays blank for the first 200ms; if the surface appears by
+/// then, no spinner is ever shown.
+private struct ConnectingPlaceholder: View {
+    let title: String
+    let updating: Bool
+    @State private var visible = false
+
+    var body: some View {
+        Group {
+            if visible {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(updating ? "Updating Warren…" : "Connecting \(title)…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            try? await Task.sleep(for: .milliseconds(200))
+            visible = true
         }
     }
 }

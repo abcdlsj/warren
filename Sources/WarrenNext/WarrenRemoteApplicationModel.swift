@@ -1164,7 +1164,13 @@ final class WarrenRemoteApplicationModel {
             // necessarily paints; nudge one tick so the old shell appears
             // immediately instead of after the first resize or keystroke.
             initialRefreshPending = false
-            Task { @MainActor [weak surface] in surface?.requestDisplayRefresh() }
+            Task { @MainActor [weak surface] in
+                guard let surface else { return }
+                surface.requestDisplayRefresh()
+                // Draw the first snapshot right now when the view is mounted;
+                // if it is not, the mount polls handle it later.
+                _ = surface.presentNow()
+            }
         }
     }
 
