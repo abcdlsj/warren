@@ -261,14 +261,18 @@ public final class GhosttyFocusDriver {
                     return
                 }
                 let match = self.terminalView(matching: state)
+                let found = match != nil
+                let window = match.map { String($0.0.windowNumber) } ?? "nil"
+                let bounds = match.map {
+                    GhosttyDiagnosticsFormat.finiteSize($0.1.bounds.size)
+                } ?? "nil"
+                let hidden = match.map { $0.1.isHidden ? "true" : "false" } ?? "nil"
                 TerminalDiagnostics.log("fit_present", [
                     "delay": String(format: "%.2f", delay),
-                    "found": match != nil ? "true" : "false",
-                    "window": match.map { String($0.0.windowNumber) } ?? "nil",
-                    "bounds": match.map {
-                        "\(Int($0.1.bounds.width))x\(Int($0.1.bounds.height))"
-                    } ?? "nil",
-                    "hidden": match.map { $0.1.isHidden ? "true" : "false" } ?? "nil",
+                    "found": found ? "true" : "false",
+                    "window": window,
+                    "bounds": bounds,
+                    "hidden": hidden,
                 ])
                 guard let (_, target) = match else { return }
                 target.fitToSize()
@@ -439,7 +443,7 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
             TerminalDiagnostics.log("probe_window_available", [
                 "session": surface.id.description,
                 "window": String(window.windowNumber),
-                "bounds": "\(Int(window.frame.width))x\(Int(window.frame.height))",
+                "bounds": GhosttyDiagnosticsFormat.finiteSize(window.frame.size),
             ])
             focusDriver.register(state, in: window)
             repair()
@@ -487,6 +491,15 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
         }
         return nil
     }
+
+}
+
+private enum GhosttyDiagnosticsFormat {
+    static func finiteSize(_ size: CGSize) -> String {
+        let width = size.width.isFinite ? String(Int(size.width)) : "inf"
+        let height = size.height.isFinite ? String(Int(size.height)) : "inf"
+        return "\(width)x\(height)"
+    }
 }
 
 private final class GhosttyWindowProbeView: NSView {
@@ -500,8 +513,8 @@ private final class GhosttyWindowProbeView: NSView {
             "attached": window != nil ? "true" : "false",
             "window": window.map { String($0.windowNumber) } ?? "nil",
             "hidden": shouldHide ? "true" : "false",
-            "bounds": "\(Int(bounds.width))x\(Int(bounds.height))",
-            "visible": "\(Int(visibleRect.width))x\(Int(visibleRect.height))",
+            "bounds": GhosttyDiagnosticsFormat.finiteSize(bounds.size),
+            "visible": GhosttyDiagnosticsFormat.finiteSize(visibleRect.size),
         ])
         registerAndRepair()
     }
