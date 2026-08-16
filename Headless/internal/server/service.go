@@ -23,7 +23,7 @@ import (
 const (
 	defaultRingCapacity   = 256
 	defaultRingMaxBytes   = 8 * 1024 * 1024
-	defaultMaxSpool       = 64 * 1024 * 1024
+	defaultMaxSpool       = 8 * 1024 * 1024
 	defaultCommandTimeout = 10 * time.Second
 	cursorPersistEvery    = 256 * 1024
 	orphanReapInterval    = 30 * time.Second
@@ -51,8 +51,13 @@ type Service struct {
 	SettingsPath  string
 	WorktreeRoot  string
 	MaxSpoolBytes int64
-	RingCapacity  int
-	RingMaxBytes  int
+	// MaxSpoolReplayBytes bounds raw spool replay during attach. Gaps larger
+	// than this fall back to a screen-resetting snapshot reanchor instead of
+	// feeding tens of megabytes of raw bytes to the client's terminal. Zero
+	// uses the in-memory ring byte limit.
+	MaxSpoolReplayBytes int64
+	RingCapacity        int
+	RingMaxBytes        int
 	// CommandTimeout bounds tmux commands run during attach and adoption. A
 	// stuck tmux client must fail the attach and release the session broadcast
 	// lock and paused output watcher instead of wedging the session until the
@@ -1095,6 +1100,13 @@ func (s *Service) maxSpoolBytes() int64 {
 	return defaultMaxSpool
 }
 
+func (s *Service) maxSpoolReplayBytes() int64 {
+	if s.MaxSpoolReplayBytes > 0 {
+		return s.MaxSpoolReplayBytes
+	}
+	return int64(s.ringMaxBytes())
+}
+
 func (s *Service) commandTimeout() time.Duration {
 	if s.CommandTimeout > 0 {
 		return s.CommandTimeout
@@ -1272,38 +1284,43 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	// Spool recovery: when the ring evicted the client's anchor, the PTY
 	// runtime can still serve the exact tail from its append-only spool.
 	// Rendering those bytes as ordinary output avoids the screen reset and
-	// full replay that otherwise flashes black on every reattach.
+	// full replay that otherwise flashes black on every reattach. Large gaps
+	// are bounded by maxSpoolReplayBytes and fall through to the snapshot
+	// reanchor instead of replaying tens of megabytes of raw output.
 	if !reanchorRequired && anchor != nil && anchor.Epoch == recovery.Epoch {
 		if recoverer, ok := s.runtimeFor(session).(SpoolRecoverer); ok && outputSession != nil && outputSession.watcher != nil {
 			adapter := s.outputAdapterFor(session)
 			size, sizeErr := adapter.SpoolSize(ctx, session.Runtime)
 			if sizeErr == nil && anchor.Sequence <= uint64(size) {
-				data, recoverErr := recoverer.Recover(ctx, session.Runtime, int64(anchor.Sequence), size)
-				if recoverErr == nil && len(data) > 0 {
-					if err := outputSession.watcher.SkipTo(size); err != nil {
-						return err
-					}
-					upper := uint64(size)
-					outputSession.mu.Lock()
-					outputSession.ring.Reset(recovery.Epoch, upper)
-					outputSession.persistedSequence = upper
-					outputSession.reanchorRequired = false
-					outputSession.mu.Unlock()
-					if err := peer.enqueueAttached(session.ID, recovery.Epoch, uint64(anchor.Sequence), false); err != nil {
-						return err
-					}
-					sequence := uint64(anchor.Sequence)
-					for _, chunk := range output.SplitPayload(data) {
-						encoded, encodeErr := output.EncodeOutput(session.ID, recovery.Epoch, sequence, chunk)
-						if encodeErr != nil {
-							return encodeErr
+				gap := size - int64(anchor.Sequence)
+				if gap <= s.maxSpoolReplayBytes() {
+					data, recoverErr := recoverer.Recover(ctx, session.Runtime, int64(anchor.Sequence), size)
+					if recoverErr == nil && len(data) > 0 {
+						if err := outputSession.watcher.SkipTo(size); err != nil {
+							return err
 						}
-						if !peer.enqueueBinary(encoded) {
-							return errors.New("outbound queue overflow during spool recovery")
+						upper := uint64(size)
+						outputSession.mu.Lock()
+						outputSession.ring.Reset(recovery.Epoch, upper)
+						outputSession.persistedSequence = upper
+						outputSession.reanchorRequired = false
+						outputSession.mu.Unlock()
+						if err := peer.enqueueAttached(session.ID, recovery.Epoch, uint64(anchor.Sequence), false); err != nil {
+							return err
 						}
-						sequence += uint64(len(chunk))
+						sequence := uint64(anchor.Sequence)
+						for _, chunk := range output.SplitPayload(data) {
+							encoded, encodeErr := output.EncodeOutput(session.ID, recovery.Epoch, sequence, chunk)
+							if encodeErr != nil {
+								return encodeErr
+							}
+							if !peer.enqueueBinary(encoded) {
+								return errors.New("outbound queue overflow during spool recovery")
+							}
+							sequence += uint64(len(chunk))
+						}
+						return peer.enqueueSynced(session.ID, recovery.Epoch, upper)
 					}
-					return peer.enqueueSynced(session.ID, recovery.Epoch, upper)
 				}
 			}
 		}

@@ -29,6 +29,7 @@ type spoolRuntime struct {
 	capturePadding int
 	captureHang    bool
 	pipeHang       bool
+	recoverCalls   int
 }
 
 func newSpoolRuntime(t *testing.T) *spoolRuntime {
@@ -145,6 +146,9 @@ func (runtime *spoolRuntime) RemoveSpool(name string) {
 }
 
 func (runtime *spoolRuntime) Recover(_ context.Context, name string, offset, end int64) ([]byte, error) {
+	runtime.mu.Lock()
+	runtime.recoverCalls++
+	runtime.mu.Unlock()
 	data, err := os.ReadFile(runtime.SpoolPath(name))
 	if err != nil {
 		return nil, err
@@ -243,7 +247,7 @@ func TestStreamedAttachRecoversFromSpoolAfterRingEviction(t *testing.T) {
 	if err := os.WriteFile(runtime.SpoolPath("runtime-spool-recover"), bytes.Repeat([]byte("A"), 300), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{Store: state, Runtime: runtime, RingMaxBytes: 128}
+	service := &Service{Store: state, Runtime: runtime, RingMaxBytes: 128, MaxSpoolReplayBytes: 1024}
 	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
 	defer httpServer.Close()
 
@@ -281,6 +285,68 @@ func TestStreamedAttachRecoversFromSpoolAfterRingEviction(t *testing.T) {
 		t.Fatalf("spool recovery delta = %#v", delta)
 	}
 	readBrowserMessage(t, connection, "synced")
+	runtime.mu.Lock()
+	recoverCalls := runtime.recoverCalls
+	runtime.mu.Unlock()
+	if recoverCalls != 1 {
+		t.Fatalf("spool recover calls = %d, want 1", recoverCalls)
+	}
+}
+
+// TestStreamedAttachReanchorsWhenSpoolGapExceedsLimit verifies that a large
+// spool gap skips raw byte replay and falls back to the screen-resetting
+// snapshot reanchor, so the client never receives tens of megabytes of raw
+// terminal bytes.
+func TestStreamedAttachReanchorsWhenSpoolGapExceedsLimit(t *testing.T) {
+	state := newStateWithSession(t, "session-spool-gap", "runtime-spool-gap")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-spool-gap", t.TempDir(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtime.SpoolPath("runtime-spool-gap"), bytes.Repeat([]byte("A"), 300), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, RingMaxBytes: 128, MaxSpoolReplayBytes: 100}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	attachBrowser(t, connection, "session-spool-gap", nil)
+	readBrowserMessage(t, connection, "attached")
+	readBinaryFrame(t, connection)
+	synced := readBrowserMessage(t, connection, "synced")
+	anchor := anchorFromMessage(t, synced)
+	if anchor.Sequence != 300 {
+		t.Fatalf("first anchor sequence = %d, want 300", anchor.Sequence)
+	}
+	sendDetach(t, connection)
+
+	if err := runtime.Input(context.Background(), "runtime-spool-gap", bytes.Repeat([]byte("B"), 200)); err != nil {
+		t.Fatal(err)
+	}
+	waitForRingUpper(t, service, "session-spool-gap", 500)
+
+	attachBrowser(t, connection, "session-spool-gap", &anchor)
+	attached := readBrowserMessage(t, connection, "attached")
+	if attached["reanchor"] != true {
+		t.Fatalf("large spool gap should reanchor, got %#v", attached)
+	}
+	if attachedAnchor := anchorFromMessage(t, attached); attachedAnchor.Sequence != 500 {
+		t.Fatalf("reanchor attached sequence = %d, want 500", attachedAnchor.Sequence)
+	}
+	snapshot := readBinaryFrame(t, connection)
+	if snapshot.Sequence != 500 {
+		t.Fatalf("snapshot frame sequence = %d, want 500", snapshot.Sequence)
+	}
+	readBrowserMessage(t, connection, "synced")
+	runtime.mu.Lock()
+	recoverCalls := runtime.recoverCalls
+	runtime.mu.Unlock()
+	if recoverCalls != 0 {
+		t.Fatalf("spool recover calls = %d, want 0 for large gap", recoverCalls)
+	}
 }
 
 func TestAttachResponseAcceptsInputBeforeAttachedControl(t *testing.T) {
