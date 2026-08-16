@@ -138,13 +138,15 @@ public struct GhosttyManagedSurface: View {
             surface?.requestDisplayRefresh()
         }
         Task { @MainActor [weak surface] in
-            for _ in 0..<30 {
-                try? await Task.sleep(for: .milliseconds(100))
+            for _ in 0..<190 {
                 guard let surface else { return }
                 surface.requestDisplayRefresh()
                 if surface.presentNow() {
                     return
                 }
+                // One display frame between attempts: a mounted view is
+                // presented within a frame instead of waiting up to 100ms.
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }

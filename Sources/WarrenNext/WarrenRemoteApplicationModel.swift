@@ -1383,8 +1383,7 @@ final class WarrenRemoteApplicationModel {
             // view. presentNow silently skips while the view is not mounted,
             // so poll until a real draw succeeds (or the attach goes stale)
             // instead of hoping the fixed delays outlast the mount.
-            for _ in 0..<30 {
-                try? await Task.sleep(for: .milliseconds(100))
+            for _ in 0..<190 {
                 guard let self, let surface,
                       generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
@@ -1392,6 +1391,7 @@ final class WarrenRemoteApplicationModel {
                 if surface.presentNow() {
                     return
                 }
+                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
