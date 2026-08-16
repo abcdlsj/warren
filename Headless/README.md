@@ -7,8 +7,8 @@ Warren Headless holds Projects, Workspaces, Git worktrees, Terminal Sessions, an
 A remote host needs Go 1.25 and Git. The default runtime is
 [ghostline](https://github.com/abcdlsj/ghostline): server-side PTY sessions
 with libghostty-vt snapshots, needing neither tmux nor any other terminal
-multiplexer. `--runtime tmux` remains as a deprecated fallback for
-environments that cannot run ghostline and is not maintained.
+multiplexer. `--runtime tmux` is a fully supported alternative runtime for
+environments that prefer or require tmux.
 
 ```sh
 go install github.com/abcdlsj/warren/Headless/cmd/warren-headless@latest
@@ -121,8 +121,8 @@ emulator. Input is written to the PTY verbatim, so there is no tmux
 paste-vs-key translation and kitty-protocol keys (for example Shift+Enter)
 reach the application unchanged.
 
-The tmux adapter (`--runtime tmux`) is kept only as a minimal fallback for
-environments that cannot run ghostline and is no longer maintained.
+The tmux adapter (`--runtime tmux`) is a fully supported alternative runtime;
+ghostline remains the default and recommended choice.
 
 Known limits:
 

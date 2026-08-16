@@ -1,7 +1,7 @@
-// Deprecated: this package backs the app's embedded local-mode runtime
-// (WarrenNextApplicationModel), which predates the headless-daemon
-// architecture. The daemon owns sessions through ghostline; this tmux path
-// is kept only for environments without the daemon and is not maintained.
+// This package backs the app's embedded local-mode runtime
+// (WarrenNextApplicationModel), used by the headless acceptance mode. The
+// daemon owns sessions through ghostline by default; tmux remains a supported
+// alternative runtime.
 import Foundation
 import WarrenDomain
 import WarrenHost

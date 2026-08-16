@@ -1,9 +1,7 @@
-// Deprecated: the Tmux adapter is the fallback runtime for environments that
-// cannot run ghostline (the default). It is intentionally not maintained:
-// snapshot rendering, input key mapping, and capture normalization below are
-// commented out because ghostline renders screen snapshots with
-// libghostty-vt. If this fallback ever needs repairing, restore the commented
-// blocks before touching anything else.
+// Tmux is a fully supported alternative runtime. ghostline is the default
+// and recommended runtime (server-side PTY sessions with libghostty-vt
+// snapshots); --runtime tmux keeps the classic tmux adapter available for
+// environments that prefer or require it.
 package runtime
 
 import (
@@ -329,23 +327,23 @@ func (t *Tmux) ListCreated(ctx context.Context) (map[string]time.Time, error) {
 
 func (t *Tmux) Capture(ctx context.Context, runtimeName string) ([]byte, error) {
 	target := runtimeName + ":0.0"
-	// Deprecated tmux fallback: the cursor-aware snapshot pipeline
-	// (parseCaptureWithCursor / renderCaptureSnapshot) is commented out
-	// because ghostline renders snapshots with libghostty-vt. This fallback
-	// returns the raw capture-pane output and is not maintained.
+	// Query the cursor and capture the pane in one tmux command sequence. A
+	// shell can move between two separate tmux invocations, which would make a
+	// cursor coordinate belong to a different screen than the captured cells.
 	output, err := t.command(ctx,
+		"display-message", "-p", "-t", target, "#{cursor_x},#{cursor_y}", ";",
 		"capture-pane", "-p", "-e", "-J", "-S", "-", "-t", target,
 	).Output()
 	if err != nil {
 		return nil, err
 	}
-	return output, nil
+	capture, cursorX, cursorY, err := parseCaptureWithCursor(output)
+	if err != nil {
+		return nil, fmt.Errorf("parse tmux capture: %w", err)
+	}
+	return renderCaptureSnapshot(capture, cursorX, cursorY), nil
 }
 
-/*
- * Deprecated tmux-only snapshot pipeline, commented out because ghostline
- * renders screen snapshots with libghostty-vt. Restore these functions if the
- * tmux fallback ever needs cursor-aware capture normalization again.
 func parseCaptureWithCursor(output []byte) ([]byte, int, int, error) {
 	metadata, capture, found := bytes.Cut(output, []byte{'\n'})
 	if !found {
@@ -371,7 +369,26 @@ func renderCaptureSnapshot(output []byte, cursorX, cursorY int) []byte {
 		return nil
 	}
 	output = trimCaptureFinalLineEnding(output)
+	// Known limitation: replaying a full tmux snapshot through Ghostty can
+	// misalign background color blocks on soft-wrapped colored history
+	// (Ghostty BCE behavior, upstream #12497 / #12505). A transient resize
+	// clears it but causes visible flicker or a black reveal window, and
+	// rewriting per-row SGR is intrusive on colors. Warren deliberately keeps
+	// the snapshot bytes faithful and tracks upstream instead of applying a
+	// lossy workaround here. Because surfaces are retained across tab
+	// switches, one manual resize reflows Ghostty back into alignment and
+	// later switches resume from an anchor without replaying history;
+	// however any subsequent scroll from live output can re-trigger Ghostty's
+	// BCE corruption until upstream changes the behavior.
+	// capture-pane emits LF-only lines. A terminal interprets LF as a line
+	// feed without returning to column zero, which makes every subsequent
+	// snapshot drift farther to the right in xterm.js. Normalize the snapshot
+	// to the CRLF convention used by a PTY before sending it to clients.
 	normalized := normalizeCaptureOutput(output)
+	// Clear both the visible screen and the client's old scrollback before
+	// replaying the complete tmux history. Restore the real tmux cursor after
+	// replay: the final capture line may contain the prompt at any column, and
+	// a trailing LF would otherwise move the cursor to the next row/column 0.
 	result := make([]byte, 0, len(normalized)+32)
 	result = append(result, []byte("\x1b[3J\x1b[2J\x1b[H")...)
 	result = append(result, normalized...)
@@ -394,6 +411,7 @@ func normalizeCaptureOutput(output []byte) []byte {
 	if len(output) == 0 {
 		return nil
 	}
+
 	normalized := make([]byte, 0, len(output)+bytes.Count(output, []byte{'\n'}))
 	for index, value := range output {
 		if value == '\n' && (index == 0 || output[index-1] != '\r') {
@@ -403,7 +421,6 @@ func normalizeCaptureOutput(output []byte) []byte {
 	}
 	return normalized
 }
-*/
 
 func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error {
 	if len(data) == 0 {
@@ -412,9 +429,16 @@ func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error
 	lock := t.sessionLock(runtimeName)
 	lock.Lock()
 	defer lock.Unlock()
-	// Deprecated tmux-only key mapping (tmuxKeyName / send-keys) is commented
-	// out because ghostline writes input to the PTY verbatim. The tmux
-	// fallback always pastes raw bytes and is not maintained.
+	// Pasting raw escape sequences through paste-buffer does not behave like
+	// a real key press (less/git log ignores pasted CSI arrow bytes). Route
+	// recognized terminal keys through tmux send-keys so shells and pagers
+	// see the same key the user actually pressed.
+	if key, ok := tmuxKeyName(data); ok {
+		if output, err := t.command(ctx, "send-keys", "-t", runtimeName+":0.0", key).CombinedOutput(); err != nil {
+			return fmt.Errorf("send tmux key: %s: %w", strings.TrimSpace(string(output)), err)
+		}
+		return nil
+	}
 	// Every write uses a unique tmux buffer so concurrent inputs can never
 	// cross. paste-buffer -d deletes the buffer on success; a failed write is
 	// cleaned up below and never touches another input.
@@ -431,10 +455,6 @@ func (t *Tmux) Input(ctx context.Context, runtimeName string, data []byte) error
 	return nil
 }
 
-/*
- * Deprecated tmux-only input key mapping, commented out because ghostline
- * writes input to the PTY verbatim. Restore if the tmux fallback needs
- * send-keys semantics again.
 // tmuxKeyName maps terminal byte sequences that must reach tmux as key
 // presses instead of pasted text. Exact single-key sequences (arrows, editing
 // keys, and common CSI/SS3 forms) return tmux's key name; everything else
@@ -585,7 +605,6 @@ func functionKeyNumber(code int) int {
 		return 0
 	}
 }
-*/
 
 func (t *Tmux) Resize(ctx context.Context, runtimeName string, columns, rows int) error {
 	lock := t.sessionLock(runtimeName)

@@ -2,8 +2,8 @@ min_version = "2025.10.0"
 
 [tools]
 xcbeautify = "latest"
-# tmux is only needed by the deprecated fallback runtime (--runtime tmux);
-# ghostline is the default and needs no tmux.
+# tmux is needed by the alternative tmux runtime (--runtime tmux);
+# ghostline, the default, needs no tmux.
 tmux = "latest"
 
 [env]
