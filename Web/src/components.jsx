@@ -400,6 +400,7 @@ export function ContextMenu({ menu, onClose }) {
         <button
           type="button"
           role="menuitem"
+          className={item.danger ? "danger" : undefined}
           key={index}
           onClick={() => {
             onClose();

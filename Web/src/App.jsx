@@ -1110,6 +1110,12 @@ export default function App() {
     ]);
   }, [renameWorkspace, showContextMenu, toggleWorkspacePin]);
 
+  const deleteSession = useCallback(session => {
+    const label = session.title || session.id;
+    if (!window.confirm(`Delete session "${label}"? This kills its terminal process.`)) return;
+    request("session.delete", { id: session.id }, () => {});
+  }, [request]);
+
   const sessionContextMenu = useCallback((event, session) => {
     showContextMenu(event, [
       {
@@ -1117,8 +1123,9 @@ export default function App() {
         action: () => toggleSessionPin(session),
       },
       { label: "Rename session", action: () => renameSession(session) },
+      { label: "Delete session", danger: true, action: () => deleteSession(session) },
     ]);
-  }, [renameSession, showContextMenu, toggleSessionPin]);
+  }, [deleteSession, renameSession, showContextMenu, toggleSessionPin]);
 
   const beginProjectDrag = useCallback(previousExpanded => {
     projectDragRef.current = { previousExpanded };
