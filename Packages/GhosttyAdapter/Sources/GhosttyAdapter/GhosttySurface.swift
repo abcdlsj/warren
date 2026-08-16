@@ -114,11 +114,12 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// Presents the current grid inline and reports whether a draw actually
     /// happened. The draw is skipped while the AppKit view is not mounted
     /// (`state.surface` is nil), which happens right after a worktree switch
-    /// recreates the terminal view; callers should retry until true.
+    /// recreates the terminal view. The render tick is only requested once the
+    /// view is mounted, so polling while unmounted stays free of render work.
     @discardableResult
     public func presentNow() -> Bool {
-        state.controller.tick()
         guard let raw = state.surface?.rawValue else { return false }
+        state.controller.tick()
         ghostty_surface_draw(raw)
         return true
     }

@@ -1379,17 +1379,26 @@ final class WarrenRemoteApplicationModel {
         surface.requestDisplayRefresh()
         _ = surface.presentNow()
         Task { @MainActor [weak self, weak surface] in
+            guard let self, let surface else { return }
             // A worktree switch disposes and recreates the AppKit terminal
             // view. presentNow silently skips while the view is not mounted,
-            // so poll until a real draw succeeds (or the attach goes stale)
-            // instead of hoping the fixed delays outlast the mount.
-            for _ in 0..<190 {
-                guard let self, let surface,
-                      generation == self.attachGeneration,
+            // so poll cheaply until a real draw succeeds, then a few delayed
+            // draws cover snapshots that arrive after the mount. Do not keep
+            // drawing at frame rate: that starves the main actor.
+            for _ in 0..<60 {
+                guard generation == self.attachGeneration,
+                      self.attachedSessionID == surface.id else { return }
+                if surface.presentNow() {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            for delay in [0.1, 0.25, 0.5] {
+                try? await Task.sleep(for: .seconds(delay))
+                guard generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
                 surface.requestDisplayRefresh()
                 _ = surface.presentNow()
-                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }

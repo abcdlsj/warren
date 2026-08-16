@@ -130,23 +130,26 @@ public struct GhosttyManagedSurface: View {
     private func requestImmediateDisplayRefresh() {
         // Re-entering a shell (tab switch, worktree switch, settings
         // dismissal) can recreate the AppKit view while the renderer is
-        // still settling. Request renderer-thread frames immediately, then
-        // poll for a real inline present: the fixed-delay paths (refreshLayout
-        // and a single late presentNow) all skip silently while the view is
-        // not mounted, which left the pane black until a manual window resize.
+        // still settling. Poll cheaply until the view mounts (no render tick
+        // while unmounted), then a few delayed draws cover content that
+        // arrives after the mount. Frame-rate drawing for seconds starves the
+        // main actor and hangs the desktop.
         surface.requestDisplayRefresh()
         DispatchQueue.main.async { [weak surface] in
             surface?.requestDisplayRefresh()
         }
         Task { @MainActor [weak surface] in
-            for _ in 0..<190 {
-                guard let surface else { return }
+            guard let surface else { return }
+            for _ in 0..<60 {
+                if surface.presentNow() {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            for delay in [0.1, 0.25, 0.5] {
+                try? await Task.sleep(for: .seconds(delay))
                 surface.requestDisplayRefresh()
                 _ = surface.presentNow()
-                // Keep drawing at frame rate for the first seconds after
-                // activation so content that arrives after the view mounts
-                // (attach snapshots, layout settling) is never left black.
-                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -224,24 +227,20 @@ public final class GhosttyFocusDriver {
         }
     }
 
-    /// Fits and presents a terminal view once it is mounted, retrying at one
-    /// display frame until the view appears (up to ~3s). Worktree and tab
-    /// switches recreate the AppKit view; fixed-delay callbacks can all run
-    /// before it mounts, leaving the pane black until a manual window resize.
+    /// Fits and presents a terminal view a few times after it mounts. The
+    /// activation/attach polls handle late mounts; repeating fitToSize at
+    /// frame rate would churn layout and starve the main actor.
     public func fitAndPresent(
         of state: TerminalViewState,
         present: @escaping () -> Void
     ) {
-        Task { @MainActor [weak self, weak state] in
-            for _ in 0..<190 {
+        for delay in [0.0, 0.1, 0.3] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                [weak self, weak state] in
                 guard let self, let state,
-                      let (_, target) = self.terminalView(matching: state) else {
-                    try? await Task.sleep(for: .milliseconds(16))
-                    continue
-                }
+                      let (_, target) = self.terminalView(matching: state) else { return }
                 target.fitToSize()
                 present()
-                try? await Task.sleep(for: .milliseconds(16))
             }
         }
     }
@@ -408,9 +407,8 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
             focusDriver.register(state, in: window)
             repair()
             // The terminal view just mounted (or was recreated by a worktree
-            // or tab switch). Fit and draw it immediately, and keep retrying
-            // at frame rate so a late layout or a snapshot that arrives after
-            // the first draw is still presented without a manual resize.
+            // or tab switch). Fit and draw it immediately, then again after
+            // layout settles; the activation/attach polls cover late mounts.
             focusDriver.fitAndPresent(of: state) {
                 surface.requestDisplayRefresh()
                 _ = surface.presentNow()
