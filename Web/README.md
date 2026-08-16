@@ -26,3 +26,19 @@ Runtime parameters are injected through meta placeholders in `index.html`:
 - `__WARREN_RELAY_HOST_ID__`: target Host ID for the central Relay.
 
 SSH, the WebSocket protocol, and the Host resource model do not belong to the Vite project; they are maintained by the Go server side.
+
+## Layout
+
+The web client renders three layout tiers instead of compressing one desktop
+layout onto phones:
+
+- **Desktop (≥1024px)** — persistent sidebar, tab bar, preset bar, and pane
+  title next to the terminal.
+- **Compact (768–1023px)** — same desktop chrome, with the sidebar as an
+  overlay drawer so the terminal keeps the width.
+- **Mobile (<768px)** — a single-column shell built around the terminal and
+  agent conversation: a command bar (workspace, connection, agent Term/Chat
+  toggle, search, new session), a swipeable session pill strip, and a
+  collapsible Ctrl key row. New sessions open from a bottom sheet, context
+  menus render as bottom sheets, and the soft-keyboard inset applies to the
+  main surface for both terminal and agent input.
