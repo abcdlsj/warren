@@ -27,12 +27,15 @@ import { AgentView } from "./agent.jsx";
 import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
+import { useKeyboardInset } from "./keyboard.js";
 import {
   EmptyTerminal,
   ContextMenu,
+  MobileShell,
   MobileKeys,
   PresetBar,
   SearchPanel,
+  SessionSheet,
   SettingsPage,
   Sidebar,
   TerminalSearch,
@@ -51,7 +54,7 @@ const storageKeys = {
 };
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
-const defaultFontSize = matchMedia("(max-width: 760px)").matches ? 12 : 13;
+const defaultFontSize = matchMedia("(max-width: 767px)").matches ? 12 : 13;
 const terminalTheme = {
   background: "#151110",
   foreground: "#eae8e6",
@@ -133,8 +136,10 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState(null);
   const [agentStateBySession, setAgentStateBySession] = useState({});
   const [agentViewOverride, setAgentViewOverride] = useState(null);
+  const [sessionSheetOpen, setSessionSheetOpen] = useState(false);
 
   const connectionRef = useRef(null);
+  const mainRef = useRef(null);
   const terminalHostRef = useRef(null);
   const terminalRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -159,6 +164,8 @@ export default function App() {
    const navigationBeforeSettingsRef = useRef(null);
   const autoFocusOnAttachRef = useRef(true);
   const projectDragRef = useRef(null);
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  useKeyboardInset(mainRef);
   if (inputQueueRef.current === null) {
     inputQueueRef.current = new InputQueue({
       limit: pendingInputLimit,
@@ -535,6 +542,11 @@ export default function App() {
     });
     if (!sent) connectionRef.current?.reconnectNow();
   }, [attachSession, presetCommands, request, selectedWorkspaceID]);
+
+  const chooseSessionPreset = useCallback(kind => {
+    setSessionSheetOpen(false);
+    createSession(kind);
+  }, [createSession]);
 
   const updatePresetCommand = useCallback((kind, command) => {
     setPresetCommands(previous => {
@@ -1250,6 +1262,21 @@ export default function App() {
     ]);
   }, [deleteSession, renameSession, showContextMenu, toggleSessionPin]);
 
+  const openSessionMenu = useCallback(() => {
+    const state = appStateRef.current;
+    const session = state.activeSession ? state.catalog?.sessions.get(state.activeSession) : null;
+    if (!session) return;
+    // Mobile has no right-click; anchor the session menu near the thumb at
+    // the bottom of the screen so it reads as a native action sheet.
+    const event = new MouseEvent("contextmenu", {
+      clientX: window.innerWidth - 16,
+      clientY: window.innerHeight - 96,
+      bubbles: true,
+      cancelable: true,
+    });
+    sessionContextMenu(event, session);
+  }, [sessionContextMenu]);
+
   const beginProjectDrag = useCallback(previousExpanded => {
     projectDragRef.current = { previousExpanded };
     setExpandedProjects(new Set());
@@ -1314,6 +1341,10 @@ export default function App() {
         closeTerminalSearch();
         return;
       }
+      if (event.key === "Escape" && drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
       if (event.key === "Escape" && searchOpen) {
         closeSearch();
         return;
@@ -1336,7 +1367,7 @@ export default function App() {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [searchOpen, settingsOpen, terminalSearchOpen, openSettings, closeSearch, closeSettings, closeTerminalSearch, openTerminalSearch]);
+  }, [searchOpen, settingsOpen, drawerOpen, terminalSearchOpen, openSettings, closeSearch, closeSettings, closeTerminalSearch, openTerminalSearch]);
 
   const chooseSearchWorkspace = useCallback(workspaceID => {
     closeSearch();
@@ -1424,36 +1455,57 @@ export default function App() {
           onEndProjectDrag={endProjectDrag}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
-        <main className="main">
-          <TopBar
-            tabs={tabs}
-            activeSession={activeSession}
-            workspace={selectedWorkspace}
-            onAttachSession={attachSession}
-            onNewSession={() => createSession("shell")}
-            onOpenMenu={() => setDrawerOpen(true)}
-            onOpenSearch={() => setSearchOpen(true)}
-            onTabContextMenu={sessionContextMenu}
-          />
-          <PresetBar presets={sessionPresets} onCreateSession={createSession} />
-          <div className="pane-title">
-            <span>{paneTitle}</span>
-            {isAgentSession && (agentModel || selectedSession?.agentSessionId) && (
-              <span className="pane-agent-meta">
-                {agentModel && <span className="pane-agent-model">{agentModel}</span>}
-                {selectedSession?.agentSessionId && <code className="pane-agent-session">{shortSessionID(selectedSession.agentSessionId)}</code>}
-              </span>
-            )}
-            {isAgentSession && (agentViewActive ? (
-              <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
-                Terminal
-              </button>
-            ) : (
-              <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
-                Agent
-              </button>
-            ))}
-          </div>
+        <main className="main" ref={mainRef}>
+          {isMobile ? (
+            <MobileShell
+              workspace={selectedWorkspace}
+              tabs={tabs}
+              activeSession={activeSession}
+              connection={connectionStatus}
+              agentSession={isAgentSession ? selectedSession : null}
+              agentViewActive={agentViewActive}
+              agentModel={agentModel}
+              onAttachSession={attachSession}
+              onToggleAgentView={setAgentViewOverride}
+              onOpenMenu={() => setDrawerOpen(true)}
+              onOpenSearch={() => setSearchOpen(true)}
+              onNewSession={() => setSessionSheetOpen(true)}
+              onOpenSessionMenu={openSessionMenu}
+              onSessionContextMenu={sessionContextMenu}
+            />
+          ) : (
+            <>
+              <TopBar
+                tabs={tabs}
+                activeSession={activeSession}
+                workspace={selectedWorkspace}
+                onAttachSession={attachSession}
+                onNewSession={() => createSession("shell")}
+                onOpenMenu={() => setDrawerOpen(true)}
+                onOpenSearch={() => setSearchOpen(true)}
+                onTabContextMenu={sessionContextMenu}
+              />
+              <PresetBar presets={sessionPresets} onCreateSession={createSession} />
+              <div className="pane-title">
+                <span>{paneTitle}</span>
+                {isAgentSession && (agentModel || selectedSession?.agentSessionId) && (
+                  <span className="pane-agent-meta">
+                    {agentModel && <span className="pane-agent-model">{agentModel}</span>}
+                    {selectedSession?.agentSessionId && <code className="pane-agent-session">{shortSessionID(selectedSession.agentSessionId)}</code>}
+                  </span>
+                )}
+                {isAgentSession && (agentViewActive ? (
+                  <button type="button" className="pane-action" onClick={() => setAgentViewOverride("terminal")}>
+                    Terminal
+                  </button>
+                ) : (
+                  <button type="button" className="pane-action" onClick={() => setAgentViewOverride("agent")}>
+                    Agent
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <section
             className="terminal-shell"
             aria-label="Terminal"
@@ -1525,6 +1577,14 @@ export default function App() {
         onChooseWorkspace={chooseSearchWorkspace}
         onChooseProject={chooseSearchProject}
       />
+      {isMobile && (
+        <SessionSheet
+          open={sessionSheetOpen}
+          presets={sessionPresets}
+          onChoose={chooseSessionPreset}
+          onClose={() => setSessionSheetOpen(false)}
+        />
+      )}
       <ContextMenu menu={contextMenu} onClose={closeContextMenu} />
     </>
   );
@@ -1536,6 +1596,18 @@ function loadSet(key) {
   } catch {
     return new Set();
   }
+}
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = event => setMatches(event.matches);
+    media.addEventListener("change", onChange);
+    setMatches(media.matches);
+    return () => media.removeEventListener("change", onChange);
+  }, [query]);
+  return matches;
 }
 
 function loadPresetCommands() {

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { webAssetURL } from "./runtime.js";
 import { terminalSearchSummary } from "./terminal.js";
 import { terminalTabTitle } from "./title.js";
-import { keyboardInset } from "./viewport.js";
 
 const activityLabels = {
   working: "Working",
@@ -42,11 +41,31 @@ const pinIcon = (
   </svg>
 );
 
+const moreIcon = (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.7" />
+    <circle cx="12" cy="12" r="1.7" />
+    <circle cx="19" cy="12" r="1.7" />
+  </svg>
+);
+
 export function ActivityDot({ activity }) {
   const label = activityLabels[activity];
   if (!label) return null;
   const pulse = activity === "ready" || activity === "exited" ? "" : " pulse";
   return <span className={`activity ${activity}${pulse}`} title={label} aria-label={label} />;
+}
+
+function SessionPresetIcon({ kind }) {
+  if (kind === "codex") {
+    return (
+      <picture>
+        <source media="(prefers-color-scheme:dark)" srcSet={webAssetURL("preset-codex-white.svg")} />
+        <img src={webAssetURL("preset-codex.svg")} alt="" />
+      </picture>
+    );
+  }
+  return <img src={webAssetURL(`preset-${kind}.svg`)} alt="" />;
 }
 
 export function Sidebar({
@@ -366,6 +385,86 @@ export function TopBar({
   );
 }
 
+export function MobileShell({
+  workspace,
+  tabs,
+  activeSession,
+  connection,
+  agentSession,
+  agentViewActive,
+  agentModel,
+  onAttachSession,
+  onToggleAgentView,
+  onOpenMenu,
+  onOpenSearch,
+  onNewSession,
+  onOpenSessionMenu,
+  onSessionContextMenu,
+}) {
+  return (
+    <header className="mobile-shell">
+      <div className="mobile-command">
+        <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
+        <div className="mobile-workspace" title={connection.message}>
+          <span className="mobile-workspace-name">{workspace?.branch || workspace?.name || "Warren"}</span>
+          <span className={`mobile-connection${connection.online ? " online" : ""}`} aria-label={connection.message}>
+            <span className="connection-dot" />
+          </span>
+        </div>
+        {agentSession && (
+          <div className="agent-view-toggle" role="group" aria-label="View" title={agentModel ? `Model: ${agentModel}` : undefined}>
+            <button
+              type="button"
+              className={agentViewActive ? undefined : "active"}
+              aria-pressed={!agentViewActive}
+              onClick={() => onToggleAgentView("terminal")}
+            >
+              Term
+            </button>
+            <button
+              type="button"
+              className={agentViewActive ? "active" : undefined}
+              aria-pressed={agentViewActive}
+              onClick={() => onToggleAgentView("agent")}
+            >
+              Chat
+            </button>
+          </div>
+        )}
+        <div className="chrome-spacer" />
+        {activeSession && (
+          <button type="button" className="chrome-button" aria-label="Session actions" onClick={onOpenSessionMenu}>
+            {moreIcon}
+          </button>
+        )}
+        <button type="button" className="chrome-button" aria-label="Search projects" onClick={onOpenSearch}>
+          <SearchIcon />
+        </button>
+        <button type="button" className="new-session" aria-label="New session" onClick={onNewSession}>+</button>
+      </div>
+      <nav className="mobile-tabs" role="tablist" aria-label="Sessions">
+        {tabs.map(session => {
+          const active = session.id === activeSession;
+          return (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`mobile-tab${active ? " active" : ""}`}
+              key={session.id}
+              onClick={() => onAttachSession(session.id)}
+              onContextMenu={event => onSessionContextMenu?.(event, session)}
+            >
+              <ActivityDot activity={session.activity} />
+              <span className="mobile-tab-title">{terminalTabTitle(session, workspace)}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </header>
+  );
+}
+
 export function ContextMenu({ menu, onClose }) {
   const menuRef = useRef(null);
 
@@ -418,12 +517,7 @@ export function PresetBar({ presets, onCreateSession }) {
     <nav className="presetbar" aria-label="Session presets">
       {presets.map(preset => (
         <button type="button" className="preset" key={preset.kind} onClick={() => onCreateSession(preset.kind)}>
-          {preset.kind === "codex" ? (
-            <picture>
-              <source media="(prefers-color-scheme:dark)" srcSet={webAssetURL("preset-codex-white.svg")} />
-              <img src={webAssetURL("preset-codex.svg")} alt="" />
-            </picture>
-          ) : <img src={webAssetURL(`preset-${preset.kind}.svg`)} alt="" />}
+          <SessionPresetIcon kind={preset.kind} />
           {preset.label}
         </button>
       ))}
@@ -532,9 +626,9 @@ export function TerminalSearch({
 }
 
 export function MobileKeys({ onInput }) {
-  const barRef = useRef(null);
-  // Two balanced rows keep every row full: navigation/common keys on top,
-  // Ctrl chords below. Buttons stretch to share the row evenly.
+  const [extended, setExtended] = useState(false);
+  // The primary row is always visible; Ctrl chords expand on demand so the
+  // keyboard never eats the terminal by default.
   const keyRows = [
     [
       ["escape", "Esc", "\u001b"],
@@ -557,85 +651,64 @@ export function MobileKeys({ onInput }) {
     ],
   ];
 
-  useEffect(() => {
-    const bar = barRef.current;
-    const viewport = window.visualViewport;
-    const main = bar?.parentElement;
-    if (!bar || !main || !viewport) return undefined;
-
-    // Apply the keyboard inset only at discrete open/close points instead of
-    // on every visualViewport event. During the keyboard animation those
-    // events fire per frame; following them continuously resizes the shell
-    // and makes the terminal canvas flicker.
-    const OPEN_THRESHOLD_PX = 24;
-    const SETTLE_MS = 100;
-    let keyboardOpen = false;
-    let appliedInset = 0;
-    let settleTimer = null;
-    const apply = inset => {
-      main.style.paddingBottom = inset > 0 ? `${inset}px` : "";
-      bar.classList.toggle("keyboard-open", inset > 0);
-    };
-    const clearSettle = () => {
-      if (settleTimer !== null) {
-        clearTimeout(settleTimer);
-        settleTimer = null;
-      }
-    };
-    const update = () => {
-      // Cross-platform keyboard inset: Android resizes the layout viewport
-      // (covered ~= 0, bottom stays 0), iOS keeps the layout height and pans
-      // the visual viewport (covered == keyboard height). Shrink the main
-      // grid with bottom padding so the shell and the shortcut bar both sit
-      // above the keyboard; clear it again once the keyboard collapses.
-      const inset = keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop);
-      if (keyboardOpen) {
-        if (inset === 0) {
-          clearSettle();
-          keyboardOpen = false;
-          appliedInset = 0;
-          apply(0);
-          return;
-        }
-        if (inset <= appliedInset) return;
-        // A keyboard that grows taller (IME/layout switch) streams resize
-        // events per frame. Wait for the stream to settle so the shell does
-        // not reflow on every frame, then lift it to the final height.
-        clearSettle();
-        settleTimer = setTimeout(() => {
-          settleTimer = null;
-          appliedInset = inset;
-          apply(inset);
-        }, SETTLE_MS);
-      } else if (inset > OPEN_THRESHOLD_PX) {
-        clearSettle();
-        keyboardOpen = true;
-        appliedInset = inset;
-        apply(inset);
-      }
-    };
-    update();
-    viewport.addEventListener("resize", update);
-    viewport.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    return () => {
-      clearSettle();
-      viewport.removeEventListener("resize", update);
-      viewport.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, []);
-
   return (
-    <nav ref={barRef} className="mobile-keys" aria-label="Terminal keys">
-      {keyRows.map((row, rowIndex) => (
-        <div className="mobile-key-row" key={rowIndex}>
-          {row.map(([key, label, sequence]) => (
+    <nav className="mobile-keys" aria-label="Terminal keys">
+      <div className="mobile-key-row">
+        {keyRows[0].map(([key, label, sequence]) => (
+          <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
+        ))}
+        <button
+          type="button"
+          className={`mobile-key mobile-key-toggle${extended ? " active" : ""}`}
+          aria-pressed={extended}
+          aria-label={extended ? "Hide Ctrl keys" : "Show Ctrl keys"}
+          onClick={() => setExtended(previous => !previous)}
+        >
+          Ctrl
+        </button>
+      </div>
+      {extended && (
+        <div className="mobile-key-row">
+          {keyRows[1].map(([key, label, sequence]) => (
             <button type="button" className="mobile-key" key={key} onClick={() => onInput(sequence)}>{label}</button>
           ))}
         </div>
-      ))}
+      )}
     </nav>
+  );
+}
+
+export function SessionSheet({ open, presets, onChoose, onClose }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleKeyDown = event => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div className="session-sheet-overlay" onClick={onClose}>
+      <div
+        className="session-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="New session"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="session-sheet-handle" aria-hidden="true" />
+        <div className="session-sheet-title">New session</div>
+        {presets.map(preset => (
+          <button type="button" className="session-sheet-item" key={preset.kind} onClick={() => onChoose(preset.kind)}>
+            <SessionPresetIcon kind={preset.kind} />
+            <span>{preset.label}</span>
+          </button>
+        ))}
+        <button type="button" className="session-sheet-cancel" onClick={onClose}>Cancel</button>
+      </div>
+    </div>
   );
 }
 
