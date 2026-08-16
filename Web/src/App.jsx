@@ -457,7 +457,7 @@ export default function App() {
   }, [attachSession, clearTerminalSearch, request]);
 
   const createSession = useCallback(kind => {
-    const workspaceID = appStateRef.current.activeWorkspace;
+    const workspaceID = appStateRef.current.activeWorkspace || selectedWorkspaceID;
     if (!workspaceID) return;
     const preset = sessionPresets.find(value => value.kind === kind) || sessionPresets[0];
     const sent = request("session.create", {
@@ -474,7 +474,7 @@ export default function App() {
       message: sent ? `Starting ${preset.title}…` : "Waiting for connection…",
     });
     if (!sent) connectionRef.current?.reconnectNow();
-  }, [attachSession, presetCommands, request]);
+  }, [attachSession, presetCommands, request, selectedWorkspaceID]);
 
   const updatePresetCommand = useCallback((kind, command) => {
     setPresetCommands(previous => {
