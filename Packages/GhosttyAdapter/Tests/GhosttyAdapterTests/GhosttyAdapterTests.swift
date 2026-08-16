@@ -135,6 +135,28 @@ final class GhosttyAdapterTests: XCTestCase {
         )
     }
 
+    func testDiagnosticSizeFormattingNeverTrapsOnExtremeValues() {
+        XCTAssertEqual(
+            GhosttyDiagnosticsFormat.finiteSize(
+                CGSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.infinity
+                )
+            ),
+            ">1Mxinf"
+        )
+        XCTAssertEqual(
+            GhosttyDiagnosticsFormat.finiteSize(
+                CGSize(width: CGFloat.nan, height: 0)
+            ),
+            "infx0"
+        )
+        XCTAssertEqual(
+            GhosttyDiagnosticsFormat.finiteSize(CGSize(width: -800, height: 600)),
+            "-800x600"
+        )
+    }
+
     @MainActor
     func testOutputWriterDrainsFramedAndRawBytesOffMainInOrder() async throws {
         let surface = GhosttySurface(

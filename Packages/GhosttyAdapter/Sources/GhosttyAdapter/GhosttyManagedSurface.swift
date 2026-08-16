@@ -516,7 +516,7 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
 
 }
 
-private enum GhosttyDiagnosticsFormat {
+enum GhosttyDiagnosticsFormat {
     static func finiteSize(_ size: CGSize) -> String {
         "\(finitePart(size.width))x\(finitePart(size.height))"
     }

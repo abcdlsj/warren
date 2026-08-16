@@ -305,7 +305,7 @@ struct WarrenDesktopSettingsView: View {
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
                     Text("Size").font(WarrenTypography.bodyEmphasis)
                     Stepper(value: $fontSize, in: 8...32, step: 1) {
-                        Text("\(Int(fontSize)) pt")
+                        Text("\(Self.fontSizeLabel(fontSize)) pt")
                             .font(WarrenTypography.code)
                             .frame(width: 44, alignment: .leading)
                     }
@@ -320,6 +320,13 @@ struct WarrenDesktopSettingsView: View {
                 .background(tokens.fillHover)
                 .clipShape(.rect(cornerRadius: WarrenRadius.medium))
         }
+    }
+
+    private static func fontSizeLabel(_ value: Double) -> String {
+        let safe = value.isFinite
+            ? min(max(value, 8), 32)
+            : TerminalFontPreference.defaultSize
+        return String(Int(safe))
     }
 
     private func terminalTitleSection(tokens: WarrenColorTokens) -> some View {
