@@ -57,6 +57,39 @@ func TestSessionRowsJoinsWorkspaceAndProject(t *testing.T) {
 	}
 }
 
+func TestParseFlagsBareBooleanDoesNotConsumePositional(t *testing.T) {
+	params := parseFlags([]string{"session-1", "--raw", "hello world"})
+	if !boolValue(params, "raw") {
+		t.Fatalf("raw = false, want true")
+	}
+	positions := positionals(params)
+	if len(positions) != 2 || positions[0] != "session-1" || positions[1] != "hello world" {
+		t.Fatalf("positionals = %q, want [session-1 hello world]", positions)
+	}
+}
+
+func TestParseFlagsBooleanWithExplicitValueStillConsumes(t *testing.T) {
+	params := parseFlags([]string{"session-1", "--pinned", "true"})
+	if stringValue(params, "pinned") != "true" {
+		t.Fatalf("pinned = %q, want true", stringValue(params, "pinned"))
+	}
+	positions := positionals(params)
+	if len(positions) != 1 || positions[0] != "session-1" {
+		t.Fatalf("positionals = %q, want [session-1]", positions)
+	}
+}
+
+func TestParseFlagsBooleanEqualsStillWorks(t *testing.T) {
+	params := parseFlags([]string{"session-1", "--raw=true", "hello world"})
+	if !boolValue(params, "raw") {
+		t.Fatalf("raw = false, want true")
+	}
+	positions := positionals(params)
+	if len(positions) != 2 || positions[1] != "hello world" {
+		t.Fatalf("positionals = %q, want [session-1 hello world]", positions)
+	}
+}
+
 func TestSessionRowsKeepsOrphanSessionUsable(t *testing.T) {
 	state := api.State{
 		Sessions: []api.Session{{

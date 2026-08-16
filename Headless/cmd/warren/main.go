@@ -592,7 +592,10 @@ func parseFlags(args []string) map[string]any {
 			value[split[0]] = split[1]
 			continue
 		}
-		if index+1 < len(args) && !strings.HasPrefix(args[index+1], "--") {
+		// Bare boolean flags must not consume the next positional as their
+		// value. `--raw "text"` therefore sets raw=true and keeps "text" as a
+		// positional, while `--pinned true` still consumes "true" as its value.
+		if index+1 < len(args) && !strings.HasPrefix(args[index+1], "--") && !bareBooleanFlags[key] {
 			value[key] = args[index+1]
 			index++
 		} else {
@@ -601,6 +604,17 @@ func parseFlags(args []string) map[string]any {
 	}
 	return value
 }
+
+var bareBooleanFlags = map[string]bool{
+	"all":           true,
+	"ended":         true,
+	"force":         true,
+	"help":          true,
+	"keep-worktree": true,
+	"raw":           true,
+	"use":           true,
+}
+
 func normalizedParams(values map[string]any, resource, action string) map[string]any {
 	result := map[string]any{}
 	for key, value := range values {
