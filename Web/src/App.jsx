@@ -312,10 +312,21 @@ export default function App() {
   }, []);
 
   const sendAgentInput = useCallback(text => {
-    // The agent process is a TUI: the only input channel is the PTY. Normal
-    // newlines become terminal returns so Enter submits exactly like typing
-    // in the terminal.
-    sendInput(text.replace(/\n/g, "\r") + "\r");
+    // The agent process is a TUI: the only input channel is the PTY. Codex
+    // reads a literal CR as text (a newline inside the input box), not as a
+    // submit key, so the message is written first and the kitty-protocol
+    // Enter event (CSI 13 u) is delivered in its own frame afterwards. The
+    // small delay keeps the TUI from folding both writes into one paste and
+    // dropping the message before the Enter key.
+    const state = appStateRef.current;
+    const sessionID = state.activeSession;
+    if (!sessionID) return;
+    sendInput(text.replace(/\n/g, "\r"));
+    setTimeout(() => {
+      if (appStateRef.current.activeSession === sessionID) {
+        sendInput("\x1b[13u");
+      }
+    }, 80);
   }, [sendInput]);
 
   const fitTerminal = useCallback(() => {
