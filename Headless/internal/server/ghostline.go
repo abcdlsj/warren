@@ -31,10 +31,10 @@ func (r *GhostlineRuntime) Check(ctx context.Context) error {
 func (r *GhostlineRuntime) Create(ctx context.Context, name, directory, command string, env []string) error {
 	// The PTY always starts an interactive login shell and the requested
 	// command is typed into it, so quitting an agent TUI leaves a usable
-	// terminal behind. TERM is pinned to a color-capable terminal and
-	// NO_COLOR is cleared regardless of the daemon's own environment,
-	// otherwise agents silently drop colors.
-	sessionEnv := []string{"TERM=xterm-256color", "NO_COLOR="}
+	// terminal behind. ghostline already defaults TERM to xterm-256color,
+	// so only NO_COLOR is cleared here regardless of the daemon's own
+	// environment, otherwise agents silently drop colors.
+	sessionEnv := []string{"NO_COLOR="}
 	sessionEnv = append(sessionEnv, env...)
 	session, err := r.client.Start(ctx, ghostline.SessionOptions{
 		Name:        name,
