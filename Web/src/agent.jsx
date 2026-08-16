@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -14,12 +14,32 @@ export function AgentView({
 }) {
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const pinnedSessionIDRef = useRef(null);
+  const pinToBottomRef = useRef(true);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return;
+    // A fresh agent view (new session, history reset, or re-entering agent
+    // mode) should open at the latest messages instead of the top. History
+    // pages can arrive after mount, so keep the pin until content actually
+    // overflows; after that, loading older pages never yanks the reader.
+    if (pinnedSessionIDRef.current !== session?.id || events.length === 0) {
+      pinnedSessionIDRef.current = session?.id;
+      pinToBottomRef.current = true;
+    }
+    if (!pinToBottomRef.current) return;
+    if (list.scrollHeight - list.clientHeight > 8) {
+      list.scrollTop = list.scrollHeight;
+      pinToBottomRef.current = false;
+    }
+  }, [events.length, session?.id]);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || pinToBottomRef.current) return;
     const followsBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 160;
     if (followsBottom) list.scrollTop = list.scrollHeight;
   }, [events.length]);
