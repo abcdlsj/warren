@@ -458,12 +458,12 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	})
 	for i := range state.Sessions {
 		session := &state.Sessions[i]
-		if session.Lifecycle != "running" || (session.Kind != "codex" && session.Kind != "claude") {
+		if session.Lifecycle != "running" {
 			continue
 		}
 		if activity := s.agentActivity(session.ID); activity != "" {
 			session.AgentActivity = activity
-		} else {
+		} else if session.Kind == "codex" || session.Kind == "claude" {
 			session.AgentActivity = api.AgentActivityReady
 		}
 	}
@@ -988,10 +988,10 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 			injectedClaude = true
 		}
 	}
-	env := []string(nil)
-	if kind == "codex" || kind == "claude" {
-		env = agent.BindEnvironment(id, kind)
-	}
+	// Every session gets the binding environment so a CLI started manually
+	// inside a plain shell is bound to the same Warren session by its own
+	// lifecycle hooks.
+	env := agent.BindEnvironment(id, kind)
 	if err := adapter.Create(ctx, runtimeName, workspace.Path, command, env); err != nil {
 		return api.Session{}, err
 	}
@@ -1167,31 +1167,20 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	return outputSession, nil
 }
 
-// ensureAgent starts a transcript watcher for a running Codex/Claude session.
-// The watcher is best-effort: no transcript yet, an unknown CLI layout, or a
-// missing CLI must never make the terminal session fail.
+// ensureAgent starts a transcript watcher for a running Codex/Claude session
+// or for a plain shell/custom session that has a live Warren-managed agent
+// binding (the user started the CLI manually inside the shell). The watcher
+// is best-effort: no transcript yet, an unknown CLI layout, or a missing CLI
+// must never make the terminal session fail.
 func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentSession, error) {
-	if session.Kind != "codex" && session.Kind != "claude" {
+	dedicated := session.Kind == "codex" || session.Kind == "claude"
+	shellOverlay := session.Kind == "shell" || session.Kind == "custom"
+	if !dedicated && !shellOverlay {
 		return nil, nil
 	}
-	if s.AgentFinder == nil {
+	if dedicated && s.AgentFinder == nil {
 		return nil, nil
 	}
-	s.lazyInit()
-	s.agentsMu.Lock()
-	if existing := s.agents[session.ID]; existing != nil {
-		if existing.watcher != nil || time.Since(existing.lastFind) < 5*time.Second {
-			s.agentsMu.Unlock()
-			return existing, nil
-		}
-	}
-	entry := s.agents[session.ID]
-	if entry == nil {
-		entry = &agentSession{}
-		s.agents[session.ID] = entry
-	}
-	entry.lastFind = time.Now()
-	s.agentsMu.Unlock()
 
 	workspacePath := ""
 	for _, workspace := range s.Store.Snapshot().Workspaces {
@@ -1204,42 +1193,151 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 		s.stopAgent(session.ID)
 		return nil, nil
 	}
-	transcriptPath := s.boundTranscript(session, workspacePath)
+
+	provider := session.Kind
 	agentSessionID := session.AgentSessionID
-	if binding, err := agent.ReadBinding(agent.BindPath(session.ID)); err == nil && binding != nil {
-		agentSessionID = binding.SessionID
-	}
-	if transcriptPath == "" {
-		found, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
-		if err != nil || found == "" || s.transcriptTakenByOther(found, session.ID) {
-			// Keep the placeholder so reconcile retries at its next tick
-			// instead of re-running discovery concurrently from every caller.
-			return entry, nil
+	transcriptPath := ""
+	if dedicated {
+		s.lazyInit()
+		s.agentsMu.Lock()
+		if existing := s.agents[session.ID]; existing != nil {
+			if existing.watcher != nil || time.Since(existing.lastFind) < 5*time.Second {
+				s.agentsMu.Unlock()
+				return existing, nil
+			}
 		}
-		transcriptPath = found
+		entry := s.agents[session.ID]
+		if entry == nil {
+			entry = &agentSession{}
+			s.agents[session.ID] = entry
+		}
+		entry.lastFind = time.Now()
+		s.agentsMu.Unlock()
+
+		transcriptPath = s.boundTranscript(session, workspacePath)
+		if binding, err := agent.ReadBinding(agent.BindPath(session.ID)); err == nil && binding != nil {
+			agentSessionID = binding.SessionID
+		}
+		if transcriptPath == "" {
+			found, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
+			if err != nil || found == "" || s.transcriptTakenByOther(found, session.ID) {
+				// Keep the placeholder so reconcile retries at its next tick
+				// instead of re-running discovery concurrently from every caller.
+				return entry, nil
+			}
+			transcriptPath = found
+		}
+	} else {
+		binding, err := agent.ReadBinding(agent.BindPath(session.ID))
+		if err != nil || binding == nil || (binding.Provider != "codex" && binding.Provider != "claude") {
+			s.clearShellAgent(session)
+			return nil, nil
+		}
+		state, stateErr := agent.ReadAgentState(agent.StatePath(session.ID))
+		if stateErr == nil && state == api.AgentActivityExited {
+			s.clearShellAgent(session)
+			return nil, nil
+		}
+		info, statErr := os.Stat(binding.TranscriptPath)
+		if statErr != nil || info.IsDir() {
+			return nil, nil
+		}
+		if s.transcriptTakenByOther(binding.TranscriptPath, session.ID) {
+			return nil, nil
+		}
+		provider = binding.Provider
+		agentSessionID = binding.SessionID
+		transcriptPath = binding.TranscriptPath
 	}
+
+	entry := s.startAgentWatcher(session.ID, provider, transcriptPath, !dedicated)
 	s.persistAgentMeta(session.ID, agentSessionID, transcriptPath)
+	return entry, nil
+}
+
+// startAgentWatcher starts (or reuses) the transcript watcher for one
+// session. For shell overlays the ready state is seeded immediately so the
+// roster shows a live agent even before the first transcript event arrives.
+func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, seedReady bool) *agentSession {
+	s.lazyInit()
+	s.agentsMu.Lock()
+	existing := s.agents[sessionID]
+	if existing != nil && existing.watcher != nil && existing.watcher.Path() == transcriptPath {
+		s.agentsMu.Unlock()
+		return existing
+	}
+	var closing *agent.Watcher
+	if existing != nil && existing.watcher != nil {
+		closing = existing.watcher
+		existing.watcher = nil
+		existing.mu.Lock()
+		existing.activity = ""
+		existing.mu.Unlock()
+	}
+	if existing == nil {
+		existing = &agentSession{}
+		s.agents[sessionID] = existing
+	}
+	if seedReady {
+		existing.mu.Lock()
+		if existing.activity == "" {
+			existing.activity = api.AgentActivityReady
+		}
+		existing.mu.Unlock()
+	}
+	s.agentsMu.Unlock()
 	watcher := agent.Start(
-		session.ID,
-		session.Kind,
+		sessionID,
+		provider,
 		transcriptPath,
 		func(events []api.AgentEvent, activity api.AgentActivity) {
-			s.recordAgentEvents(session.ID, events, activity)
+			s.recordAgentEvents(sessionID, events, activity)
 		},
 		func(activity api.AgentActivity) {
-			s.recordAgentActivity(session.ID, activity)
+			s.recordAgentActivity(sessionID, activity)
 		},
 	)
 	s.agentsMu.Lock()
-	current := s.agents[session.ID]
+	current := s.agents[sessionID]
 	if current == nil || current.watcher != nil {
 		s.agentsMu.Unlock()
+		if closing != nil {
+			closing.Close()
+		}
 		watcher.Close()
-		return current, nil
+		return current
 	}
 	current.watcher = watcher
 	s.agentsMu.Unlock()
-	return current, nil
+	if closing != nil {
+		closing.Close()
+	}
+	return current
+}
+
+// clearShellAgent tears down a shell overlay after its agent CLI exited and
+// drops the persisted binding so clients stop treating the tab as an agent.
+func (s *Service) clearShellAgent(session api.Session) {
+	if session.Kind == "codex" || session.Kind == "claude" {
+		return
+	}
+	s.agentsMu.Lock()
+	entry := s.agents[session.ID]
+	s.agentsMu.Unlock()
+	hasWatcher := entry != nil && entry.watcher != nil
+	if !hasWatcher && session.AgentSessionID == "" && session.TranscriptPath == "" {
+		return
+	}
+	s.stopAgent(session.ID)
+	_ = s.Store.Update(func(state *api.State) error {
+		for index := range state.Sessions {
+			if state.Sessions[index].ID == session.ID {
+				state.Sessions[index].AgentSessionID = ""
+				state.Sessions[index].TranscriptPath = ""
+			}
+		}
+		return nil
+	})
 }
 
 // transcriptTakenByOther prevents the cwd+mtime fallback from assigning one

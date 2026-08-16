@@ -147,6 +147,17 @@ func TestBindEnvironment(t *testing.T) {
 		!strings.Contains(joined, BindEnvState+"="+StatePath("warren-1")) {
 		t.Fatalf("BindEnvironment = %#v", entries)
 	}
+
+	shellEntries := BindEnvironment("warren-1", "shell")
+	shellJoined := strings.Join(shellEntries, "\n")
+	if !strings.Contains(shellJoined, BindEnvSession+"=warren-1") ||
+		!strings.Contains(shellJoined, BindEnvFile+"="+BindPath("warren-1")) ||
+		!strings.Contains(shellJoined, BindEnvState+"="+StatePath("warren-1")) {
+		t.Fatalf("shell BindEnvironment = %#v", shellEntries)
+	}
+	if strings.Contains(shellJoined, BindEnvKind+"=") {
+		t.Fatalf("shell BindEnvironment must not pin an agent kind: %#v", shellEntries)
+	}
 }
 
 func TestCodexBindHookScriptWritesBinding(t *testing.T) {
@@ -174,6 +185,40 @@ func TestCodexBindHookScriptWritesBinding(t *testing.T) {
 	}
 	if binding == nil || binding.SessionID != "thread-9" || binding.TranscriptPath != "/work/rollout-9.jsonl" || binding.Provider != "codex" {
 		t.Fatalf("hook binding = %#v", binding)
+	}
+	state, err := ReadAgentState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != "ready" {
+		t.Fatalf("hook state = %q, want ready", state)
+	}
+}
+
+func TestHookScriptInfersProviderFromHookCommand(t *testing.T) {
+	t.Setenv("WARREN_DATA_DIR", t.TempDir())
+	claudeDir := t.TempDir()
+	if _, err := EnsureClaudeBindHook(claudeDir); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
+	bindPath := filepath.Join(t.TempDir(), "bind.json")
+	statePath := filepath.Join(t.TempDir(), "bind.state")
+	command := exec.Command("bash", scriptPath, hookCommandMarker, "claude")
+	command.Stdin = strings.NewReader(`{"session_id":"thread-9","transcript_path":"/work/claude.jsonl","cwd":"/work","hook_event_name":"SessionStart"}`)
+	command.Env = append(os.Environ(),
+		"WARREN_BIND_FILE="+bindPath,
+		"WARREN_STATE_FILE="+statePath,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("hook failed: %v: %s", err, output)
+	}
+	binding, err := ReadBinding(bindPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding == nil || binding.SessionID != "thread-9" || binding.Provider != "claude" {
+		t.Fatalf("hook binding = %#v, want claude provider", binding)
 	}
 	state, err := ReadAgentState(statePath)
 	if err != nil {

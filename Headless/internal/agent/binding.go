@@ -43,15 +43,21 @@ const (
 	hookCommandMarker = "# warren-agent-bind-v1"
 )
 
-// BindEnvironment returns the tmux environment entries a Codex/Claude
-// process needs so the managed hook can report its own session ID.
+// BindEnvironment returns the runtime environment entries a session needs so
+// the managed hook can report an agent CLI's own session ID to Warren.
 func BindEnvironment(warrenSessionID, kind string) []string {
-	return []string{
+	entries := []string{
 		BindEnvSession + "=" + warrenSessionID,
-		BindEnvKind + "=" + kind,
 		BindEnvFile + "=" + BindPath(warrenSessionID),
 		BindEnvState + "=" + StatePath(warrenSessionID),
 	}
+	// Dedicated agent sessions know their provider up front. Plain shell and
+	// custom sessions must not pin a provider: whichever agent CLI the user
+	// starts inside them is reported by the hook command itself.
+	if kind == "codex" || kind == "claude" {
+		entries = append(entries, BindEnvKind+"="+kind)
+	}
+	return entries
 }
 
 // BindPath is the per-session file the managed hook writes.
@@ -224,20 +230,20 @@ func ClaudeConfigDir() string {
 // EnsureCodexBindHook installs the Warren SessionStart and SessionEnd hooks
 // into Codex's user hooks file, preserving every existing entry.
 func EnsureCodexBindHook(codexHome string) (changed bool, err error) {
-	return ensureAgentHooks(filepath.Join(codexHome, "hooks.json"))
+	return ensureAgentHooks(filepath.Join(codexHome, "hooks.json"), "codex")
 }
 
 // EnsureClaudeBindHook installs the same two hooks into Claude's user
 // settings file, preserving every existing entry.
 func EnsureClaudeBindHook(claudeConfigDir string) (changed bool, err error) {
-	return ensureAgentHooks(filepath.Join(claudeConfigDir, "settings.json"))
+	return ensureAgentHooks(filepath.Join(claudeConfigDir, "settings.json"), "claude")
 }
 
 // ensureAgentHooks merges the Warren-managed hook command into the
 // SessionStart and SessionEnd arrays of either Codex hooks.json or Claude
 // settings.json. The marker in the command makes repeated installs
 // idempotent; user entries are never touched.
-func ensureAgentHooks(hooksPath string) (changed bool, err error) {
+func ensureAgentHooks(hooksPath, provider string) (changed bool, err error) {
 	scriptPath := filepath.Join(configDir(), "hooks", "agent-bind.sh")
 	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o700); err != nil {
 		return false, fmt.Errorf("create hooks directory: %w", err)
@@ -257,7 +263,7 @@ func ensureAgentHooks(hooksPath string) (changed bool, err error) {
 		hooks = map[string]any{}
 		document["hooks"] = hooks
 	}
-	command := "bash '" + scriptPath + "' " + hookCommandMarker
+	command := "bash '" + scriptPath + "' " + hookCommandMarker + " " + provider
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
 		if ensureHookEvent(hooks, event, command) {
 			changed = true
@@ -326,7 +332,10 @@ cwd=$(printf '%s' "$input" | sed -nE 's/.*"cwd"[[:space:]]*:[[:space:]]*"([^"]*)
 hook_event=$(printf '%s' "$input" | sed -nE 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 [ -n "$session_id" ] || session_id=$(printf '%s' "$input" | sed -nE 's/.*"thread_id"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p')
 [ -n "$session_id" ] || exit 0
-provider=${WARREN_AGENT_KIND:-codex}
+provider=${WARREN_AGENT_KIND}
+if [ -z "$provider" ]; then
+  provider=${2:-codex}
+fi
 if [ "$hook_event" = "SessionEnd" ]; then
   [ -n "$WARREN_STATE_FILE" ] || exit 0
   dir=$(dirname "$WARREN_STATE_FILE")

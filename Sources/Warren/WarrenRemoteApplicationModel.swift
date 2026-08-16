@@ -1419,7 +1419,14 @@ final class WarrenRemoteApplicationModel {
             )
         }
         let liveSessionIDs = Set(remoteSessions.map(\.1))
-        agentActivityBySessionID = agentActivityBySessionID.filter { liveSessionIDs.contains($0.key) }
+        let activeActivitySessionIDs = Set(
+            remoteSessions.compactMap { value, id, _ in
+                (value.activity ?? "").isEmpty ? nil : id
+            }
+        )
+        agentActivityBySessionID = agentActivityBySessionID.filter {
+            liveSessionIDs.contains($0.key) && activeActivitySessionIDs.contains($0.key)
+        }
         // Ended sessions stay in the projection for history, but they are
         // not openable tabs: attaching to them would fail and leave the user
         // staring at a terminal that cannot accept input.
