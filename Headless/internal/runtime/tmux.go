@@ -54,12 +54,21 @@ func (t *Tmux) Create(ctx context.Context, runtimeName, directory, command strin
 	for _, entry := range env {
 		args = append(args, "-e", entry)
 	}
-	if strings.TrimSpace(command) != "" {
-		args = append(args, command)
-	}
 	output, err := t.command(ctx, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create tmux session: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	if strings.TrimSpace(command) != "" {
+		// Start a plain login shell and type the requested command into it.
+		// The shell outlives the command, so Ctrl+C / Ctrl+D inside an agent
+		// TUI leaves a usable terminal instead of ending the session.
+		time.Sleep(400 * time.Millisecond)
+		if output, err := t.command(ctx, "send-keys", "-t", runtimeName, "-l", command).CombinedOutput(); err != nil {
+			return fmt.Errorf("type session command: %s: %w", strings.TrimSpace(string(output)), err)
+		}
+		if _, err := t.command(ctx, "send-keys", "-t", runtimeName, "Enter").CombinedOutput(); err != nil {
+			return fmt.Errorf("submit session command: %w", err)
+		}
 	}
 	// tmux reports Shift+Enter to panes as a kitty-protocol sequence only when
 	// the server's extended-keys option is on. Without it, Ghostty's
