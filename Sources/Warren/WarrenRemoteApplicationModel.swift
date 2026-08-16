@@ -179,6 +179,10 @@ enum WarrenRemoteTerminalProtocol {
 
 private actor WarrenRemoteWire {
     private static let outputChunkBytes = 128 * 1024
+    /// URLSession's default maximumMessageSize (1 MiB) rejects the daemon's
+    /// largest legal frames (terminal output up to 8 MiB plus agent batches);
+    /// raising it is required for those messages to survive the transport.
+    private static let maximumWebSocketMessageBytes = 64 * 1024 * 1024
     private static let connectTimeout: Duration = .seconds(10)
     private static let requestTimeout: Duration = .seconds(15)
     private let configuration: WarrenRemoteEndpointConfiguration
@@ -204,12 +208,7 @@ private actor WarrenRemoteWire {
         components.path = "/v1/ws"
         guard let url = components.url else { throw URLError(.badURL) }
         let socket = URLSession.shared.webSocketTask(with: url)
-        // The daemon can legally deliver terminal output frames up to 8 MiB
-        // and agent history batches of a few hundred KiB. URLSession's
-        // default 1 MiB maximumMessageSize rejects such frames with POSIX
-        // EMSGSIZE ("Message too long") and kills the whole connection, so
-        // raise the ceiling well above the protocol's largest message.
-        socket.maximumMessageSize = 64 * 1024 * 1024
+        socket.maximumMessageSize = Self.maximumWebSocketMessageBytes
         let token = configuration.token
         task = socket
         socket.resume()

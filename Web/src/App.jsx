@@ -214,10 +214,12 @@ export default function App() {
     attachedSession,
   };
 
-  const request = useCallback((method, params = {}, onResult = null) => {
+  const request = useCallback((method, params = {}, onResult = null, onError = null) => {
     const id = connectionRef.current?.request(method, params);
     if (!id) return false;
-    if (onResult) pendingRequestsRef.current.set(id, onResult);
+    if (onResult || onError) {
+      pendingRequestsRef.current.set(id, { onResult, onError });
+    }
     return true;
   }, []);
 
@@ -251,6 +253,16 @@ export default function App() {
               historyLoading: false,
               historyLoaded: true,
             },
+          };
+        });
+      }, () => {
+        // A failed history request must not leave the loader spinning; the
+        // effect retries after the next state change or reconnect.
+        setAgentStateBySession(previous => {
+          const current = previous[sessionID] || {};
+          return {
+            ...previous,
+            [sessionID]: { ...current, historyLoading: false },
           };
         });
       })) {
@@ -636,10 +648,14 @@ export default function App() {
       pendingRequestsRef.current.delete(message.id);
       if (!message.ok) {
         const detail = message.error || "Request failed";
-        setConnectionStatus({ message: detail, online: false });
-        setEmptyOverride({ loading: false, message: detail });
+        if (handler?.onError) {
+          handler.onError(detail);
+        } else {
+          setConnectionStatus({ message: detail, online: false });
+          setEmptyOverride({ loading: false, message: detail });
+        }
       } else {
-        handler?.(message.result);
+        handler?.onResult?.(message.result);
       }
       break;
     }

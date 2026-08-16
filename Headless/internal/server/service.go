@@ -1463,10 +1463,10 @@ func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
 	return append([]api.AgentEvent(nil), entry.events...)
 }
 
-// agentHistoryPage returns the page of events at or below `before` (a
-// sequence upper bound; zero means the newest page). Cursor in the result is
-// the first event's sequence and can be passed back as `before` to page
-// further into the past.
+// agentHistoryPage returns the newest `limit` events with sequence strictly
+// below `before` (zero means the newest page). Cursor in the result is the
+// first event's sequence and can be passed back as `before` to page further
+// into the past.
 func (s *Service) agentHistoryPage(sessionID string, before uint64, limit int) api.AgentHistoryResult {
 	if limit <= 0 {
 		limit = agentHistoryDefaultLimit

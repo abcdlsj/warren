@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -513,5 +514,95 @@ func TestAgentTailIsBounded(t *testing.T) {
 	}
 	if got := tail[len(tail)-1].Sequence; got != 200 {
 		t.Fatalf("tail newest sequence = %d, want 200", got)
+	}
+}
+
+func TestAgentHistoryOverWebSocket(t *testing.T) {
+	directory := t.TempDir()
+	transcriptPath := filepath.Join(directory, "rollout-history.jsonl")
+	lines := make([]string, 3)
+	for index := range lines {
+		lines[index] = fmt.Sprintf(
+			`{"timestamp":"2026-08-16T10:00:0%dZ","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello-%d"}]}}`,
+			index, index,
+		)
+	}
+	if err := os.WriteFile(transcriptPath, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	session := api.Session{
+		ID: "session-history-ws", WorkspaceID: workspaceID, Title: "Codex", Kind: "codex",
+		Runtime: "runtime-history-ws", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: directory, CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: directory, Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{session}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newSpoolRuntime(t)
+	_ = runtime.Create(context.Background(), "runtime-history-ws", directory, "", nil)
+	service := &Service{
+		Store:       state,
+		Runtime:     runtime,
+		AgentFinder: staticAgentFinder{path: transcriptPath},
+	}
+	service.lazyInit()
+	if _, err := service.ensureAgent(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(service.agentHistory("session-history-ws")) < 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if history := service.agentHistory("session-history-ws"); len(history) != 3 {
+		t.Fatalf("history length = %d, want 3", len(history))
+	}
+
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	result := requestResult[map[string]any](t, connection, "agent.history", map[string]any{
+		"session": "session-history-ws",
+		"limit":   2,
+	})
+	events, ok := result["events"].([]any)
+	if !ok || len(events) != 2 {
+		t.Fatalf("history events = %#v, want 2", result["events"])
+	}
+	first, ok := events[0].(map[string]any)
+	if !ok || first["seq"] != float64(2) {
+		t.Fatalf("first history event = %#v, want seq 2", events[0])
+	}
+	if result["cursor"] != float64(2) || result["hasMore"] != true {
+		t.Fatalf("history metadata = cursor %v hasMore %v, want cursor 2 hasMore true", result["cursor"], result["hasMore"])
+	}
+
+	previous := requestResult[map[string]any](t, connection, "agent.history", map[string]any{
+		"session": "session-history-ws",
+		"before":  float64(2),
+		"limit":   2,
+	})
+	previousEvents, ok := previous["events"].([]any)
+	if !ok || len(previousEvents) != 1 {
+		t.Fatalf("previous history events = %#v, want 1", previous["events"])
+	}
+	previousFirst, ok := previousEvents[0].(map[string]any)
+	if !ok || previousFirst["seq"] != float64(1) {
+		t.Fatalf("previous first event = %#v, want seq 1", previousEvents[0])
+	}
+	if previous["hasMore"] != false {
+		t.Fatalf("previous history hasMore = %v, want false", previous["hasMore"])
 	}
 }
