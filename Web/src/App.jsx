@@ -450,12 +450,16 @@ export default function App() {
     if (!force && sessionID === state.attachedSession) {
       // Roster broadcasts re-enter this branch too, but the session is
       // already attached and streaming. Only an explicit entry (tab click)
-      // should force a repaint and reclaim focus; doing both on every roster
-      // makes mobile redraw the terminal and re-signal the PTY constantly.
+      // should force a repaint and reclaim DOM focus; doing that on every
+      // roster makes mobile redraw the terminal constantly. Mobile still
+      // reclaims protocol focus so a re-adopted runtime gets the phone
+      // viewport back; the server now treats same-size claims as no-ops.
       if (explicit) {
         refreshTerminal();
         if (isCoarsePointer()) requestSessionFocus(true);
         else terminalRef.current?.focus();
+      } else if (isCoarsePointer()) {
+        requestSessionFocus(true);
       }
       return;
     }

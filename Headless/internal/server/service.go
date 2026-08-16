@@ -1221,25 +1221,40 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 	transcriptPath := ""
 	if dedicated {
 		s.lazyInit()
-		s.agentsMu.Lock()
-		if existing := s.agents[session.ID]; existing != nil {
-			if existing.watcher != nil || time.Since(existing.lastFind) < 5*time.Second {
-				s.agentsMu.Unlock()
-				return existing, nil
-			}
+
+		// Resolve the current binding before looking at the running watcher:
+		// Codex starts a fresh rollout after `/clear`, so the SessionStart
+		// hook can report a new session id and transcript path while the
+		// daemon is still projecting the old file.
+		transcriptPath = s.boundTranscript(session, workspacePath)
+		if binding, err := agent.ReadBinding(agent.BindPath(session.ID)); err == nil && binding != nil {
+			agentSessionID = binding.SessionID
 		}
+
+		s.agentsMu.Lock()
 		entry := s.agents[session.ID]
 		if entry == nil {
 			entry = &agentSession{}
 			s.agents[session.ID] = entry
 		}
+		if entry.watcher != nil {
+			s.agentsMu.Unlock()
+			if transcriptPath != "" && entry.watcher.Path() != transcriptPath {
+				// Re-bind to the CLI's new transcript; startAgentWatcher
+				// resets the stale projection before switching files.
+				entry = s.startAgentWatcher(session.ID, provider, transcriptPath, false)
+				s.persistAgentMeta(session.ID, agentSessionID, transcriptPath)
+				return entry, nil
+			}
+			return entry, nil
+		}
+		if time.Since(entry.lastFind) < 5*time.Second {
+			s.agentsMu.Unlock()
+			return entry, nil
+		}
 		entry.lastFind = time.Now()
 		s.agentsMu.Unlock()
 
-		transcriptPath = s.boundTranscript(session, workspacePath)
-		if binding, err := agent.ReadBinding(agent.BindPath(session.ID)); err == nil && binding != nil {
-			agentSessionID = binding.SessionID
-		}
 		if transcriptPath == "" {
 			found, err := s.AgentFinder.Find(ctx, session.Kind, workspacePath, session.CreatedAt)
 			if err != nil || found == "" || s.transcriptTakenByOther(found, session.ID) {
@@ -1288,10 +1303,16 @@ func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, 
 		s.agentsMu.Unlock()
 		return existing
 	}
+	rebinding := existing != nil && existing.watcher != nil
 	var closing *agent.Watcher
-	if existing != nil && existing.watcher != nil {
+	if rebinding {
 		closing = existing.watcher
 		existing.watcher = nil
+		existing.mu.Lock()
+		existing.events = nil
+		existing.activity = ""
+		existing.mu.Unlock()
+	} else if existing != nil {
 		existing.mu.Lock()
 		existing.activity = ""
 		existing.mu.Unlock()
@@ -1308,6 +1329,13 @@ func (s *Service) startAgentWatcher(sessionID, provider, transcriptPath string, 
 		existing.mu.Unlock()
 	}
 	s.agentsMu.Unlock()
+	if rebinding {
+		// A session switch (e.g. `/clear`) starts a fresh projection: bump
+		// the epoch so attached clients drop the old transcript's events and
+		// refetch the new rollout from history.
+		s.bumpAgentEpoch()
+		s.broadcastAgentReset(sessionID)
+	}
 	watcher := agent.Start(
 		sessionID,
 		provider,
@@ -1650,6 +1678,20 @@ func (s *Service) broadcastAgentBatch(sessionID string, events []api.AgentEvent)
 	}, sessionID)
 }
 
+// broadcastAgentReset tells attached peers that the session switched to a
+// new transcript. The empty batch with a new epoch makes clients drop their
+// stale event projection and refetch history from the replacement rollout.
+func (s *Service) broadcastAgentReset(sessionID string) {
+	s.broadcastAgent(func(peer *wsPeer) error {
+		return peer.writeJSON(api.AgentMessage{
+			Type:    "agent",
+			Session: sessionID,
+			Epoch:   s.currentAgentEpoch(),
+			Events:  []api.AgentEvent{},
+		})
+	}, sessionID)
+}
+
 func (s *Service) broadcastAgentActivity(sessionID string, activity api.AgentActivity) {
 	if activity == "" {
 		return
@@ -1682,6 +1724,14 @@ func (s *Service) currentAgentEpoch() uint64 {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
 	return s.agentEpoch
+}
+
+// bumpAgentEpoch advances the projection generation so clients that were
+// attached to the previous transcript reset instead of merging sequences.
+func (s *Service) bumpAgentEpoch() {
+	s.outputMu.Lock()
+	s.agentEpoch++
+	s.outputMu.Unlock()
 }
 
 func (s *Service) ringCapacity() int {

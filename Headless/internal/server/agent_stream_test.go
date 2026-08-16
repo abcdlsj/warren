@@ -180,6 +180,102 @@ func TestEnsureAgentPrefersCodexBinding(t *testing.T) {
 	entry.watcher.Close()
 }
 
+func TestEnsureAgentRebindsDedicatedTranscript(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("WARREN_DATA_DIR", directory)
+	oldPath := filepath.Join(directory, "rollout-old.jsonl")
+	newPath := filepath.Join(directory, "rollout-new.jsonl")
+	writeTranscriptLine := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(
+			`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"`+content+`"}]}}`+"\n",
+		), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTranscriptLine(oldPath, "Hello old")
+	writeTranscriptLine(newPath, "Hello new")
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceID := store.NewID()
+	session := api.Session{
+		ID: "session-rebind", WorkspaceID: workspaceID, Title: "Codex", Kind: "codex",
+		Runtime: "runtime-rebind", Lifecycle: "running", CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{ID: projectID, Name: "Project", Path: directory, CreatedAt: time.Now().UTC()}}
+		value.Workspaces = []api.Workspace{{ID: workspaceID, ProjectID: projectID, Name: "main", Path: directory, Kind: "root", CreatedAt: time.Now().UTC()}}
+		value.Sessions = []api.Session{session}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := &Service{
+		Store:       state,
+		Runtime:     newMemoryRuntime(t),
+		AgentFinder: staticAgentFinder{path: oldPath},
+	}
+	service.lazyInit()
+	if err := agent.WriteBinding(agent.BindPath(session.ID), agent.Binding{
+		Provider:       "codex",
+		SessionID:      "thread-old",
+		TranscriptPath: oldPath,
+		Cwd:            directory,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	entry, err := service.ensureAgent(context.Background(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.watcher == nil {
+		t.Fatal("expected a watcher for the first binding")
+	}
+	if got := entry.watcher.Path(); got != oldPath {
+		t.Fatalf("watcher path = %q, want %q", got, oldPath)
+	}
+	waitForAgentHistory(t, service, session.ID, "Hello old")
+	epochBefore := service.currentAgentEpoch()
+
+	if err := agent.WriteBinding(agent.BindPath(session.ID), agent.Binding{
+		Provider:       "codex",
+		SessionID:      "thread-new",
+		TranscriptPath: newPath,
+		Cwd:            directory,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	currentSession := state.Snapshot().Sessions[0]
+	entry, err = service.ensureAgent(context.Background(), currentSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry == nil || entry.watcher == nil {
+		t.Fatal("expected a watcher after re-binding")
+	}
+	if got := entry.watcher.Path(); got != newPath {
+		t.Fatalf("watcher path after rebind = %q, want %q", got, newPath)
+	}
+	if got := service.currentAgentEpoch(); got <= epochBefore {
+		t.Fatalf("agent epoch = %d, want greater than %d", got, epochBefore)
+	}
+	waitForAgentHistory(t, service, session.ID, "Hello new")
+	if history := service.agentHistory(session.ID); len(history) != 1 || history[0].Content != "Hello new" {
+		t.Fatalf("history after rebind = %#v, want only the new transcript event", history)
+	}
+	snapshot, _ := state.SnapshotVersion()
+	if snapshot.Sessions[0].AgentSessionID != "thread-new" || snapshot.Sessions[0].TranscriptPath != newPath {
+		t.Fatalf("session meta after rebind = %#v", snapshot.Sessions[0])
+	}
+	entry.watcher.Close()
+}
+
 func TestEnsureAgentDerivesClaudePathFromSessionID(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(directory, "claude"))
@@ -605,4 +701,18 @@ func TestAgentHistoryOverWebSocket(t *testing.T) {
 	if previous["hasMore"] != false {
 		t.Fatalf("previous history hasMore = %v, want false", previous["hasMore"])
 	}
+}
+
+func waitForAgentHistory(t *testing.T, service *Service, sessionID, content string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, event := range service.agentHistory(sessionID) {
+			if event.Content == content {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("event %q never appeared in agent history", content)
 }
