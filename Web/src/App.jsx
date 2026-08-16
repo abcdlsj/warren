@@ -954,11 +954,27 @@ export default function App() {
       setTerminalSearchCount(resultCount);
     });
     let overflowWhileHidden = false;
-    const rewindAndReset = () => {
+    const resyncTerminal = () => {
+      // Keep the transport alive: re-attach in place and let the daemon
+      // replay from the pending anchor (or a fresh snapshot). Dropping the
+      // WebSocket here flashes "Connecting…" and re-auths on every output
+      // burst while the user scrolls history.
+      const sessionID = appStateRef.current.activeSession;
       const start = pendingStartAnchorRef.current;
-      if (start) recoveryAnchorRef.current = start;
-      else reanchorRequiredRef.current = true;
-      connectionRef.current?.reset();
+      pendingStartAnchorRef.current = null;
+      recoveryAnchorRef.current = start || null;
+      reanchorRequiredRef.current = !start;
+      batcher.reset();
+      terminal.reset();
+      if (!sessionID) return;
+      appStateRef.current.attachedSession = null;
+      focusedSessionRef.current = null;
+      setAttachedSession(null);
+      const message = attachTerminalMessage(sessionID, terminal, recoveryAnchorRef.current);
+      if (!request(message.method, message.params, () => markAttachReady(sessionID))) {
+        // The socket is gone after all; fall back to a full reconnect.
+        connectionRef.current?.reset();
+      }
     };
     const batcher = new OutputBatcher({
       write: bytes => {
@@ -980,10 +996,49 @@ export default function App() {
           overflowWhileHidden = true;
           return;
         }
-        rewindAndReset();
+        resyncTerminal();
       },
     });
     batcherRef.current = batcher;
+    // Scrolling through history is WebGL's worst case: the renderer rebuilds
+    // texture buffers for every row, which can starve the output batcher's
+    // animation frames and trigger the overflow resync above. Fall back to
+    // the DOM renderer while the user is up in history, then restore WebGL
+    // shortly after they return to the live output.
+    let webglScrollTimer = null;
+    let webglDegraded = false;
+    const degradeWebGLForScroll = () => {
+      if (webglDegraded || isCoarsePointer()) return;
+      const addon = webglAddonRef.current;
+      if (!addon) return;
+      webglDegraded = true;
+      webglAddonRef.current = null;
+      addon.dispose();
+    };
+    const restoreWebGL = () => {
+      if (!webglDegraded || isCoarsePointer()) return;
+      webglDegraded = false;
+      try {
+        const addon = new WebglAddon();
+        terminal.loadAddon(addon);
+        addon.onContextLoss(() => {
+          webglAddonRef.current?.dispose();
+          webglAddonRef.current = null;
+        });
+        webglAddonRef.current = addon;
+      } catch {
+        // The context could not be rebuilt; stay on the DOM renderer.
+      }
+    };
+    const scheduleWebGLForScroll = () => {
+      clearTimeout(webglScrollTimer);
+      const inHistory = terminal.buffer.active.viewportY < terminal.buffer.active.baseY;
+      webglScrollTimer = setTimeout(
+        inHistory ? degradeWebGLForScroll : restoreWebGL,
+        inHistory ? 250 : 1200
+      );
+    };
+    const scrollSubscription = terminal.onScroll(scheduleWebGLForScroll);
     // xterm opens at its fallback 80x24 grid. Fit once synchronously and once
     // on the next frame so the first focus claim carries the real viewport,
     // even when fonts/layout settle after the DOM mount.
@@ -1096,7 +1151,7 @@ export default function App() {
       batcherRef.current?.wake();
       if (overflowWhileHidden) {
         overflowWhileHidden = false;
-        rewindAndReset();
+        resyncTerminal();
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -1116,6 +1171,8 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearTimeout(webglScrollTimer);
+      scrollSubscription.dispose();
       stopTouchScroll();
       if (fitTimerRef.current !== null) {
         clearTimeout(fitTimerRef.current);
@@ -1131,7 +1188,7 @@ export default function App() {
       batcher.dispose();
       batcherRef.current = null;
     };
-  }, [requestSessionFocus, scheduleRemoteResize, scheduleTerminalFit, sendInput]);
+  }, [markAttachReady, request, requestSessionFocus, scheduleRemoteResize, scheduleTerminalFit, sendInput]);
 
   useEffect(() => {
     const terminal = terminalRef.current;
