@@ -61,6 +61,8 @@ Not so good:
 - A forced restart of the ghostline server process ends its sessions. Normal
   protocol upgrades are rolled in place: a fresh server adopts every session
   from the old one before the old process exits, so children keep running.
+  If adoption is impossible, the daemon keeps the old server rather than
+  ending sessions.
 
 ## tmux
 

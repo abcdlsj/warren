@@ -134,6 +134,8 @@ Known limits:
 - A forced ghostline server restart still ends its sessions (the server
   process owns the PTY masters). Protocol upgrades are rolled in place: the
   daemon starts a fresh server, adopts every session over the admin socket,
-  and retires the old process without ending children.
+  and retires the old process without ending children. If adoption is not
+  possible (for example a server predating the admin socket), the daemon
+  keeps the old server running and retries on a later start.
 - The ghostline module bundles a prebuilt libghostty-vt dylib for macOS
   arm64; other platforms must rebuild it (see the ghostline README).

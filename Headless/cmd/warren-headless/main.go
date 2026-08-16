@@ -250,18 +250,17 @@ func ensureGhostlineClient(socketPath, outputDir string, logger *slog.Logger) (*
 	// The server process predates this daemon's protocol (or reports an older
 	// version). Prefer a rolling upgrade (RFC 0002): a fresh server adopts
 	// every session and the old process exits, so children keep running. If
-	// that fails, fall back to a plain restart, which ends sessions.
+	// that fails, keep serving from the old process: the RFC's failure
+	// contract is that an adoption failure loses nothing.
 	logger.Warn("ghostline server protocol mismatch; upgrading server",
 		"reported", version, "want", ghostline.ProtocolVersion, "error", err)
-	if upgraded, upgradeErr := rollingUpgradeGhostlineClient(socketPath, outputDir, logger); upgradeErr == nil {
+	upgraded, upgradeErr := rollingUpgradeGhostlineClient(socketPath, outputDir, logger)
+	if upgradeErr == nil {
 		return upgraded, nil
-	} else {
-		logger.Warn("ghostline rolling upgrade failed; restarting server", "error", upgradeErr)
 	}
-	if stopErr := stopGhostlineServer(socketPath); stopErr != nil {
-		return nil, stopErr
-	}
-	return connectGhostlineClient(socketPath, outputDir)
+	logger.Warn("ghostline rolling upgrade failed; keeping current server",
+		"error", upgradeErr, "reported", version)
+	return client, nil
 }
 
 // rollingUpgradeGhostlineClient starts a fresh server on a temporary socket,
