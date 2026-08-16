@@ -22,6 +22,9 @@ export function mergeAgentEvents(existing = [], incoming = []) {
  * Groups a flat transcript into renderable blocks. A tool_call and its
  * matching tool_output(s) become one tool block so the UI can show the call
  * and its result as a single compact step instead of two separate cards.
+ * Adjacent reasoning blocks and adjacent tool blocks are then collapsed into
+ * groups so a busy turn reads as a conversation first: one folded "Thinking"
+ * strip and one folded tools strip instead of a wall of cards.
  */
 export function groupAgentEvents(events = []) {
   const blocks = [];
@@ -42,5 +45,31 @@ export function groupAgentEvents(events = []) {
       blocks.push({ kind: event.type, event });
     }
   }
-  return blocks;
+  return collapseAncillaryBlocks(blocks);
+}
+
+function collapseAncillaryBlocks(blocks) {
+  const collapsed = [];
+  const push = block => {
+    const last = collapsed[collapsed.length - 1];
+    if (block.kind === "reasoning" && last?.kind === "reasoning_group") {
+      last.events.push(block.event);
+      return;
+    }
+    if (block.kind === "tool" && last?.kind === "tool_group") {
+      last.items.push(block);
+      return;
+    }
+    if (block.kind === "reasoning") {
+      collapsed.push({ kind: "reasoning_group", events: [block.event] });
+      return;
+    }
+    if (block.kind === "tool") {
+      collapsed.push({ kind: "tool_group", items: [block] });
+      return;
+    }
+    collapsed.push(block);
+  };
+  for (const block of blocks) push(block);
+  return collapsed;
 }

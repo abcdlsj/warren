@@ -156,7 +156,9 @@ function AgentBlock({ block }) {
     );
   }
   case "tool":
-    return <ToolCard block={block} />;
+    return null;
+  case "tool_group":
+    return <ToolGroup items={block.items} />;
   case "tool_output": {
     const event = block.event;
     return (
@@ -171,7 +173,9 @@ function AgentBlock({ block }) {
     );
   }
   case "reasoning":
-    return <ReasoningCard content={block.event.content || ""} />;
+    return null;
+  case "reasoning_group":
+    return <ReasoningGroup events={block.events} />;
   case "system_instructions":
     return null;
   case "usage":
@@ -210,11 +214,34 @@ function AgentBlock({ block }) {
   }
 }
 
-function ToolCard({ block }) {
+function ToolGroup({ items }) {
+  const [open, setOpen] = useState(false);
+  const status = groupStatus(items);
+  return (
+    <div className={`agent-tool-group ${status}`}>
+      <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <ToolIcon name={items[0]?.call?.toolName} />
+        <span className="agent-tool-name">{toolGroupTitle(items)}</span>
+        {toolGroupSummary(items) && <code className="agent-tool-summary">{toolGroupSummary(items)}</code>}
+        <span className="agent-tool-status">{statusText(status)}</span>
+        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="agent-tool-group-body">
+          {items.map((item, index) => (
+            <ToolCard key={blockKindKey(item, index)} block={item} defaultOpen />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCard({ block, defaultOpen = false }) {
   const call = block.call;
   const lastOutput = block.outputs.at(-1);
   const status = lastOutput?.toolStatus || call.toolStatus || (block.outputs.length ? "success" : "running");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const summary = toolDisplay(call, status);
   const isWebSearch = call.toolName === "web_search";
   return (
@@ -245,21 +272,65 @@ function ToolCard({ block }) {
   );
 }
 
-function ReasoningCard({ content }) {
+function ReasoningGroup({ events }) {
   const [open, setOpen] = useState(false);
+  const count = events.length;
   return (
-    <div className="agent-reasoning">
+    <div className={`agent-reasoning agent-reasoning-group${count > 1 ? " stacked" : ""}`}>
       <button type="button" className="agent-reasoning-head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className={`agent-reasoning-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
         <span className="agent-reasoning-label">Thinking</span>
+        {count > 1 && <span className="agent-reasoning-count">{count} steps</span>}
       </button>
       {open && (
         <div className="agent-reasoning-body">
-          <MarkdownContent value={content} />
+          {events.map((event, index) => (
+            <div className="agent-reasoning-item" key={event.seq ?? index}>
+              {count > 1 && <div className="agent-reasoning-item-label">Step {index + 1}</div>}
+              <MarkdownContent value={event.content || ""} />
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
+}
+
+function toolGroupTitle(items) {
+  if (items.length === 1) return displayToolName(items[0].call.toolName);
+  const counts = new Map();
+  for (const item of items) {
+    const name = displayToolName(item.call.toolName);
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  const parts = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 2)
+    .map(([name, count]) => `${count} ${name}`);
+  return `${items.length} tools${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+}
+
+function toolGroupSummary(items) {
+  const first = items[0]?.call;
+  if (!first) return "";
+  const summary = toolSummary(first);
+  if (summary) return summary;
+  if (items.length > 1) {
+    const second = items[1]?.call;
+    if (second) return toolSummary(second);
+  }
+  return "";
+}
+
+function groupStatus(items) {
+  const statuses = new Set(items.map(item => {
+    const lastOutput = item.outputs.at(-1);
+    return lastOutput?.toolStatus || item.call?.toolStatus || (item.outputs.length ? "success" : "running");
+  }));
+  if (statuses.has("error")) return "error";
+  if (statuses.has("interrupted")) return "interrupted";
+  if (statuses.has("running")) return "running";
+  return "success";
 }
 
 function ToolOutputBody({ event }) {
