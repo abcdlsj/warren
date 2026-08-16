@@ -79,7 +79,8 @@ print the relevant usage and exit 2; server errors use exit code 1.
 Commands default to aligned, human-readable tables. Pass `--json` for stable,
 machine-readable JSON output. `workspace create` reports `created` and
 `gitWorktree` in its result, so scripts know whether a Git worktree was really
-created and where it landed.
+created and where it landed. `session list` shows running sessions by default;
+pass `--all` to include ended sessions, or `--ended` to list only ended ones.
 
 For `workspace create`, `--branch` is required and `--path` is optional: omit
 `--path` and the daemon places the new worktree under

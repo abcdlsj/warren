@@ -308,6 +308,9 @@ func resourceCommand(args []string) error {
 	if label := missingRequiredFlag(resource, action, params); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
 	}
+	if resource == "session" && action == "list" && boolValue(params, "all") && boolValue(params, "ended") {
+		return newUsageError("--all and --ended are mutually exclusive", actionUsageText(commandName, action))
+	}
 	ctx, c, err := connect()
 	if err != nil {
 		return err
@@ -324,7 +327,7 @@ func resourceCommand(args []string) error {
 		case "workspace":
 			return printValue(workspaceRows(state))
 		case "session":
-			return printValue(sessionRows(state))
+			return printValue(sessionRows(state, boolValue(params, "all"), boolValue(params, "ended")))
 		}
 	}
 	method := ""
@@ -678,7 +681,7 @@ type SessionRow struct {
 	Path          string `json:"path,omitempty"`
 }
 
-func sessionRows(state api.State) []SessionRow {
+func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
 	workspaces := make(map[string]api.Workspace, len(state.Workspaces))
 	for _, workspace := range state.Workspaces {
 		workspaces[workspace.ID] = workspace
@@ -689,6 +692,12 @@ func sessionRows(state api.State) []SessionRow {
 	}
 	rows := make([]SessionRow, 0, len(state.Sessions))
 	for _, session := range state.Sessions {
+		if onlyEnded && session.Lifecycle == "running" {
+			continue
+		}
+		if !onlyEnded && !includeEnded && session.Lifecycle != "running" {
+			continue
+		}
 		row := SessionRow{Session: session}
 		if workspace, ok := workspaces[session.WorkspaceID]; ok {
 			row.WorkspaceName = workspace.Name
@@ -780,7 +789,7 @@ func printValue(value any) error {
 		for _, item := range items {
 			rows = append(rows, sessionRowCells(item))
 		}
-		printTable([]string{"ID", "PROJECT", "WORKSPACE", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "PINNED", "CREATED"}, rows...)
+		printTable([]string{"ID", "PROJECT", "WORKSPACE", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "ACTIVITY", "ENDED AT", "PINNED", "CREATED"}, rows...)
 	case api.WorkspaceCreateResult:
 		printKVTable(workspaceCreateResultPairs(items))
 	case *api.WorkspaceCreateResult:
@@ -859,6 +868,8 @@ func sessionRowCells(item SessionRow) []string {
 		item.Kind,
 		displayValue(item.Command),
 		item.Lifecycle,
+		displayValue(string(item.AgentActivity)),
+		formatOptionalTime(item.EndedAt),
 		displayBool(item.Pinned),
 		formatTime(item.CreatedAt),
 	}
@@ -897,9 +908,14 @@ func sessionPairs(value api.Session) [][2]string {
 		{"KIND", value.Kind},
 		{"COMMAND", displayValue(value.Command)},
 		{"RUNTIME", value.Runtime},
+		{"RUNTIME KIND", displayValue(value.RuntimeKind)},
 		{"LIFECYCLE", value.Lifecycle},
+		{"ACTIVITY", displayValue(string(value.AgentActivity))},
+		{"AGENT SESSION", displayValue(value.AgentSessionID)},
+		{"TRANSCRIPT", displayValue(value.TranscriptPath)},
 		{"PINNED", displayBool(value.Pinned)},
 		{"CREATED AT", formatTime(value.CreatedAt)},
+		{"ENDED AT", formatOptionalTime(value.EndedAt)},
 	}
 }
 
@@ -1009,6 +1025,13 @@ func formatTime(value time.Time) string {
 	return value.Local().Format("2006-01-02 15:04")
 }
 
+func formatOptionalTime(value *time.Time) string {
+	if value == nil {
+		return "-"
+	}
+	return formatTime(*value)
+}
+
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -1084,7 +1107,7 @@ func resourceUsageText(commandName string) string {
 %s`, commandName, commandName, commandName, commandName, commandName, commandName, aliasNote)
 	case "session":
 		return `Usage:
-  warren session list
+  warren session list [--all | --ended]
   warren session create WORKSPACE_ID [--kind KIND] [--command CMD] [--title TITLE]
   warren session remove SESSION_ID [--force]
   warren session rename SESSION_ID --title TITLE
@@ -1101,6 +1124,9 @@ func actionUsageText(commandName, action string) string {
 	name := commandName
 	switch canonicalResource(commandName) + "." + action {
 	case "project.list", "workspace.list", "session.list":
+		if canonicalResource(commandName) == "session" {
+			return fmt.Sprintf("Usage:\n  warren %s %s [--all | --ended]\n", name, action)
+		}
 		return fmt.Sprintf("Usage:\n  warren %s %s\n", name, action)
 	case "project.add":
 		return fmt.Sprintf("Usage:\n  warren %s add PATH [--name NAME]\n", name)

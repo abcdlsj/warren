@@ -38,7 +38,7 @@ func TestSessionRowsJoinsWorkspaceAndProject(t *testing.T) {
 		}},
 	}
 
-	rows := sessionRows(state)
+	rows := sessionRows(state, false, false)
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
@@ -68,7 +68,7 @@ func TestSessionRowsKeepsOrphanSessionUsable(t *testing.T) {
 		}},
 	}
 
-	rows := sessionRows(state)
+	rows := sessionRows(state, false, false)
 	if len(rows) != 1 {
 		t.Fatalf("rows = %d, want 1", len(rows))
 	}
@@ -142,6 +142,60 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 	}
 	if row.Workspace.ID != "workspace-1" || row.Kind != "worktree" {
 		t.Errorf("embedded workspace lost: %+v", row.Workspace)
+	}
+}
+
+func TestSessionRowsHideEndedByDefault(t *testing.T) {
+	now := time.Now().UTC()
+	endedAt := now.Add(-time.Hour)
+	state := api.State{
+		Sessions: []api.Session{
+			{ID: "session-running", WorkspaceID: "workspace-1", Lifecycle: "running", CreatedAt: now},
+			{ID: "session-ended", WorkspaceID: "workspace-1", Lifecycle: "ended", EndedAt: &endedAt, CreatedAt: now},
+		},
+	}
+
+	rows := sessionRows(state, false, false)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1 (default hides ended)", len(rows))
+	}
+	if rows[0].ID != "session-running" {
+		t.Errorf("row id = %q, want session-running", rows[0].ID)
+	}
+}
+
+func TestSessionRowsAllIncludesEnded(t *testing.T) {
+	now := time.Now().UTC()
+	endedAt := now.Add(-time.Hour)
+	state := api.State{
+		Sessions: []api.Session{
+			{ID: "session-running", WorkspaceID: "workspace-1", Lifecycle: "running", CreatedAt: now},
+			{ID: "session-ended", WorkspaceID: "workspace-1", Lifecycle: "ended", EndedAt: &endedAt, CreatedAt: now},
+		},
+	}
+
+	rows := sessionRows(state, true, false)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2 (--all includes ended)", len(rows))
+	}
+}
+
+func TestSessionRowsEndedOnly(t *testing.T) {
+	now := time.Now().UTC()
+	endedAt := now.Add(-time.Hour)
+	state := api.State{
+		Sessions: []api.Session{
+			{ID: "session-running", WorkspaceID: "workspace-1", Lifecycle: "running", CreatedAt: now},
+			{ID: "session-ended", WorkspaceID: "workspace-1", Lifecycle: "ended", EndedAt: &endedAt, CreatedAt: now},
+		},
+	}
+
+	rows := sessionRows(state, false, true)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1 (--ended lists only ended)", len(rows))
+	}
+	if rows[0].ID != "session-ended" {
+		t.Errorf("row id = %q, want session-ended", rows[0].ID)
 	}
 }
 
@@ -330,6 +384,20 @@ func TestRunUnsupportedActionUsesAliasInError(t *testing.T) {
 	}
 	if !contains(usageErr.text, "warren worktree list") {
 		t.Errorf("usage should use the typed alias, got %q", usageErr.text)
+	}
+}
+
+func TestRunSessionListAllEndedMutuallyExclusive(t *testing.T) {
+	err := run([]string{"session", "list", "--all", "--ended"})
+	var usageErr *usageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("error = %v, want *usageError", err)
+	}
+	if usageErr.message != "--all and --ended are mutually exclusive" {
+		t.Errorf("message = %q", usageErr.message)
+	}
+	if !contains(usageErr.text, "warren session list [--all | --ended]") {
+		t.Errorf("usage should mention --all/--ended, got %q", usageErr.text)
 	}
 }
 
