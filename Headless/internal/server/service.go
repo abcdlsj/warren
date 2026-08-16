@@ -833,6 +833,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 	if branch == "" {
 		return api.WorkspaceCreateResult{}, errors.New("branch is required")
 	}
+	if err := branchAlreadyHasWorkspace(&state, projectID, branch); err != nil {
+		return api.WorkspaceCreateResult{}, err
+	}
 	id := store.NewID()
 	if name == "" {
 		name = branch
@@ -852,6 +855,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						}
 						workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "root", CreatedAt: time.Now().UTC()}
 						if err := s.Store.Update(func(value *api.State) error {
+							if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
+								return err
+							}
 							workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
 							value.Workspaces = append(value.Workspaces, workspace)
 							return nil
@@ -865,6 +871,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					}
 					workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
 					if err := s.Store.Update(func(value *api.State) error {
+						if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
+							return err
+						}
 						workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
 						value.Workspaces = append(value.Workspaces, workspace)
 						return nil
@@ -893,6 +902,9 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 	gitCreated = true
 	workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: path, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
 	if err := s.Store.Update(func(value *api.State) error {
+		if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
+			return err
+		}
 		workspace.Order = nextWorkspaceOrder(value.Workspaces, projectID)
 		value.Workspaces = append(value.Workspaces, workspace)
 		return nil
@@ -901,6 +913,19 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		return api.WorkspaceCreateResult{}, err
 	}
 	return api.WorkspaceCreateResult{Workspace: workspace, Created: true, GitWorktree: gitCreated}, nil
+}
+
+// branchAlreadyHasWorkspace enforces the invariant that a project has at most
+// one workspace per Git branch, regardless of whether the workspace is a root
+// checkout or a git worktree.
+func branchAlreadyHasWorkspace(state *api.State, projectID, branch string) error {
+	for i := range state.Workspaces {
+		workspace := state.Workspaces[i]
+		if workspace.ProjectID == projectID && workspace.Branch == branch {
+			return fmt.Errorf("workspace already exists for branch %q (workspace %s)", branch, workspace.ID)
+		}
+	}
+	return nil
 }
 
 type RemoveWorkspaceOptions struct {

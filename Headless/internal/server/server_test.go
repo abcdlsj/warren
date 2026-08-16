@@ -406,6 +406,55 @@ func TestRosterBroadcastsCreatedWorktreeAndSession(t *testing.T) {
 	})
 }
 
+func TestCreateWorkspaceRejectsDuplicateBranch(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	repository := filepath.Join(directory, "repository")
+	if err := os.MkdirAll(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit := func(arguments ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", repository}, arguments...)...)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s: %v", arguments, output, err)
+		}
+	}
+	runGit("init", "--quiet")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repository, "README.md"), []byte("warren\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "README.md")
+	runGit("commit", "--quiet", "-m", "init")
+
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{
+		Store:        state,
+		Runtime:      &memoryRuntime{sessions: map[string][]byte{}},
+		WorktreeRoot: filepath.Join(directory, "worktrees"),
+	}
+	project, err := service.AddProject(repository, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateWorkspace(project.ID, "feature/duplicate", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateWorkspace(project.ID, "feature/duplicate", "", ""); err == nil {
+		t.Fatal("duplicate branch workspace was accepted")
+	} else if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("duplicate branch error = %v, want already exists", err)
+	}
+	if _, err := service.CreateWorkspace(project.ID, "feature/other", "", ""); err != nil {
+		t.Fatalf("different branch should be allowed: %v", err)
+	}
+}
+
 func TestRejectsInvalidToken(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
