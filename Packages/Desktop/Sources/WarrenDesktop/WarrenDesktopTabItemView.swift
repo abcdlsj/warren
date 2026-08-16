@@ -66,7 +66,11 @@ struct WarrenDesktopTabItem: View {
                 .background(Color.clear)
                 .contentShape(.rect)
             }
-            .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isTabFocused, cornerRadius: 0))
+            // Selection is owned by the outer tab surface (background +
+            // hairline stroke). The inner button must not add the shared
+            // selected wash on top, or the active tab reads brighter than
+            // the confirmed design.
+            .buttonStyle(WarrenInteractiveRowStyle(isSelected: false, isFocused: isTabFocused, cornerRadius: 0))
             .focused($isTabFocused)
             .disabled(tab.sessionID == nil)
             .foregroundStyle(
