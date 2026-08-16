@@ -1,11 +1,33 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestGhostlineAdoptionFatalOnlyBeforeCommit(t *testing.T) {
+	adoptErr := errors.New("old server closed before retirement response")
+	tests := []struct {
+		name    string
+		adopted int
+		err     error
+		fatal   bool
+	}{
+		{name: "pre-commit failure", adopted: 0, err: adoptErr, fatal: true},
+		{name: "committed retirement failure", adopted: 1, err: adoptErr, fatal: false},
+		{name: "successful empty adoption", adopted: 0, err: nil, fatal: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ghostlineAdoptionFatal(tt.adopted, tt.err); got != tt.fatal {
+				t.Fatalf("ghostlineAdoptionFatal(%d, %v) = %t, want %t", tt.adopted, tt.err, got, tt.fatal)
+			}
+		})
+	}
+}
 
 func TestLoadOrCreateTokenRepairsDeletedParentDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".warren", "token")

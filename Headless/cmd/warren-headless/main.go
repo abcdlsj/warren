@@ -240,9 +240,16 @@ func runGhostlineServe(socketPath, outputDir, adoptFrom string) {
 		cancel()
 		if adoptErr != nil {
 			fmt.Fprintf(os.Stderr, "ghostline serve: adopt from %s: %v\n", adoptFrom, adoptErr)
-			os.Exit(1)
-		}
-		if adopted > 0 {
+			// Commit transfers ownership before Adopt performs the old server's
+			// best-effort retirement. The old endpoint may close the admin socket
+			// without replying, so an error can still mean that sessions are
+			// already safely owned by this process. Never tear down a server that
+			// has adopted sessions just because retirement confirmation failed.
+			if ghostlineAdoptionFatal(adopted, adoptErr) {
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "ghostline serve: continuing with %d adopted session(s) despite retirement error\n", adopted)
+		} else if adopted > 0 {
 			fmt.Fprintf(os.Stderr, "ghostline serve: adopted %d session(s)\n", adopted)
 		}
 	}
@@ -250,6 +257,14 @@ func runGhostlineServe(socketPath, outputDir, adoptFrom string) {
 		fmt.Fprintln(os.Stderr, "ghostline serve:", err)
 		os.Exit(1)
 	}
+}
+
+// ghostlineAdoptionFatal reports whether an adoption error happened before
+// any session was committed. Once at least one session was committed, the
+// new server must stay alive even if the old server's retirement handshake
+// failed.
+func ghostlineAdoptionFatal(adopted int, adoptErr error) bool {
+	return adoptErr != nil && adopted <= 0
 }
 
 // ensureGhostlineClient connects to the session server, spawning it detached
