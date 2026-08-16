@@ -247,21 +247,28 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 	case http.MethodGet:
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"defaultRuntime": s.Service.DefaultRuntime,
+			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
 		})
 	case http.MethodPut:
 		var body struct {
-			DefaultRuntime string `json:"defaultRuntime"`
+			DefaultRuntime string            `json:"defaultRuntime"`
+			RuntimeEnv     map[string]string `json:"runtimeEnv"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
 			http.Error(writer, "invalid settings", http.StatusBadRequest)
 			return
 		}
-		if err := s.Service.SetDefaultRuntime(body.DefaultRuntime); err != nil {
+		runtimeEnv := body.RuntimeEnv
+		if runtimeEnv == nil {
+			runtimeEnv = s.Service.Settings.RuntimeEnv
+		}
+		if err := s.Service.UpdateSettings(body.DefaultRuntime, runtimeEnv); err != nil {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"defaultRuntime": s.Service.DefaultRuntime,
+			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
 		})
 	default:
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
@@ -680,13 +687,19 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	case "settings.get":
 		return p.writeResult(command.ID, map[string]any{
 			"defaultRuntime": p.server.Service.DefaultRuntime,
+			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
 		})
 	case "settings.put":
-		if err := p.server.Service.SetDefaultRuntime(stringParam(params, "defaultRuntime")); err != nil {
+		runtimeEnv := stringMapParam(params, "runtimeEnv")
+		if runtimeEnv == nil {
+			runtimeEnv = p.server.Service.Settings.RuntimeEnv
+		}
+		if err := p.server.Service.UpdateSettings(stringParam(params, "defaultRuntime"), runtimeEnv); err != nil {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]any{
 			"defaultRuntime": p.server.Service.DefaultRuntime,
+			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
 		})
 	case "project.add":
 		value, err := p.server.Service.AddProject(stringParam(params, "path"), stringParam(params, "name"))
@@ -975,6 +988,23 @@ func stringParam(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return strings.TrimSpace(value)
 }
+
+func stringMapParam(values map[string]any, key string) map[string]string {
+	raw, ok := values[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string, len(raw))
+	for entryKey, entry := range raw {
+		value, ok := entry.(string)
+		if !ok {
+			continue
+		}
+		result[entryKey] = value
+	}
+	return result
+}
+
 func boolParam(values map[string]any, key string) bool {
 	switch value := values[key].(type) {
 	case bool:

@@ -24,6 +24,11 @@ type Settings struct {
 	// DefaultRuntime is the engine used for sessions created without an
 	// explicit runtimeKind. Supported: ghostline, tmux.
 	DefaultRuntime string `json:"defaultRuntime"`
+	// RuntimeEnv overrides environment variables inherited by terminal
+	// runtime children (ghostline/tmux sessions). It is applied after the
+	// daemon's built-in environment sanitization, so explicit values win;
+	// an empty value unsets the variable instead of passing an empty string.
+	RuntimeEnv map[string]string `json:"runtimeEnv,omitempty"`
 }
 
 // Normalized returns the effective default runtime kind.
@@ -33,6 +38,20 @@ func (s Settings) Normalized() string {
 		return s.DefaultRuntime
 	default:
 		return DefaultRuntimeKind
+	}
+}
+
+// ApplyRuntimeEnv applies RuntimeEnv to the current process environment so
+// runtime children inherit the configured values. Empty values unset the
+// variable, which matters for tools that treat an empty override (for
+// example GIT_PAGER=) as "disable paging" rather than "use the default".
+func (s Settings) ApplyRuntimeEnv() {
+	for key, value := range s.RuntimeEnv {
+		if value == "" {
+			_ = os.Unsetenv(key)
+			continue
+		}
+		_ = os.Setenv(key, value)
 	}
 }
 

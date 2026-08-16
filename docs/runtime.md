@@ -31,8 +31,22 @@ The default can be changed three ways:
 1. `~/.warren/settings.json`:
 
    ```json
-   { "defaultRuntime": "ghostline" }
+   {
+     "defaultRuntime": "ghostline",
+     "runtimeEnv": {
+       "GIT_PAGER": "less",
+       "PAGER": "less",
+       "GH_PAGER": "less",
+       "TERM": "xterm-256color"
+     }
+   }
    ```
+
+   `runtimeEnv` overrides environment variables inherited by terminal runtime
+   children (ghostline PTYs and tmux sessions). Warren first strips
+   launcher-only semantics such as `GIT_PAGER=cat` or `TERM=dumb`, then these
+   explicit values win. An empty value unsets the variable (for example
+   `"CI": ""`), which is different from passing an empty string.
 
 2. The `--runtime ghostline|tmux` flag (or `WARREN_RUNTIME`), which overrides
    the settings file for this daemon invocation.

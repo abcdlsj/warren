@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/settings"
 )
 
 // kindRecordingRuntime records which engine handled a session and implements
@@ -171,11 +172,19 @@ func TestSetDefaultRuntimePersistsAndValidates(t *testing.T) {
 	service, _, _ := newCoexistService(t)
 	settingsPath := t.TempDir() + "/settings.json"
 	service.SettingsPath = settingsPath
+	service.Settings = settings.Settings{RuntimeEnv: map[string]string{"GIT_PAGER": "less"}}
 	if err := service.SetDefaultRuntime("tmux"); err != nil {
 		t.Fatalf("SetDefaultRuntime: %v", err)
 	}
 	if service.DefaultRuntime != "tmux" {
 		t.Fatalf("default = %q", service.DefaultRuntime)
+	}
+	loaded, err := settings.Load(settingsPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.DefaultRuntime != "tmux" || loaded.RuntimeEnv["GIT_PAGER"] != "less" {
+		t.Fatalf("persisted settings = %#v", loaded)
 	}
 	if err := service.SetDefaultRuntime("bogus"); err == nil {
 		t.Fatal("bogus runtime accepted")

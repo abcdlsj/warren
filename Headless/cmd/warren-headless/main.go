@@ -67,6 +67,18 @@ func main() {
 		return
 	}
 
+	loadedSettings, err := settings.Load(*settingsFile)
+	if err != nil {
+		fatal(err)
+	}
+	// Strip launcher-only pager/TERM semantics (agent/CI shells export
+	// GIT_PAGER=cat, PAGER=cat, TERM=dumb) before ghostline/tmux children
+	// inherit the daemon environment, then let settings.json override the
+	// result so explicit user values always win. The ghostline serve child
+	// inherits this final environment and must not re-sanitize it.
+	runtime.SanitizeEnvironment()
+	loadedSettings.ApplyRuntimeEnv()
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	token, err := loadOrCreateToken(*tokenPath)
 	if err != nil {
@@ -83,10 +95,6 @@ func main() {
 	// Runtime selection is a headless-side decision. Both engines are always
 	// registered so existing sessions keep working no matter which engine
 	// created them; DefaultRuntime only picks the engine for new sessions.
-	loadedSettings, err := settings.Load(*settingsFile)
-	if err != nil {
-		fatal(err)
-	}
 	defaultKind := loadedSettings.Normalized()
 	runtimeSet := false
 	flag.Visit(func(entry *flag.Flag) {
@@ -126,6 +134,7 @@ func main() {
 		Runtime:        runtimeAdapter,
 		Runtimes:       runtimes,
 		DefaultRuntime: defaultKind,
+		Settings:       loadedSettings,
 		SettingsPath:   *settingsFile,
 		WorktreeRoot:   *worktreeRoot,
 		AgentFinder:    agent.DefaultFinder{},

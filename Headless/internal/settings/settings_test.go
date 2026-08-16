@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -19,7 +20,11 @@ func TestNormalizedDefaultsToGhostline(t *testing.T) {
 
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	if err := Save(path, Settings{DefaultRuntime: RuntimeTmux}); err != nil {
+	value := Settings{
+		DefaultRuntime: RuntimeTmux,
+		RuntimeEnv:     map[string]string{"GIT_PAGER": "less", "TERM": "xterm-256color"},
+	}
+	if err := Save(path, value); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	loaded, err := Load(path)
@@ -28,6 +33,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.DefaultRuntime != RuntimeTmux {
 		t.Fatalf("loaded default = %q", loaded.DefaultRuntime)
+	}
+	if loaded.RuntimeEnv["GIT_PAGER"] != "less" || loaded.RuntimeEnv["TERM"] != "xterm-256color" {
+		t.Fatalf("loaded runtimeEnv = %#v", loaded.RuntimeEnv)
 	}
 }
 
@@ -38,5 +46,28 @@ func TestLoadMissingFileYieldsDefaults(t *testing.T) {
 	}
 	if loaded.Normalized() != RuntimeGhostline {
 		t.Fatalf("missing file normalized = %q", loaded.Normalized())
+	}
+}
+
+func TestApplyRuntimeEnvOverridesAndUnsets(t *testing.T) {
+	t.Setenv("GIT_PAGER", "cat")
+	t.Setenv("PAGER", "cat")
+	t.Setenv("TERM", "dumb")
+
+	value := Settings{RuntimeEnv: map[string]string{
+		"GIT_PAGER": "less",
+		"PAGER":     "",
+		"TERM":      "xterm-256color",
+	}}
+	value.ApplyRuntimeEnv()
+
+	if got := os.Getenv("GIT_PAGER"); got != "less" {
+		t.Errorf("GIT_PAGER = %q, want less", got)
+	}
+	if got := os.Getenv("PAGER"); got != "" {
+		t.Errorf("PAGER = %q, want unset", got)
+	}
+	if got := os.Getenv("TERM"); got != "xterm-256color" {
+		t.Errorf("TERM = %q, want xterm-256color", got)
 	}
 }

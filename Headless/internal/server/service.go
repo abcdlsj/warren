@@ -48,7 +48,10 @@ type Service struct {
 	// DefaultRuntime is the engine used for sessions created without an
 	// explicit kind.
 	DefaultRuntime string
-	// SettingsPath persists DefaultRuntime changes made over the API.
+	// Settings holds the persisted headless settings (default runtime and
+	// runtime environment overrides) and is returned by the settings API.
+	Settings settings.Settings
+	// SettingsPath persists settings changes made over the API.
 	SettingsPath string
 	WorktreeRoot string
 	// AgentFinder locates Codex/Claude transcript files. When nil, agent
@@ -1015,10 +1018,16 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	return session, nil
 }
 
-// SetDefaultRuntime changes the engine used for newly created sessions and
-// persists the choice when a settings file is configured. Existing sessions
-// keep their own runtimeKind.
+// SetDefaultRuntime changes the engine used for newly created sessions while
+// preserving the configured runtime environment overrides.
 func (s *Service) SetDefaultRuntime(kind string) error {
+	return s.UpdateSettings(kind, s.Settings.RuntimeEnv)
+}
+
+// UpdateSettings changes the engine used for newly created sessions and the
+// runtime environment overrides, persisting both when a settings file is
+// configured. Existing sessions keep their own runtimeKind.
+func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string) error {
 	switch kind {
 	case settings.RuntimeGhostline, settings.RuntimeTmux:
 	default:
@@ -1028,8 +1037,9 @@ func (s *Service) SetDefaultRuntime(kind string) error {
 		return fmt.Errorf("runtime %q is not available on this host", kind)
 	}
 	s.DefaultRuntime = kind
+	s.Settings = settings.Settings{DefaultRuntime: kind, RuntimeEnv: runtimeEnv}
 	if s.SettingsPath != "" {
-		return settings.Save(s.SettingsPath, settings.Settings{DefaultRuntime: kind})
+		return settings.Save(s.SettingsPath, s.Settings)
 	}
 	return nil
 }
