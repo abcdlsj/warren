@@ -209,6 +209,9 @@ func main() {
 			}
 		}()
 	}
+	// Shutting down the control plane must never terminate the ghostline
+	// serve process: it owns the PTY sessions and survives daemon restarts
+	// and upgrades (the next start reuses or adopts it via its admin socket).
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop

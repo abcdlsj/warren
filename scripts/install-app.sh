@@ -19,6 +19,9 @@ pids_for_path() {
     # Match only argument-less invocations (exactly `pid executable`), so the
     # daemon's ghostline child (started with --ghostline-serve and friends)
     # is never matched or killed.
+    # WARNING: never loosen this filter. The ghostline serve process owns the
+    # PTY sessions and is designed to survive installs, restarts and updates;
+    # killing it takes every running session down with it.
     ps -axo pid=,command= | awk -v exe="$executable" '$2 == exe && NF == 2 { print $1 }'
 }
 
@@ -127,6 +130,10 @@ fi
 # The daemon is deliberately independent during normal Desktop shutdown, but
 # an app update must replace its executable too. tmux sessions survive SIGTERM
 # and the new menu-bar process will start the freshly installed daemon.
+# Only the control-plane daemon may be terminated here. The ghostline serve
+# process (warren-headless --ghostline-serve ...) is a separate long-lived
+# session owner and must NEVER be killed during install/restart/update; the
+# new daemon reuses or adopts it so sessions keep running.
 if is_daemon_running; then
     force_terminate_pids "$(pids_for_path "$daemon_executable_path") $(pids_for_path "$installed_daemon_executable_path")" || true
 fi

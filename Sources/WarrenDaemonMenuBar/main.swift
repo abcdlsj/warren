@@ -236,6 +236,10 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     }
 
     private func stopDaemon() {
+        // Terminate only the control-plane daemon (the process this helper
+        // spawned). The ghostline serve process is a separate long-lived
+        // session owner: it must survive daemon restarts/updates so PTY
+        // sessions keep running, and the next daemon reuses or adopts it.
         daemonProcess?.terminate()
         daemonProcess = nil
         state = .stopped
