@@ -25,6 +25,12 @@ public struct WarrenDesktopInspectorContent: Identifiable, Hashable, Sendable {
     public let title: String
     public let detail: String
 
+    /// Text copied by the Inspector action. Keep the title with the detail so
+    /// a pasted diagnostic remains understandable outside the app.
+    public var clipboardText: String {
+        "\(title)\n\n\(detail)"
+    }
+
     public init(id: String = "inspector", title: String, detail: String) {
         self.id = id
         self.title = title

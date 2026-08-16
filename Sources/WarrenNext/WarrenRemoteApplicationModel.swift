@@ -121,6 +121,20 @@ private enum RemoteWireEvent: Sendable {
     case disconnected(String)
 }
 
+private struct WarrenRemoteRequestContext {
+    let method: String
+    let params: [String: String]
+    let startedAt: Date
+}
+
+private enum WarrenRemoteErrorInfoKey {
+    static let method = "WarrenRemoteMethod"
+    static let params = "WarrenRemoteParams"
+    static let endpoint = "WarrenRemoteEndpoint"
+    static let startedAt = "WarrenRemoteRequestStartedAt"
+    static let daemonProtocol = "WarrenRemoteDaemonProtocol"
+}
+
 struct TerminalOutputAnchor: Equatable, Sendable {
     let epoch: UInt64
     let sequence: UInt64
@@ -170,6 +184,8 @@ private actor WarrenRemoteWire {
     private var task: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var continuations: [String: CheckedContinuation<Data, Error>] = [:]
+    private var requestContexts: [String: WarrenRemoteRequestContext] = [:]
+    private var daemonProtocolVersion: String?
     private var pendingInput = Data()
     private var inputTask: Task<Void, Never>?
     private let eventBuffer = WarrenLosslessAsyncBuffer<RemoteWireEvent>(capacity: 64)
@@ -225,6 +241,8 @@ private actor WarrenRemoteWire {
             continuation.resume(throwing: URLError(.cancelled))
         }
         continuations.removeAll()
+        requestContexts.removeAll()
+        daemonProtocolVersion = nil
     }
 
     func request(_ method: String, params: [String: String] = [:]) async throws -> Data {
@@ -233,6 +251,11 @@ private actor WarrenRemoteWire {
         let text = Self.json(["t": "request", "id": id, "method": method, "params": params])
         return try await withCheckedThrowingContinuation { continuation in
             continuations[id] = continuation
+            requestContexts[id] = WarrenRemoteRequestContext(
+                method: method,
+                params: params,
+                startedAt: Date()
+            )
             Task {
                 do { try await task.send(.string(text)) }
                 catch { self.failRequest(id, error: error) }
@@ -270,7 +293,35 @@ private actor WarrenRemoteWire {
     }
 
     private func failRequest(_ id: String, error: Error) {
-        continuations.removeValue(forKey: id)?.resume(throwing: error)
+        let context = requestContexts.removeValue(forKey: id)
+        continuations.removeValue(forKey: id)?.resume(
+            throwing: makeRequestError(error: error, context: context)
+        )
+    }
+
+    private func makeRequestError(
+        message: String,
+        context: WarrenRemoteRequestContext?
+    ) -> NSError {
+        var userInfo: [String: Any] = [NSLocalizedDescriptionKey: message]
+        userInfo[WarrenRemoteErrorInfoKey.endpoint] = configuration.url
+        userInfo[WarrenRemoteErrorInfoKey.daemonProtocol] = daemonProtocolVersion ?? "unknown"
+        if let context {
+            userInfo[WarrenRemoteErrorInfoKey.method] = context.method
+            userInfo[WarrenRemoteErrorInfoKey.params] = context.params
+            userInfo[WarrenRemoteErrorInfoKey.startedAt] = context.startedAt
+        }
+        return NSError(domain: "WarrenRemote", code: 1, userInfo: userInfo)
+    }
+
+    private func makeRequestError(
+        error: Error,
+        context: WarrenRemoteRequestContext?
+    ) -> NSError {
+        let wrapped = makeRequestError(message: error.localizedDescription, context: context)
+        var userInfo = wrapped.userInfo
+        userInfo[NSUnderlyingErrorKey] = error
+        return NSError(domain: wrapped.domain, code: wrapped.code, userInfo: userInfo)
     }
 
     private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
@@ -354,15 +405,15 @@ private actor WarrenRemoteWire {
         if type == "response" {
             if let id = object["id"] as? String,
                let continuation = continuations.removeValue(forKey: id) {
+                let context = requestContexts.removeValue(forKey: id)
                 if object["ok"] as? Bool == true {
                     let result = object["result"] ?? NSNull()
                     let encoded = (try? JSONSerialization.data(withJSONObject: result)) ?? Data("null".utf8)
                     continuation.resume(returning: encoded)
                 } else {
-                    continuation.resume(throwing: NSError(
-                        domain: "WarrenRemote",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: object["error"] as? String ?? "Remote request failed"]
+                    continuation.resume(throwing: makeRequestError(
+                        message: object["error"] as? String ?? "Remote request failed",
+                        context: context
                     ))
                 }
             } else if object["ok"] as? Bool == false {
@@ -373,6 +424,7 @@ private actor WarrenRemoteWire {
             }
         } else if type == "welcome" {
             let version = object["version"] as? String ?? "unknown"
+            daemonProtocolVersion = version
             guard Self.compatibleProtocolVersion(version, with: "1.0") else {
                 return await eventBuffer.send(.disconnected(
                     "Warren Desktop is incompatible with the daemon protocol "
@@ -413,6 +465,91 @@ private actor WarrenRemoteWire {
     private nonisolated static func json(_ value: [String: Any]) -> String {
         let data = try! JSONSerialization.data(withJSONObject: value)
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+private enum WarrenRemoteDiagnostics {
+    private static let sensitiveParameterNames = [
+        "authorization", "cookie", "password", "secret", "token",
+    ]
+
+    static func text(
+        error: Error,
+        endpoint: String?,
+        selectedSessionID: TerminalSessionID?,
+        attachedSessionID: TerminalSessionID?,
+        focusedSessionID: TerminalSessionID?,
+        now: Date = Date()
+    ) -> String {
+        let nsError = error as NSError
+        let info = nsError.userInfo
+        let requestEndpoint = info[WarrenRemoteErrorInfoKey.endpoint] as? String
+        let method = info[WarrenRemoteErrorInfoKey.method] as? String ?? "unknown"
+        let params = info[WarrenRemoteErrorInfoKey.params] as? [String: String] ?? [:]
+        let daemonProtocol = info[WarrenRemoteErrorInfoKey.daemonProtocol] as? String ?? "unknown"
+        let startedAt = info[WarrenRemoteErrorInfoKey.startedAt] as? Date
+        let effectiveEndpoint = requestEndpoint ?? endpoint ?? "unknown"
+        let elapsed = startedAt.map { max(0, now.timeIntervalSince($0)) }
+
+        var lines = [
+            "Warren daemon diagnostic",
+            "timestamp: \(iso8601(now))",
+            "endpoint: \(redactedEndpoint(effectiveEndpoint))",
+            "operation: \(method)",
+            "parameters: \(formattedParameters(params))",
+            "selectedSession: \(selectedSessionID?.description ?? "none")",
+            "attachedSession: \(attachedSessionID?.description ?? "none")",
+            "focusedSession: \(focusedSessionID?.description ?? "none")",
+            "clientProtocol: 1.0",
+            "daemonProtocol: \(daemonProtocol)",
+            "appVersion: \(appVersion())",
+            "os: \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "errorType: \(String(reflecting: type(of: error)))",
+            "errorDomain: \(nsError.domain)",
+            "errorCode: \(nsError.code)",
+            "message: \(nsError.localizedDescription)",
+        ]
+        if let startedAt {
+            lines.insert("requestStarted: \(iso8601(startedAt))", at: 2)
+        }
+        if let elapsed {
+            lines.insert(String(format: "requestElapsedMs: %.0f", elapsed * 1_000), at: 3)
+        }
+        if let underlying = info[NSUnderlyingErrorKey] as? NSError {
+            lines.append(
+                "underlying: \(underlying.domain) (\(underlying.code)): \(underlying.localizedDescription)"
+            )
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func formattedParameters(_ params: [String: String]) -> String {
+        guard !params.isEmpty else { return "none" }
+        return params.keys.sorted().map { key in
+            let value = params[key] ?? ""
+            let lowercased = key.lowercased()
+            let redacted = sensitiveParameterNames.contains { lowercased.contains($0) }
+                ? "<redacted>"
+                : value
+            return "\(key)=\(redacted)"
+        }.joined(separator: ", ")
+    }
+
+    private static func redactedEndpoint(_ raw: String) -> String {
+        guard var components = URLComponents(string: raw) else { return raw }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        return components.string ?? raw
+    }
+
+    private static func iso8601(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func appVersion() -> String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development"
     }
 }
 
@@ -1041,6 +1178,24 @@ final class WarrenRemoteApplicationModel {
 
     func report(_ error: Error) { present(error) }
 
+    nonisolated static func diagnosticText(
+        error: Error,
+        endpoint: String? = nil,
+        selectedSessionID: TerminalSessionID? = nil,
+        attachedSessionID: TerminalSessionID? = nil,
+        focusedSessionID: TerminalSessionID? = nil,
+        now: Date = Date()
+    ) -> String {
+        WarrenRemoteDiagnostics.text(
+            error: error,
+            endpoint: endpoint,
+            selectedSessionID: selectedSessionID,
+            attachedSessionID: attachedSessionID,
+            focusedSessionID: focusedSessionID,
+            now: now
+        )
+    }
+
     private func request(
         _ method: String,
         params: [String: String] = [:],
@@ -1450,7 +1605,16 @@ final class WarrenRemoteApplicationModel {
 
     private func present(_ error: Error) {
         issue = error
-        projection = projection.withIssue(error)
+        projection = projection.withIssue(
+            error,
+            detail: Self.diagnosticText(
+                error: error,
+                endpoint: endpointConfiguration?.url,
+                selectedSessionID: selectedSessionID,
+                attachedSessionID: attachedSessionID,
+                focusedSessionID: focusedSessionID
+            )
+        )
     }
     private static func tabID(_ id: TerminalSessionID) -> String { "remote-\(id.description)" }
 }
@@ -1469,7 +1633,7 @@ private extension WarrenDesktopProjection {
         )
     }
 
-    func withIssue(_ error: Error) -> Self {
+    func withIssue(_ error: Error, detail: String? = nil) -> Self {
         Self(
             host: host,
             groups: groups,
@@ -1480,7 +1644,7 @@ private extension WarrenDesktopProjection {
             inspector: WarrenDesktopInspectorContent(
                 id: "remote-error",
                 title: "Daemon error",
-                detail: String(describing: error)
+                detail: detail ?? String(describing: error)
             ),
             connectionState: connectionState
         )

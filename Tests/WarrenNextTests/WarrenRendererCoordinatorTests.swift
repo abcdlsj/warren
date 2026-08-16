@@ -115,6 +115,37 @@ final class WarrenRendererCoordinatorTests: XCTestCase {
         ))
     }
 
+    func testRemoteDiagnosticIncludesRequestContextAndRedactsSecrets() {
+        let selectedSession = TerminalSessionID()
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let error = NSError(domain: "WarrenRemote", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "bad file descriptor",
+            "WarrenRemoteMethod": "session.focus",
+            "WarrenRemoteParams": [
+                "cols": "120",
+                "focused": "true",
+                "token": "do-not-copy",
+            ],
+            "WarrenRemoteEndpoint": "https://warren.example.test:8789/v1?token=do-not-copy",
+            "WarrenRemoteRequestStartedAt": startedAt,
+        ])
+
+        let diagnostic = WarrenRemoteApplicationModel.diagnosticText(
+            error: error,
+            selectedSessionID: selectedSession,
+            attachedSessionID: selectedSession,
+            now: startedAt.addingTimeInterval(0.25)
+        )
+
+        XCTAssertTrue(diagnostic.contains("operation: session.focus"))
+        XCTAssertTrue(diagnostic.contains("parameters: cols=120, focused=true, token=<redacted>"))
+        XCTAssertTrue(diagnostic.contains("selectedSession: \(selectedSession)"))
+        XCTAssertTrue(diagnostic.contains("requestElapsedMs: 250"))
+        XCTAssertTrue(diagnostic.contains("message: bad file descriptor"))
+        XCTAssertFalse(diagnostic.contains("do-not-copy"))
+        XCTAssertFalse(diagnostic.contains("?token="))
+    }
+
     @MainActor
     func testPendingShellTabIDIsStablePerWorkspace() {
         let workspaceID = WorkspaceID(

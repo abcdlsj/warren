@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WarrenClientCore
 import WarrenDesignSystem
@@ -247,13 +248,27 @@ struct WarrenDesktopInspectorSlot: View {
     let content: WarrenDesktopInspectorContent
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var copyConfirmation = false
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
-            Text(content.title)
-                .font(WarrenTypography.paneHeader)
-                .accessibilityAddTraits(.isHeader)
+            HStack(alignment: .firstTextBaseline, spacing: WarrenSpacing.compact) {
+                Text(content.title)
+                    .font(WarrenTypography.paneHeader)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: WarrenSpacing.compact)
+                Button(action: copyDiagnostics) {
+                    Label(
+                        copyConfirmation ? "Copied" : "Copy",
+                        systemImage: copyConfirmation ? "checkmark" : "doc.on.doc"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Copy diagnostics")
+                .accessibilityLabel("Copy inspector diagnostics")
+            }
             Text(content.detail)
                 .font(WarrenTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
@@ -276,5 +291,16 @@ struct WarrenDesktopInspectorSlot: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(content.title)
+    }
+
+    private func copyDiagnostics() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(content.clipboardText, forType: .string)
+        copyConfirmation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            copyConfirmation = false
+        }
     }
 }
