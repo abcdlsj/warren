@@ -111,10 +111,16 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// be a no-op when the pixel size is unchanged, which leaves a previously
     /// hidden surface on a stale/black framebuffer when it becomes active
     /// again without new output. A single inline draw forces the present.
-    public func presentNow() {
+    /// Presents the current grid inline and reports whether a draw actually
+    /// happened. The draw is skipped while the AppKit view is not mounted
+    /// (`state.surface` is nil), which happens right after a worktree switch
+    /// recreates the terminal view; callers should retry until true.
+    @discardableResult
+    public func presentNow() -> Bool {
         state.controller.tick()
-        guard let raw = state.surface?.rawValue else { return }
+        guard let raw = state.surface?.rawValue else { return false }
         ghostty_surface_draw(raw)
+        return true
     }
 
     public func apply(font: TerminalFontPreference) {

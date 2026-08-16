@@ -1377,15 +1377,21 @@ final class WarrenRemoteApplicationModel {
     /// would otherwise take to reveal the frame.
     private func scheduleInitialPresent(_ surface: GhosttySurface, generation: UInt64) {
         surface.requestDisplayRefresh()
-        surface.presentNow()
-        for delay in [0.05, 0.2, 0.5] {
-            Task { @MainActor [weak self, weak surface] in
-                try? await Task.sleep(for: .seconds(delay))
+        _ = surface.presentNow()
+        Task { @MainActor [weak self, weak surface] in
+            // A worktree switch disposes and recreates the AppKit terminal
+            // view. presentNow silently skips while the view is not mounted,
+            // so poll until a real draw succeeds (or the attach goes stale)
+            // instead of hoping the fixed delays outlast the mount.
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .milliseconds(100))
                 guard let self, let surface,
                       generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
                 surface.requestDisplayRefresh()
-                surface.presentNow()
+                if surface.presentNow() {
+                    return
+                }
             }
         }
     }
