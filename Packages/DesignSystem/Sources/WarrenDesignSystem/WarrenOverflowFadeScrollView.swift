@@ -67,8 +67,18 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                 }
                 .coordinateSpace(name: spaceName)
                 .onPreferenceChange(WarrenOverflowFadeMetricsKey.self) { metrics in
-                    contentFrame = metrics.frame
-                    updateEdges(contentFrame: metrics.frame, viewport: viewport.size)
+                    // Preference callbacks run inside the SwiftUI update
+                    // transaction. Writing @State here publishes from within a
+                    // view update (runtime fault) and can re-enter layout
+                    // forever. Defer to the next main-actor hop and skip the
+                    // write when the frame is unchanged.
+                    let frame = metrics.frame
+                    let viewportSize = viewport.size
+                    Task { @MainActor in
+                        guard contentFrame != frame else { return }
+                        contentFrame = frame
+                        updateEdges(contentFrame: frame, viewport: viewportSize)
+                    }
                 }
                 .onChange(of: viewport.size) { _, newSize in
                     updateEdges(contentFrame: contentFrame, viewport: newSize)

@@ -68,7 +68,14 @@ struct WarrenDesktopSidebarRows: View {
         }
         .coordinateSpace(name: WarrenSidebarRowsDragCoordinateSpace.name)
         .onPreferenceChange(WarrenSidebarRowDragFramesKey.self) { frames in
-            dragFrames = frames
+            // Preference callbacks run inside the SwiftUI update transaction.
+            // Defer the @State write one main-actor hop and skip identical
+            // values so SwiftUI observes the change outside the transaction
+            // instead of re-entering layout.
+            Task { @MainActor in
+                guard dragFrames != frames else { return }
+                dragFrames = frames
+            }
         }
         .overlay {
             WarrenDesktopSidebarDragOverlay(
