@@ -10,19 +10,25 @@ public struct WarrenDesktopWebStatus: Hashable, Sendable {
     public var lanURL: URL?
     public var secureURL: URL?
     public var canControl: Bool
+    /// True while the daemon reports a live public tunnel
+    /// (gnar/cloudflared/tailscale). Independent of `isRunning`, which only
+    /// reflects local Web reachability.
+    public var tunnelRunning: Bool
 
     public init(
         isRunning: Bool = false,
         localURL: URL? = nil,
         lanURL: URL? = nil,
         secureURL: URL? = nil,
-        canControl: Bool = true
+        canControl: Bool = true,
+        tunnelRunning: Bool = false
     ) {
         self.isRunning = isRunning
         self.localURL = localURL
         self.lanURL = lanURL
         self.secureURL = secureURL
         self.canControl = canControl
+        self.tunnelRunning = tunnelRunning
     }
 }
 

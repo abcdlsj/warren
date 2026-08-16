@@ -167,6 +167,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
                         webStatus: webStatus,
+                        canShareTunnel: gnarSharingEnabled,
                         hasInspector: projection.inspector != nil,
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
@@ -183,6 +184,15 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             settingsPresented = true
                         },
                         onWeb: { webPresented.toggle() },
+                        onToggleTunnel: {
+                            if webStatus.tunnelRunning {
+                                onWebStop()
+                            } else {
+                                onWebStart()
+                                webPresented = true
+                                refreshWebDismissal()
+                            }
+                        },
                         onSelectEndpoint: onSelectEndpoint,
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in

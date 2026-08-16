@@ -665,6 +665,10 @@ final class WarrenRemoteApplicationModel {
             let events = wire.events()
             do {
                 try await wire.connect()
+                // A daemon restart clears its tunnel state, so refresh the
+                // projection on every (re)connect to keep the top-bar tunnel
+                // indicator truthful.
+                await refreshTunnelStatus()
                 for await event in events {
                     guard !Task.isCancelled else { return }
                     if case .roster = event {
@@ -956,9 +960,11 @@ final class WarrenRemoteApplicationModel {
               let tunnel = response.tunnels.values.first(where: { $0.running && $0.webURL != nil }),
               let url = tunnel.webURL.flatMap(URL.init(string:)) else {
             webStatus.secureURL = nil
+            webStatus.tunnelRunning = false
             return
         }
         webStatus.secureURL = url
+        webStatus.tunnelRunning = true
     }
 
     func previewSupersetImport() async throws -> SupersetImportPreview {
