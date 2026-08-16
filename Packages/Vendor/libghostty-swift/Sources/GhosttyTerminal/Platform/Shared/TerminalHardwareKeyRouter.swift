@@ -59,6 +59,10 @@ enum TerminalHardwareKeyRouter {
         return .ghostty(ghosttyKeyForAppKit(keyCode: keyCode))
     }
 
+    // Arrow keys, Home, and End are intentionally not direct-routed: DECCKM
+    // (smkx) switches them between CSI and SS3, so they must go through
+    // `ghostty_surface_key` to honor the encoding the running program
+    // negotiated (less expects SS3, e.g. ESC O B for Down).
     private static func directControlInputForUIKit(usage: UInt16) -> Data? {
         switch usage {
         case 0x2A:
@@ -67,27 +71,19 @@ enum TerminalHardwareKeyRouter {
             Data([0x09])
         case 0x4C:
             Data("\u{1B}[3~".utf8)
-        case 0x4A:
-            Data("\u{1B}[H".utf8)
-        case 0x4D:
-            Data("\u{1B}[F".utf8)
         case 0x4B:
             Data("\u{1B}[5~".utf8)
         case 0x4E:
             Data("\u{1B}[6~".utf8)
-        case 0x4F:
-            Data("\u{1B}[C".utf8)
-        case 0x50:
-            Data("\u{1B}[D".utf8)
-        case 0x51:
-            Data("\u{1B}[B".utf8)
-        case 0x52:
-            Data("\u{1B}[A".utf8)
         default:
             nil
         }
     }
 
+    // Arrow keys, Home, and End are intentionally not direct-routed: DECCKM
+    // (smkx) switches them between CSI and SS3, so they must go through
+    // `ghostty_surface_key` to honor the encoding the running program
+    // negotiated (less expects SS3, e.g. ESC O B for Down).
     private static func directControlInputForAppKit(keyCode: UInt16) -> Data? {
         switch keyCode {
         case 0x33:
@@ -96,22 +92,10 @@ enum TerminalHardwareKeyRouter {
             Data([0x09])
         case 0x75:
             Data("\u{1B}[3~".utf8)
-        case 0x73:
-            Data("\u{1B}[H".utf8)
-        case 0x77:
-            Data("\u{1B}[F".utf8)
         case 0x74:
             Data("\u{1B}[5~".utf8)
         case 0x79:
             Data("\u{1B}[6~".utf8)
-        case 0x7B:
-            Data("\u{1B}[D".utf8)
-        case 0x7C:
-            Data("\u{1B}[C".utf8)
-        case 0x7D:
-            Data("\u{1B}[B".utf8)
-        case 0x7E:
-            Data("\u{1B}[A".utf8)
         default:
             nil
         }

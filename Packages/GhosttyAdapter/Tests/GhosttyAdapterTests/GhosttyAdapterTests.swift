@@ -135,6 +135,93 @@ final class GhosttyAdapterTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testArrowDownOutsideApplicationCursorModeEmitsCsi() async throws {
+        let recorder = LockedInputRecorder()
+        let (_, view, window) = try await makeMountedTerminal(recorder: recorder)
+        defer { window.orderOut(nil) }
+        try sendKey(
+            keyCode: 0x7D, // kVK_DownArrow
+            characters: "\u{F701}",
+            to: view,
+            in: window
+        )
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(
+            Array(recorder.allBytes()),
+            Array(Data("\u{1b}[B".utf8)),
+            "Down arrow outside application cursor mode must stay CSI B"
+        )
+    }
+
+    @MainActor
+    func testArrowDownHonorsApplicationCursorKeysMode() async throws {
+        let recorder = LockedInputRecorder()
+        let (surface, view, window) = try await makeMountedTerminal(recorder: recorder)
+        defer { window.orderOut(nil) }
+
+        // less (via smkx / DECCKM) asks the terminal to switch arrow keys
+        // from CSI to SS3 encoding while a pager is active.
+        surface.receive(Data("\u{1b}[?1h".utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        try sendKey(
+            keyCode: 0x7D, // kVK_DownArrow
+            characters: "\u{F701}",
+            to: view,
+            in: window
+        )
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(
+            Array(recorder.allBytes()),
+            Array(Data("\u{1b}OB".utf8)),
+            "Down arrow in application cursor mode must be SS3 B, not CSI B"
+        )
+    }
+
+    @MainActor
+    func testHomeAndEndFollowApplicationCursorKeysMode() async throws {
+        let recorder = LockedInputRecorder()
+        let (surface, view, window) = try await makeMountedTerminal(recorder: recorder)
+        defer { window.orderOut(nil) }
+
+        // smkx also switches Home/End to SS3 in less-style applications.
+        surface.receive(Data("\u{1b}[?1h".utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        try sendKey(
+            keyCode: 0x73, // kVK_Home
+            characters: "\u{F729}",
+            to: view,
+            in: window
+        )
+        var deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().count < 3, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try sendKey(
+            keyCode: 0x77, // kVK_End
+            characters: "\u{F72B}",
+            to: view,
+            in: window
+        )
+        deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().count < 6, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(
+            Array(recorder.allBytes()),
+            Array(Data("\u{1b}OH\u{1b}OF".utf8)),
+            "Home/End in application cursor mode must be SS3 H/F, not CSI H/F"
+        )
+    }
+
     func testDiagnosticSizeFormattingNeverTrapsOnExtremeValues() {
         XCTAssertEqual(
             GhosttyDiagnosticsFormat.finiteSize(
@@ -196,6 +283,61 @@ private final class LockedInputRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         return bytes
     }
+}
+
+@MainActor
+private func makeMountedTerminal(
+    recorder: LockedInputRecorder
+) async throws -> (GhosttySurface, AppTerminalView, NSWindow) {
+    let surface = GhosttySurface(
+        id: TerminalSessionID(),
+        attachmentID: TerminalAttachmentID(),
+        workingDirectory: "/tmp",
+        onInput: { recorder.append($0) },
+        onResize: { _, _ in }
+    )
+
+    _ = NSApplication.shared
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    let view = AppTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+    view.delegate = surface.state
+    view.controller = surface.state.controller
+    view.configuration = surface.state.configuration
+    window.contentView = view
+    view.layoutSubtreeIfNeeded()
+
+    _ = try await waitUntilSurfaceAvailable(on: surface.state)
+    return (surface, view, window)
+}
+
+@MainActor
+private func sendKey(
+    keyCode: UInt16,
+    characters: String,
+    to view: AppTerminalView,
+    in window: NSWindow
+) throws {
+    guard let event = NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: keyCode
+    ) else {
+        struct KeyEventUnavailable: Error {}
+        throw KeyEventUnavailable()
+    }
+    view.keyDown(with: event)
 }
 
 @MainActor
