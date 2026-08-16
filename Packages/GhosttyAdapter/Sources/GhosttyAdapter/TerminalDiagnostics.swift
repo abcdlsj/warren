@@ -1,23 +1,26 @@
 import Foundation
 import GhosttyTerminal
 
-/// Opt-in terminal presentation diagnostics for workspace/tab switch black
-/// screen investigations.
+/// Terminal presentation diagnostics for the workspace/tab-switch black pane.
 ///
-/// Enabled by `WARREN_TERMINAL_DIAGNOSTICS=1` (or the `--terminal-diagnostics`
-/// launch argument). Writes JSON lines plus the vendored GhosttyTerminal debug
-/// log to `~/Library/Logs/Warren/terminal-diagnostics-<pid>.log` so a repro
-/// can be correlated end to end: workspace selection, attach, presentNow,
-/// view mount, and render ticks.
+/// Milestone events (switches, attach, first snapshot, present failures, view
+/// mount/teardown, resize) are written by default to
+/// `~/Library/Logs/Warren/terminal-diagnostics.log`, rotated to a `.log.1`
+/// backup once the file exceeds 2 MB. `WARREN_TERMINAL_DIAGNOSTICS=1` (or the
+/// `--terminal-diagnostics` launch argument) additionally enables the
+/// vendored GhosttyTerminal debug stream and verbose per-draw events.
 public enum TerminalDiagnostics {
     private final class Store: @unchecked Sendable {
         let lock = NSLock()
         var enabled = false
+        var verbose = false
         var handle: FileHandle?
         var fileURL: URL?
+        var bytesWritten = 0
     }
 
     private static let store = Store()
+    private static let maxFileBytes = 2 * 1024 * 1024
 
     public static var isEnabled: Bool {
         store.lock.lock()
@@ -25,14 +28,21 @@ public enum TerminalDiagnostics {
         return store.enabled
     }
 
+    public static var isVerbose: Bool {
+        store.lock.lock()
+        defer { store.lock.unlock() }
+        return store.verbose
+    }
+
     public static func configure(
         environment: [String: String],
         arguments: [String]
     ) {
-        let requested = environment["WARREN_TERMINAL_DIAGNOSTICS"] == "1"
+        let verboseRequested =
+            environment["WARREN_TERMINAL_DIAGNOSTICS"] == "1"
             || arguments.contains("--terminal-diagnostics")
         store.lock.lock()
-        guard requested, !store.enabled else {
+        guard !store.enabled else {
             store.lock.unlock()
             return
         }
@@ -47,31 +57,54 @@ public enum TerminalDiagnostics {
             at: directory,
             withIntermediateDirectories: true
         )
-        let fileURL = directory.appendingPathComponent(
-            "terminal-diagnostics-\(ProcessInfo.processInfo.processIdentifier).log"
-        )
-        try? FileManager.default.removeItem(at: fileURL)
-        FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+        let fileURL = directory.appendingPathComponent("terminal-diagnostics.log")
         store.fileURL = fileURL
-        store.handle = try? FileHandle(forWritingTo: fileURL)
+        store.handle = openForAppend(fileURL)
+        store.bytesWritten = (
+            try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        ) ?? 0
         store.enabled = true
+        store.verbose = verboseRequested
         store.lock.unlock()
 
-        TerminalDebugLog.enable(.all)
-        TerminalDebugLog.sink = { message in
-            Self.writeRaw(message)
+        if verboseRequested {
+            TerminalDebugLog.enable(.all)
+            TerminalDebugLog.sink = { message in
+                Self.writeRaw(message)
+            }
         }
         log("diagnostics_start", [
-            "pid": String(ProcessInfo.processInfo.processIdentifier),
+            "verbose": verboseRequested ? "true" : "false",
             "file": fileURL.path,
         ])
     }
 
-    public static func log(_ event: String, _ fields: [String: String] = [:]) {
+    /// Milestone event: always recorded once diagnostics are configured.
+    public static func log(
+        _ event: String,
+        _ fields: [String: String] = [:]
+    ) {
         store.lock.lock()
         defer { store.lock.unlock() }
-        guard store.enabled, let handle = store.handle else { return }
+        guard store.enabled else { return }
+        writeLocked(event, fields)
+    }
 
+    /// Verbose event: recorded only with `WARREN_TERMINAL_DIAGNOSTICS=1`.
+    public static func logVerbose(
+        _ event: String,
+        _ fields: [String: String] = [:]
+    ) {
+        store.lock.lock()
+        defer { store.lock.unlock() }
+        guard store.enabled, store.verbose else { return }
+        writeLocked(event, fields)
+    }
+
+    private static func writeLocked(
+        _ event: String,
+        _ fields: [String: String]
+    ) {
         var payload: [String: String] = [
             "time": String(format: "%.3f", Date().timeIntervalSince1970),
             "pid": String(ProcessInfo.processInfo.processIdentifier),
@@ -92,19 +125,41 @@ public enum TerminalDiagnostics {
                 .map { "\($0.key)=\($0.value)" }
                 .joined(separator: " ")
         }
-        append(line + "\n", to: handle)
+        appendLocked(line + "\n")
     }
 
     private static func writeRaw(_ message: String) {
         store.lock.lock()
         defer { store.lock.unlock() }
-        guard store.enabled, let handle = store.handle else { return }
-        append(message + "\n", to: handle)
+        guard store.enabled, store.verbose else { return }
+        appendLocked(message + "\n")
     }
 
-    private static func append(_ line: String, to handle: FileHandle) {
-        guard let data = line.data(using: .utf8) else { return }
+    private static func appendLocked(_ line: String) {
+        guard let handle = store.handle,
+              let data = line.data(using: .utf8) else { return }
+        if store.bytesWritten + data.count > maxFileBytes {
+            rotateLocked()
+        }
+        guard let handle = store.handle else { return }
         handle.seekToEndOfFile()
         handle.write(data)
+        store.bytesWritten += data.count
+    }
+
+    private static func rotateLocked() {
+        guard let fileURL = store.fileURL else { return }
+        store.handle?.closeFile()
+        store.handle = nil
+        let backup = fileURL.appendingPathExtension("1")
+        try? FileManager.default.removeItem(at: backup)
+        try? FileManager.default.moveItem(at: fileURL, to: backup)
+        store.handle = openForAppend(fileURL)
+        store.bytesWritten = 0
+    }
+
+    private static func openForAppend(_ url: URL) -> FileHandle? {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        return try? FileHandle(forWritingTo: url)
     }
 }

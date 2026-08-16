@@ -1109,6 +1109,11 @@ final class WarrenRemoteApplicationModel {
         guard let sessionID = selectedSessionID,
               attachedSessionID == sessionID,
               focusedSessionID == sessionID else { return }
+        TerminalDiagnostics.log("resize_request", [
+            "session": sessionID.description,
+            "cols": String(columns),
+            "rows": String(rows),
+        ])
         resizeTask?.cancel()
         resizeTask = Task { @MainActor [weak self] in
             do {
@@ -1330,13 +1335,22 @@ final class WarrenRemoteApplicationModel {
               let targetSessionID = sessionID ?? selectedSessionID,
               targetSessionID == selectedSessionID,
               let surface = mountedSurfaces.first(where: { $0.id == targetSessionID }) else { return }
-        TerminalDiagnostics.log("feed_output", [
-            "session": targetSessionID.description,
-            "bytes": String(data.count),
-            "nudge": initialRefreshPending ? "true" : "false",
-        ])
+        let nudge = initialRefreshPending
+        if nudge {
+            TerminalDiagnostics.log("feed_output", [
+                "session": targetSessionID.description,
+                "bytes": String(data.count),
+                "nudge": "true",
+            ])
+        } else {
+            TerminalDiagnostics.logVerbose("feed_output", [
+                "session": targetSessionID.description,
+                "bytes": String(data.count),
+                "nudge": "false",
+            ])
+        }
         surface.outputWriter.enqueueRaw(data)
-        if initialRefreshPending {
+        if nudge {
             // The attach snapshot is fed before Ghostty's display loop
             // necessarily paints; nudge one tick so the old shell appears
             // immediately instead of after the first resize or keystroke.
@@ -1599,11 +1613,19 @@ final class WarrenRemoteApplicationModel {
                 guard generation == self.attachGeneration,
                       self.attachedSessionID == surface.id else { return }
                 let drew = surface.presentNow()
-                TerminalDiagnostics.log("present_poll", [
-                    "session": surface.id.description,
-                    "attempt": String(attempt),
-                    "drew": drew ? "true" : "false",
-                ])
+                if drew {
+                    TerminalDiagnostics.logVerbose("present_poll", [
+                        "session": surface.id.description,
+                        "attempt": String(attempt),
+                        "drew": "true",
+                    ])
+                } else {
+                    TerminalDiagnostics.log("present_poll", [
+                        "session": surface.id.description,
+                        "attempt": String(attempt),
+                        "drew": "false",
+                    ])
+                }
                 if drew {
                     break
                 }
@@ -1615,11 +1637,19 @@ final class WarrenRemoteApplicationModel {
                       self.attachedSessionID == surface.id else { return }
                 surface.requestDisplayRefresh()
                 let drew = surface.presentNow()
-                TerminalDiagnostics.log("present_delayed", [
-                    "session": surface.id.description,
-                    "delay": String(delay),
-                    "drew": drew ? "true" : "false",
-                ])
+                if drew {
+                    TerminalDiagnostics.logVerbose("present_delayed", [
+                        "session": surface.id.description,
+                        "delay": String(delay),
+                        "drew": "true",
+                    ])
+                } else {
+                    TerminalDiagnostics.log("present_delayed", [
+                        "session": surface.id.description,
+                        "delay": String(delay),
+                        "drew": "false",
+                    ])
+                }
             }
         }
     }

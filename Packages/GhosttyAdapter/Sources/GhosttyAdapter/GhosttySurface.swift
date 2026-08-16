@@ -115,7 +115,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// anything; an explicit tick renders it without waiting for the next
     /// resize or keystroke.
     public func requestDisplayRefresh() {
-        TerminalDiagnostics.log("display_refresh", [
+        TerminalDiagnostics.logVerbose("display_refresh", [
             "session": id.description,
         ])
         state.controller.tick()
@@ -146,7 +146,7 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         }
         state.controller.tick()
         ghostty_surface_draw(raw)
-        TerminalDiagnostics.log("present_now", [
+        TerminalDiagnostics.logVerbose("present_now", [
             "session": id.description,
             "result": "true",
             "surfaceReady": "true",
@@ -224,6 +224,10 @@ public final class GhosttySurface: Identifiable, ObservableObject {
     /// tmux runtime that may not match the persisted last-requested size.
     public func synchronizeViewport() {
         guard let size = state.surfaceSize else { return }
+        TerminalDiagnostics.log("viewport_sync", [
+            "session": id.description,
+            "size": "\(size.columns)x\(size.rows)",
+        ])
         onViewportResize(Int(size.columns), Int(size.rows))
     }
 

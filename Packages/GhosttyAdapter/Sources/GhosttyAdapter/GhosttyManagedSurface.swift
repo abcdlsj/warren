@@ -144,9 +144,13 @@ public struct GhosttyManagedSurface: View {
         }
         Task { @MainActor [weak surface] in
             guard let surface else { return }
+            var drewOnce = false
             for attempt in 0..<60 {
                 let drew = surface.presentNow()
-                TerminalDiagnostics.log("managed_present_attempt", [
+                if drew {
+                    drewOnce = true
+                }
+                TerminalDiagnostics.logVerbose("managed_present_attempt", [
                     "session": surface.id.description,
                     "attempt": String(attempt),
                     "drew": drew ? "true" : "false",
@@ -156,15 +160,27 @@ public struct GhosttyManagedSurface: View {
                 }
                 try? await Task.sleep(for: .milliseconds(50))
             }
+            TerminalDiagnostics.log("managed_present_poll_done", [
+                "session": surface.id.description,
+                "success": drewOnce ? "true" : "false",
+            ])
             for delay in [0.1, 0.25, 0.5] {
                 try? await Task.sleep(for: .seconds(delay))
                 surface.requestDisplayRefresh()
                 let drew = surface.presentNow()
-                TerminalDiagnostics.log("managed_present_delayed", [
-                    "session": surface.id.description,
-                    "delay": String(delay),
-                    "drew": drew ? "true" : "false",
-                ])
+                if drew {
+                    TerminalDiagnostics.logVerbose("managed_present_delayed", [
+                        "session": surface.id.description,
+                        "delay": String(delay),
+                        "drew": "true",
+                    ])
+                } else {
+                    TerminalDiagnostics.log("managed_present_delayed", [
+                        "session": surface.id.description,
+                        "delay": String(delay),
+                        "drew": "false",
+                    ])
+                }
             }
         }
     }
@@ -253,9 +269,8 @@ public final class GhosttyFocusDriver {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 [weak self, weak state] in
                 guard let self, let state else {
-                    TerminalDiagnostics.log("fit_present", [
+                    TerminalDiagnostics.log("fit_present_miss", [
                         "delay": String(format: "%.2f", delay),
-                        "found": "false",
                         "reason": "state-gone",
                     ])
                     return
@@ -267,13 +282,20 @@ public final class GhosttyFocusDriver {
                     GhosttyDiagnosticsFormat.finiteSize($0.1.bounds.size)
                 } ?? "nil"
                 let hidden = match.map { $0.1.isHidden ? "true" : "false" } ?? "nil"
-                TerminalDiagnostics.log("fit_present", [
-                    "delay": String(format: "%.2f", delay),
-                    "found": found ? "true" : "false",
-                    "window": window,
-                    "bounds": bounds,
-                    "hidden": hidden,
-                ])
+                if found {
+                    TerminalDiagnostics.logVerbose("fit_present", [
+                        "delay": String(format: "%.2f", delay),
+                        "found": "true",
+                        "window": window,
+                        "bounds": bounds,
+                        "hidden": hidden,
+                    ])
+                } else {
+                    TerminalDiagnostics.log("fit_present_miss", [
+                        "delay": String(format: "%.2f", delay),
+                        "reason": "no-terminal-view",
+                    ])
+                }
                 guard let (_, target) = match else { return }
                 target.fitToSize()
                 present()
