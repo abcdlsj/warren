@@ -89,8 +89,8 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                     }
                 }
                 .overlay(alignment: .leading) {
-                    if showsEdgeChevrons, axes.contains(.horizontal) {
-                        chevron(edge: .leading, isActive: true) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollLeft {
+                        chevron(edge: .leading) {
                             withAnimation(.easeOut(duration: 0.18)) {
                                 proxy.scrollTo(contentID, anchor: .leading)
                             }
@@ -98,8 +98,8 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
                     }
                 }
                 .overlay(alignment: .trailing) {
-                    if showsEdgeChevrons, axes.contains(.horizontal) {
-                        chevron(edge: .trailing, isActive: true) {
+                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollRight {
+                        chevron(edge: .trailing) {
                             withAnimation(.easeOut(duration: 0.18)) {
                                 proxy.scrollTo(contentID, anchor: .trailing)
                             }
@@ -135,7 +135,7 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
     }
 
     @ViewBuilder
-    private func chevron(edge: Edge, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func chevron(edge: Edge, action: @escaping () -> Void) -> some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         Button(action: action) {
             Image(systemName: edge == .trailing ? "chevron.right" : "chevron.left")
@@ -151,8 +151,6 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 4)
-        .opacity(isActive ? 1 : 0.35)
-        .allowsHitTesting(isActive)
         .accessibilityLabel(edge == .trailing ? "Scroll tabs forward" : "Scroll tabs backward")
         .help(edge == .trailing ? "More tabs" : "Earlier tabs")
     }

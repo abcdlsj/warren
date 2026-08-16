@@ -325,12 +325,11 @@ export function TopBar({
     <header className="topbar">
       <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
       <div className="tabs-wrap">
-        {hasOverflow && (
+        {hasOverflow && canScrollLeft && (
           <button
             type="button"
             className="tabs-chevron tabs-chevron-left"
             aria-label="Earlier tabs"
-            disabled={!canScrollLeft}
             onClick={() => scrollTabs("left")}
           >
             ‹
@@ -364,12 +363,11 @@ export function TopBar({
             );
           })}
         </div>
-        {hasOverflow && (
+        {hasOverflow && canScrollRight && (
           <button
             type="button"
             className="tabs-chevron tabs-chevron-right"
             aria-label="More tabs"
-            disabled={!canScrollRight}
             onClick={() => scrollTabs("right")}
           >
             ›
