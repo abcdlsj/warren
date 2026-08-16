@@ -31,6 +31,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private var pollTask: Task<Void, Never>?
     private var autoStartDisabled = false
     private var buildVersion: String?
+    private var ghostlineVersion: String?
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
@@ -122,6 +123,10 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         version.tag = 3
         version.isEnabled = false
         menu.addItem(version)
+        let ghostlineVersion = NSMenuItem(title: "Ghostline: —", action: nil, keyEquivalent: "")
+        ghostlineVersion.tag = 4
+        ghostlineVersion.isEnabled = false
+        menu.addItem(ghostlineVersion)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Restart Headless", action: #selector(restartDaemon), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Stop Headless", action: #selector(stopDaemonAction), keyEquivalent: "s"))
@@ -184,18 +189,18 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     private func markRunning() async {
         state = .running
-        await refreshBuildVersion()
+        await refreshVersions()
     }
 
-    private func refreshBuildVersion() async {
+    private func refreshVersions() async {
         var request = URLRequest(url: healthURL)
         request.timeoutInterval = 1
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let build = object["build"] as? String, !build.isEmpty else { return }
-            buildVersion = build
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            buildVersion = (object["build"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ghostlineVersion = (object["ghostlineVersion"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             updateStatusItem()
         } catch {
             return
@@ -333,6 +338,9 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         if let buildVersion {
             toolTip += " · \(buildVersion)"
         }
+        if let ghostlineVersion {
+            toolTip += " · ghostline \(ghostlineVersion)"
+        }
         button.toolTip = toolTip
         if let status = statusItem.menu?.item(withTag: 1) {
             switch state {
@@ -352,6 +360,9 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         }
         if let version = statusItem.menu?.item(withTag: 3) {
             version.title = "Version: \(buildVersion ?? "—")"
+        }
+        if let ghostlineVersion = statusItem.menu?.item(withTag: 4) {
+            ghostlineVersion.title = "Ghostline: \(self.ghostlineVersion ?? "—")"
         }
     }
 }

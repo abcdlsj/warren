@@ -35,13 +35,14 @@ const (
 )
 
 type HTTPServer struct {
-	Service      *Service
-	Token        string
-	Logger       *slog.Logger
-	Tunnels      *tunnel.Manager
-	BuildVersion string
-	CACertPath   string
-	upgrader     websocket.Upgrader
+	Service          *Service
+	Token            string
+	Logger           *slog.Logger
+	Tunnels          *tunnel.Manager
+	BuildVersion     string
+	GhostlineVersion string
+	CACertPath       string
+	upgrader         websocket.Upgrader
 
 	peersMu sync.Mutex
 	peers   map[*wsPeer]struct{}
@@ -129,9 +130,10 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"ok":      true,
-			"version": api.Version,
-			"build":   s.BuildVersion,
+			"ok":               true,
+			"version":          api.Version,
+			"build":            s.BuildVersion,
+			"ghostlineVersion": s.GhostlineVersion,
 		})
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)

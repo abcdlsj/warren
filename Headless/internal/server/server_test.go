@@ -828,19 +828,21 @@ func TestHealthEndpoint(t *testing.T) {
 	state, _ := store.Open(filepath.Join(directory, "state.json"), "test")
 	handler := NewHTTPServer(&Service{Store: state, Runtime: &memoryRuntime{sessions: map[string][]byte{}}}, "secret", slog.Default())
 	handler.BuildVersion = "abc1234"
+	handler.GhostlineVersion = "0.4.0"
 	handler.Handler().ServeHTTP(response, request)
 	if response.Code != 200 {
 		t.Fatalf("health returned %d", response.Code)
 	}
 	var body struct {
-		OK      bool   `json:"ok"`
-		Version string `json:"version"`
-		Build   string `json:"build"`
+		OK               bool   `json:"ok"`
+		Version          string `json:"version"`
+		Build            string `json:"build"`
+		GhostlineVersion string `json:"ghostlineVersion"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode health body: %v", err)
 	}
-	if !body.OK || body.Version != api.Version || body.Build != "abc1234" {
+	if !body.OK || body.Version != api.Version || body.Build != "abc1234" || body.GhostlineVersion != "0.4.0" {
 		t.Fatalf("health body = %+v", body)
 	}
 }

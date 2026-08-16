@@ -117,6 +117,11 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	ghostlineVersion, err := ghostlineClient.Version(context.Background())
+	if err != nil {
+		logger.Warn("unable to read running ghostline version", "error", err)
+		ghostlineVersion = ""
+	}
 	runtimes := map[string]server.Runtime{
 		settings.RuntimeGhostline: server.NewGhostlineRuntime(ghostlineClient),
 	}
@@ -155,6 +160,7 @@ func main() {
 	}()
 	httpHandler := server.NewHTTPServer(service, token, logger)
 	httpHandler.BuildVersion = version
+	httpHandler.GhostlineVersion = ghostlineVersion
 	var lanHTTPServer *http.Server
 	if *lanHTTPS != "" {
 		certStore := tlscert.NewStore(*tlsDir)
