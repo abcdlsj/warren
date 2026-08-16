@@ -462,6 +462,7 @@ type codexPayload struct {
 	Name      string          `json:"name"`
 	CallID    string          `json:"call_id"`
 	Arguments string          `json:"arguments"`
+	Input     json.RawMessage `json:"input"`
 	Action    struct {
 		Command string   `json:"command"`
 		Type    string   `json:"type"`
@@ -607,6 +608,22 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				input["url"] = payload.Action.URL
 			}
 			event.ToolInput = input
+			p.lastEventType = "tool_call"
+			return []api.AgentEvent{event}
+		case "custom_tool_call":
+			event.ID = payload.ID
+			event.Type = "tool_call"
+			event.ToolName = payload.Name
+			if event.ToolName == "" {
+				event.ToolName = "custom_tool"
+			}
+			event.CallID = payload.CallID
+			event.ToolStatus = normalizeToolStatus(payload.Status)
+			event.ToolInput = codexCustomToolInput(payload.Input, event.ToolName)
+			event.Files = codexFilesFromRaw(payload.Input, event.ToolName)
+			if event.CallID != "" {
+				p.codexCallTool[event.CallID] = event.ToolName
+			}
 			p.lastEventType = "tool_call"
 			return []api.AgentEvent{event}
 		default:
@@ -820,16 +837,63 @@ func codexFiles(arguments, toolName string) []string {
 		}
 		if toolName == "apply_patch" {
 			if patch, ok := parsed["patch"].(string); ok {
-				for _, line := range strings.Split(patch, "\n") {
-					for _, marker := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: "} {
-						if strings.HasPrefix(line, marker) {
-							if name := strings.TrimSpace(strings.TrimPrefix(line, marker)); name != "" {
-								files = append(files, name)
-							}
-							break
-						}
-					}
+				files = append(files, patchFiles(patch)...)
+			}
+		}
+	}
+	return uniqueStrings(files)
+}
+
+// codexCustomToolInput turns a custom_tool_call input into the same shape the
+// regular function_call path produces, so the UI can render both uniformly.
+func codexCustomToolInput(value json.RawMessage, toolName string) any {
+	var parsed any
+	if json.Unmarshal(value, &parsed) != nil {
+		return map[string]any{"raw": truncate(string(value), 64*1024)}
+	}
+	switch input := parsed.(type) {
+	case string:
+		if toolName == "apply_patch" {
+			return map[string]any{"patch": truncate(input, 64*1024)}
+		}
+		return map[string]any{"raw": truncate(input, 64*1024)}
+	default:
+		return input
+	}
+}
+
+func codexFilesFromRaw(value json.RawMessage, toolName string) []string {
+	var parsed any
+	if json.Unmarshal(value, &parsed) != nil {
+		return nil
+	}
+	switch input := parsed.(type) {
+	case string:
+		if toolName == "apply_patch" {
+			return patchFiles(input)
+		}
+	case map[string]any:
+		if path, ok := input["file_path"].(string); ok && path != "" {
+			return []string{path}
+		}
+		if toolName == "apply_patch" {
+			if patch, ok := input["patch"].(string); ok {
+				return patchFiles(patch)
+			}
+		}
+	}
+	return nil
+}
+
+func patchFiles(patch string) []string {
+	var files []string
+	for _, line := range strings.Split(patch, "\n") {
+		for _, marker := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: "} {
+			if strings.HasPrefix(line, marker) {
+				if name := strings.TrimSpace(strings.TrimPrefix(line, marker)); name != "" {
+					files = append(files, name)
 				}
+				break
 			}
 		}
 	}

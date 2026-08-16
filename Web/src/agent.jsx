@@ -283,6 +283,7 @@ function displayToolName(name) {
     WebSearch: "Web search",
     web_search: "Web search",
     ApplyPatch: "Apply patch",
+    apply_patch: "Apply patch",
     Task: "Subagent",
     Write: "Write file",
   };

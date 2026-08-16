@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -434,6 +435,44 @@ func TestCodexApplyPatchExtractsFiles(t *testing.T) {
 	if len(events) != 1 || len(events[0].Files) != 2 ||
 		events[0].Files[0] != "src/a.go" || events[0].Files[1] != "src/b.go" {
 		t.Fatalf("patch files = %#v", events)
+	}
+}
+
+func TestCodexCustomToolCallNormalizes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout-custom-tool.jsonl")
+	patch := "*** Begin Patch\n*** Update File: src/a.go\n- old\n+ new\n*** Add File: src/b.go\n+package b"
+	input, err := json.Marshal(patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLines(t, path,
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"response_item","payload":{"type":"custom_tool_call","id":"item-1","call_id":"call-1","status":"completed","name":"apply_patch","input":`+string(input)+`}}`,
+		`{"timestamp":"2026-08-16T10:00:01Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call-1","output":"patched"}}`,
+	)
+	parser := newParser("codex")
+	events, _, err := readNew(path, 0, parser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %#v, want tool_call and tool_output", events)
+	}
+	call := events[0]
+	if call.Type != "tool_call" || call.ToolName != "apply_patch" ||
+		call.CallID != "call-1" || call.ToolStatus != "success" {
+		t.Fatalf("custom tool call = %#v", call)
+	}
+	inputMap, ok := call.ToolInput.(map[string]any)
+	if !ok || inputMap["patch"] != patch {
+		t.Fatalf("custom tool input = %#v, want patch map", call.ToolInput)
+	}
+	if len(call.Files) != 2 || call.Files[0] != "src/a.go" || call.Files[1] != "src/b.go" {
+		t.Fatalf("custom tool files = %#v", call.Files)
+	}
+	output := events[1]
+	if output.Type != "tool_output" || output.CallID != "call-1" ||
+		output.ToolName != "apply_patch" || output.Output != "patched" {
+		t.Fatalf("custom tool output = %#v", output)
 	}
 }
 
