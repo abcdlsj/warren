@@ -16,18 +16,6 @@ private struct TestTerminalSurface: View {
 
 @MainActor
 final class WarrenDesktopTests: XCTestCase {
-    func testInspectorClipboardTextIncludesTitleAndDetail() {
-        let content = WarrenDesktopInspectorContent(
-            title: "Daemon error",
-            detail: "message: bad file descriptor"
-        )
-
-        XCTAssertEqual(
-            content.clipboardText,
-            "Daemon error\n\nmessage: bad file descriptor"
-        )
-    }
-
     func testWorkspaceChromeIsDefaultAndDoesNotShowIndependentTopBar() {
         XCTAssertFalse(WarrenDesktopChromeMode.workspace.showsIndependentTopBar)
         XCTAssertTrue(WarrenDesktopChromeMode.dashboard.showsIndependentTopBar)

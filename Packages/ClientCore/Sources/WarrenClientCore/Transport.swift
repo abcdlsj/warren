@@ -31,9 +31,10 @@ public enum HostTransportError: Error, Equatable, Sendable {
 }
 
 /// A transport only moves versioned control messages and received binary
-/// frames.  The default macOS composition uses an embedded Host and an
-/// in-process adapter; other adapters can implement this boundary without
-/// moving session projection or layout policy into the transport.
+/// frames. The default macOS composition talks to the local/remote
+/// `warren-headless` daemon over WebSocket; other adapters can implement this
+/// boundary without moving session projection or layout policy into the
+/// transport.
 public protocol HostTransport: Sendable {
     func send(_ message: ClientControlMessage) async throws
     /// Sends terminal input as one bounded binary envelope.

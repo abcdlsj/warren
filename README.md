@@ -14,7 +14,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 - **Durable sessions** — Sessions belong to the Host, not the client. Detaching, switching workspaces, or quitting the app never ends a running session; closing a Tab is the explicit command to end one.
 - **One resource model** — Project → Workspace → Terminal Session → Runtime, shared by every client surface.
-- **Local and remote** — The desktop connects to an in-process Local Host by default, or to `warren-headless` on a VPS. SSH only bootstraps the daemon and forwards a port; the same versioned WebSocket API is used everywhere.
+- **Local and remote** — The desktop connects to the local `warren-headless` daemon by default, or to `warren-headless` on a VPS. SSH only bootstraps the remote daemon and forwards a port; the same versioned WebSocket API is used everywhere.
 - **Real terminal fidelity** — Ghostty on macOS and xterm.js on the Web preserve ANSI, OSC, Unicode, and colors from shells, Codex, Claude, and TUIs.
 - **Structured agent views** — Codex and Claude transcripts are projected as normalized events on the Web, so agent sessions can render as a conversation without losing the terminal fallback.
 - **Workspace-first Git support** — Projects, main checkouts, and Git worktrees are first-class resources; one-time onboarding can import your existing Superset metadata.
@@ -25,8 +25,8 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 | Path | What it is |
 | --- | --- |
-| `Sources/WarrenNext/` | macOS desktop app (SwiftUI + Ghostty) |
-| `Packages/` | Domain, application, host, tmux runtime, protocol, transport, and design-system packages |
+| `Sources/Warren/` | macOS desktop app (SwiftUI + Ghostty) |
+| `Packages/` | Domain, desktop, ghostty adapter, protocol, transport, state store, design-system, and observation packages |
 | `Headless/` | Go headless daemon (`warren-headless`) and CLI (`warren`) |
 | `RelayService/` | Go Relay control plane |
 | `Web/` | React + Vite Web/PWA client |
@@ -74,9 +74,8 @@ mise run relay:dev
 | --- | --- |
 | `mise run dev` | Build and run the macOS app |
 | `mise run build` | Build the macOS app |
-| `mise run test` | Run the macOS end-to-end test |
+| `mise run test` | Run the macOS app unit tests |
 | `mise run test:headless` | Run headless daemon and CLI tests |
-| `mise run test:application` | Run application package tests |
 | `mise run verify` | Build, run all package tests, build the app, and verify the Web bundle |
 | `mise run verify:web` | Launch the app and verify the HTTP page plus WebSocket auth/roster |
 | `mise run web:dev` | Run the Vite development server |

@@ -39,16 +39,10 @@ run = "bash scripts/build-app.sh release"
 
 [tasks.test]
 description = "Run the macOS end-to-end test"
-run = "swift test --filter ApplicationIntegrationTests"
+run = "swift test"
 
 [tasks."test:core"]
 run = "swift test --package-path Packages/Domain"
-
-[tasks."test:tmux"]
-run = "swift test --package-path Packages/TmuxRuntime"
-
-[tasks."test:application"]
-run = "swift test --package-path Packages/Application"
 
 [tasks."ui:observe"]
 description = "Observe the desktop semantic tree without screenshots or stealing focus"

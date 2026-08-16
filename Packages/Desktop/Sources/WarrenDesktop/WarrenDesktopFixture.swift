@@ -116,7 +116,7 @@ public enum WarrenDesktopConnectionState: Hashable, Sendable {
 ///
 /// The executable owns the mutable Host/Client models and creates this value
 /// at its composition boundary. The views never mutate this projection and do
-/// not know whether it came from an embedded Host, a test double, or a future
+/// not know whether it came from the daemon, a test double, or a future
 /// transport adapter.
 public struct WarrenDesktopProjection: Sendable, Hashable {
     /// The small identity-only value used by SwiftUI when it only needs to
@@ -378,10 +378,6 @@ private extension AgentActivityState {
 
 /// A deterministic preview/test-only fixture. Production composition should
 /// construct `WarrenDesktopProjection` from live Host and Client state instead.
-///
-/// This compatibility wrapper remains temporarily so the old WarrenNext preview
-/// entry can compile while the executable is moved to the real composition
-/// root. It intentionally exposes only the wrapped value and lookup helpers.
 public struct WarrenDesktopFixture: Sendable {
     public let projection: WarrenDesktopProjection
 

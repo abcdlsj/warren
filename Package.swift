@@ -10,31 +10,26 @@ let package = Package(
     dependencies: [
         .package(path: "Packages/Desktop"),
         .package(path: "Packages/GhosttyAdapter"),
-        .package(path: "Packages/Application"),
-        .package(path: "Packages/Host"),
-        .package(path: "Packages/TmuxRuntime"),
         .package(path: "Packages/StateStore"),
         .package(path: "Packages/Domain"),
         .package(path: "Packages/ClientCore"),
-        .package(path: "Packages/Protocol"),
         .package(path: "Packages/Transport"),
         .package(path: "Packages/Observation"),
+        .package(path: "Packages/DesignSystem"),
     ],
     targets: [
         .executableTarget(
-            name: "WarrenNext",
+            name: "Warren",
             dependencies: [
-                .product(name: "WarrenApplication", package: "Application"),
                 .product(name: "WarrenDesktop", package: "Desktop"),
-                .product(name: "WarrenTmuxRuntime", package: "TmuxRuntime"),
+                .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
                 .product(name: "WarrenStateStore", package: "StateStore"),
                 .product(name: "WarrenDomain", package: "Domain"),
                 .product(name: "WarrenClientCore", package: "ClientCore"),
-                .product(name: "WarrenProtocol", package: "Protocol"),
                 .product(name: "WarrenTransport", package: "Transport"),
-                .product(name: "GhosttyAdapter", package: "GhosttyAdapter"),
+                .product(name: "WarrenDesignSystem", package: "DesignSystem"),
             ],
-            path: "Sources/WarrenNext"
+            path: "Sources/Warren"
         ),
         .executableTarget(
             name: "WarrenDaemonMenuBar",
@@ -58,33 +53,12 @@ let package = Package(
             path: "Sources/TerminalProbe"
         ),
         .testTarget(
-            name: "ApplicationIntegrationTests",
+            name: "WarrenTests",
             dependencies: [
-                .product(name: "WarrenApplication", package: "Application"),
+                "Warren",
                 .product(name: "WarrenDomain", package: "Domain"),
-                .product(name: "WarrenStateStore", package: "StateStore"),
-                .product(name: "WarrenTmuxRuntime", package: "TmuxRuntime"),
             ],
-            path: "Tests/ApplicationIntegrationTests"
-        ),
-        .testTarget(
-            name: "WarrenNextTests",
-            dependencies: [
-                "WarrenNext",
-                .product(name: "WarrenApplication", package: "Application"),
-                .product(name: "WarrenClientCore", package: "ClientCore"),
-                .product(name: "WarrenDomain", package: "Domain"),
-                .product(name: "WarrenHost", package: "Host"),
-            ],
-            path: "Tests/WarrenNextTests"
-        ),
-        .testTarget(
-            name: "WarrenProcessTests",
-            dependencies: [
-                "WarrenNext",
-                .product(name: "WarrenStateStore", package: "StateStore"),
-            ],
-            path: "Tests/WarrenProcessTests"
+            path: "Tests/WarrenTests"
         ),
     ]
 )

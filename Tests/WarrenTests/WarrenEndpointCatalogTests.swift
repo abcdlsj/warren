@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import WarrenNext
+@testable import Warren
 
 final class WarrenEndpointCatalogTests: XCTestCase {
     func testLoadsCLIConfigurationEndpoints() throws {

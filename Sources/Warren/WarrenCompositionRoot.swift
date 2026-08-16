@@ -3,11 +3,10 @@ import UniformTypeIdentifiers
 import WarrenDesktop
 import WarrenDomain
 import GhosttyAdapter
-import WarrenApplication
 import WarrenStateStore
 import WarrenDesignSystem
 
-struct WarrenNextCompositionRoot: View {
+struct WarrenCompositionRoot: View {
     @State private var remoteModel = WarrenRemoteApplicationModel()
     @State private var isProjectImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
@@ -47,7 +46,7 @@ struct WarrenNextCompositionRoot: View {
             defaultRuntime: remoteModel.defaultRuntime,
             onSetRuntime: { remoteModel.setDefaultRuntime($0) }
         ) { context in
-            WarrenNextTerminalSurfaceView(
+            WarrenTerminalSurfaceView(
                 context: context,
                 surfaces: remoteModel.mountedSurfaces,
                 maintenanceMessage: remoteModel.maintenanceMessage,
@@ -90,10 +89,10 @@ struct WarrenNextCompositionRoot: View {
         .fileDialogMessage("Choose a local folder as the project.")
         .fileDialogConfirmationLabel("Add Project")
         .sheet(item: $supersetImportPreview) { preview in
-            WarrenNextSupersetImportView(preview: preview) { selectedPreview in
+            WarrenSupersetImportView(preview: preview) { selectedPreview in
                 supersetImportPreview = nil
                 isSupersetImporting = true
-                Task {
+                Task { @MainActor in
                     await remoteModel.commitSupersetImport(selectedPreview)
                     isSupersetImporting = false
                 }
@@ -102,7 +101,7 @@ struct WarrenNextCompositionRoot: View {
         .sheet(isPresented: workspaceCreatorBinding) {
             if let projectID = workspaceCreatorProjectID,
                let project = activeProjection.projectGroup(id: projectID)?.project {
-                WarrenNextWorkspaceCreatorView(project: project) { request in
+                WarrenWorkspaceCreatorView(project: project) { request in
                     remoteModel.createWorkspace(projectID: projectID, request: request)
                 }
             }
@@ -283,7 +282,7 @@ struct WarrenNextCompositionRoot: View {
     private func beginSupersetImport() {
         guard !isSupersetImporting else { return }
         isSupersetImporting = true
-        Task {
+        Task { @MainActor in
             do {
                 supersetImportPreview = try await remoteModel.previewSupersetImport()
             } catch {
@@ -319,7 +318,7 @@ struct WarrenNextCompositionRoot: View {
     }
 }
 
-private struct WarrenNextSupersetImportView: View {
+private struct WarrenSupersetImportView: View {
     let preview: SupersetImportPreview
     let onConfirm: (SupersetImportPreview) -> Void
 
@@ -569,7 +568,7 @@ private struct WarrenNextSupersetImportView: View {
     }
 }
 
-private struct WarrenNextTerminalSurfaceView: View {
+private struct WarrenTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaces: [GhosttySurface]
     let maintenanceMessage: String?

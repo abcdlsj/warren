@@ -25,9 +25,8 @@ making tab switches instant without replay.
 
 The desktop app always renders through the daemon:
 
-- `WarrenNextCompositionRoot` uses `WarrenRemoteApplicationModel` for both
-  Local and Server endpoints. `WarrenNextApplicationModel` / the legacy
-  `WarrenRendererCoordinator` is only used by headless acceptance.
+- `WarrenCompositionRoot` uses `WarrenRemoteApplicationModel` for both
+  Local and Server endpoints.
 - `WarrenRemoteApplicationModel` mounts at most one surface:
   - `apply(_ roster:)` prunes `mountedSurfaces` to sessions that still have a
     live tab (`liveTabSessionIDs`).
@@ -56,7 +55,7 @@ structure limitation.
 
 ### View layer
 
-`WarrenNextTerminalSurfaceView` already renders multiple surfaces in a ZStack
+`WarrenTerminalSurfaceView` already renders multiple surfaces in a ZStack
 and keeps hidden siblings alive (`.opacity(0)` plus the underlying NSView
 `isHidden`). The view layer is ready for retained surfaces.
 
@@ -92,7 +91,7 @@ Expose it in `WarrenDesktopSettingsView` as a Terminal section toggle:
 "Keep terminal state when switching tabs", with a note that it uses more
 memory. Include it in the "Restore Terminal Defaults" reset.
 
-`WarrenNextCompositionRoot` reads the value with `@AppStorage` and calls
+`WarrenCompositionRoot` reads the value with `@AppStorage` and calls
 `WarrenRemoteApplicationModel.setSurfaceRetention(enabled:)` on change.
 
 ### 2. Daemon: multi-session output subscription per peer

@@ -47,7 +47,7 @@ Local and Server are two independent Host resource trees. Switching endpoints on
 - Runtime is isolated behind an interface, so systemd, container, or PTY adapters can be added.
 - Endpoints can add Relay, mTLS, and organization-level discovery.
 - The protocol can add request receipts, incremental output sequences, Input Lease, and capability negotiation.
-- The Desktop remote model is independent of the local `WarrenApplicationService` and can later converge into a unified Host Client repository.
+- The Desktop remote model is the only client model; local Host state is owned by the daemon.
 
 ## Output and Recovery
 

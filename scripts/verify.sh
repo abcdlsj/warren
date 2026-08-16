@@ -36,19 +36,12 @@ echo "==> headless daemon and CLI"
 (cd "$repository_root" && go vet ./Headless/... && go test -race ./Headless/...)
 
 for package in \
-    Domain Protocol StateStore Host LocalTransport ClientCore Transport \
-    TerminalRenderer TmuxRuntime Application DesignSystem Desktop \
+    Domain Protocol StateStore ClientCore Transport \
+    TerminalRenderer DesignSystem Desktop \
     GhosttyAdapter Observation; do
     echo "==> swift test $package"
     run_package_tests "$package"
 done
-
-echo "==> tmux integration test"
-swift test --package-path "$repository_root" --filter ApplicationIntegrationTests
-
-echo "==> process lifecycle contracts"
-WARREN_APP_EXECUTABLE="$repository_root/.build/debug/WarrenNext" \
-    swift test --package-path "$repository_root" --filter WarrenProcessTests
 
 echo "==> non-visual semantic UI acceptance"
 WARREN_ARTIFACT_DIR="${WARREN_ARTIFACT_DIR:-/tmp/warren-observation/ui-probe}" \

@@ -22,7 +22,7 @@ fi
 swift build \
     --package-path "$repository_root" \
     --configuration "$configuration" \
-    --product WarrenNext
+    --product Warren
 
 swift build \
     --package-path "$repository_root" \
@@ -47,7 +47,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$staging_path/Contents/MacOS" "$staging_path/Contents/Resources"
-install -m 755 "$binary_directory/WarrenNext" "$staging_path/Contents/MacOS/Warren"
+install -m 755 "$binary_directory/Warren" "$staging_path/Contents/MacOS/Warren"
 install -m 755 "$binary_directory/WarrenDaemonMenuBar" "$staging_path/Contents/MacOS/WarrenDaemonMenuBar"
 install -m 755 "$repository_root/.build/warren-cli" "$staging_path/Contents/MacOS/warren-cli"
 install -m 755 "$repository_root/.build/warren-headless" "$staging_path/Contents/MacOS/warren-headless"

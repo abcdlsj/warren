@@ -1,9 +1,8 @@
 import SwiftUI
-import WarrenApplication
 import WarrenDomain
 import WarrenDesignSystem
 
-struct WarrenNextWorkspaceCreatorView: View {
+struct WarrenWorkspaceCreatorView: View {
     let project: Project
     let onCreate: (WorkspaceCreationRequest) -> Void
 

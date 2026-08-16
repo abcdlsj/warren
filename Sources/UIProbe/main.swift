@@ -64,7 +64,8 @@ private enum UIProbe {
 
         let root = WarrenDesktopRoot(
             projection: WarrenDesktopFixture.preview.projection,
-            actions: WarrenDesktopActions { actions.append($0) }
+            actions: WarrenDesktopActions { actions.append($0) },
+            persistenceEnabled: false
         ) { context in
             ProbeTerminalSurface(context: context)
         }

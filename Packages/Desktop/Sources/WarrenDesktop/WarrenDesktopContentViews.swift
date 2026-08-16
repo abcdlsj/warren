@@ -222,28 +222,6 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
     }
 }
 
-struct WarrenDesktopTerminalPlaceholder: View {
-    let workspace: Workspace
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        VStack(spacing: WarrenSpacing.compact) {
-            Text("Preview terminal surface")
-                .font(WarrenTypography.emptyState)
-            Text("Session content for \(workspace.name) will appear when the terminal renderer is connected.")
-                .font(WarrenTypography.supporting)
-                .foregroundStyle(tokens.mutedForeground)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(WarrenSpacing.large)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Preview terminal content for workspace \(workspace.name)")
-    }
-}
-
 struct WarrenDesktopInspectorSlot: View {
     let content: WarrenDesktopInspectorContent
 

@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 import GhosttyAdapter
 import Observation
-import WarrenApplication
 import WarrenClientCore
 import WarrenDesktop
 import WarrenDomain

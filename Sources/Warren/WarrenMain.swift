@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import WarrenDesktop
-import WarrenDomain
 
 enum WebCommand {
     static let copyLocalURL = Notification.Name("Web.copyLocalURL")
@@ -38,85 +37,25 @@ private extension NSWindow {
 /// 40pt chrome and sidebar header form one continuous surface from pixel zero;
 /// the traffic lights are drawn inside the sidebar header.
 @main
-enum WarrenNextMain {
+enum WarrenMain {
     @MainActor
     static func main() {
-        if ProcessInfo.processInfo.environment["WARREN_HEADLESS_ACCEPTANCE"] == "1" {
-            runHeadlessAcceptance()
-            return
-        }
         guard let instanceLock = WarrenSingleInstanceLock() else {
             WarrenSingleInstanceLock.activateExistingApplication()
             return
         }
         let app = NSApplication.shared
-        let delegate = WarrenNextAppDelegate()
+        let delegate = WarrenAppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         withExtendedLifetime(instanceLock) {
             app.run()
         }
     }
-
-    @MainActor
-    private static func runHeadlessAcceptance() {
-        guard let instanceLock = WarrenSingleInstanceLock() else {
-            Darwin.exit(73)
-        }
-        let model = WarrenNextApplicationModel.live()
-        Task { @MainActor in
-            var sessionID: TerminalSessionID?
-            var errorDescription: String?
-            await model.start()
-            if let rawMilliseconds = ProcessInfo.processInfo.environment[
-                "WARREN_HEADLESS_HOLD_MILLISECONDS"
-            ], let milliseconds = Int(rawMilliseconds), milliseconds > 0 {
-                try? await Task.sleep(for: .milliseconds(milliseconds))
-            }
-            if let path = ProcessInfo.processInfo.environment["WARREN_HEADLESS_CREATE_SESSION_PATH"],
-               !path.isEmpty {
-                do {
-                    sessionID = try await model.headlessCreateShell(
-                        folder: URL(fileURLWithPath: path, isDirectory: true)
-                    )
-                } catch {
-                    errorDescription = String(describing: error)
-                }
-            }
-            await model.shutdown()
-            let runtimeAlive = if let sessionID {
-                await model.runtimeExists(sessionID: sessionID)
-            } else {
-                false
-            }
-            if let reportPath = ProcessInfo.processInfo.environment["WARREN_HEADLESS_REPORT"],
-               !reportPath.isEmpty {
-                let report = WarrenHeadlessAcceptanceReport(
-                    processID: ProcessInfo.processInfo.processIdentifier,
-                    sessionID: sessionID?.description,
-                    runtimeAliveAfterShutdown: runtimeAlive,
-                    error: errorDescription
-                )
-                if let data = try? JSONEncoder().encode(report) {
-                    try? data.write(to: URL(fileURLWithPath: reportPath), options: .atomic)
-                }
-            }
-            withExtendedLifetime(instanceLock) {}
-            CFRunLoopStop(CFRunLoopGetMain())
-        }
-        CFRunLoopRun()
-    }
-}
-
-private struct WarrenHeadlessAcceptanceReport: Codable {
-    let processID: Int32
-    let sessionID: String?
-    let runtimeAliveAfterShutdown: Bool
-    let error: String?
 }
 
 @MainActor
-private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var daemonMenuBarProcess: Process?
 
@@ -128,7 +67,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
     }
 
     private func makeMainWindow() -> NSWindow {
-        let root = WarrenNextCompositionRoot()
+        let root = WarrenCompositionRoot()
             .preferredColorScheme(.dark)
             .ignoresSafeArea()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -316,7 +255,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         let sessionMenu = NSMenu(title: "Session")
         let newSessionItem = sessionMenu.addItem(
             withTitle: "New Session…",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "t"
         )
         newSessionItem.target = target
@@ -324,7 +263,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
 
         let nextTabItem = sessionMenu.addItem(
             withTitle: "Next Tab",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "x"
         )
         nextTabItem.target = target
@@ -333,7 +272,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
 
         let previousTabItem = sessionMenu.addItem(
             withTitle: "Previous Tab",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "x"
         )
         previousTabItem.target = target
@@ -344,7 +283,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         for index in 1...9 {
             let selectTabItem = sessionMenu.addItem(
                 withTitle: "Select Tab \(index)",
-                action: #selector(WarrenNextAppDelegate.selectTabNumber(_:)),
+                action: #selector(WarrenAppDelegate.selectTabNumber(_:)),
                 keyEquivalent: String(index)
             )
             selectTabItem.target = target
@@ -355,7 +294,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
 
         let closeTabItem = sessionMenu.addItem(
             withTitle: "Close Tab",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "w"
         )
         closeTabItem.target = target
@@ -364,7 +303,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         sessionMenu.addItem(.separator())
         let paletteItem = sessionMenu.addItem(
             withTitle: "Command Palette…",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "k"
         )
         paletteItem.target = target
@@ -373,7 +312,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         sessionMenu.addItem(.separator())
         let findItem = sessionMenu.addItem(
             withTitle: "Find in Terminal…",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "f"
         )
         findItem.target = target
@@ -383,7 +322,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         sessionMenu.addItem(.separator())
         let sidebarItem = sessionMenu.addItem(
             withTitle: "Toggle Sidebar",
-            action: #selector(WarrenNextAppDelegate.postCommand(_:)),
+            action: #selector(WarrenAppDelegate.postCommand(_:)),
             keyEquivalent: "b"
         )
         sidebarItem.target = target
@@ -395,7 +334,7 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         let viewMenu = NSMenu(title: "View")
         let fullScreenItem = viewMenu.addItem(
             withTitle: "Toggle Full Screen",
-            action: #selector(WarrenNextAppDelegate.toggleFullScreen(_:)),
+            action: #selector(WarrenAppDelegate.toggleFullScreen(_:)),
             keyEquivalent: "f"
         )
         fullScreenItem.target = target
@@ -407,39 +346,39 @@ private final class WarrenNextAppDelegate: NSObject, NSApplicationDelegate, NSWi
         let webMenu = NSMenu(title: "Web")
         let copyWebURL = webMenu.addItem(
             withTitle: "Copy Local Web URL",
-            action: #selector(WarrenNextAppDelegate.copyLocalWebURL(_:)),
+            action: #selector(WarrenAppDelegate.copyLocalWebURL(_:)),
             keyEquivalent: ""
         )
         copyWebURL.target = target
         webMenu.addItem(.separator())
         let startCloudflare = webMenu.addItem(
             withTitle: "Start Cloudflare Tunnel",
-            action: #selector(WarrenNextAppDelegate.startCloudflareWebAccess(_:)),
+            action: #selector(WarrenAppDelegate.startCloudflareWebAccess(_:)),
             keyEquivalent: ""
         )
         startCloudflare.target = target
         let stopCloudflare = webMenu.addItem(
             withTitle: "Stop Cloudflare Tunnel",
-            action: #selector(WarrenNextAppDelegate.stopCloudflareWebAccess(_:)),
+            action: #selector(WarrenAppDelegate.stopCloudflareWebAccess(_:)),
             keyEquivalent: ""
         )
         stopCloudflare.target = target
         let startTailscale = webMenu.addItem(
             withTitle: "Start Tailscale Serve",
-            action: #selector(WarrenNextAppDelegate.startTailscaleWebAccess(_:)),
+            action: #selector(WarrenAppDelegate.startTailscaleWebAccess(_:)),
             keyEquivalent: ""
         )
         startTailscale.target = target
         let stopTailscale = webMenu.addItem(
             withTitle: "Stop Tailscale Serve",
-            action: #selector(WarrenNextAppDelegate.stopTailscaleWebAccess(_:)),
+            action: #selector(WarrenAppDelegate.stopTailscaleWebAccess(_:)),
             keyEquivalent: ""
         )
         stopTailscale.target = target
         webMenu.addItem(.separator())
         let copySecureURL = webMenu.addItem(
             withTitle: "Copy Secure Web URL",
-            action: #selector(WarrenNextAppDelegate.copySecureWebURL(_:)),
+            action: #selector(WarrenAppDelegate.copySecureWebURL(_:)),
             keyEquivalent: ""
         )
         copySecureURL.target = target

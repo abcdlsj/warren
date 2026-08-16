@@ -31,6 +31,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private let onWebCopyURL: (URL) -> Void
     private let defaultRuntime: String?
     private let onSetRuntime: (String) -> Void
+    private let persistenceEnabled: Bool
     @State private var sidebarState: WarrenDesktopSidebarState
     @State private var sidebarTree: WarrenDesktopSidebarTreeState
     @State private var inspectorVisible: Bool
@@ -75,6 +76,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         onWebCopyURL: @escaping (URL) -> Void = { _ in },
         defaultRuntime: String? = nil,
         onSetRuntime: @escaping (String) -> Void = { _ in },
+        persistenceEnabled: Bool = true,
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
         self.projection = projection
@@ -92,8 +94,17 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.onWebCopyURL = onWebCopyURL
         self.defaultRuntime = defaultRuntime
         self.onSetRuntime = onSetRuntime
-        _sidebarState = State(initialValue: Self.restoredSidebarState())
-        _sidebarTree = State(initialValue: Self.restoredSidebarTree(scope: selectedEndpointID))
+        self.persistenceEnabled = persistenceEnabled
+        _sidebarState = State(
+            initialValue: persistenceEnabled
+                ? Self.restoredSidebarState()
+                : WarrenDesktopSidebarState()
+        )
+        _sidebarTree = State(
+            initialValue: persistenceEnabled
+                ? Self.restoredSidebarTree(scope: selectedEndpointID)
+                : WarrenDesktopSidebarTreeState()
+        )
         _inspectorVisible = State(initialValue: projection.inspector != nil)
         _inspectorWasAvailable = State(initialValue: projection.inspector != nil)
     }
@@ -260,13 +271,15 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             reconcileInspector(with: projection)
         }
         .onChange(of: sidebarState) { _, newState in
-            Self.persist(newState)
+            if persistenceEnabled { Self.persist(newState) }
         }
         .onChange(of: sidebarTree) { _, newState in
-            Self.persist(newState, scope: selectedEndpointID)
+            if persistenceEnabled { Self.persist(newState, scope: selectedEndpointID) }
         }
         .onChange(of: selectedEndpointID) { _, newEndpointID in
-            sidebarTree = Self.restoredSidebarTree(scope: newEndpointID)
+            sidebarTree = persistenceEnabled
+                ? Self.restoredSidebarTree(scope: newEndpointID)
+                : WarrenDesktopSidebarTreeState()
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.commandPalette)) { _ in
             commandPalettePresented = true
@@ -526,36 +539,4 @@ private enum WarrenDesktopPerformance {
 private enum WarrenDesktopSidebarKeys {
     static let width = "warren.desktop.sidebarWidth"
     static let collapsed = "warren.desktop.sidebarCollapsed"
-}
-
-/// Compatibility preview shell for the old WarrenNext entry point.
-///
-/// This is deliberately not the production composition API. It exists only
-/// until WarrenNext injects its embedded Host, in-process transport, and real
-/// SwiftTerm surface through `WarrenDesktopRoot`.
-@available(*, deprecated, message: "Use WarrenDesktopRoot(projection:actions:terminalSurface:) for production composition.")
-public struct WarrenDesktopRootView: View {
-    public let fixture: WarrenDesktopFixture
-    public let chromeMode: WarrenDesktopChromeMode
-    private let actions: WarrenDesktopActions
-
-    public init(
-        fixture: WarrenDesktopFixture = .preview,
-        chromeMode: WarrenDesktopChromeMode = .workspace,
-        actions: WarrenDesktopActions = WarrenDesktopActions()
-    ) {
-        self.fixture = fixture
-        self.chromeMode = chromeMode
-        self.actions = actions
-    }
-
-    public var body: some View {
-        WarrenDesktopRoot(
-            projection: fixture.projection,
-            chromeMode: chromeMode,
-            actions: actions
-        ) { context in
-            WarrenDesktopTerminalPlaceholder(workspace: context.workspace)
-        }
-    }
 }

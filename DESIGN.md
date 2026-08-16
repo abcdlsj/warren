@@ -8,7 +8,7 @@ Update rules: when implementation conflicts with this document, this document wi
 
 Warren is a local-first development workbench organized around Workspaces, with durable terminal sessions at its core.
 
-The macOS Desktop connects to an in-process Local Host by default, and can also connect to `warren-headless` running on a VPS. Users can switch between Local and Server from the top-right corner to manage Projects, Workspaces, Git worktrees, and Terminal Sessions on the target Host, with persistent terminal interaction through Ghostty. The CLI uses the same remote API and provides SSH bootstrap and port-forwarding entry points.
+The macOS Desktop connects to a local `warren-headless` daemon by default, and can also connect to `warren-headless` running on a VPS. Users can switch between Local and Server from the top-right corner to manage Projects, Workspaces, Git worktrees, and Terminal Sessions on the target Host, with persistent terminal interaction through Ghostty. The CLI uses the same remote API and provides SSH bootstrap and port-forwarding entry points.
 
 The system must keep stable boundaries for a future iOS native client, Session sharing, Automation, and a central control plane. Web reachability is enabled explicitly by the user; neither the Desktop nor the headless daemon opens a public entry point by default.
 
@@ -156,7 +156,7 @@ Local IPC / Direct WebSocket / Relay Transport
 Host Service or Host Daemon
 ```
 
-The macOS Client uses in-process composition for Local and a versioned WebSocket API for Server. `warren-headless` is the deployment form of a remote Host, owning an independent resource tree and tmux runtime. Switching endpoints only replaces the client projection and renderer; it does not migrate or terminate resources on the other Host.
+The macOS Client uses a versioned WebSocket API for both Local and Server. `warren-headless` is the deployment form of a Host, owning an independent resource tree and ghostline/tmux runtime. Switching endpoints only replaces the client projection and renderer; it does not migrate or terminate resources on the other Host.
 
 SSH only bootstraps the remote daemon and forwards a loopback port. Once `warren ssh` establishes reachability, Desktop and CLI continue over the same WebSocket API; Git, tmux, and resource semantics must not be encoded into the SSH transport.
 
