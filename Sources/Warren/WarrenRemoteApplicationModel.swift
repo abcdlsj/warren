@@ -204,6 +204,12 @@ private actor WarrenRemoteWire {
         components.path = "/v1/ws"
         guard let url = components.url else { throw URLError(.badURL) }
         let socket = URLSession.shared.webSocketTask(with: url)
+        // The daemon can legally deliver terminal output frames up to 8 MiB
+        // and agent history batches of a few hundred KiB. URLSession's
+        // default 1 MiB maximumMessageSize rejects such frames with POSIX
+        // EMSGSIZE ("Message too long") and kills the whole connection, so
+        // raise the ceiling well above the protocol's largest message.
+        socket.maximumMessageSize = 64 * 1024 * 1024
         let token = configuration.token
         task = socket
         socket.resume()
@@ -436,7 +442,13 @@ private actor WarrenRemoteWire {
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   let roster = try? JSONDecoder().decode(RemoteRoster.self, from: encoded) {
             return await eventBuffer.send(.roster(roster))
-        } else if type == "agent",
+        } else if type == "agent.activity",
+                  let sessionString = object["session"] as? String,
+                  let sessionID = TerminalSessionID(uuidString: sessionString),
+                  let activityString = object["activity"] as? String,
+                  let activity = AgentActivityState(rawValue: activityString) {
+            return await eventBuffer.send(.agent(sessionID: sessionID, activity: activity))
+        } else if type == "agent", // Legacy daemon: events and activity in one message.
                   let sessionString = object["session"] as? String,
                   let sessionID = TerminalSessionID(uuidString: sessionString),
                   let activityString = object["activity"] as? String,

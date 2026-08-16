@@ -221,6 +221,51 @@ export default function App() {
     return true;
   }, []);
 
+  const loadAgentHistory = useCallback((sessionID, before = 0) => {
+    const params = { session: sessionID, limit: "200" };
+    if (before > 0) params.before = String(before);
+    setAgentStateBySession(previous => {
+      const current = previous[sessionID] || {};
+      return {
+        ...previous,
+        [sessionID]: { ...current, historyLoading: true },
+      };
+    });
+    if (!request("agent.history", params, result => {
+        const events = Array.isArray(result?.events) ? result.events : [];
+        const cursor = Number(result?.cursor) || 0;
+        const hasMore = Boolean(result?.hasMore);
+        const epoch = result?.epoch;
+        setAgentStateBySession(previous => {
+          const current = previous[sessionID] || {};
+          const sameEpoch = !epoch || current.epoch === epoch;
+          return {
+            ...previous,
+            [sessionID]: {
+              ...current,
+              epoch: epoch || current.epoch,
+              events: mergeAgentEvents(sameEpoch ? current.events : [], events),
+              activity: current.activity || "",
+              historyCursor: cursor,
+              historyHasMore: hasMore,
+              historyLoading: false,
+              historyLoaded: true,
+            },
+          };
+        });
+      })) {
+      // Not connected yet; clear the loading flag so the effect can retry
+      // once the transport is back.
+      setAgentStateBySession(previous => {
+        const current = previous[sessionID] || {};
+        return {
+          ...previous,
+          [sessionID]: { ...current, historyLoading: false },
+        };
+      });
+    }
+  }, [request]);
+
   const markAttachReady = useCallback((sessionID, flush = true) => {
     const state = appStateRef.current;
     if (state.activeSession !== sessionID) return;
@@ -657,17 +702,54 @@ export default function App() {
       setAgentStateBySession(previous => {
         const current = previous[message.session];
         const sameEpoch = !message.epoch || current?.epoch === message.epoch;
-        const base = sameEpoch ? current.events : [];
+        if (!sameEpoch) {
+          // A new projection epoch means the daemon restarted: drop the old
+          // conversation and let the history loader refetch from scratch.
+          return {
+            ...previous,
+            [message.session]: {
+              epoch: message.epoch,
+              events: mergeAgentEvents([], message.events),
+              activity: message.activity || current?.activity || "",
+              historyCursor: 0,
+              historyHasMore: false,
+              historyLoading: false,
+              historyLoaded: false,
+            },
+          };
+        }
+        const base = current?.events || [];
         return {
           ...previous,
           [message.session]: {
-            epoch: message.epoch,
+            ...current,
+            epoch: message.epoch || current?.epoch,
             events: mergeAgentEvents(base, message.events),
             activity: message.activity || current?.activity || "",
           },
         };
       });
       break;
+    case "agent.activity": {
+      setAgentStateBySession(previous => {
+        const current = previous[message.session];
+        const sameEpoch = !message.epoch || current?.epoch === message.epoch;
+        return {
+          ...previous,
+          [message.session]: {
+            ...current,
+            epoch: message.epoch || current?.epoch,
+            events: sameEpoch ? current?.events || [] : [],
+            activity: message.activity || current?.activity || "",
+            historyCursor: sameEpoch ? current?.historyCursor || 0 : 0,
+            historyHasMore: sameEpoch ? Boolean(current?.historyHasMore) : false,
+            historyLoading: sameEpoch ? Boolean(current?.historyLoading) : false,
+            historyLoaded: sameEpoch ? Boolean(current?.historyLoaded) : false,
+          },
+        };
+      });
+      break;
+    }
     case "runtimeMetadata":
       setCatalog(previous => {
         const session = previous.sessions.get(message.session);
@@ -1280,6 +1362,17 @@ export default function App() {
       && agentViewOverride !== "terminal",
   );
 
+  // Load the first history page when an agent view becomes active. Live
+  // batches arrive through the WebSocket, but the full conversation is
+  // fetched page by page so a huge transcript never arrives as one message.
+  useEffect(() => {
+    if (!agentViewActive || !selectedSession) return;
+    const state = agentStateBySession[selectedSession.id];
+    if (!state?.historyLoaded && !state?.historyLoading) {
+      loadAgentHistory(selectedSession.id);
+    }
+  }, [agentViewActive, selectedSession, agentStateBySession, loadAgentHistory]);
+
   return (
     <>
       <div className={`app${drawerOpen ? " drawer-open" : ""}`} hidden={settingsOpen}>
@@ -1346,6 +1439,12 @@ export default function App() {
                 session={selectedSession}
                 events={selectedAgentEvents}
                 onSend={sendAgentInput}
+                hasMore={Boolean(agentStateBySession[selectedSession.id]?.historyHasMore)}
+                loadingMore={Boolean(agentStateBySession[selectedSession.id]?.historyLoading)}
+                onLoadMore={() => {
+                  const state = agentStateBySession[selectedSession.id];
+                  loadAgentHistory(selectedSession.id, state?.historyCursor || 0);
+                }}
               />
             )}
             <TerminalSearch

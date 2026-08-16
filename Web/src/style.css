@@ -88,6 +88,9 @@ button:focus-visible { outline:1px solid var(--sub); outline-offset:-1px; }
 .agent-view { position:absolute; inset:0; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
 .agent-events { flex:1 1 auto; min-height:0; width:100%; max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:18px; padding:30px 28px 22px; overflow-y:auto; overscroll-behavior:contain; }
 .agent-events > * { flex-shrink:0; }
+.agent-load-more { align-self:center; padding:6px 14px; border:1px solid var(--ring); border-radius:999px; background:var(--panel); color:var(--sub); font-size:12px; cursor:pointer; }
+.agent-load-more:hover:not(:disabled) { color:var(--fg); border-color:var(--amber); }
+.agent-load-more:disabled { opacity:.6; cursor:default; }
 .agent-empty { margin:auto; text-align:center; color:var(--sub); padding-bottom:80px; }
 .agent-empty-mark { font-size:30px; color:var(--amber); }
 .agent-empty-title { margin-top:12px; font-size:17px; font-weight:400; color:var(--fg); }

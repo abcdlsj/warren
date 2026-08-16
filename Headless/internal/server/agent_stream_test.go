@@ -74,15 +74,16 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 	readBinaryFrame(t, connection)
 	readBrowserMessage(t, connection, "synced")
 
-	initial, initialActivity := readAgentEvents(t, connection)
+	initialActivity := readAgentActivity(t, connection)
+	if initialActivity != api.AgentActivityReady {
+		t.Fatalf("initial activity = %q, want ready", initialActivity)
+	}
+	initial := readAgentEvents(t, connection)
 	if len(initial) != 1 {
-		t.Fatalf("initial agent events = %#v, want 1", initial)
+		t.Fatalf("initial agent tail = %#v, want 1", initial)
 	}
 	if initial[0]["type"] != "assistant" {
 		t.Fatalf("initial event type = %#v", initial[0]["type"])
-	}
-	if initialActivity != api.AgentActivityReady {
-		t.Fatalf("initial activity = %q, want ready", initialActivity)
 	}
 
 	file, err := os.OpenFile(transcriptPath, os.O_APPEND|os.O_WRONLY, 0o600)
@@ -98,10 +99,11 @@ func TestAgentTranscriptStreamsToWeb(t *testing.T) {
 		t.Fatal(closeErr)
 	}
 
-	live, liveActivity := readAgentEvents(t, connection)
+	live := readAgentEvents(t, connection)
 	if len(live) != 1 || live[0]["content"] != "live prompt" {
 		t.Fatalf("live agent events = %#v", live)
 	}
+	liveActivity := readAgentActivity(t, connection)
 	if liveActivity != api.AgentActivityWorking {
 		t.Fatalf("live activity = %q, want working", liveActivity)
 	}
@@ -316,7 +318,7 @@ func TestAgentStateFileReflectsShellReturn(t *testing.T) {
 func readAgentEvents(t *testing.T, connection interface {
 	SetReadDeadline(time.Time) error
 	ReadMessage() (int, []byte, error)
-}) ([]map[string]any, api.AgentActivity) {
+}) []map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	if err := connection.SetReadDeadline(deadline); err != nil {
@@ -329,14 +331,39 @@ func readAgentEvents(t *testing.T, connection interface {
 			t.Fatalf("agent message never arrived: %v", err)
 		}
 		var message struct {
-			Type     string            `json:"t"`
-			Activity api.AgentActivity `json:"activity"`
-			Events   []map[string]any  `json:"events"`
+			Type   string           `json:"t"`
+			Events []map[string]any `json:"events"`
 		}
 		if json.Unmarshal(data, &message) != nil || message.Type != "agent" {
 			continue
 		}
-		return message.Events, message.Activity
+		return message.Events
+	}
+}
+
+func readAgentActivity(t *testing.T, connection interface {
+	SetReadDeadline(time.Time) error
+	ReadMessage() (int, []byte, error)
+}) api.AgentActivity {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	if err := connection.SetReadDeadline(deadline); err != nil {
+		t.Fatal(err)
+	}
+	defer connection.SetReadDeadline(time.Time{})
+	for {
+		_, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("agent activity message never arrived: %v", err)
+		}
+		var message struct {
+			Type     string            `json:"t"`
+			Activity api.AgentActivity `json:"activity"`
+		}
+		if json.Unmarshal(data, &message) != nil || message.Type != "agent.activity" {
+			continue
+		}
+		return message.Activity
 	}
 }
 
@@ -384,5 +411,107 @@ func TestAgentHistoryIncludesInitialAndLiveEvents(t *testing.T) {
 	}
 	if history := service.agentHistory("session-history"); len(history) != 1 {
 		t.Fatalf("history length = %d, want 1", len(history))
+	}
+}
+
+func TestAgentHistoryPagePaginates(t *testing.T) {
+	service := &Service{}
+	service.lazyInit()
+	service.agentsMu.Lock()
+	service.agents["session-page"] = &agentSession{}
+	service.agentsMu.Unlock()
+	events := make([]api.AgentEvent, 5)
+	for index := range events {
+		events[index] = api.AgentEvent{
+			Sequence: uint64(index + 1),
+			Type:     "assistant",
+			Content:  strings.Repeat("x", 64),
+		}
+	}
+	service.recordAgentEvents("session-page", events, api.AgentActivityWorking)
+
+	first := service.agentHistoryPage("session-page", 0, 2)
+	if len(first.Events) != 2 || first.Events[0].Sequence != 4 || first.Events[1].Sequence != 5 {
+		t.Fatalf("first page = %#v, want sequences 4,5", first.Events)
+	}
+	if first.Cursor != 4 || !first.HasMore {
+		t.Fatalf("first page cursor=%d hasMore=%t, want cursor=4 hasMore=true", first.Cursor, first.HasMore)
+	}
+
+	second := service.agentHistoryPage("session-page", first.Cursor, 2)
+	if len(second.Events) != 2 || second.Events[0].Sequence != 2 || second.Events[1].Sequence != 3 {
+		t.Fatalf("second page = %#v, want sequences 2,3", second.Events)
+	}
+	if second.Cursor != 2 || !second.HasMore {
+		t.Fatalf("second page cursor=%d hasMore=%t, want cursor=2 hasMore=true", second.Cursor, second.HasMore)
+	}
+
+	third := service.agentHistoryPage("session-page", second.Cursor, 2)
+	if len(third.Events) != 1 || third.Events[0].Sequence != 1 {
+		t.Fatalf("third page = %#v, want sequence 1", third.Events)
+	}
+	if third.Cursor != 1 || third.HasMore {
+		t.Fatalf("third page cursor=%d hasMore=%t, want cursor=1 hasMore=false", third.Cursor, third.HasMore)
+	}
+}
+
+func TestSplitAgentEventsBoundsBatches(t *testing.T) {
+	events := make([]api.AgentEvent, 100)
+	for index := range events {
+		events[index] = api.AgentEvent{
+			Sequence: uint64(index + 1),
+			Type:     "assistant",
+			Content:  strings.Repeat("x", 10*1024),
+		}
+	}
+	batches := splitAgentEvents(events, 256*1024)
+	if len(batches) < 2 {
+		t.Fatalf("batches = %d, want multiple batches", len(batches))
+	}
+	total := 0
+	for index, batch := range batches {
+		total += len(batch)
+		encoded, err := json.Marshal(api.AgentMessage{Type: "agent", Events: batch})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(encoded) > 256*1024 {
+			t.Fatalf("batch %d encoded %d bytes, want <= 256 KiB", index, len(encoded))
+		}
+	}
+	if total != len(events) {
+		t.Fatalf("split total = %d, want %d", total, len(events))
+	}
+}
+
+func TestAgentTailIsBounded(t *testing.T) {
+	service := &Service{}
+	service.lazyInit()
+	service.agentsMu.Lock()
+	service.agents["session-tail"] = &agentSession{}
+	service.agentsMu.Unlock()
+	events := make([]api.AgentEvent, 200)
+	for index := range events {
+		events[index] = api.AgentEvent{
+			Sequence: uint64(index + 1),
+			Type:     "assistant",
+			Content:  strings.Repeat("x", 4*1024),
+		}
+	}
+	service.recordAgentEvents("session-tail", events, api.AgentActivityWorking)
+
+	tail := service.agentTail("session-tail", agentAttachHistoryMaxEvents, agentAttachHistoryMaxBytes)
+	if len(tail) > agentAttachHistoryMaxEvents {
+		t.Fatalf("tail length = %d, want <= %d", len(tail), agentAttachHistoryMaxEvents)
+	}
+	encoded, err := json.Marshal(api.AgentMessage{Type: "agent", Events: tail})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > agentAttachHistoryMaxBytes {
+		t.Fatalf("tail encoded %d bytes, want <= %d", len(encoded), agentAttachHistoryMaxBytes)
+	}
+	if got := tail[len(tail)-1].Sequence; got != 200 {
+		t.Fatalf("tail newest sequence = %d, want 200", got)
 	}
 }

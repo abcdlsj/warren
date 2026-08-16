@@ -4,7 +4,14 @@ import remarkGfm from "remark-gfm";
 
 import { groupAgentEvents } from "./agent.js";
 
-export function AgentView({ session, events = [], onSend }) {
+export function AgentView({
+  session,
+  events = [],
+  onSend,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore = () => {},
+}) {
   const listRef = useRef(null);
   const inputRef = useRef(null);
   const [draft, setDraft] = useState("");
@@ -32,6 +39,16 @@ export function AgentView({ session, events = [], onSend }) {
       onClick={event => event.stopPropagation()}
     >
       <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
+        {hasMore && (
+          <button
+            type="button"
+            className="agent-load-more"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? "Loading…" : "Load earlier messages"}
+          </button>
+        )}
         {blocks.length === 0 ? (
           <div className="agent-empty">
             <div className="agent-empty-mark" aria-hidden="true">✦</div>

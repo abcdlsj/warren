@@ -116,16 +116,37 @@ type AgentUsage struct {
 	TotalTokens              int64 `json:"totalTokens,omitempty"`
 }
 
-// AgentMessage carries an initial replay or a live batch of normalized agent
-// events for one session.
+// AgentMessage carries a live batch of normalized agent events for one
+// session. Batches are bounded so a single WebSocket message stays well
+// below client message-size limits; full history is fetched separately via
+// the agent.history request.
 type AgentMessage struct {
 	Type    string `json:"t"`
 	Session string `json:"session"`
 	// Epoch identifies one Host process's agent projection. Clients reset
 	// their event history when the epoch changes after a daemon restart.
+	Epoch  uint64       `json:"epoch,omitempty"`
+	Events []AgentEvent `json:"events"`
+}
+
+// AgentActivityMessage is the lightweight live activity update for one
+// session. It is deliberately a small standalone message so clients that
+// only render the status light never have to receive full event batches.
+type AgentActivityMessage struct {
+	Type     string        `json:"t"`
+	Session  string        `json:"session"`
 	Epoch    uint64        `json:"epoch,omitempty"`
-	Activity AgentActivity `json:"activity,omitempty"`
-	Events   []AgentEvent  `json:"events"`
+	Activity AgentActivity `json:"activity"`
+}
+
+// AgentHistoryResult is one page of the agent event history. Cursor is the
+// sequence of the first event in the page and can be passed back as `before`
+// to load the previous page; HasMore reports whether older events exist.
+type AgentHistoryResult struct {
+	Epoch   uint64       `json:"epoch,omitempty"`
+	Events  []AgentEvent `json:"events"`
+	Cursor  uint64       `json:"cursor,omitempty"`
+	HasMore bool         `json:"hasMore"`
 }
 
 type State struct {

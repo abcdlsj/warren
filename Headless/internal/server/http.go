@@ -621,13 +621,21 @@ func (p *wsPeer) enqueueSynced(sessionID string, epoch, sequence uint64) error {
 	})
 }
 
-func (p *wsPeer) enqueueAgentEvents(sessionID string, events []api.AgentEvent, activity api.AgentActivity) error {
+func (p *wsPeer) enqueueAgentEvents(sessionID string, events []api.AgentEvent) error {
 	return p.writeJSON(api.AgentMessage{
-		Type:     "agent",
+		Type:    "agent",
+		Session: sessionID,
+		Epoch:   p.server.Service.currentAgentEpoch(),
+		Events:  events,
+	})
+}
+
+func (p *wsPeer) enqueueAgentActivity(sessionID string, activity api.AgentActivity) error {
+	return p.writeJSON(api.AgentActivityMessage{
+		Type:     "agent.activity",
 		Session:  sessionID,
 		Epoch:    p.server.Service.currentAgentEpoch(),
 		Activity: activity,
-		Events:   events,
 	})
 }
 
@@ -684,6 +692,14 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	switch command.Method {
 	case "roster":
 		return p.writeResult(command.ID, p.server.Service.Roster(ctx))
+	case "agent.history":
+		sessionID := stringParam(params, "session")
+		if sessionID == "" {
+			return fmt.Errorf("session parameter required")
+		}
+		before, _ := uint64Param(params, "before")
+		limit := intParam(params, "limit")
+		return p.writeResult(command.ID, p.server.Service.agentHistoryPage(sessionID, before, limit))
 	case "settings.get":
 		return p.writeResult(command.ID, map[string]any{
 			"defaultRuntime": p.server.Service.DefaultRuntime,

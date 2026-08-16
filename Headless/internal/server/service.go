@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -28,6 +29,17 @@ const (
 	defaultCommandTimeout = 10 * time.Second
 	cursorPersistEvery    = 256 * 1024
 	orphanReapInterval    = 30 * time.Second
+	// agentMessageMaxBytes bounds one pushed agent batch so a large
+	// transcript never produces a single WebSocket message that exceeds
+	// client limits (URLSession's default maximumMessageSize is 1 MiB).
+	agentMessageMaxBytes = 256 * 1024
+	// agentAttachHistoryMaxEvents and agentAttachHistoryMaxBytes bound the
+	// initial agent replay sent during attach. Clients that need the full
+	// conversation fetch it page by page through agent.history.
+	agentAttachHistoryMaxEvents = 64
+	agentAttachHistoryMaxBytes  = 256 * 1024
+	agentHistoryDefaultLimit    = 200
+	agentHistoryMaxLimit        = 500
 	// orphanReapGrace protects a session between tmux creation and its state
 	// record becoming durable, so a concurrent reaper cannot kill a brand-new
 	// runtime while CreateSession is still persisting it.
@@ -1418,7 +1430,7 @@ func (s *Service) recordAgentEvents(sessionID string, events []api.AgentEvent, a
 		entry.mu.Unlock()
 	}
 	s.agentsMu.Unlock()
-	s.broadcastAgentEvents(sessionID, events, activity)
+	s.broadcastAgentIncrements(sessionID, events, activity)
 }
 
 // recordAgentActivity forwards a state change that arrived without new
@@ -1435,7 +1447,7 @@ func (s *Service) recordAgentActivity(sessionID string, activity api.AgentActivi
 	entry.activity = activity
 	entry.mu.Unlock()
 	s.agentsMu.Unlock()
-	s.broadcastAgentEvents(sessionID, nil, activity)
+	s.broadcastAgentActivity(sessionID, activity)
 }
 
 func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
@@ -1449,6 +1461,121 @@ func (s *Service) agentHistory(sessionID string) []api.AgentEvent {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	return append([]api.AgentEvent(nil), entry.events...)
+}
+
+// agentHistoryPage returns the page of events at or below `before` (a
+// sequence upper bound; zero means the newest page). Cursor in the result is
+// the first event's sequence and can be passed back as `before` to page
+// further into the past.
+func (s *Service) agentHistoryPage(sessionID string, before uint64, limit int) api.AgentHistoryResult {
+	if limit <= 0 {
+		limit = agentHistoryDefaultLimit
+	}
+	if limit > agentHistoryMaxLimit {
+		limit = agentHistoryMaxLimit
+	}
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	s.agentsMu.Unlock()
+	result := api.AgentHistoryResult{Epoch: s.currentAgentEpoch()}
+	if entry == nil {
+		return result
+	}
+	entry.mu.Lock()
+	events := entry.events
+	entry.mu.Unlock()
+	if len(events) == 0 {
+		return result
+	}
+	var page []api.AgentEvent
+	start := 0
+	if before > 0 {
+		// Events are stored in sequence order. Find the first event at or
+		// above the bound and take the `limit` events immediately before it.
+		index := sort.Search(len(events), func(i int) bool {
+			return events[i].Sequence >= before
+		})
+		start = max(0, index-limit)
+		page = events[start:index]
+	} else {
+		start = max(0, len(events)-limit)
+		page = events[start:]
+	}
+	if len(page) == 0 {
+		return result
+	}
+	result.Events = append([]api.AgentEvent(nil), page...)
+	result.Cursor = page[0].Sequence
+	result.HasMore = start > 0
+	return result
+}
+
+// agentTail returns the newest events fitting both the event-count and
+// serialized-byte budgets. It is used for the bounded initial replay during
+// attach; clients fetch the full conversation through agent.history.
+func (s *Service) agentTail(sessionID string, maxEvents, maxBytes int) []api.AgentEvent {
+	if maxEvents <= 0 || maxBytes <= 0 {
+		return nil
+	}
+	s.lazyInit()
+	s.agentsMu.Lock()
+	entry := s.agents[sessionID]
+	s.agentsMu.Unlock()
+	if entry == nil {
+		return nil
+	}
+	entry.mu.Lock()
+	events := entry.events
+	entry.mu.Unlock()
+	sizes := make([]int, len(events))
+	for index := range events {
+		if encoded, err := json.Marshal(events[index]); err == nil {
+			sizes[index] = len(encoded)
+		}
+	}
+	start := len(events)
+	total := 0
+	for index := len(events) - 1; index >= 0 && len(events)-start < maxEvents; index-- {
+		// The newest event always joins the tail even when a single event is
+		// itself over budget, so a huge event still renders immediately.
+		if total > 0 && total+sizes[index] > maxBytes {
+			break
+		}
+		start = index
+		total += sizes[index]
+	}
+	if start == len(events) {
+		return nil
+	}
+	return append([]api.AgentEvent(nil), events[start:]...)
+}
+
+// splitAgentEvents greedily groups events so every returned batch serializes
+// to at most maxBytes. A single event larger than the budget forms its own
+// batch instead of being dropped or split mid-event.
+func splitAgentEvents(events []api.AgentEvent, maxBytes int) [][]api.AgentEvent {
+	var batches [][]api.AgentEvent
+	var current []api.AgentEvent
+	total := 0
+	for _, event := range events {
+		encoded, err := json.Marshal(event)
+		size := 0
+		if err == nil {
+			size = len(encoded)
+		}
+		if len(current) > 0 && total+size > maxBytes {
+			batches = append(batches, current)
+			current = nil
+			total = 0
+		}
+		current = append(current, event)
+		total += size
+	}
+	if len(current) > 0 {
+		batches = append(batches, current)
+	}
+	return batches
 }
 
 func (s *Service) agentActivity(sessionID string) api.AgentActivity {
@@ -1498,7 +1625,39 @@ func (s *Service) stopAgent(sessionID string) {
 	}
 }
 
-func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent, activity api.AgentActivity) {
+// broadcastAgentIncrements pushes a live batch of agent events to attached
+// peers, splitting the batch so no single WebSocket message exceeds
+// agentMessageMaxBytes, then broadcasts the accompanying activity state as
+// its own lightweight message.
+func (s *Service) broadcastAgentIncrements(sessionID string, events []api.AgentEvent, activity api.AgentActivity) {
+	if len(events) > 0 {
+		for _, batch := range splitAgentEvents(events, agentMessageMaxBytes) {
+			s.broadcastAgentBatch(sessionID, batch)
+		}
+	}
+	if activity != "" {
+		s.broadcastAgentActivity(sessionID, activity)
+	}
+}
+
+func (s *Service) broadcastAgentBatch(sessionID string, events []api.AgentEvent) {
+	s.broadcastAgent(func(peer *wsPeer) error {
+		return peer.enqueueAgentEvents(sessionID, events)
+	}, sessionID)
+}
+
+func (s *Service) broadcastAgentActivity(sessionID string, activity api.AgentActivity) {
+	if activity == "" {
+		return
+	}
+	s.broadcastAgent(func(peer *wsPeer) error {
+		return peer.enqueueAgentActivity(sessionID, activity)
+	}, sessionID)
+}
+
+// broadcastAgent delivers one outbound message to every peer attached to a
+// session under the session broadcast lock.
+func (s *Service) broadcastAgent(send func(*wsPeer) error, sessionID string) {
 	lock := s.broadcastLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -1509,7 +1668,7 @@ func (s *Service) broadcastAgentEvents(sessionID string, events []api.AgentEvent
 	}
 	s.outputMu.Unlock()
 	for _, peer := range peers {
-		if err := peer.enqueueAgentEvents(sessionID, events, activity); err != nil {
+		if err := send(peer); err != nil {
 			s.detachPeer(peer, sessionID)
 		}
 	}
@@ -1818,8 +1977,18 @@ func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session 
 	if err := peer.enqueueSynced(session.ID, epoch, upper); err != nil {
 		return err
 	}
-	if history := s.agentHistory(session.ID); len(history) > 0 {
-		return peer.enqueueAgentEvents(session.ID, history, s.agentActivity(session.ID))
+	// The initial agent replay is intentionally bounded: the full history is
+	// fetched page by page through agent.history, and the activity status is
+	// its own lightweight message. Sending every retained event here would
+	// create one oversized WebSocket message for transcripts with thousands
+	// of events (and would burden clients that only render the status light).
+	if activity := s.agentActivity(session.ID); activity != "" {
+		if err := peer.enqueueAgentActivity(session.ID, activity); err != nil {
+			return err
+		}
+	}
+	if tail := s.agentTail(session.ID, agentAttachHistoryMaxEvents, agentAttachHistoryMaxBytes); len(tail) > 0 {
+		return peer.enqueueAgentEvents(session.ID, tail)
 	}
 	return nil
 }
