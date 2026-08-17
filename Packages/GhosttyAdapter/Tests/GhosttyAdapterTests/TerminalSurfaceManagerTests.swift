@@ -89,6 +89,8 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         _ = NSApplication.shared
         let manager = TerminalSurfaceManager(warmLimit: 1)
         let surfaces = (0..<3).map { _ in makeSurface() }
+        var disposed: [TerminalSessionID] = []
+        manager.onSurfaceDisposed = { disposed.append($0) }
 
         let host = TerminalHostContainerView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -116,6 +118,7 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertNotNil(manager.surface(for: surfaces[2].id))
         XCTAssertEqual(manager.snapshot().retainedSurfaceCount, 2)
         XCTAssertEqual(manager.snapshot().surfaceDisposalCount, 1)
+        XCTAssertEqual(disposed, [surfaces[0].id])
     }
 
     func testManagerMaintainsSingleHostAcrossFiveHundredSwitches() {

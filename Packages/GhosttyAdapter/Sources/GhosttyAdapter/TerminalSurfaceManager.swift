@@ -151,6 +151,10 @@ public final class TerminalSurfaceManager {
     private var windowObservers: [NSObjectProtocol] = []
     private var onFocused: (TerminalSessionID, TerminalSize?) -> Void = { _, _ in }
     private var onBlurred: (TerminalSessionID) -> Void = { _ in }
+    /// Invoked when a retained surface is disposed (warm eviction, tab close,
+    /// or shutdown). Owners use this to invalidate recovery anchors that are
+    /// only valid while the exact surface instance is still alive.
+    public var onSurfaceDisposed: ((TerminalSessionID) -> Void)?
 
     public init(
         warmLimit: Int = TerminalSurfaceRetentionPolicy.defaultWarmLimit,
@@ -422,6 +426,7 @@ public final class TerminalSurfaceManager {
         entry.surface.mountedTerminalView = nil
         entry.surface.outputWriter.shutdown()
         surfaceDisposalCount &+= 1
+        onSurfaceDisposed?(sessionID)
     }
 
     private func focus(_ sessionID: TerminalSessionID, generation: UInt64) {

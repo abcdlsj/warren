@@ -687,6 +687,11 @@ final class WarrenRemoteApplicationModel {
     }
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
+        surfaceManager.onSurfaceDisposed = { [weak self] sessionID in
+            guard let self else { return }
+            self.outputAnchors.removeValue(forKey: sessionID)
+            self.suppressFramedAnchorUpdates.remove(sessionID)
+        }
         disconnect()
         restorePersistedTabOrders()
         endpointConfiguration = configuration
@@ -1816,10 +1821,9 @@ final class WarrenRemoteApplicationModel {
         if let existingSurface {
             surface = existingSurface
         } else {
-            // A brand-new Ghostty surface has no content. The daemon may still
-            // consider the old recovery anchor valid after a warm surface was
-            // evicted for memory, and would then skip the snapshot and leave
-            // the pane blank. Force a full reanchor for every recreated surface.
+            // Defensive fallback: the authoritative cleanup runs in
+            // TerminalSurfaceManager.dispose, but never attach a brand-new
+            // surface with an anchor from an older surface instance.
             outputAnchors.removeValue(forKey: sessionID)
             suppressFramedAnchorUpdates.remove(sessionID)
             let inputBridge = WarrenOrderedInputBridge { [weak self] data in
