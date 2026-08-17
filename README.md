@@ -91,6 +91,7 @@ mise run relay:dev
 
 - [DESIGN.md](DESIGN.md) — product and system design, domain model, architecture, and acceptance criteria
 - [GLOSSARY.md](GLOSSARY.md) — shared terminology
+- [docs/terminal-rendering-runbook.md](docs/terminal-rendering-runbook.md) — terminal black screen and missing text troubleshooting
 - [docs/headless-architecture.md](docs/headless-architecture.md) — headless and remote connection architecture
 - [docs/runtime.md](docs/runtime.md) — ghostline and tmux runtime comparison
 - [Headless/README.md](Headless/README.md) — headless daemon and CLI
