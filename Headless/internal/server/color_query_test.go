@@ -46,7 +46,7 @@ func TestServiceQueryResponderUsesColorQuery(t *testing.T) {
 	}
 }
 
-func TestServiceAnswersColorQueryWhenSessionAttached(t *testing.T) {
+func TestServiceDoesNotAnswerColorQueryWhenSessionAttached(t *testing.T) {
 	runtime := &memoryRuntime{sessions: map[string][]byte{"runtime": nil}}
 	service := &Service{
 		Runtime: runtime,
@@ -78,7 +78,7 @@ func TestServiceAnswersColorQueryWhenSessionAttached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "\x1b]11;rgb:1515/1111/1010\x1b\\" {
-		t.Fatalf("attached session runtime input = %q; want Warren background reply", got)
+	if len(got) != 0 {
+		t.Fatalf("attached session runtime input = %q; want no server reply", got)
 	}
 }
