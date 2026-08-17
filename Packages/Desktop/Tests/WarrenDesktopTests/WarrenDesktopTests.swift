@@ -289,6 +289,13 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testSidebarDragOverlayAcceptsFirstModifiedClick() {
+        let session = WarrenDesktopSidebarDragSession()
+        let view = WarrenDesktopSidebarDragOverlayView(session: session)
+
+        XCTAssertTrue(view.acceptsFirstMouse(for: nil))
+    }
+
     func testSidebarDragAutoCollapseKeepsOnlyValidDestinationsVisible() {
         let projectID = ProjectID()
         let otherProjectID = ProjectID()

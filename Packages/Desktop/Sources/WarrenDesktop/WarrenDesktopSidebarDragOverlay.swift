@@ -195,6 +195,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     var rows: [String: WarrenSidebarRowDragFrame] = [:] {
         didSet {
             needsDisplay = true
+            window?.invalidateCursorRects(for: self)
         }
     }
 
@@ -231,12 +232,28 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     override var isFlipped: Bool { true }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard session.commandHeld else { return }
+        for row in rows.values {
+            let rect = bounds.intersection(row.frame)
+            guard !rect.isEmpty, !rect.isNull else { continue }
+            addCursorRect(rect, cursor: .openHand)
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil, !attachedToWindow {
             attachedToWindow = true
             session.addClient(id: clientID) { [weak self] isNeeded in
-                self?.onMeasurementNeededChanged?(isNeeded)
+                guard let self else { return }
+                self.window?.invalidateCursorRects(for: self)
+                self.onMeasurementNeededChanged?(isNeeded)
             }
         } else if window == nil, attachedToWindow {
             finishDrag(suppressClick: false)
