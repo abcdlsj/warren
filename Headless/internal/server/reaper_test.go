@@ -33,7 +33,7 @@ func (runtime *reaperRuntime) Kill(_ context.Context, name string) error {
 	return runtime.memoryRuntime.Kill(context.Background(), name)
 }
 
-func TestReapOrphansReclaimsUnmanagedWarrenSessions(t *testing.T) {
+func TestReapOrphansReclaimsOnlyKnownEndedSessions(t *testing.T) {
 	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
 	if err != nil {
 		t.Fatal(err)
@@ -74,11 +74,7 @@ func TestReapOrphansReclaimsUnmanagedWarrenSessions(t *testing.T) {
 	runtime.mu.Lock()
 	killed := append([]string(nil), runtime.killed...)
 	runtime.mu.Unlock()
-	want := map[string]bool{
-		"warren_ended":      true,
-		"warren_orphan_old": true,
-		"warren-legacy-old": true,
-	}
+	want := map[string]bool{"warren_ended": true}
 	if len(killed) != len(want) {
 		t.Fatalf("killed %v, want %v", killed, want)
 	}
@@ -86,5 +82,31 @@ func TestReapOrphansReclaimsUnmanagedWarrenSessions(t *testing.T) {
 		if !want[name] {
 			t.Fatalf("unexpected kill: %s", name)
 		}
+	}
+}
+
+func TestReapOrphansDoesNotKillUnknownSessionsWithEmptyState(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	runtime := &reaperRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{
+			"warren_probe": []byte("ok"),
+		}},
+		created: map[string]time.Time{"warren_probe": now.Add(-6 * time.Minute)},
+	}
+
+	(&Service{Store: state, Runtime: runtime}).reapOrphans(context.Background())
+
+	runtime.mu.Lock()
+	killed := append([]string(nil), runtime.killed...)
+	runtime.mu.Unlock()
+	if len(killed) != 0 {
+		t.Fatalf("killed unknown sessions %v", killed)
+	}
+	if !runtime.Exists(context.Background(), "warren_probe") {
+		t.Fatal("unknown session was removed")
 	}
 }

@@ -87,6 +87,15 @@ func main() {
 		fmt.Println(version)
 		return
 	}
+	ghostlineSocketExplicit := os.Getenv("WARREN_GHOSTLINE_SOCKET") != ""
+	flag.Visit(func(entry *flag.Flag) {
+		if entry.Name == "ghostline-socket" {
+			ghostlineSocketExplicit = true
+		}
+	})
+	if err := validateGhostlinePaths(configDir, *statePath, *outputDir, *ghostlineSocket, ghostlineSocketExplicit); err != nil {
+		fatal(err)
+	}
 
 	// Internal subprocess mode: the daemon spawns this binary with
 	// --ghostline-serve so PTY sessions are owned by an independent process
@@ -183,6 +192,7 @@ func main() {
 		Runtime:         runtimeAdapter,
 		Runtimes:        runtimes,
 		DefaultRuntime:  defaultKind,
+		Logger:          logger,
 		ProbeForeground: *ghostlineProbeForeground,
 		Settings:        loadedSettings,
 		SettingsPath:    *settingsFile,
@@ -688,6 +698,38 @@ func defaultConfigDirectory() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".warren")
 }
+
+// validateGhostlinePaths prevents a temporary or alternate Warren state from
+// accidentally connecting to the default Ghostline server. The default
+// socket is shared by the production daemon, so custom state/output paths
+// require an explicitly selected, non-default socket of their own.
+func validateGhostlinePaths(configDir, statePath, outputDir, socketPath string, socketExplicit bool) error {
+	defaultState := filepath.Join(configDir, "state.json")
+	defaultOutput := filepath.Join(configDir, "output")
+	defaultSocket := filepath.Join(configDir, "ghostline.sock")
+	customState := !samePath(statePath, defaultState)
+	customOutput := !samePath(outputDir, defaultOutput)
+	if !customState && !customOutput {
+		return nil
+	}
+	if !socketExplicit || strings.TrimSpace(socketPath) == "" {
+		return fmt.Errorf("custom state or output paths require an explicit --ghostline-socket; refusing to use default %s", defaultSocket)
+	}
+	if samePath(socketPath, defaultSocket) {
+		return fmt.Errorf("custom state or output paths cannot use the default Ghostline socket %s; choose a dedicated --ghostline-socket", defaultSocket)
+	}
+	return nil
+}
+
+func samePath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	if leftErr != nil || rightErr != nil {
+		return filepath.Clean(left) == filepath.Clean(right)
+	}
+	return filepath.Clean(leftAbs) == filepath.Clean(rightAbs)
+}
+
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

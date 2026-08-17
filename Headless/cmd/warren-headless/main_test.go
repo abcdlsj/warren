@@ -109,3 +109,36 @@ func TestReplaceWithSymlinkPointsStableAtTarget(t *testing.T) {
 		t.Fatalf("stable resolves to %q, want %q", resolved, targetResolved)
 	}
 }
+
+func TestValidateGhostlinePaths(t *testing.T) {
+	dir := t.TempDir()
+	defaults := struct {
+		state  string
+		output string
+		socket string
+	}{
+		state: filepath.Join(dir, "state.json"), output: filepath.Join(dir, "output"), socket: filepath.Join(dir, "ghostline.sock"),
+	}
+	tests := []struct {
+		name           string
+		state, output  string
+		socket         string
+		socketExplicit bool
+		wantErr        bool
+	}{
+		{name: "defaults", state: defaults.state, output: defaults.output, socket: defaults.socket},
+		{name: "custom state requires socket", state: filepath.Join(dir, "probe", "state.json"), output: defaults.output, socket: defaults.socket, wantErr: true},
+		{name: "custom output requires socket", state: defaults.state, output: filepath.Join(dir, "probe", "output"), socket: defaults.socket, wantErr: true},
+		{name: "explicit default socket is rejected", state: filepath.Join(dir, "probe", "state.json"), output: defaults.output, socket: defaults.socket, socketExplicit: true, wantErr: true},
+		{name: "empty socket is rejected", state: filepath.Join(dir, "probe", "state.json"), output: defaults.output, socket: "", socketExplicit: true, wantErr: true},
+		{name: "dedicated socket allowed", state: filepath.Join(dir, "probe", "state.json"), output: filepath.Join(dir, "probe", "output"), socket: filepath.Join(dir, "probe", "ghostline.sock"), socketExplicit: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateGhostlinePaths(dir, tt.state, tt.output, tt.socket, tt.socketExplicit)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateGhostlinePaths() error = %v, wantErr %t", err, tt.wantErr)
+			}
+		})
+	}
+}

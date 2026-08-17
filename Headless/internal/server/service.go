@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,6 +70,9 @@ type Service struct {
 	Settings settings.Settings
 	// SettingsPath persists settings changes made over the API.
 	SettingsPath string
+	// Logger receives lifecycle warnings. A nil logger falls back to slog's
+	// process-wide default so tests and embedders do not need to configure one.
+	Logger       *slog.Logger
 	WorktreeRoot string
 	// AgentFinder locates Codex/Claude transcript files. When nil, agent
 	// projection is disabled and sessions behave exactly as before.
@@ -417,11 +421,10 @@ func (s *Service) persistRuntimeKind(session api.Session) {
 	})
 }
 
-// reapOrphans kills sessions that Warren created but state no longer owns:
-// running records protect their runtime, everything else in the warren
-// namespace is reclaimed after a grace period. Unknown sessions can survive a
-// state reset, so the daemon must own their cleanup instead of leaking tmux
-// processes indefinitely.
+// reapOrphans kills runtimes that are explicitly recorded in state and no
+// longer running. Unknown runtimes are deliberately left alone: a daemon can
+// be pointed at a shared runtime socket with a new, empty, or unrelated state
+// file, and that state must never grant permission to terminate its sessions.
 func (s *Service) reapOrphans(ctx context.Context) {
 	probeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
@@ -447,9 +450,15 @@ func (s *Service) reapOrphans(ctx context.Context) {
 		}
 	}
 	managed := make(map[string]bool)
+	ended := make(map[string]bool)
 	for _, session := range s.Store.Snapshot().Sessions {
+		if session.Runtime == "" {
+			continue
+		}
 		if session.Lifecycle == "running" {
 			managed[session.Runtime] = true
+		} else {
+			ended[session.Runtime] = true
 		}
 	}
 	now := time.Now()
@@ -459,7 +468,10 @@ func (s *Service) reapOrphans(ctx context.Context) {
 			adapter = s.Runtime
 		}
 		for name, createdAt := range created {
-			if managed[name] || !isWarrenRuntimeName(name) || now.Sub(createdAt) < orphanReapGrace {
+			if managed[name] || !ended[name] || now.Sub(createdAt) < orphanReapGrace {
+				if isWarrenRuntimeName(name) && !managed[name] && !ended[name] {
+					s.warnUnknownRuntime(name, kind)
+				}
 				continue
 			}
 			if err := adapter.Kill(probeContext, name); err != nil {
@@ -470,6 +482,14 @@ func (s *Service) reapOrphans(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (s *Service) warnUnknownRuntime(name, kind string) {
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn("skipping unknown runtime during orphan reap", "runtime", name, "kind", kind)
 }
 
 func isWarrenRuntimeName(name string) bool {
