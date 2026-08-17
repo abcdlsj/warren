@@ -31,7 +31,10 @@ struct WarrenDesktopSidebarRows: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+        // This list is bounded by the sidebar scroll view and also hosts
+        // optional drag-frame measurement. Eager layout keeps geometry
+        // feedback out of LazyVStack's placement cache during navigation.
+        VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
             if !isCollapsed {
                 WarrenDesktopSidebarSectionHeader(
                     title: "Projects",
@@ -89,8 +92,7 @@ struct WarrenDesktopSidebarRows: View {
                     dragSourceRowID = id
                 },
                 onMeasurementNeededChanged: { isNeeded in
-                    guard isDragMeasurementEnabled != isNeeded else { return }
-                    isDragMeasurementEnabled = isNeeded
+                    setDragMeasurementEnabled(isNeeded)
                 }
             )
         }
@@ -349,6 +351,17 @@ struct WarrenDesktopSidebarRows: View {
 
     private func workspaceActivity(_ workspaceID: WorkspaceID) -> AgentActivityState? {
         workspaceActivities[workspaceID]
+    }
+
+    private func setDragMeasurementEnabled(_ enabled: Bool) {
+        guard isDragMeasurementEnabled != enabled else { return }
+        // AppKit can notify the representable while SwiftUI is applying the
+        // current graph. Defer the state change so enabling row preferences
+        // cannot publish from inside that transaction.
+        Task { @MainActor in
+            guard isDragMeasurementEnabled != enabled else { return }
+            isDragMeasurementEnabled = enabled
+        }
     }
 
     private func dropProject(

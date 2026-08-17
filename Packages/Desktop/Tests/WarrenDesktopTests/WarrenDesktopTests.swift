@@ -296,6 +296,20 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertTrue(view.acceptsFirstMouse(for: nil))
     }
 
+    func testSidebarDragSessionPublishesMeasurementChangesOncePerState() {
+        let session = WarrenDesktopSidebarDragSession()
+        let clientID = UUID()
+        var measurementStates: [Bool] = []
+
+        session.addClient(id: clientID) { measurementStates.append($0) }
+        session.setActive(true)
+        session.setActive(true)
+        session.setActive(false)
+        session.removeClient(id: clientID)
+
+        XCTAssertEqual(measurementStates, [true, false])
+    }
+
     func testSidebarDragAutoCollapseKeepsOnlyValidDestinationsVisible() {
         let projectID = ProjectID()
         let otherProjectID = ProjectID()

@@ -160,7 +160,40 @@ Fix: defer the writes one main-actor hop and guard equality. Commit:
 - `0aa4f2f` fix(desktop): defer preference-change state writes out of SwiftUI
   updates
 
-### 4. AppKit view-tree lock inverted against Ghostty surface lock (deadlock)
+### 4. Sidebar lazy-layout and drag-frame preference feedback (2026-08-17)
+
+The latest reproduction happened immediately after a tab selection. The GUI
+process stayed at approximately 100% CPU while the diagnostics file stopped
+advancing. A live sample showed almost every main-thread sample in:
+
+```
+NSHostingView.beginTransaction
+  -> ViewGraphRootValueUpdater.updateGraph
+  -> AttributeGraph
+  -> LazyVStackLayout / ForEach
+```
+
+The same graph evaluated `WarrenSidebarRowDragFramesKey`. Sidebar rows expose
+their AppKit drag targets through `GeometryReader` preferences. That geometry
+was being evaluated inside a `LazyVStack`; a navigation update could therefore
+rebuild the lazy placement cache while the drag overlay was consuming the
+preference. This is a SwiftUI layout feedback loop, not a Ghostty surface lock
+wait. The last action in the captured incident was `selectTab`.
+
+Fix:
+
+- render the bounded sidebar row list with `VStack`, so drag-frame measurement
+  does not share `LazyVStack`'s placement cache;
+- defer the drag-measurement enable/disable state change by one main-actor hop
+  and skip duplicate values, keeping AppKit callbacks outside the active SwiftUI
+  transaction;
+- keep geometry preferences conditional on drag measurement being needed.
+
+The eager layout is bounded by the sidebar's scroll view and does not change
+row ordering or drag semantics. The measurement toggle may take one runloop
+turn to become visible, which is intentional and avoids re-entrant rendering.
+
+### 5. AppKit view-tree lock inverted against Ghostty surface lock (deadlock)
 
 The desktop can also freeze **without any publishing faults**: the main
 thread pegs at 100% while blocked inside AppKit layout.
