@@ -383,15 +383,20 @@ final class WarrenDesktopTests: XCTestCase {
         )
         var clickCount = 0
         var dismissCount = 0
+        var hoverStates: [Bool] = []
         view.onClick = { clickCount += 1 }
         view.onDismiss = { dismissCount += 1 }
+        view.onHoverChanged = { hoverStates.append($0) }
         window.contentView = view
 
+        view.mouseEntered(with: Self.mouseEnteredEvent())
         view.mouseDown(with: Self.mouseDownEvent(clickCount: 1))
         view.mouseUp(with: Self.mouseUpEvent())
+        view.mouseExited(with: Self.mouseExitedEvent())
 
         XCTAssertEqual(clickCount, 1)
         XCTAssertEqual(dismissCount, 0)
+        XCTAssertEqual(hoverStates, [true, false])
     }
 
     func testWindowDragRegionPerformsDragOnSingleClick() {
@@ -451,6 +456,34 @@ final class WarrenDesktopTests: XCTestCase {
             eventNumber: 2,
             clickCount: 1,
             pressure: 0
+        )!
+    }
+
+    private static func mouseEnteredEvent() -> NSEvent {
+        NSEvent.enterExitEvent(
+            with: .mouseEntered,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 3,
+            trackingNumber: 1,
+            userData: nil
+        )!
+    }
+
+    private static func mouseExitedEvent() -> NSEvent {
+        NSEvent.enterExitEvent(
+            with: .mouseExited,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 4,
+            trackingNumber: 1,
+            userData: nil
         )!
     }
 

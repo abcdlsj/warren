@@ -16,11 +16,13 @@ enum WarrenDesktopTabActivityDragGesture {
 struct WarrenDesktopTabActivityDragHandle: NSViewRepresentable {
     let onDismiss: () -> Void
     let onClick: () -> Void
+    let onHoverChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> WarrenDesktopTabActivityDragHandleView {
         let view = WarrenDesktopTabActivityDragHandleView()
         view.onDismiss = onDismiss
         view.onClick = onClick
+        view.onHoverChanged = onHoverChanged
         view.toolTip = "Drag outside the window to dismiss activity"
         return view
     }
@@ -28,6 +30,7 @@ struct WarrenDesktopTabActivityDragHandle: NSViewRepresentable {
     func updateNSView(_ nsView: WarrenDesktopTabActivityDragHandleView, context: Context) {
         nsView.onDismiss = onDismiss
         nsView.onClick = onClick
+        nsView.onHoverChanged = onHoverChanged
     }
 }
 
@@ -38,11 +41,13 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
 
     var onDismiss: (() -> Void)?
     var onClick: (() -> Void)?
+    var onHoverChanged: ((Bool) -> Void)?
 
     private weak var dragWindow: NSWindow?
     private var mouseDownPoint: NSPoint?
     private var pendingDismiss: (() -> Void)?
     private var isDragging = false
+    private var hoverTrackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
 
@@ -52,6 +57,29 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .openHand)
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

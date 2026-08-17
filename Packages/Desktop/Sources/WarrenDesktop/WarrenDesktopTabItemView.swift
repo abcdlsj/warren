@@ -26,6 +26,7 @@ struct WarrenDesktopTabItem: View {
     @FocusState private var isCloseFocused: Bool
     @State private var isHovered = false
     @State private var isCloseHovered = false
+    @State private var isActivityHovered = false
 
     private var exposesClose: Bool {
         tab.sessionID != nil && (isHovered || isCloseFocused || forceHover)
@@ -51,10 +52,19 @@ struct WarrenDesktopTabItem: View {
                     if let activity {
                         ZStack {
                             WarrenDesktopActivityIndicator(activity: activity)
+                                .scaleEffect(isActivityHovered ? 1.35 : 1)
+                                .animation(
+                                    WarrenMotion.animation(
+                                        .feedback,
+                                        reduceMotion: reduceMotion
+                                    ),
+                                    value: isActivityHovered
+                                )
                                 .accessibilityHidden(true)
                             WarrenDesktopTabActivityDragHandle(
                                 onDismiss: onDismissActivity,
-                                onClick: onSelect
+                                onClick: onSelect,
+                                onHoverChanged: { isActivityHovered = $0 }
                             )
                         }
                         .frame(
@@ -63,11 +73,19 @@ struct WarrenDesktopTabItem: View {
                         )
                         .accessibilityHidden(true)
                     }
-                    Text(displayTitle)
-                        .font(WarrenTypography.tabShellTitle)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
+                    // Keep the tab drag source disjoint from the activity
+                    // handle so AppKit never has to arbitrate two drags from
+                    // the same pointer-down sequence.
+                    HStack(spacing: 0) {
+                        Text(displayTitle)
+                            .font(WarrenTypography.tabShellTitle)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                    .draggable(tab.id)
                 }
                 .padding(.leading, WarrenSpacing.medium)
                 .padding(.trailing, WarrenLayoutMetrics.tabAccessoryColumnWidth)
@@ -168,7 +186,6 @@ struct WarrenDesktopTabItem: View {
                 .frame(height: WarrenSpacing.hairline)
         }
         .contentShape(.rect)
-        .draggable(tab.id)
         .dropDestination(for: String.self) { tabIDs, _ in
             guard let sourceID = tabIDs.first else { return false }
             onMoveBefore(sourceID)
