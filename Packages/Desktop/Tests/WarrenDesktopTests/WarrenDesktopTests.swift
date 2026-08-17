@@ -361,6 +361,39 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testActivityDragHandleHasUsableHitTargetAndAcceptsFirstClick() {
+        XCTAssertGreaterThanOrEqual(
+            WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
+            20
+        )
+        XCTAssertGreaterThanOrEqual(
+            WarrenDesktopTabActivityDragGesture.hitTargetSize.height,
+            20
+        )
+        XCTAssertTrue(WarrenDesktopTabActivityDragHandleView().acceptsFirstMouse(for: nil))
+    }
+
+    func testActivityDragHandleForwardsClickWithoutDismissing() {
+        let view = WarrenDesktopTabActivityDragHandleView()
+        let window = WarrenDragProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        var clickCount = 0
+        var dismissCount = 0
+        view.onClick = { clickCount += 1 }
+        view.onDismiss = { dismissCount += 1 }
+        window.contentView = view
+
+        view.mouseDown(with: Self.mouseDownEvent(clickCount: 1))
+        view.mouseUp(with: Self.mouseUpEvent())
+
+        XCTAssertEqual(clickCount, 1)
+        XCTAssertEqual(dismissCount, 0)
+    }
+
     func testWindowDragRegionPerformsDragOnSingleClick() {
         let view = WarrenDesktopWindowDragView()
         let window = WarrenDragProbeWindow(
@@ -404,6 +437,20 @@ final class WarrenDesktopTests: XCTestCase {
             eventNumber: 1,
             clickCount: clickCount,
             pressure: 1
+        )!
+    }
+
+    private static func mouseUpEvent() -> NSEvent {
+        NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
         )!
     }
 

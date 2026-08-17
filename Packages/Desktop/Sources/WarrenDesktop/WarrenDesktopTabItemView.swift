@@ -57,7 +57,10 @@ struct WarrenDesktopTabItem: View {
                                 onClick: onSelect
                             )
                         }
-                        .frame(width: 12, height: 12)
+                        .frame(
+                            width: WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
+                            height: WarrenDesktopTabActivityDragGesture.hitTargetSize.height
+                        )
                         .accessibilityHidden(true)
                     }
                     Text(displayTitle)

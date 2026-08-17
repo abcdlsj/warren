@@ -3,6 +3,7 @@ import SwiftUI
 
 enum WarrenDesktopTabActivityDragGesture {
     static let threshold: CGFloat = 5
+    static let hitTargetSize = CGSize(width: 22, height: 28)
 
     static func hasExceededThreshold(from origin: CGPoint, to current: CGPoint) -> Bool {
         hypot(current.x - origin.x, current.y - origin.y) >= threshold
@@ -20,6 +21,7 @@ struct WarrenDesktopTabActivityDragHandle: NSViewRepresentable {
         let view = WarrenDesktopTabActivityDragHandleView()
         view.onDismiss = onDismiss
         view.onClick = onClick
+        view.toolTip = "Drag outside the window to dismiss activity"
         return view
     }
 
@@ -43,6 +45,14 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     private var isDragging = false
 
     override var isFlipped: Bool { true }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .openHand)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         bounds.contains(point) ? self : nil
