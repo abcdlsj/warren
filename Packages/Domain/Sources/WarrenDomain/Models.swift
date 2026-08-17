@@ -106,6 +106,38 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+/// A Host-owned ordered container for standalone terminal sessions.
+public struct TerminalGroup: Identifiable, Codable, Hashable, Sendable {
+    public let id: TerminalGroupID
+    public let hostID: HostID
+    public var name: String
+    public var home: String?
+    public var order: Int
+    public let createdAt: Date
+
+    public init(
+        id: TerminalGroupID = TerminalGroupID(),
+        hostID: HostID,
+        name: String,
+        home: String? = nil,
+        order: Int = 0,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.hostID = hostID
+        self.name = name
+        self.home = home
+        self.order = order
+        self.createdAt = createdAt
+    }
+}
+
+/// The mutually exclusive Host context of a terminal session.
+public enum TerminalSessionScope: Codable, Hashable, Sendable {
+    case workspace(WorkspaceID)
+    case terminalGroup(TerminalGroupID)
+}
+
 public struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
     public let id: TerminalSessionID
     public let workspaceID: WorkspaceID
@@ -123,6 +155,10 @@ public struct TerminalSession: Identifiable, Codable, Hashable, Sendable {
         self.epoch = epoch
         self.sequence = sequence
     }
+
+    /// Legacy domain sessions are Workspace-scoped. Remote desktop sessions
+    /// carry the full scope in their Host roster projection.
+    public var scope: TerminalSessionScope { .workspace(workspaceID) }
 }
 
 /// The durable lifecycle of Warren's terminal resource. Client connectivity,

@@ -54,6 +54,7 @@ public struct DomainID<Tag: Sendable>: RawRepresentable, Codable, Hashable, Send
 public enum HostIDTag: Sendable {}
 public enum ProjectIDTag: Sendable {}
 public enum WorkspaceIDTag: Sendable {}
+public enum TerminalGroupIDTag: Sendable {}
 public enum TerminalSessionIDTag: Sendable {}
 public enum TerminalAttachmentIDTag: Sendable {}
 public enum ClientIDTag: Sendable {}
@@ -63,6 +64,7 @@ public enum ControlLeaseIDTag: Sendable {}
 public typealias HostID = DomainID<HostIDTag>
 public typealias ProjectID = DomainID<ProjectIDTag>
 public typealias WorkspaceID = DomainID<WorkspaceIDTag>
+public typealias TerminalGroupID = DomainID<TerminalGroupIDTag>
 public typealias TerminalSessionID = DomainID<TerminalSessionIDTag>
 public typealias TerminalAttachmentID = DomainID<TerminalAttachmentIDTag>
 public typealias ClientID = DomainID<ClientIDTag>

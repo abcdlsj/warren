@@ -41,6 +41,7 @@ public enum ClientNavigationDestination: Codable, Hashable, Sendable {
     case host(HostID)
     case project(ProjectID)
     case workspace(WorkspaceID)
+    case terminalGroup(TerminalGroupID)
     case session(TerminalSessionID)
 }
 
@@ -70,6 +71,30 @@ public struct ClientWorkspaceView: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// One Window's device-local view for a Terminal Group.
+public struct ClientTerminalGroupView: Codable, Hashable, Sendable, Identifiable {
+    public var id: TerminalGroupID { terminalGroupID }
+    public let terminalGroupID: TerminalGroupID
+    public var tabs: [ClientTab]
+    public var activeTabID: String?
+    public var panes: [ClientPane]
+    public var activePaneID: String?
+
+    public init(
+        terminalGroupID: TerminalGroupID,
+        tabs: [ClientTab] = [],
+        activeTabID: String? = nil,
+        panes: [ClientPane] = [],
+        activePaneID: String? = nil
+    ) {
+        self.terminalGroupID = terminalGroupID
+        self.tabs = tabs
+        self.activeTabID = tabs.contains(where: { $0.id == activeTabID }) ? activeTabID : nil
+        self.panes = panes
+        self.activePaneID = activePaneID
+    }
+}
+
 /// Independent navigation and layout scope for one macOS window.
 public struct ClientWindowLayout: Codable, Hashable, Sendable, Identifiable {
     public let id: ClientWindowID
@@ -78,6 +103,8 @@ public struct ClientWindowLayout: Codable, Hashable, Sendable, Identifiable {
     public var windowSize: LayoutSize?
     public var activeWorkspaceID: WorkspaceID?
     public var workspaceViews: [ClientWorkspaceView]
+    public var activeTerminalGroupID: TerminalGroupID?
+    public var terminalGroupViews: [ClientTerminalGroupView]
     public var navigationPath: [ClientNavigationDestination]
 
     public init?(
@@ -87,6 +114,8 @@ public struct ClientWindowLayout: Codable, Hashable, Sendable, Identifiable {
         windowSize: LayoutSize? = nil,
         activeWorkspaceID: WorkspaceID? = nil,
         workspaceViews: [ClientWorkspaceView] = [],
+        activeTerminalGroupID: TerminalGroupID? = nil,
+        terminalGroupViews: [ClientTerminalGroupView] = [],
         navigationPath: [ClientNavigationDestination] = []
     ) {
         guard sidebarWidth.isFinite, sidebarWidth > 0 else { return nil }
@@ -96,15 +125,50 @@ public struct ClientWindowLayout: Codable, Hashable, Sendable, Identifiable {
         self.windowSize = windowSize
         self.activeWorkspaceID = activeWorkspaceID
         self.workspaceViews = workspaceViews
+        self.activeTerminalGroupID = activeTerminalGroupID
+        self.terminalGroupViews = terminalGroupViews
         self.navigationPath = navigationPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sidebarWidth
+        case sidebarCollapsed
+        case windowSize
+        case activeWorkspaceID
+        case workspaceViews
+        case activeTerminalGroupID
+        case terminalGroupViews
+        case navigationPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(ClientWindowID.self, forKey: .id)
+        sidebarWidth = try container.decode(Double.self, forKey: .sidebarWidth)
+        sidebarCollapsed = try container.decode(Bool.self, forKey: .sidebarCollapsed)
+        windowSize = try container.decodeIfPresent(LayoutSize.self, forKey: .windowSize)
+        activeWorkspaceID = try container.decodeIfPresent(WorkspaceID.self, forKey: .activeWorkspaceID)
+        workspaceViews = try container.decodeIfPresent([ClientWorkspaceView].self, forKey: .workspaceViews) ?? []
+        activeTerminalGroupID = try container.decodeIfPresent(TerminalGroupID.self, forKey: .activeTerminalGroupID)
+        terminalGroupViews = try container.decodeIfPresent([ClientTerminalGroupView].self, forKey: .terminalGroupViews) ?? []
+        navigationPath = try container.decodeIfPresent([ClientNavigationDestination].self, forKey: .navigationPath) ?? []
     }
 
     public func workspaceView(for workspaceID: WorkspaceID) -> ClientWorkspaceView? {
         workspaceViews.first { $0.workspaceID == workspaceID }
     }
 
+    public func terminalGroupView(for groupID: TerminalGroupID) -> ClientTerminalGroupView? {
+        terminalGroupViews.first { $0.terminalGroupID == groupID }
+    }
+
     public var activeWorkspaceView: ClientWorkspaceView? {
         activeWorkspaceID.flatMap(workspaceView(for:))
+    }
+
+    public var activeTerminalGroupView: ClientTerminalGroupView? {
+        activeTerminalGroupID.flatMap(terminalGroupView(for:))
     }
 
     fileprivate mutating func updateSidebarWidth(_ width: Double) {
@@ -185,8 +249,20 @@ public actor ClientLayoutStore {
     public func selectWorkspace(_ workspaceID: WorkspaceID?, in windowID: ClientWindowID) async throws {
         var window = ensureWindow(id: windowID)
         window.activeWorkspaceID = workspaceID
+        window.activeTerminalGroupID = nil
         if let workspaceID, window.workspaceView(for: workspaceID) == nil {
             window.workspaceViews.append(ClientWorkspaceView(workspaceID: workspaceID))
+        }
+        replaceWindow(window)
+        try await persist()
+    }
+
+    public func selectTerminalGroup(_ groupID: TerminalGroupID?, in windowID: ClientWindowID) async throws {
+        var window = ensureWindow(id: windowID)
+        window.activeWorkspaceID = nil
+        window.activeTerminalGroupID = groupID
+        if let groupID, window.terminalGroupView(for: groupID) == nil {
+            window.terminalGroupViews.append(ClientTerminalGroupView(terminalGroupID: groupID))
         }
         replaceWindow(window)
         try await persist()
@@ -205,7 +281,29 @@ public actor ClientLayoutStore {
         } else {
             window.workspaceViews[index].tabs.append(tab)
         }
-        if select { window.workspaceViews[index].activeTabID = tab.id }
+        if select {
+            window.workspaceViews[index].activeTabID = tab.id
+        }
+        replaceWindow(window)
+        try await persist()
+    }
+
+    public func upsertTab(
+        _ tab: ClientTab,
+        terminalGroupID: TerminalGroupID,
+        select: Bool,
+        in windowID: ClientWindowID
+    ) async throws {
+        var window = ensureWindow(id: windowID)
+        let index = ensureTerminalGroupView(terminalGroupID, in: &window)
+        if let tabIndex = window.terminalGroupViews[index].tabs.firstIndex(where: { $0.id == tab.id }) {
+            window.terminalGroupViews[index].tabs[tabIndex] = tab
+        } else {
+            window.terminalGroupViews[index].tabs.append(tab)
+        }
+        if select {
+            window.terminalGroupViews[index].activeTabID = tab.id
+        }
         replaceWindow(window)
         try await persist()
     }
@@ -221,7 +319,25 @@ public actor ClientLayoutStore {
             throw ClientLayoutStoreError.workspaceMismatch
         }
         window.activeWorkspaceID = workspaceID
+        window.activeTerminalGroupID = nil
         window.workspaceViews[index].activeTabID = tabID
+        replaceWindow(window)
+        try await persist()
+    }
+
+    public func selectTab(
+        _ tabID: String?,
+        terminalGroupID: TerminalGroupID,
+        in windowID: ClientWindowID
+    ) async throws {
+        var window = ensureWindow(id: windowID)
+        let index = ensureTerminalGroupView(terminalGroupID, in: &window)
+        guard tabID == nil || window.terminalGroupViews[index].tabs.contains(where: { $0.id == tabID }) else {
+            throw ClientLayoutStoreError.workspaceMismatch
+        }
+        window.activeWorkspaceID = nil
+        window.activeTerminalGroupID = terminalGroupID
+        window.terminalGroupViews[index].activeTabID = tabID
         replaceWindow(window)
         try await persist()
     }
@@ -256,6 +372,33 @@ public actor ClientLayoutStore {
         try await persist()
     }
 
+    public func moveTab(
+        id tabID: String,
+        before destinationTabID: String?,
+        terminalGroupID: TerminalGroupID,
+        in windowID: ClientWindowID
+    ) async throws {
+        var window = ensureWindow(id: windowID)
+        let index = ensureTerminalGroupView(terminalGroupID, in: &window)
+        var tabs = window.terminalGroupViews[index].tabs
+        guard let sourceIndex = tabs.firstIndex(where: { $0.id == tabID }) else {
+            throw ClientLayoutStoreError.tabNotFound(tabID)
+        }
+        if destinationTabID == tabID { return }
+        let moved = tabs.remove(at: sourceIndex)
+        if let destinationTabID {
+            guard let destinationIndex = tabs.firstIndex(where: { $0.id == destinationTabID }) else {
+                throw ClientLayoutStoreError.tabNotFound(destinationTabID)
+            }
+            tabs.insert(moved, at: destinationIndex)
+        } else {
+            tabs.append(moved)
+        }
+        window.terminalGroupViews[index].tabs = tabs
+        replaceWindow(window)
+        try await persist()
+    }
+
     @discardableResult
     public func removeTab(
         id tabID: String,
@@ -271,6 +414,29 @@ public actor ClientLayoutStore {
         if window.workspaceViews[index].activeTabID == tabID {
             let remaining = window.workspaceViews[index].tabs
             window.workspaceViews[index].activeTabID = remaining.indices.contains(removedIndex)
+                ? remaining[removedIndex].id
+                : remaining.last?.id
+        }
+        replaceWindow(window)
+        try await persist()
+        return sessionID
+    }
+
+    @discardableResult
+    public func removeTab(
+        id tabID: String,
+        terminalGroupID: TerminalGroupID,
+        in windowID: ClientWindowID
+    ) async throws -> TerminalSessionID? {
+        var window = ensureWindow(id: windowID)
+        let index = ensureTerminalGroupView(terminalGroupID, in: &window)
+        let tabs = window.terminalGroupViews[index].tabs
+        guard let removedIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let sessionID = tabs[removedIndex].sessionID
+        window.terminalGroupViews[index].tabs.remove(at: removedIndex)
+        if window.terminalGroupViews[index].activeTabID == tabID {
+            let remaining = window.terminalGroupViews[index].tabs
+            window.terminalGroupViews[index].activeTabID = remaining.indices.contains(removedIndex)
                 ? remaining[removedIndex].id
                 : remaining.last?.id
         }
@@ -327,6 +493,30 @@ public actor ClientLayoutStore {
                     layout.windows[windowIndex].workspaceViews[viewIndex].activePaneID = nil
                 }
             }
+            for viewIndex in layout.windows[windowIndex].terminalGroupViews.indices {
+                let tabs = layout.windows[windowIndex].terminalGroupViews[viewIndex].tabs
+                let matching = tabs.filter { $0.sessionID == sessionID }
+                guard !matching.isEmpty else { continue }
+                let removedIDs = Set(matching.map(\.id))
+                removed.append(contentsOf: matching)
+                layout.windows[windowIndex].terminalGroupViews[viewIndex].tabs.removeAll {
+                    $0.sessionID == sessionID
+                }
+                if let active = layout.windows[windowIndex].terminalGroupViews[viewIndex].activeTabID,
+                   removedIDs.contains(active) {
+                    layout.windows[windowIndex].terminalGroupViews[viewIndex].activeTabID =
+                        layout.windows[windowIndex].terminalGroupViews[viewIndex].tabs.first?.id
+                }
+                layout.windows[windowIndex].terminalGroupViews[viewIndex].panes.removeAll {
+                    $0.sessionID == sessionID || $0.tabID.map(removedIDs.contains) == true
+                }
+                if let activePaneID = layout.windows[windowIndex].terminalGroupViews[viewIndex].activePaneID,
+                   !layout.windows[windowIndex].terminalGroupViews[viewIndex].panes.contains(where: {
+                       $0.id == activePaneID
+                   }) {
+                    layout.windows[windowIndex].terminalGroupViews[viewIndex].activePaneID = nil
+                }
+            }
         }
         guard !removed.isEmpty else { return [] }
         try await persist()
@@ -352,6 +542,28 @@ public actor ClientLayoutStore {
                 $0.workspaceID == workspaceID
             }
             if layout.windows[windowIndex].workspaceViews.count != previousCount {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        try await persist()
+    }
+
+    public func removeTerminalGroupView(
+        _ groupID: TerminalGroupID,
+        in windowID: ClientWindowID
+    ) async throws {
+        var changed = false
+        for windowIndex in layout.windows.indices {
+            if layout.windows[windowIndex].activeTerminalGroupID == groupID {
+                layout.windows[windowIndex].activeTerminalGroupID = nil
+                changed = true
+            }
+            let previousCount = layout.windows[windowIndex].terminalGroupViews.count
+            layout.windows[windowIndex].terminalGroupViews.removeAll {
+                $0.terminalGroupID == groupID
+            }
+            if layout.windows[windowIndex].terminalGroupViews.count != previousCount {
                 changed = true
             }
         }
@@ -391,6 +603,17 @@ public actor ClientLayoutStore {
         }
         window.workspaceViews.append(ClientWorkspaceView(workspaceID: workspaceID))
         return window.workspaceViews.endIndex - 1
+    }
+
+    private func ensureTerminalGroupView(
+        _ groupID: TerminalGroupID,
+        in window: inout ClientWindowLayout
+    ) -> Int {
+        if let index = window.terminalGroupViews.firstIndex(where: { $0.terminalGroupID == groupID }) {
+            return index
+        }
+        window.terminalGroupViews.append(ClientTerminalGroupView(terminalGroupID: groupID))
+        return window.terminalGroupViews.endIndex - 1
     }
 
     private func replaceWindow(_ window: ClientWindowLayout) {
