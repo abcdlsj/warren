@@ -25,12 +25,14 @@ import (
 )
 
 const (
-	defaultRingCapacity   = 256
-	defaultRingMaxBytes   = 8 * 1024 * 1024
-	defaultMaxSpool       = 8 * 1024 * 1024
-	defaultCommandTimeout = 10 * time.Second
-	cursorPersistEvery    = 256 * 1024
-	orphanReapInterval    = 30 * time.Second
+	defaultRingCapacity     = 256
+	defaultRingMaxBytes     = 8 * 1024 * 1024
+	defaultMaxSpool         = 8 * 1024 * 1024
+	defaultCommandTimeout   = 10 * time.Second
+	metadataRefreshInterval = 750 * time.Millisecond
+	metadataProbeTimeout    = 2 * time.Second
+	cursorPersistEvery      = 256 * 1024
+	orphanReapInterval      = 30 * time.Second
 	// agentMessageMaxBytes bounds one pushed agent batch so a large
 	// transcript never produces a single WebSocket message that exceeds
 	// client limits (URLSession's default maximumMessageSize is 1 MiB).
@@ -92,6 +94,8 @@ type Service struct {
 	// adapters that support it. Disabled by default so roster snapshots stay
 	// cheap; clients fall back to launch command and workspace path.
 	ProbeForeground bool
+
+	metadataCache *metadataCache
 
 	outputMu       sync.Mutex
 	outputs        map[string]*outputSession
@@ -225,12 +229,16 @@ func (s *Service) lazyInitLocked() {
 	if s.agentEpoch == 0 {
 		s.agentEpoch = uint64(time.Now().UnixNano())
 	}
+	if s.metadataCache == nil {
+		s.metadataCache = &metadataCache{}
+	}
 }
 
 // Start runs the single lifecycle watcher. One goroutine probes tmux for all
 // managed sessions; it never creates a polling task per Session.
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
+		s.lazyInit()
 		if s.AgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
 			// an unwritable config directory must not stop the daemon; the
@@ -240,6 +248,9 @@ func (s *Service) Start(parent context.Context) {
 		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 		s.lifecycleCancel = cancel
 		go s.lifecycleLoop(ctx)
+		if s.ProbeForeground {
+			go s.metadataLoop(ctx)
+		}
 	})
 }
 
@@ -289,6 +300,46 @@ func (s *Service) lifecycleLoop(ctx context.Context) {
 			s.reapOrphans(ctx)
 		}
 	}
+}
+
+// metadataLoop refreshes the foreground metadata cache independently of the
+// roster broadcast loop. A slow or stalled probe delays only the cache, never
+// roster snapshots, so updates cannot pile up behind OS-level metadata work.
+func (s *Service) metadataLoop(ctx context.Context) {
+	ticker := time.NewTicker(metadataRefreshInterval)
+	defer ticker.Stop()
+	s.refreshMetadata(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.refreshMetadata(ctx)
+		}
+	}
+}
+
+func (s *Service) refreshMetadata(ctx context.Context) {
+	probeContext, cancel := context.WithTimeout(ctx, metadataProbeTimeout)
+	defer cancel()
+	running := make(map[string]bool)
+	for _, session := range s.Store.Snapshot().Sessions {
+		if session.Lifecycle != "running" {
+			continue
+		}
+		running[session.ID] = true
+		provider, ok := s.runtimeFor(session).(runtime.RuntimeMetadataProvider)
+		if !ok {
+			s.metadataCache.remove(session.ID)
+			continue
+		}
+		metadata, err := provider.Metadata(probeContext, session.Runtime)
+		if err != nil {
+			continue
+		}
+		s.metadataCache.set(session.ID, metadata)
+	}
+	s.metadataCache.prune(running)
 }
 
 func (s *Service) reconcile(ctx context.Context) {
@@ -483,12 +534,10 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 		if session.Lifecycle != "running" {
 			continue
 		}
-		if s.ProbeForeground {
-			if provider, ok := s.runtimeFor(*session).(runtime.RuntimeMetadataProvider); ok {
-				if metadata, err := provider.Metadata(probeContext, session.Runtime); err == nil {
-					session.Process = metadata.Process
-					session.Directory = metadata.Directory
-				}
+		if s.ProbeForeground && s.metadataCache != nil {
+			if metadata, ok := s.metadataCache.get(session.ID); ok {
+				session.Process = metadata.Process
+				session.Directory = metadata.Directory
 			}
 		}
 		if activity := s.agentActivity(session.ID); activity != "" {

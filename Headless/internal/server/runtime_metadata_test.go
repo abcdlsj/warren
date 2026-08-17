@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,10 +16,21 @@ type metadataRuntime struct {
 	memoryRuntime
 	process   string
 	directory string
+	mu        sync.Mutex
+	calls     int
 }
 
 func (r *metadataRuntime) Metadata(context.Context, string) (runtime.RuntimeMetadata, error) {
+	r.mu.Lock()
+	r.calls++
+	r.mu.Unlock()
 	return runtime.RuntimeMetadata{Process: r.process, Directory: r.directory}, nil
+}
+
+func (r *metadataRuntime) metadataCalls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls
 }
 
 func TestRosterOverlaysRuntimeMetadata(t *testing.T) {
@@ -53,7 +65,13 @@ func TestRosterOverlaysRuntimeMetadata(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)
 	}
+	service.lazyInit()
+	service.refreshMetadata(context.Background())
+	callsBeforeRoster := adapter.metadataCalls()
 	roster, _ := service.RosterVersion(context.Background())
+	if got := adapter.metadataCalls(); got != callsBeforeRoster {
+		t.Fatalf("RosterVersion made %d metadata probe(s), want %d (roster must read cache only)", got, callsBeforeRoster)
+	}
 	if len(roster.Sessions) != 1 {
 		t.Fatalf("roster sessions = %d, want 1", len(roster.Sessions))
 	}
