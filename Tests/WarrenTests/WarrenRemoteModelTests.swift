@@ -197,6 +197,39 @@ final class WarrenRemoteModelTests: XCTestCase {
         XCTAssertEqual(received, Array(0..<100))
     }
 
+    func testOrderedInputBridgePreservesBracketedPasteFenceposts() async throws {
+        let recorder = LockedDataRecorder()
+        let bridge = WarrenOrderedInputBridge { data in
+            recorder.append(data)
+        }
+        let pasteStart = Data("\u{1b}[200~".utf8)
+        let pasteEnd = Data("\u{1b}[201~".utf8)
+        let pasteCount = 10_000
+        var expected = Data()
+        for index in 0..<pasteCount {
+            expected.append(pasteStart)
+            expected.append(Data("payload-\(index)".utf8))
+            expected.append(pasteEnd)
+        }
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                for index in 0..<pasteCount {
+                    bridge.send(pasteStart)
+                    bridge.send(Data("payload-\(index)".utf8))
+                    bridge.send(pasteEnd)
+                }
+                continuation.resume()
+            }
+        }
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while recorder.count < expected.count, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(recorder.data, expected)
+    }
+
     func testTerminalOutputBufferDeduplicatesOverlapAndKeepsSequenceGaps() {
         var buffer = WarrenTerminalOutputBuffer()
         buffer.reset(epoch: 7, sequence: 0)
@@ -238,5 +271,28 @@ private actor SendProgress {
         await withCheckedContinuation { continuation in
             waiters.append((count, continuation))
         }
+    }
+}
+
+private final class LockedDataRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = Data()
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.count
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func append(_ data: Data) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.append(data)
     }
 }
