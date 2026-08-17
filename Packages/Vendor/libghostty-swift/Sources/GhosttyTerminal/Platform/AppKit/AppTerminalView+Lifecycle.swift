@@ -65,53 +65,69 @@
         override open func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             removeWindowObservers()
-            if window != nil {
-                // SwiftUI/AppKit can temporarily detach and reattach the terminal view while
-                // diffing the view hierarchy. Rebuilding on every reattach discards Ghostty's
-                // scrollback/state, so only create a new surface when one does not already exist.
-                if surface == nil {
-                    core.rebuildIfReady()
-                } else {
-                    core.synchronizeMetrics()
+            guard let window else {
+                // Also invoked from _setWindow: while AppKit holds the
+                // view-tree lock; keep Ghostty calls off this path.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.core.stopDisplayLink()
+                    self.core.setFocus(false)
                 }
-                updateMetalLayerMetrics()
-                updateColorScheme()
-                core.startDisplayLink()
-                core.requestImmediateTick()
-                if focusBinding?.isFocused == true {
-                    requestFocusMove()
-                }
+                return
+            }
 
-                NotificationCenter.default.addObserver(
-                    self,
-                    selector: #selector(windowDidBecomeKey),
-                    name: NSWindow.didBecomeKeyNotification,
-                    object: window
-                )
-                NotificationCenter.default.addObserver(
-                    self,
-                    selector: #selector(windowDidResignKey),
-                    name: NSWindow.didResignKeyNotification,
-                    object: window
-                )
-                // Cross-display rescue: AppKit posts didChangeScreen when the
-                // window's screen reference changes, even when the new screen
-                // has the same backingScaleFactor (in which case
-                // viewDidChangeBackingProperties does not fire). Listening
-                // here lets us re-run metric sync on every screen transition
-                // — required for the case where two displays share scale but
-                // differ in geometry / color profile, and harmless when
-                // viewDidChangeBackingProperties also fires for the
-                // different-scale case.
-                NotificationCenter.default.addObserver(
-                    self,
-                    selector: #selector(windowDidChangeScreen),
-                    name: NSWindow.didChangeScreenNotification,
-                    object: window
-                )
-            } else {
-                core.stopDisplayLink()
-                core.setFocus(false)
+            // Observer registration and focus intent stay synchronous. Only
+            // the Ghostty surface lifecycle moves off this call:
+            // viewDidMoveToWindow runs inside _setWindow: (addSubview) while
+            // AppKit holds the view-tree lock. Creating a surface, flushing
+            // buffered bytes, or syncing metrics synchronously can block on
+            // Ghostty's surface lock while the io thread holds it for a resize
+            // callback, inverting lock order and deadlocking the main thread.
+            if focusBinding?.isFocused == true {
+                requestFocusMove()
+            }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidBecomeKey),
+                name: NSWindow.didBecomeKeyNotification,
+                object: window
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidResignKey),
+                name: NSWindow.didResignKeyNotification,
+                object: window
+            )
+            // Cross-display rescue: AppKit posts didChangeScreen when the
+            // window's screen reference changes, even when the new screen
+            // has the same backingScaleFactor (in which case
+            // viewDidChangeBackingProperties does not fire). Listening
+            // here lets us re-run metric sync on every screen transition
+            // — required for the case where two displays share scale but
+            // differ in geometry / color profile, and harmless when
+            // viewDidChangeBackingProperties also fires for the
+            // different-scale case.
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidChangeScreen),
+                name: NSWindow.didChangeScreenNotification,
+                object: window
+            )
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window === window else { return }
+                // SwiftUI/AppKit can temporarily detach and reattach the
+                // terminal view while diffing the view hierarchy. Rebuilding
+                // on every reattach discards Ghostty's scrollback/state, so
+                // only create a new surface when one does not already exist.
+                if self.surface == nil {
+                    self.core.rebuildIfReady()
+                } else {
+                    self.core.synchronizeMetrics()
+                }
+                self.updateMetalLayerMetrics()
+                self.updateColorScheme()
+                self.core.startDisplayLink()
+                self.core.requestImmediateTick()
             }
         }
 
