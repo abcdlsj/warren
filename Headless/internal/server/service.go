@@ -74,7 +74,7 @@ type Service struct {
 	// process-wide default so tests and embedders do not need to configure one.
 	Logger *slog.Logger
 	// ColorQuery supplies terminal foreground and background colors for
-	// capability queries answered while no client is attached.
+	// terminal capability queries.
 	ColorQuery   ghostline.ColorQueryCallback
 	WorktreeRoot string
 	// AgentFinder locates Codex/Claude transcript files. When nil, agent
@@ -2238,7 +2238,6 @@ func (s *Service) commandTimeout() time.Duration {
 func (s *Service) recordOutput(sessionID string, data []byte) {
 	s.outputMu.Lock()
 	outputSession := s.outputs[sessionID]
-	attached := len(s.peers[sessionID]) > 0
 	s.outputMu.Unlock()
 	if outputSession == nil {
 		return
@@ -2249,9 +2248,10 @@ func (s *Service) recordOutput(sessionID string, data []byte) {
 		frame, err := outputSession.ring.Append(sessionID, chunk)
 		epoch := outputSession.ring.Epoch
 		sequence := outputSession.ring.Upper()
-		if !attached {
-			replies = append(replies, outputSession.responder.Feed(chunk)...)
-		}
+		// Warren's terminal surface is still responsible for capability
+		// queries after a client attaches. An attached browser does not write
+		// OSC replies back into the runtime on the client's behalf.
+		replies = append(replies, outputSession.responder.Feed(chunk)...)
 		outputSession.mu.Unlock()
 		if err != nil {
 			continue
