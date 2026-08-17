@@ -45,6 +45,7 @@ struct WarrenCompositionRoot: View {
             actions: WarrenDesktopActions(send: handle),
             webStatus: remoteModel.webStatus,
             creatingSessionWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
+            creatingSessionTerminalGroupIDs: remoteModel.creatingSessionTerminalGroupIDs,
             endpointOptions: endpointOptions,
             selectedEndpointID: selectedEndpointID,
             onSelectEndpoint: selectEndpoint,
@@ -181,6 +182,8 @@ struct WarrenCompositionRoot: View {
             workspaceCreatorProjectID = projectID
         } else if case .requestNewSession(let workspaceID) = action {
             remoteModel.createSession(workspaceID: workspaceID, request: .shell)
+        } else if case .requestNewTerminalGroupSession(let groupID) = action {
+            remoteModel.createSession(terminalGroupID: groupID, request: .shell)
         } else {
             remoteModel.perform(action)
         }
@@ -625,7 +628,8 @@ private struct WarrenTerminalSurfaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             TerminalDiagnostics.log("terminal_view_appear", [
-                "workspace": context.workspace.id.rawValue.uuidString,
+                "workspace": context.workspace?.id.description ?? "nil",
+                "terminalGroup": context.terminalGroup?.id.description ?? "nil",
                 "tab": context.tab.sessionID.map(\.description) ?? "nil",
                 "mounted": String(surfaceManager.retainedSurfaceCount),
                 "active": activeSurface != nil ? "true" : "false",
@@ -678,9 +682,10 @@ private struct WarrenTerminalSurfaceView: View {
             searchQuery = ""
             searchPresented = false
         }
-        .onChange(of: context.workspace.id) { _, _ in
+        .onChange(of: context.scopeID) { _, _ in
             TerminalDiagnostics.log("workspace_switch", [
-                "workspace": context.workspace.id.rawValue.uuidString,
+                "workspace": context.workspace?.id.description ?? "nil",
+                "terminalGroup": context.terminalGroup?.id.description ?? "nil",
                 "tab": context.tab.sessionID.map(\.description) ?? "nil",
                 "mounted": String(surfaceManager.retainedSurfaceCount),
                 "active": activeSurface != nil ? "true" : "false",

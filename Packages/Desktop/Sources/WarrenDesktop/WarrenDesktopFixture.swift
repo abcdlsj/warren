@@ -820,6 +820,10 @@ public struct WarrenDesktopTerminalContext: Hashable, Sendable {
     public let tab: ClientTab
     public let font: TerminalFontPreference
 
+    public var scopeID: String {
+        workspace?.id.description ?? terminalGroup?.id.description ?? "none"
+    }
+
     public init(
         workspace: Workspace,
         tab: ClientTab,

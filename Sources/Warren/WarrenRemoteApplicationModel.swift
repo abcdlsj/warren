@@ -79,9 +79,18 @@ private struct RemoteRoster: Decodable, Sendable {
         let branch: String?
         let pinned: Bool?
     }
+    struct TerminalGroup: Decodable, Sendable {
+        let id: String
+        let name: String
+        let home: String?
+        let order: Int?
+        let createdAt: String?
+    }
     struct Session: Decodable, Sendable {
         let id: String
-        let workspace: String
+        let workspace: String?
+        let terminalGroup: String?
+        let scope: String?
         let title: String
         let customTitle: String?
         let kind: String
@@ -96,6 +105,7 @@ private struct RemoteRoster: Decodable, Sendable {
     let host: Host
     let projects: [Project]
     let workspaces: [Workspace]
+    let terminalGroups: [TerminalGroup]
     let sessions: [Session]
 
     init(from decoder: Decoder) throws {
@@ -103,6 +113,7 @@ private struct RemoteRoster: Decodable, Sendable {
         host = try container.decode(Host.self, forKey: .host)
         projects = try container.decodeIfPresent([Project].self, forKey: .projects) ?? []
         workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
+        terminalGroups = try container.decodeIfPresent([TerminalGroup].self, forKey: .terminalGroups) ?? []
         sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
     }
 
@@ -110,6 +121,7 @@ private struct RemoteRoster: Decodable, Sendable {
         case host
         case projects
         case workspaces
+        case terminalGroups
         case sessions
     }
 }
@@ -628,6 +640,7 @@ final class WarrenRemoteApplicationModel {
     /// show an update state instead of treating the disconnect as a failure.
     private(set) var maintenanceMessage: String?
     private(set) var creatingSessionWorkspaceIDs: Set<WorkspaceID> = []
+    private(set) var creatingSessionTerminalGroupIDs: Set<TerminalGroupID> = []
     private(set) var attachingSessionID: TerminalSessionID?
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
@@ -654,6 +667,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var dismissedActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
     @ObservationIgnored private var tabOrderByWorkspaceID: [WorkspaceID: [String]] = [:]
+    @ObservationIgnored private var tabOrderByTerminalGroupID: [TerminalGroupID: [String]] = [:]
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
     @ObservationIgnored private(set) var projectionPublicationCount: UInt64 = 0
 
@@ -701,8 +715,10 @@ final class WarrenRemoteApplicationModel {
         currentRoster = nil
         agentActivityBySessionID.removeAll()
         tabOrderByWorkspaceID.removeAll()
+        tabOrderByTerminalGroupID.removeAll()
         dismissedActivityBySessionID.removeAll()
         creatingSessionWorkspaceIDs.removeAll()
+        creatingSessionTerminalGroupIDs.removeAll()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
         publishProjectionIfChanged(projection.withConnectionState(.disconnected))
@@ -879,9 +895,47 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
+    func createSession(terminalGroupID: TerminalGroupID, request launch: TerminalSessionLaunchRequest) {
+        guard let wire, !creatingSessionTerminalGroupIDs.contains(terminalGroupID) else { return }
+        creatingSessionTerminalGroupIDs.insert(terminalGroupID)
+        Task { @MainActor [weak self] in
+            defer { self?.finishCreatingSession(in: terminalGroupID) }
+            do {
+                let data = try await wire.request("session.create", params: [
+                    "group": terminalGroupID.description,
+                    "command": launch.command ?? "",
+                    "kind": launch.kind.rawValue,
+                    "title": launch.title ?? "",
+                ])
+                let created = try JSONDecoder().decode(RemoteRoster.Session.self, from: data)
+                guard let sessionID = TerminalSessionID(uuidString: created.id) else {
+                    throw NSError(domain: "WarrenRemote", code: 10, userInfo: [
+                        NSLocalizedDescriptionKey: "The daemon returned an invalid Session ID.",
+                    ])
+                }
+                try await self?.refreshRoster(using: wire)
+                guard let self,
+                      self.selectedTerminalGroupID == terminalGroupID else { return }
+                self.finishCreatingSession(in: terminalGroupID)
+                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
+                    selection: .terminalGroup(terminalGroupID),
+                    selectedTabID: Self.tabID(sessionID)
+                ))
+                await self.attachSelectedSession()
+            } catch {
+                self?.present(error)
+            }
+        }
+    }
+
     private func finishCreatingSession(in workspaceID: WorkspaceID) {
         guard creatingSessionWorkspaceIDs.contains(workspaceID) else { return }
         creatingSessionWorkspaceIDs.remove(workspaceID)
+    }
+
+    private func finishCreatingSession(in terminalGroupID: TerminalGroupID) {
+        guard creatingSessionTerminalGroupIDs.contains(terminalGroupID) else { return }
+        creatingSessionTerminalGroupIDs.remove(terminalGroupID)
     }
 
     func addProject(_ folder: URL) async {
@@ -1108,7 +1162,7 @@ final class WarrenRemoteApplicationModel {
             WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
         )
         switch action {
-        case .selectProject, .selectWorkspace, .selectTab, .restoreNavigation:
+        case .selectProject, .selectWorkspace, .selectTerminalGroup, .selectTab, .restoreNavigation:
             Task { await attachSelectedSession() }
         case .openSession(let id):
             selectSession(id)
@@ -1123,18 +1177,28 @@ final class WarrenRemoteApplicationModel {
             // the "Connecting…" placeholder while the roster catches up.
             Task { await attachSelectedSession() }
         case .closeOtherTabs(let tabID):
-            guard let workspaceID = projection.workspaceID(forTabID: tabID) else { return }
-            for tab in projection.tabs(in: workspaceID) where tab.id != tabID {
+            let tabs: [ClientTab]
+            if let workspaceID = projection.workspaceID(forTabID: tabID) {
+                tabs = projection.tabs(in: workspaceID)
+            } else if let groupID = projection.terminalGroupID(forTabID: tabID) {
+                tabs = projection.tabs(in: groupID)
+            } else {
+                return
+            }
+            for tab in tabs where tab.id != tabID {
                 if let id = tab.sessionID { closeSession(id) }
             }
             Task { await attachSelectedSession() }
         case .closeAllTabs:
-            guard let workspaceID = selectedWorkspaceID else { return }
-            for tab in projection.tabs(in: workspaceID) {
+            for tab in selectedContextTabs {
                 if let id = tab.sessionID { closeSession(id) }
             }
         case .launchSession(let workspaceID, let launch):
             createSession(workspaceID: workspaceID, request: launch)
+        case .requestNewTerminalGroupSession(let groupID):
+            createSession(terminalGroupID: groupID, request: .shell)
+        case .launchTerminalGroupSession(let groupID, let launch):
+            createSession(terminalGroupID: groupID, request: launch)
         case .addProject:
             present(NSError(domain: "WarrenRemote", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "Remote projects must use remote paths. "
@@ -1158,6 +1222,22 @@ final class WarrenRemoteApplicationModel {
             request("project.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .setWorkspacePinned(let id, let pinned):
             request("workspace.pin", params: ["id": id.description, "pinned": String(pinned)])
+        case .createTerminalGroup(let name, let home):
+            var params = ["name": name]
+            if let home { params["home"] = home }
+            request("terminal-group.create", params: params)
+        case .renameTerminalGroup(let id, let name):
+            request("terminal-group.rename", params: ["id": id.description, "name": name])
+        case .setTerminalGroupHome(let id, let home):
+            request("terminal-group.home", params: [
+                "id": id.description,
+                "path": home ?? "",
+            ])
+        case .deleteTerminalGroup(let id):
+            request("terminal-group.remove", params: [
+                "id": id.description,
+                "force": "true",
+            ])
         case .setSessionPinned(let id, let pinned):
             request("session.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .dismissActivity(let id, let expectedActivity):
@@ -1176,6 +1256,10 @@ final class WarrenRemoteApplicationModel {
             var params = ["id": workspaceID.description]
             if let before { params["before"] = before.description }
             request("workspace.move", params: params)
+        case .moveTerminalGroup(let groupID, let before):
+            var params = ["id": groupID.description]
+            if let before { params["before"] = before.description }
+            request("terminal-group.move", params: params)
         case .moveTab(let tabID, let before):
             moveTab(tabID, before: before)
         case .importSuperset, .requestNewWorkspace, .requestNewSession,
@@ -1505,13 +1589,28 @@ final class WarrenRemoteApplicationModel {
                 pinned: value.pinned ?? false
             )
         }
-        let workspacePaths = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0.path) })
-        let remoteSessions = roster.sessions.compactMap { value -> (RemoteRoster.Session, TerminalSessionID, WorkspaceID)? in
-            guard let id = TerminalSessionID(uuidString: value.id),
-                  let workspaceID = WorkspaceID(uuidString: value.workspace) else { return nil }
-            return (value, id, workspaceID)
+        let terminalGroups = roster.terminalGroups.enumerated().compactMap { index, value -> WarrenDomain.TerminalGroup? in
+            guard let id = TerminalGroupID(uuidString: value.id) else { return nil }
+            return WarrenDomain.TerminalGroup(
+                id: id,
+                hostID: hostID,
+                name: value.name,
+                home: value.home,
+                order: value.order ?? index,
+                createdAt: Self.terminalGroupDate(value.createdAt)
+            )
         }
-        let sessions = remoteSessions.map { value, id, workspaceID in
+        let workspacePaths = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0.path) })
+        let groupHomes = Dictionary(uniqueKeysWithValues: terminalGroups.map { ($0.id, $0.home ?? "") })
+        let remoteSessions = roster.sessions.compactMap {
+            value -> (RemoteRoster.Session, TerminalSessionID, WorkspaceID?, TerminalGroupID?)? in
+            guard let id = TerminalSessionID(uuidString: value.id) else { return nil }
+            let workspaceID = value.workspace.flatMap(WorkspaceID.init(uuidString:))
+            let terminalGroupID = value.terminalGroup.flatMap(TerminalGroupID.init(uuidString:))
+            guard (workspaceID == nil) != (terminalGroupID == nil) else { return nil }
+            return (value, id, workspaceID, terminalGroupID)
+        }
+        let sessions = remoteSessions.map { value, id, workspaceID, terminalGroupID in
             let candidateActivity = agentActivityBySessionID[id]
                 ?? AgentActivityState(rawValue: value.activity ?? "")
             let presentation = WarrenActivityDismissal.presentedActivity(
@@ -1524,6 +1623,7 @@ final class WarrenRemoteApplicationModel {
             return WarrenDesktopSession(
                 id: id,
                 workspaceID: workspaceID,
+                terminalGroupID: terminalGroupID,
                 tabID: Self.tabID(id),
                 title: value.title,
                 customTitle: value.customTitle,
@@ -1532,7 +1632,10 @@ final class WarrenRemoteApplicationModel {
                 state: value.lifecycle == "running" ? .attached : .exited,
                 activity: presentation.activity,
                 runtimeProcess: value.process ?? value.command ?? "",
-                workingDirectory: value.directory ?? workspacePaths[workspaceID] ?? ""
+                workingDirectory: value.directory
+                    ?? workspaceID.flatMap { workspacePaths[$0] }
+                    ?? terminalGroupID.flatMap { groupHomes[$0] }
+                    ?? ""
             )
         }
         let liveSessionIDs = Set(remoteSessions.map(\.1))
@@ -1540,7 +1643,7 @@ final class WarrenRemoteApplicationModel {
             liveSessionIDs.contains($0.key)
         }
         let activeActivitySessionIDs = Set(
-            remoteSessions.compactMap { value, id, _ in
+            remoteSessions.compactMap { value, id, _, _ in
                 (value.activity ?? "").isEmpty ? nil : id
             }
         )
@@ -1550,7 +1653,7 @@ final class WarrenRemoteApplicationModel {
         // Ended sessions stay in the projection for history, but they are
         // not openable tabs: attaching to them would fail and leave the user
         // staring at a terminal that cannot accept input.
-        let unorderedTabs = remoteSessions.compactMap { value, id, _ -> ClientTab? in
+        let unorderedTabs = remoteSessions.compactMap { value, id, _, _ -> ClientTab? in
             guard value.lifecycle == "running" else { return nil }
             return ClientTab(
                 id: Self.tabID(id),
@@ -1559,10 +1662,16 @@ final class WarrenRemoteApplicationModel {
                 kind: TerminalSessionKind(rawValue: value.kind) ?? .custom
             )
         }
-        let sessionWorkspaces = Dictionary(uniqueKeysWithValues: remoteSessions.map { ($0.1, $0.2) })
+        let sessionWorkspaces = Dictionary(uniqueKeysWithValues: remoteSessions.compactMap { value in
+            value.2.map { (value.1, $0) }
+        })
+        let sessionTerminalGroups = Dictionary(uniqueKeysWithValues: remoteSessions.compactMap { value in
+            value.3.map { (value.1, $0) }
+        })
         let tabs = applyingLocalTabOrder(
             unorderedTabs,
-            sessionWorkspaces: sessionWorkspaces
+            sessionWorkspaces: sessionWorkspaces,
+            sessionTerminalGroups: sessionTerminalGroups
         )
         let nextProjection = WarrenDesktopProjection(
             host: host,
@@ -1571,7 +1680,9 @@ final class WarrenRemoteApplicationModel {
             sessions: sessions,
             tabs: tabs,
             sessionWorkspaceIDs: sessionWorkspaces,
-            connectionState: .attached
+            connectionState: .attached,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroups
         )
         publishProjectionIfChanged(nextProjection)
         TerminalDiagnostics.log("roster_apply", [
@@ -1762,39 +1873,67 @@ final class WarrenRemoteApplicationModel {
 
     private func selectSession(_ id: TerminalSessionID) {
         guard let session = projection.sessions.first(where: { $0.id == id }) else { return }
+        let selection: WarrenDesktopSidebarSelection
+        if let workspaceID = session.workspaceID {
+            selection = .workspace(workspaceID)
+        } else if let groupID = session.terminalGroupID {
+            selection = .terminalGroup(groupID)
+        } else {
+            return
+        }
         TerminalDiagnostics.log("select_session", [
             "session": id.description,
-            "workspace": session.workspaceID.description,
+            "workspace": session.workspaceID?.description ?? "nil",
+            "terminalGroup": session.terminalGroupID?.description ?? "nil",
         ])
         publishNavigationIfChanged(WarrenDesktopNavigationState(
-            selection: .workspace(session.workspaceID),
+            selection: selection,
             selectedTabID: Self.tabID(id)
         ))
         Task { await attachSelectedSession() }
     }
 
     private func moveTab(_ tabID: String, before destinationTabID: String?) {
-        guard let workspaceID = projection.workspaceID(forTabID: tabID) else { return }
-        if let destinationTabID,
-           projection.workspaceID(forTabID: destinationTabID) != workspaceID {
+        let currentOrder: [String]
+        let reorder: ([String]) -> Void
+        if let workspaceID = projection.workspaceID(forTabID: tabID) {
+            guard destinationTabID == nil
+                || projection.workspaceID(forTabID: destinationTabID!) == workspaceID else { return }
+            currentOrder = projection.tabs(in: workspaceID).map(\.id)
+            reorder = { [weak self] order in
+                guard let self else { return }
+                self.tabOrderByWorkspaceID[workspaceID] = order
+            }
+        } else if let groupID = projection.terminalGroupID(forTabID: tabID) {
+            guard destinationTabID == nil
+                || projection.terminalGroupID(forTabID: destinationTabID!) == groupID else { return }
+            currentOrder = projection.tabs(in: groupID).map(\.id)
+            reorder = { [weak self] order in
+                guard let self else { return }
+                self.tabOrderByTerminalGroupID[groupID] = order
+            }
+        } else {
             return
         }
-        let currentOrder = projection.tabs(in: workspaceID).map(\.id)
         let nextOrder = WarrenRemoteTabOrdering.moving(
             tabID,
             before: destinationTabID,
             in: currentOrder
         )
         guard nextOrder != currentOrder else { return }
-        tabOrderByWorkspaceID[workspaceID] = nextOrder
+        reorder(nextOrder)
         publishProjectionIfChanged(
-            projection.reorderingTabs(in: workspaceID, accordingTo: nextOrder)
+            projection.reorderingTabs(
+                tabID: tabID,
+                accordingTo: nextOrder
+            )
         )
     }
 
     private func applyingLocalTabOrder(
         _ tabs: [ClientTab],
-        sessionWorkspaces: [TerminalSessionID: WorkspaceID]
+        sessionWorkspaces: [TerminalSessionID: WorkspaceID],
+        sessionTerminalGroups: [TerminalSessionID: TerminalGroupID]
     ) -> [ClientTab] {
         let tabWorkspaceIDs = Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
             tab.sessionID.flatMap { sessionWorkspaces[$0] }.map { (tab.id, $0) }
@@ -1802,6 +1941,13 @@ final class WarrenRemoteApplicationModel {
         let liveWorkspaceIDs = Set(tabWorkspaceIDs.values)
         tabOrderByWorkspaceID = tabOrderByWorkspaceID.filter {
             liveWorkspaceIDs.contains($0.key)
+        }
+        let tabTerminalGroupIDs = Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
+            tab.sessionID.flatMap { sessionTerminalGroups[$0] }.map { (tab.id, $0) }
+        })
+        let liveTerminalGroupIDs = Set(tabTerminalGroupIDs.values)
+        tabOrderByTerminalGroupID = tabOrderByTerminalGroupID.filter {
+            liveTerminalGroupIDs.contains($0.key)
         }
 
         var result = tabs
@@ -1821,6 +1967,22 @@ final class WarrenRemoteApplicationModel {
                 tabWorkspaceIDs[tab.id] == workspaceID ? (orderedTabs.next() ?? tab) : tab
             }
         }
+        for groupID in liveTerminalGroupIDs {
+            let availableIDs = tabs.compactMap { tab in
+                tabTerminalGroupIDs[tab.id] == groupID ? tab.id : nil
+            }
+            let preferredOrder = tabOrderByTerminalGroupID[groupID] ?? availableIDs
+            let reconciledOrder = WarrenRemoteTabOrdering.reconciling(
+                preferredOrder: preferredOrder,
+                availableTabIDs: availableIDs
+            )
+            tabOrderByTerminalGroupID[groupID] = reconciledOrder
+            let tabsByID = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
+            var orderedTabs = reconciledOrder.compactMap { tabsByID[$0] }.makeIterator()
+            result = result.map { tab in
+                tabTerminalGroupIDs[tab.id] == groupID ? (orderedTabs.next() ?? tab) : tab
+            }
+        }
         return result
     }
 
@@ -1828,7 +1990,29 @@ final class WarrenRemoteApplicationModel {
         switch navigation.selection {
         case .workspace(let id): id
         case .project(let id): projection.firstWorkspace(in: id)?.id
+        case .terminalGroup: nil
         case nil: nil
+        }
+    }
+
+    private var selectedTerminalGroupID: TerminalGroupID? {
+        switch navigation.selection {
+        case .terminalGroup(let id): id
+        default: nil
+        }
+    }
+
+    private var selectedContextTabs: [ClientTab] {
+        switch navigation.selection {
+        case .workspace(let id):
+            return projection.tabs(in: id)
+        case .terminalGroup(let id):
+            return projection.tabs(in: id)
+        case .project(let id):
+            guard let workspaceID = projection.firstWorkspace(in: id)?.id else { return [] }
+            return projection.tabs(in: workspaceID)
+        case nil:
+            return []
         }
     }
 
@@ -1858,15 +2042,25 @@ final class WarrenRemoteApplicationModel {
         guard navigation != nextNavigation else { return }
         navigation = nextNavigation
     }
+    private static func terminalGroupDate(_ rawValue: String?) -> Date {
+        guard let rawValue, let date = ISO8601DateFormatter().date(from: rawValue) else {
+            return .distantPast
+        }
+        return date
+    }
+
     private static func tabID(_ id: TerminalSessionID) -> String { "remote-\(id.description)" }
 }
 
 private extension WarrenDesktopProjection {
-    func reorderingTabs(in workspaceID: WorkspaceID, accordingTo orderedIDs: [String]) -> Self {
+    func reorderingTabs(tabID: String, accordingTo orderedIDs: [String]) -> Self {
         let tabsByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var orderedTabs = orderedIDs.compactMap { tabsByID[$0] }.makeIterator()
         let reorderedTabs = tabs.map { tab in
-            tabWorkspaceIDs[tab.id] == workspaceID ? (orderedTabs.next() ?? tab) : tab
+            let sameScope = tabWorkspaceIDs[tab.id] != nil
+                ? tabWorkspaceIDs[tab.id] == tabWorkspaceIDs[tabID]
+                : tabTerminalGroupIDs[tab.id] == tabTerminalGroupIDs[tabID]
+            return sameScope ? (orderedTabs.next() ?? tab) : tab
         }
         return Self(
             host: host,
@@ -1876,7 +2070,10 @@ private extension WarrenDesktopProjection {
             sessionWorkspaceIDs: sessionWorkspaceIDs,
             tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
-            connectionState: connectionState
+            connectionState: connectionState,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroupIDs,
+            tabTerminalGroupIDs: tabTerminalGroupIDs
         )
     }
 
@@ -1889,7 +2086,10 @@ private extension WarrenDesktopProjection {
             sessionWorkspaceIDs: sessionWorkspaceIDs,
             tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
-            connectionState: state
+            connectionState: state,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroupIDs,
+            tabTerminalGroupIDs: tabTerminalGroupIDs
         )
     }
 
@@ -1906,7 +2106,10 @@ private extension WarrenDesktopProjection {
                 title: "Daemon error",
                 detail: detail ?? String(describing: error)
             ),
-            connectionState: connectionState
+            connectionState: connectionState,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroupIDs,
+            tabTerminalGroupIDs: tabTerminalGroupIDs
         )
     }
 }

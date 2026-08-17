@@ -10,6 +10,7 @@ import WarrenDomain
 /// button emits a typed intent and creates a real Host-owned session.
 struct WarrenDesktopPresetBar: View {
     let workspace: Workspace?
+    let terminalGroup: TerminalGroup?
     let isBusy: Bool
     let onLaunch: (TerminalSessionLaunchRequest) -> Void
 
@@ -51,9 +52,9 @@ struct WarrenDesktopPresetBar: View {
                     }
                     .buttonStyle(WarrenPresetButtonStyle())
                     .foregroundStyle(tokens.mutedForeground)
-                    .disabled(workspace == nil || isBusy)
+                    .disabled(workspace == nil && terminalGroup == nil || isBusy)
                     .accessibilityLabel("Start \(preset.title)")
-                    .accessibilityHint("Create a session in \(workspace?.name ?? "the selected workspace")")
+                    .accessibilityHint("Create a session in \(workspace?.name ?? terminalGroup?.name ?? "the selected terminal group")")
                 }
 
                 if isBusy {

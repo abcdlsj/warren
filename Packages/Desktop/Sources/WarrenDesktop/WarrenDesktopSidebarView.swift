@@ -33,6 +33,12 @@ struct WarrenDesktopSidebar: View {
                 ) {
                     WarrenDesktopSidebarRows(
                         groups: projection.groups,
+                        terminalGroups: projection.terminalGroups.map {
+                            WarrenDesktopTerminalGroup(
+                                group: $0,
+                                sessions: projection.sessions(in: $0.id)
+                            )
+                        },
                         workspaceActivities: projection.workspaceActivities,
                         tree: $sidebarTree,
                         isCollapsed: sidebarState.isCollapsed,

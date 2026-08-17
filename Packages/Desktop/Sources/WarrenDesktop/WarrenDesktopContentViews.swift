@@ -7,11 +7,13 @@ import WarrenObservation
 
 struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let workspace: Workspace?
+    let terminalGroup: TerminalGroup?
     let tab: ClientTab?
     let hasProjects: Bool
     let connectionState: WarrenDesktopConnectionState
     let showsPaneHeader: Bool
     let session: WarrenDesktopSession?
+    let isCreatingSession: Bool
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let terminalFont: TerminalFontPreference
@@ -39,14 +41,42 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
             )
             WarrenDesktopPaneView(
                 workspace: workspace,
+                terminalGroup: nil,
                 tab: resolvedTab,
                 session: session,
+                isCreatingSession: isCreatingSession,
+                onNewSession: onNewSession,
                 hostName: hostName,
                 titleTemplate: titleTemplate,
                 showsPaneHeader: showsPaneHeader,
                 terminalSurface: terminalSurface(
                     WarrenDesktopTerminalContext(
                         workspace: workspace,
+                        tab: resolvedTab,
+                        font: terminalFont
+                    )
+                )
+            )
+        } else if let terminalGroup {
+            let resolvedTab = tab ?? ClientTab(
+                id: "terminal-group-empty-\(terminalGroup.id.rawValue.uuidString)",
+                title: "No open sessions",
+                sessionID: nil,
+                kind: .shell
+            )
+            WarrenDesktopPaneView(
+                workspace: nil,
+                terminalGroup: terminalGroup,
+                tab: resolvedTab,
+                session: session,
+                isCreatingSession: isCreatingSession,
+                onNewSession: onNewSession,
+                hostName: hostName,
+                titleTemplate: titleTemplate,
+                showsPaneHeader: showsPaneHeader,
+                terminalSurface: terminalSurface(
+                    WarrenDesktopTerminalContext(
+                        terminalGroup: terminalGroup,
                         tab: resolvedTab,
                         font: terminalFont
                     )
@@ -162,9 +192,12 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
 }
 
 private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
-    let workspace: Workspace
+    let workspace: Workspace?
+    let terminalGroup: TerminalGroup?
     let tab: ClientTab
     let session: WarrenDesktopSession?
+    let isCreatingSession: Bool
+    let onNewSession: () -> Void
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let showsPaneHeader: Bool
@@ -193,15 +226,30 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
                 }
             }
 
-            terminalSurface
-                // AppKit-backed terminal views have a useful intrinsic grid
-                // size. Without an explicit flexible frame SwiftUI preserves
-                // that size and centers a 50-column surface inside a much
-                // larger pane. The pane owns geometry, so the renderer must
-                // accept the entire proposed content size.
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(WarrenSpacing.compact)
-                .background(tokens.background)
+            ZStack {
+                terminalSurface
+                    // AppKit-backed terminal views have a useful intrinsic grid
+                    // size. Without an explicit flexible frame SwiftUI preserves
+                    // that size and centers a 50-column surface inside a much
+                    // larger pane. The pane owns geometry, so the renderer must
+                    // accept the entire proposed content size.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(WarrenSpacing.compact)
+                    .background(tokens.background)
+
+                if tab.sessionID == nil {
+                    VStack {
+                        Spacer()
+                        Button(action: onNewSession) {
+                            Label("New Terminal", systemImage: "plus")
+                        }
+                        .buttonStyle(WarrenPrimaryButtonStyle())
+                        .disabled(isCreatingSession)
+                        .accessibilityLabel("New terminal")
+                        .padding(.bottom, WarrenSpacing.large)
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(tokens.background)
@@ -220,9 +268,9 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
             command: session?.runtimeProcess ?? tab.kind.displayName,
             directory: session?.workingDirectory.isEmpty == false
                 ? session!.workingDirectory
-                : workspace.path,
-            workspace: workspace.name,
-            branch: workspace.branch ?? "",
+                : (workspace?.path ?? terminalGroup?.home ?? ""),
+            workspace: workspace?.name ?? terminalGroup?.name ?? "",
+            branch: workspace?.branch ?? "",
             host: hostName,
             user: NSUserName(),
             os: ProcessInfo.processInfo.operatingSystemVersionString

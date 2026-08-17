@@ -19,6 +19,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let chromeMode: WarrenDesktopChromeMode
     public let webStatus: WarrenDesktopWebStatus
     public let creatingSessionWorkspaceIDs: Set<WorkspaceID>
+    public let creatingSessionTerminalGroupIDs: Set<TerminalGroupID>
 
     private let endpointOptions: [WarrenDesktopEndpointOption]
     private let selectedEndpointID: String
@@ -59,7 +60,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private struct Presentation {
         let workspace: Workspace?
+        let terminalGroup: TerminalGroup?
         let contentWorkspace: Workspace?
+        let contentTerminalGroup: TerminalGroup?
         let tab: ClientTab?
         let session: WarrenDesktopSession?
         let tabs: [ClientTab]
@@ -72,6 +75,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         actions: WarrenDesktopActions = WarrenDesktopActions(),
         webStatus: WarrenDesktopWebStatus = .init(),
         creatingSessionWorkspaceIDs: Set<WorkspaceID> = [],
+        creatingSessionTerminalGroupIDs: Set<TerminalGroupID> = [],
         endpointOptions: [WarrenDesktopEndpointOption] = [
             .init(id: "local", label: "Local", isLocal: true),
         ],
@@ -91,6 +95,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.chromeMode = chromeMode
         self.webStatus = webStatus
         self.creatingSessionWorkspaceIDs = creatingSessionWorkspaceIDs
+        self.creatingSessionTerminalGroupIDs = creatingSessionTerminalGroupIDs
         self.endpointOptions = endpointOptions
         self.selectedEndpointID = selectedEndpointID
         self.onSelectEndpoint = onSelectEndpoint
@@ -138,6 +143,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         let pinnedSessionIDs = Set(
             projection.sessions.filter(\.pinned).map(\.id)
         )
+        let isAddingSession = isAddingSession(in: presentation)
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 WarrenDesktopSidebar(
@@ -197,13 +203,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))
                         },
-                        canAddTab: presentation.workspace != nil,
-                        isAddingTab: presentation.workspace.map {
-                            creatingSessionWorkspaceIDs.contains($0.id)
-                        } ?? false,
+                        canAddTab: presentation.workspace != nil || presentation.terminalGroup != nil,
+                        isAddingTab: isAddingSession,
                         onAddTab: {
-                            guard let workspaceID = presentation.workspace?.id else { return }
-                            dispatch(.requestNewSession(workspaceID))
+                            addSession(in: presentation)
                         },
                         onCloseTab: { dispatch(.closeTab($0)) },
                         onCloseOtherTabs: { dispatch(.closeOtherTabs($0)) },
@@ -218,17 +221,16 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     )
                     WarrenDesktopPresetBar(
                         workspace: presentation.workspace,
-                        isBusy: presentation.workspace.map {
-                            creatingSessionWorkspaceIDs.contains($0.id)
-                        } ?? false,
+                        terminalGroup: presentation.terminalGroup,
+                        isBusy: isAddingSession,
                         onLaunch: { request in
-                            guard let workspaceID = presentation.workspace?.id else { return }
-                            dispatch(.launchSession(workspaceID, request))
+                            launchSession(request, in: presentation)
                         }
                     )
                     HStack(spacing: 0) {
                         WarrenDesktopWorkspaceContent(
                             workspace: presentation.contentWorkspace,
+                            terminalGroup: presentation.contentTerminalGroup,
                             tab: presentation.tab,
                             hasProjects: !projection.groups.isEmpty,
                             connectionState: projection.connectionState,
@@ -236,6 +238,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             // mode too. It is pane chrome, not a duplicate top bar.
                             showsPaneHeader: true,
                             session: presentation.session,
+                            isCreatingSession: isAddingSession,
                             hostName: projection.host.name,
                             titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
                             terminalFont: TerminalFontPreference(
@@ -245,8 +248,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             onAddProject: { dispatch(.addProject) },
                             onImportSuperset: { dispatch(.importSuperset) },
                             onNewSession: {
-                                guard let workspace = presentation.workspace else { return }
-                                dispatch(.requestNewSession(workspace.id))
+                                addSession(in: presentation)
                             },
                             terminalSurface: terminalSurface
                         )
@@ -300,8 +302,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             setCommandPalettePresented(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.newSession)) { _ in
-            guard let workspace = presentation.workspace else { return }
-            dispatch(.requestNewSession(workspace.id))
+            addSession(in: presentation)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.nextTab)) { _ in
             guard let tabID = WarrenDesktopTabCycler.tabID(
@@ -436,26 +437,42 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         let interval = WarrenDesktopPerformance.signposter.beginInterval("SwiftUI Presentation")
         defer { WarrenDesktopPerformance.signposter.endInterval("SwiftUI Presentation", interval) }
         let navigationWorkspace: Workspace?
+        let navigationTerminalGroup: TerminalGroup?
         switch navigation.selection {
         case .project(let projectID):
             navigationWorkspace = projection.firstWorkspace(in: projectID)
+            navigationTerminalGroup = nil
         case .workspace(let workspaceID):
             navigationWorkspace = projection.workspace(id: workspaceID)
-        case .terminalGroup:
+            navigationTerminalGroup = nil
+        case .terminalGroup(let groupID):
             navigationWorkspace = nil
+            navigationTerminalGroup = projection.terminalGroup(id: groupID)
         case nil:
             navigationWorkspace = firstWorkspace
+            navigationTerminalGroup = nil
         }
-        let tabs = navigationWorkspace.map { projection.tabs(in: $0.id) } ?? []
+        let tabs: [ClientTab]
+        if let navigationWorkspace {
+            tabs = projection.tabs(in: navigationWorkspace.id)
+        } else if let navigationTerminalGroup {
+            tabs = projection.tabs(in: navigationTerminalGroup.id)
+        } else {
+            tabs = []
+        }
         let tab = navigation.selectedTabID.flatMap { selectedTabID in
             tabs.first { $0.id == selectedTabID }
         }
         let tabWorkspace = tab?.sessionID.flatMap { projection.workspace(for: $0) }
         let workspace = tabWorkspace ?? navigationWorkspace
+        let tabTerminalGroup = tab?.sessionID.flatMap { projection.terminalGroup(for: $0) }
+        let terminalGroup = tabTerminalGroup ?? navigationTerminalGroup
         let session = tab?.sessionID.flatMap { projection.session(id: $0) }
         return Presentation(
             workspace: workspace,
+            terminalGroup: terminalGroup,
             contentWorkspace: tabWorkspace ?? workspace,
+            contentTerminalGroup: tabTerminalGroup ?? terminalGroup,
             tab: tab,
             session: session,
             tabs: tabs
@@ -464,6 +481,35 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private var firstWorkspace: Workspace? {
         projection.firstWorkspace
+    }
+
+    private func isAddingSession(in presentation: Presentation) -> Bool {
+        if let workspace = presentation.workspace {
+            return creatingSessionWorkspaceIDs.contains(workspace.id)
+        }
+        if let terminalGroup = presentation.terminalGroup {
+            return creatingSessionTerminalGroupIDs.contains(terminalGroup.id)
+        }
+        return false
+    }
+
+    private func addSession(in presentation: Presentation) {
+        if let workspace = presentation.workspace {
+            dispatch(.requestNewSession(workspace.id))
+        } else if let terminalGroup = presentation.terminalGroup {
+            dispatch(.requestNewTerminalGroupSession(terminalGroup.id))
+        }
+    }
+
+    private func launchSession(
+        _ request: TerminalSessionLaunchRequest,
+        in presentation: Presentation
+    ) {
+        if let workspace = presentation.workspace {
+            dispatch(.launchSession(workspace.id, request))
+        } else if let terminalGroup = presentation.terminalGroup {
+            dispatch(.launchTerminalGroupSession(terminalGroup.id, request))
+        }
     }
 
     private func dispatch(_ action: WarrenDesktopAction) {
@@ -597,6 +643,17 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onCancel: dismissDeletion,
                         onConfirm: {
                             dispatch(.deleteProject(project.id))
+                            dismissDeletion()
+                        }
+                    )
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
+                case .terminalGroup(let group, let sessionCount):
+                    WarrenDesktopDeleteTerminalGroupConfirmation(
+                        group: group,
+                        sessionCount: sessionCount,
+                        onCancel: dismissDeletion,
+                        onConfirm: {
+                            dispatch(.deleteTerminalGroup(group.id))
                             dismissDeletion()
                         }
                     )

@@ -651,6 +651,36 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(selectedByTab.selection, .terminalGroup(group.id))
     }
 
+    func testNavigationDefaultsToFirstTerminalGroupWithoutWorkspaceTabs() {
+        let host = WarrenDomain.Host(name: "Terminal Host")
+        let group = TerminalGroup(hostID: host.id, name: "Inbox")
+        let projection = WarrenDesktopProjection(
+            host: host,
+            groups: [],
+            terminalGroups: [group]
+        )
+
+        XCTAssertEqual(
+            WarrenDesktopNavigationReducer.initial(for: projection),
+            WarrenDesktopNavigationState(
+                selection: .terminalGroup(group.id),
+                selectedTabID: nil
+            )
+        )
+    }
+
+    func testTerminalGroupContextKeepsScopeIdentitySeparateFromWorkspace() {
+        let group = TerminalGroup(hostID: HostID(), name: "Inbox")
+        let context = WarrenDesktopTerminalContext(
+            terminalGroup: group,
+            tab: ClientTab(id: "group-empty", title: "No open sessions", sessionID: nil)
+        )
+
+        XCTAssertNil(context.workspace)
+        XCTAssertEqual(context.terminalGroup, group)
+        XCTAssertEqual(context.scopeID, group.id.description)
+    }
+
     func testNavigationPersistenceRoundTripsTerminalGroup() {
         let suiteName = "warren-terminal-group-navigation-\(UUID())"
         let defaults = UserDefaults(suiteName: suiteName)!

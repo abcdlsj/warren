@@ -7,10 +7,12 @@ import WarrenObservation
 enum WarrenDesktopDeletionRequest {
     case workspace(Workspace, project: Project?)
     case project(Project, workspaceCount: Int)
+    case terminalGroup(TerminalGroup, sessionCount: Int)
 }
 
 struct WarrenDesktopSidebarRows: View {
     let groups: [WarrenDesktopProjectGroup]
+    let terminalGroups: [WarrenDesktopTerminalGroup]
     let workspaceActivities: [WorkspaceID: AgentActivityState]
     @Binding var tree: WarrenDesktopSidebarTreeState
     let isCollapsed: Bool
@@ -21,6 +23,9 @@ struct WarrenDesktopSidebarRows: View {
     let onRequestDeletion: (WarrenDesktopDeletionRequest) -> Void
 
     @State private var dragSession = WarrenDesktopSidebarDragSession()
+    @State private var terminalGroupEditor: TerminalGroupEditorMode?
+    @State private var terminalGroupName = ""
+    @State private var terminalGroupHome = ""
     /// Ephemeral presentation state; persisted expansion preferences remain untouched.
     @State private var dragAutoCollapse: WarrenSidebarDragAutoCollapse?
     @State private var dragSourceRowID: String?
@@ -32,6 +37,7 @@ struct WarrenDesktopSidebarRows: View {
         // optional drag-frame measurement. Eager layout keeps geometry
         // feedback out of LazyVStack's placement cache during navigation.
         VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+            terminalGroupsSection
             if !isCollapsed {
                 WarrenDesktopSidebarSectionHeader(
                     title: "Projects",
@@ -106,6 +112,34 @@ struct WarrenDesktopSidebarRows: View {
                 tree.expandedProjectIDs.insert(workspace.projectID)
             }
         }
+        .overlay {
+            if let terminalGroupEditor {
+                WarrenDesktopTerminalGroupEditor(
+                    title: terminalGroupEditor.title,
+                    name: $terminalGroupName,
+                    home: $terminalGroupHome,
+                    onCancel: { self.terminalGroupEditor = nil },
+                    onConfirm: {
+                        let name = terminalGroupName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !name.isEmpty else { return }
+                        switch terminalGroupEditor {
+                        case .create:
+                            onAction(.createTerminalGroup(
+                                name,
+                                home: normalizedHome(terminalGroupHome)
+                            ))
+                        case .edit(let groupID):
+                            onAction(.renameTerminalGroup(groupID, name))
+                            onAction(.setTerminalGroupHome(
+                                groupID,
+                                normalizedHome(terminalGroupHome)
+                            ))
+                        }
+                        self.terminalGroupEditor = nil
+                    }
+                )
+            }
+        }
         .onChange(of: groups) { oldGroups, newGroups in
             guard let projectID = selectedProjectID else { return }
             let oldCount = workspaceCount(for: projectID, in: oldGroups)
@@ -118,6 +152,72 @@ struct WarrenDesktopSidebarRows: View {
                 tree.expandedProjectIDs.insert(projectID)
             }
         }
+    }
+
+    private var terminalGroupsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !isCollapsed {
+                WarrenDesktopSidebarSectionHeader(
+                    title: "Terminals",
+                    actionImage: "plus",
+                    actionLabel: "New terminal group",
+                    onAction: beginCreateTerminalGroup
+                )
+            }
+            if terminalGroups.isEmpty {
+                if !isCollapsed {
+                    Text("No terminal groups")
+                        .font(WarrenTypography.supporting)
+                        .foregroundStyle(WarrenColorTokens.dark.mutedForeground)
+                        .padding(.horizontal, WarrenSpacing.standard)
+                        .padding(.bottom, WarrenSpacing.compact)
+                }
+            } else {
+                ScrollView(.vertical, showsIndicators: terminalGroups.count > 3) {
+                    LazyVStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
+                        ForEach(terminalGroups) { group in
+                            WarrenDesktopTerminalGroupRow(
+                                group: group,
+                                isCollapsed: isCollapsed,
+                                isSelected: selection == .terminalGroup(group.id),
+                                onSelect: { onAction(.selectTerminalGroup(group.id)) },
+                                onRename: { beginEditTerminalGroup(group.group) },
+                                onSetHome: { beginEditTerminalGroup(group.group) },
+                                onDelete: {
+                                    onRequestDeletion(.terminalGroup(
+                                        group.group,
+                                        sessionCount: group.sessions.count
+                                    ))
+                                }
+                            )
+                        }
+                    }
+                }
+                .frame(
+                    maxHeight: (isCollapsed
+                        ? WarrenLayoutMetrics.sidebarHeaderRowHeight
+                        : WarrenLayoutMetrics.sidebarWorkspaceRowHeight) * 3
+                        + WarrenSpacing.xxs * 2
+                )
+            }
+        }
+    }
+
+    private func beginCreateTerminalGroup() {
+        terminalGroupName = ""
+        terminalGroupHome = ""
+        terminalGroupEditor = .create
+    }
+
+    private func beginEditTerminalGroup(_ group: TerminalGroup) {
+        terminalGroupName = group.name
+        terminalGroupHome = group.home ?? ""
+        terminalGroupEditor = .edit(group.id)
+    }
+
+    private func normalizedHome(_ home: String) -> String? {
+        let value = home.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private var selectedProjectID: ProjectID? {
@@ -148,6 +248,18 @@ struct WarrenDesktopSidebarRows: View {
             onAction(.selectWorkspace(workspaceID))
         case .terminalGroup(let groupID):
             onAction(.selectTerminalGroup(groupID))
+        }
+    }
+
+    private enum TerminalGroupEditorMode: Equatable {
+        case create
+        case edit(TerminalGroupID)
+
+        var title: String {
+            switch self {
+            case .create: "New Terminal Group"
+            case .edit: "Edit Terminal Group"
+            }
         }
     }
 
@@ -613,6 +725,46 @@ struct WarrenDesktopDeleteProjectConfirmation: View {
         }
         .padding(WarrenSpacing.large)
         .frame(width: 380)
+        .onExitCommand(perform: onCancel)
+    }
+}
+
+struct WarrenDesktopDeleteTerminalGroupConfirmation: View {
+    let group: TerminalGroup
+    let sessionCount: Int
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
+            Text("Delete terminal group?")
+                .font(WarrenTypography.dialogTitle)
+                .foregroundStyle(tokens.foreground)
+
+            Text("\"\(group.name)\" and its \(sessionCount) session(s) will be removed from Warren.")
+                .font(WarrenTypography.body)
+                .foregroundStyle(tokens.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Running sessions will be terminated.")
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.warning)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(WarrenSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Delete", action: onConfirm)
+                    .buttonStyle(WarrenDestructiveButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(WarrenSpacing.large)
+        .frame(width: 390)
         .onExitCommand(perform: onCancel)
     }
 }
