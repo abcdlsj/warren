@@ -468,7 +468,7 @@ func (s *Service) reapOrphans(ctx context.Context) {
 			adapter = s.Runtime
 		}
 		for name, createdAt := range created {
-			if managed[name] || !ended[name] || now.Sub(createdAt) < orphanReapGrace {
+			if managed[name] || !ended[name] || !isWarrenRuntimeName(name) || now.Sub(createdAt) < orphanReapGrace {
 				if isWarrenRuntimeName(name) && !managed[name] && !ended[name] {
 					s.warnUnknownRuntime(name, kind)
 				}

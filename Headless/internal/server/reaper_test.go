@@ -44,6 +44,7 @@ func TestReapOrphansReclaimsOnlyKnownEndedSessions(t *testing.T) {
 		value.Sessions = []api.Session{
 			{ID: "managed", Runtime: "warren_managed", Lifecycle: "running"},
 			{ID: "ended", Runtime: "warren_ended", Lifecycle: "ended", EndedAt: &endedAt},
+			{ID: "foreign", Runtime: "foreign_ended", Lifecycle: "ended", EndedAt: &endedAt},
 		}
 		return nil
 	}); err != nil {
@@ -56,6 +57,7 @@ func TestReapOrphansReclaimsOnlyKnownEndedSessions(t *testing.T) {
 			"warren_orphan_old": []byte("ok"),
 			"warren_orphan_new": []byte("ok"),
 			"warren-legacy-old": []byte("ok"),
+			"foreign_ended":     []byte("ok"),
 			"probe2_old":        []byte("ok"),
 		}},
 		created: map[string]time.Time{
@@ -64,6 +66,7 @@ func TestReapOrphansReclaimsOnlyKnownEndedSessions(t *testing.T) {
 			"warren_orphan_old": endedAt,
 			"warren_orphan_new": now.Add(-5 * time.Second),
 			"warren-legacy-old": endedAt,
+			"foreign_ended":     endedAt,
 			"probe2_old":        endedAt,
 		},
 	}
