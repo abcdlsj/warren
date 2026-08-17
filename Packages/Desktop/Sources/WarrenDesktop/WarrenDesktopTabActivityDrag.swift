@@ -2,37 +2,12 @@ import AppKit
 import SwiftUI
 
 enum WarrenDesktopTabActivityDragGesture {
-    static let threshold: CGFloat = 5
     static let hitTargetSize = CGSize(width: 22, height: 28)
-
-    static func hasExceededThreshold(from origin: CGPoint, to current: CGPoint) -> Bool {
-        hypot(current.x - origin.x, current.y - origin.y) >= threshold
-    }
 }
 
 enum WarrenDesktopActivityDragPresentation {
-    static let previewLabel = "Drag out to dismiss"
-    static let previewSize = CGSize(width: 124, height: 24)
-
     static func isOutside(windowFrame: CGRect, screenPoint: CGPoint) -> Bool {
         !windowFrame.contains(screenPoint)
-    }
-
-    static func previewImage() -> NSImage {
-        NSImage(size: previewSize, flipped: false) { rect in
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .paragraphStyle: paragraph,
-            ]
-            NSString(string: previewLabel).draw(
-                in: rect.insetBy(dx: 2, dy: 3),
-                withAttributes: attributes
-            )
-            return true
-        }
     }
 }
 
@@ -49,7 +24,6 @@ struct WarrenDesktopTabActivityDragHandle: NSViewRepresentable {
         view.onDismiss = onDismiss
         view.onClick = onClick
         view.onHoverChanged = onHoverChanged
-        view.toolTip = "Drag outside the window to dismiss activity"
         return view
     }
 
@@ -70,8 +44,8 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     var onHoverChanged: ((Bool) -> Void)?
 
     private weak var dragWindow: NSWindow?
-    private var mouseDownPoint: NSPoint?
     private var pendingDismiss: (() -> Void)?
+    private var pendingClick: (() -> Void)?
     private var isDragging = false
     private var suppressClickUntil: Date?
     private var hoverTrackingArea: NSTrackingArea?
@@ -117,22 +91,11 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         guard let window else { return }
         NSCursor.closedHand.set()
         dragWindow = window
-        mouseDownPoint = convert(event.locationInWindow, from: nil)
         suppressClickUntil = nil
         // Freeze the dismissal intent at mouse-down. SwiftUI may update the
         // represented activity while the native drag session is in flight.
         pendingDismiss = onDismiss
-        isDragging = false
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let origin = mouseDownPoint else { return }
-        let point = convert(event.locationInWindow, from: nil)
-        guard WarrenDesktopTabActivityDragGesture.hasExceededThreshold(
-            from: origin,
-            to: point
-        ) else { return }
-
+        pendingClick = onClick
         beginNativeDrag(event: event)
     }
 
@@ -142,29 +105,19 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
             suppressClickUntil = nil
             return
         }
+        let click = pendingClick
         finishPendingInteraction()
-        onClick?()
+        click?()
     }
 
     private func beginNativeDrag(event: NSEvent) {
         guard dragWindow != nil else { return }
-        mouseDownPoint = nil
         isDragging = true
 
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString("dismiss", forType: Self.pasteboardType)
         let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
-        let point = convert(event.locationInWindow, from: nil)
-        let previewSize = WarrenDesktopActivityDragPresentation.previewSize
-        item.setDraggingFrame(
-            NSRect(
-                x: point.x + 8,
-                y: point.y - previewSize.height / 2,
-                width: previewSize.width,
-                height: previewSize.height
-            ),
-            contents: WarrenDesktopActivityDragPresentation.previewImage()
-        )
+        item.setDraggingFrame(bounds, contents: nil)
         let session = beginDraggingSession(with: [item], event: event, source: self)
         session.animatesToStartingPositionsOnCancelOrFail = true
     }
@@ -181,13 +134,17 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        defer { finishPendingInteraction(suppressClick: true) }
-        guard let dragWindow,
-              WarrenDesktopActivityDragPresentation.isOutside(
-                  windowFrame: dragWindow.frame,
-                  screenPoint: screenPoint
-              ) else { return }
-        pendingDismiss?()
+        guard let dragWindow else {
+            finishPendingInteraction(suppressClick: true)
+            return
+        }
+        let isOutside = WarrenDesktopActivityDragPresentation.isOutside(
+            windowFrame: dragWindow.frame,
+            screenPoint: screenPoint
+        )
+        let action = isOutside ? pendingDismiss : pendingClick
+        finishPendingInteraction(suppressClick: true)
+        action?()
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
@@ -196,8 +153,8 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
             windowFrame: dragWindow.frame,
             screenPoint: screenPoint
         )
-        // Inside releases snap the preview back to the dot. Outside releases
-        // disappear in place because the activity will be dismissed.
+        // Inside releases stay in place. Outside releases use the disappearing
+        // cursor because the activity will be dismissed.
         session.animatesToStartingPositionsOnCancelOrFail = !isOutside
         (isOutside ? NSCursor.disappearingItem : NSCursor.closedHand).set()
     }
@@ -216,8 +173,8 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     private func finishPendingInteraction(suppressClick: Bool = false) {
         dragWindow?.invalidateCursorRects(for: self)
         dragWindow = nil
-        mouseDownPoint = nil
         pendingDismiss = nil
+        pendingClick = nil
         suppressClickUntil = suppressClick
             ? Date().addingTimeInterval(0.5)
             : nil

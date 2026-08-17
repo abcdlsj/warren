@@ -65,10 +65,11 @@ struct WarrenDesktopTabBar: View {
                 ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
+                            let activity = tab.sessionID.flatMap { tabActivities[$0] }
                             WarrenDesktopTabItem(
                                 tab: tab,
                                 displayTitle: tabTitles[tab.id] ?? tab.title,
-                                activity: tab.sessionID.flatMap { tabActivities[$0] },
+                                activity: activity,
                                 isSelected: selectedTabID == tab.id,
                                 isPinned: tab.sessionID.map(pinnedSessionIDs.contains) ?? false,
                                 onSelect: { onSelectTab(tab.id) },
@@ -90,7 +91,7 @@ struct WarrenDesktopTabBar: View {
                                 },
                                 onDismissActivity: {
                                     guard let sessionID = tab.sessionID,
-                                          let activity = tabActivities[sessionID] else { return }
+                                          let activity else { return }
                                     onDismissActivity(sessionID, activity)
                                 }
                             )

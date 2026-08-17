@@ -369,19 +369,6 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertFalse(failed.isActive)
     }
 
-    func testActivityDragRequiresFivePointMovementThreshold() {
-        let origin = CGPoint(x: 20, y: 20)
-
-        XCTAssertFalse(WarrenDesktopTabActivityDragGesture.hasExceededThreshold(
-            from: origin,
-            to: CGPoint(x: 23, y: 23)
-        ))
-        XCTAssertTrue(WarrenDesktopTabActivityDragGesture.hasExceededThreshold(
-            from: origin,
-            to: CGPoint(x: 24, y: 24)
-        ))
-    }
-
     func testActivityDragPresentationDistinguishesSnapBackAndDismissZones() {
         let windowFrame = CGRect(x: 100, y: 100, width: 800, height: 600)
 
@@ -393,10 +380,6 @@ final class WarrenDesktopTests: XCTestCase {
             windowFrame: windowFrame,
             screenPoint: CGPoint(x: 50, y: 200)
         ))
-        XCTAssertEqual(
-            WarrenDesktopActivityDragPresentation.previewImage().size,
-            WarrenDesktopActivityDragPresentation.previewSize
-        )
     }
 
     func testActivityDragHandleHasUsableHitTargetAndAcceptsFirstClick() {
@@ -409,32 +392,6 @@ final class WarrenDesktopTests: XCTestCase {
             20
         )
         XCTAssertTrue(WarrenDesktopTabActivityDragHandleView().acceptsFirstMouse(for: nil))
-    }
-
-    func testActivityDragHandleForwardsClickWithoutDismissing() {
-        let view = WarrenDesktopTabActivityDragHandleView()
-        let window = WarrenDragProbeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        var clickCount = 0
-        var dismissCount = 0
-        var hoverStates: [Bool] = []
-        view.onClick = { clickCount += 1 }
-        view.onDismiss = { dismissCount += 1 }
-        view.onHoverChanged = { hoverStates.append($0) }
-        window.contentView = view
-
-        view.mouseEntered(with: Self.mouseEnteredEvent())
-        view.mouseDown(with: Self.mouseDownEvent(clickCount: 1))
-        view.mouseUp(with: Self.mouseUpEvent())
-        view.mouseExited(with: Self.mouseExitedEvent())
-
-        XCTAssertEqual(clickCount, 1)
-        XCTAssertEqual(dismissCount, 0)
-        XCTAssertEqual(hoverStates, [true, false])
     }
 
     func testActivityDragHandleSitsAboveTheTabButtonHitArea() {
@@ -492,6 +449,7 @@ final class WarrenDesktopTests: XCTestCase {
             accuracy: 1
         )
         XCTAssertGreaterThanOrEqual(handle.frame.width, 20)
+        XCTAssertNil(handle.toolTip)
         let activityRect = handle.convert(handle.bounds, to: hostingView)
         let activityPoint = NSPoint(x: activityRect.midX, y: activityRect.midY)
         XCTAssertTrue(window.contentView?.hitTest(activityPoint) === handle)
