@@ -5,6 +5,13 @@ import WarrenDomain
 
 final class WarrenRemoteModelTests: XCTestCase {
     @MainActor
+    func testRemoteModelStartsInConnectingState() {
+        let model = WarrenRemoteApplicationModel()
+
+        XCTAssertEqual(model.projection.connectionState, .connecting)
+    }
+
+    @MainActor
     func testEqualProjectionDoesNotPublishAgain() {
         let model = WarrenRemoteApplicationModel()
         let initial = model.projection

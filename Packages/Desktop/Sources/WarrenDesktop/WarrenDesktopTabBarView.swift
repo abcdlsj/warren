@@ -14,7 +14,7 @@ struct WarrenDesktopTabBar: View {
     let selectedTabID: String?
     let chromeMode: WarrenDesktopChromeMode
     let isSidebarCollapsed: Bool
-    let isConnected: Bool
+    let connectionState: WarrenDesktopConnectionState
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
     let webStatus: WarrenDesktopWebStatus
@@ -29,6 +29,7 @@ struct WarrenDesktopTabBar: View {
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
     let canAddTab: Bool
+    let isAddingTab: Bool
     let onAddTab: () -> Void
     let onCloseTab: (String) -> Void
     let onCloseOtherTabs: (String) -> Void
@@ -104,7 +105,8 @@ struct WarrenDesktopTabBar: View {
 
                 WarrenDesktopTabAddSlot(
                     action: onAddTab,
-                    isEnabled: canAddTab
+                    isEnabled: canAddTab,
+                    isLoading: isAddingTab
                 )
                 .dropDestination(for: String.self) { tabIDs, _ in
                     guard let tabID = tabIDs.first else { return false }
@@ -121,7 +123,7 @@ struct WarrenDesktopTabBar: View {
 
                 if chromeMode == .workspace {
                     WarrenDesktopWorkspaceTabTrailing(
-                        isConnected: isConnected,
+                        connectionState: connectionState,
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
                         webStatus: webStatus,
@@ -190,7 +192,7 @@ private struct WarrenDesktopCollapsedWorkspaceLeading: View {
 }
 
 private struct WarrenDesktopWorkspaceTabTrailing: View {
-    let isConnected: Bool
+    let connectionState: WarrenDesktopConnectionState
     let endpointOptions: [WarrenDesktopEndpointOption]
     let selectedEndpointID: String
     let webStatus: WarrenDesktopWebStatus
@@ -214,7 +216,7 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                 action: onSettings
             )
             WarrenDesktopEndpointControl(
-                isConnected: isConnected,
+                connectionState: connectionState,
                 endpoints: endpointOptions,
                 selectedID: selectedEndpointID,
                 onSelect: onSelectEndpoint
@@ -251,12 +253,13 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
 }
 
 private struct WarrenDesktopEndpointControl: View {
-    let isConnected: Bool
+    let connectionState: WarrenDesktopConnectionState
     let endpoints: [WarrenDesktopEndpointOption]
     let selectedID: String
     let onSelect: (String) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var isFocused: Bool
     @State private var isPresented = false
     @State private var dismissTask: Task<Void, Never>?
@@ -267,6 +270,7 @@ private struct WarrenDesktopEndpointControl: View {
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        let presentation = WarrenDesktopConnectionPresentation(connectionState)
         Button(action: toggle) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: "server.rack")
@@ -274,9 +278,12 @@ private struct WarrenDesktopEndpointControl: View {
                     .padding(.top, 2)
                     .padding(.trailing, 2)
                     .accessibilityHidden(true)
-                Circle()
-                    .fill(isConnected ? tokens.success : tokens.warning)
-                    .frame(width: 6, height: 6)
+                WarrenStatusIndicator(
+                    color: statusColor(presentation.tone, tokens: tokens),
+                    isActive: presentation.isActive,
+                    size: 6,
+                    accessibilityLabel: presentation.label
+                )
                     .accessibilityHidden(true)
             }
         }
@@ -286,7 +293,7 @@ private struct WarrenDesktopEndpointControl: View {
         .focused($isFocused)
         .foregroundStyle(tokens.mutedForeground)
         .accessibilityLabel("Execution server: \(selectedEndpoint?.label ?? "Server")")
-        .accessibilityHint(isConnected ? "Connected. Click for details." : "Disconnected. Click for details.")
+        .accessibilityHint("\(presentation.label). Click for details.")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             popoverContent(tokens: tokens)
         }
@@ -297,12 +304,16 @@ private struct WarrenDesktopEndpointControl: View {
 
     @ViewBuilder
     private func popoverContent(tokens: WarrenColorTokens) -> some View {
+        let presentation = WarrenDesktopConnectionPresentation(connectionState)
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: WarrenSpacing.compact) {
-                Circle()
-                    .fill(isConnected ? tokens.success : tokens.warning)
-                    .frame(width: 8, height: 8)
-                Text(isConnected ? "Connected" : "Disconnected")
+                WarrenStatusIndicator(
+                    color: statusColor(presentation.tone, tokens: tokens),
+                    isActive: presentation.isActive,
+                    size: 8,
+                    accessibilityLabel: presentation.label
+                )
+                Text(presentation.label)
                     .font(WarrenTypography.supporting)
                     .foregroundStyle(tokens.mutedForeground)
                 Spacer()
@@ -351,6 +362,18 @@ private struct WarrenDesktopEndpointControl: View {
         .warrenPanelSurface(cornerRadius: WarrenRadius.base)
     }
 
+    private func statusColor(
+        _ tone: WarrenDesktopConnectionTone,
+        tokens: WarrenColorTokens
+    ) -> Color {
+        switch tone {
+        case .success: tokens.success
+        case .info: tokens.info
+        case .warning: tokens.warning
+        case .destructive: tokens.destructive
+        }
+    }
+
     private func toggle() {
         if isPresented {
             dismissTask?.cancel()
@@ -367,7 +390,7 @@ private struct WarrenDesktopEndpointControl: View {
         dismissTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
                 isPresented = false
             }
         }

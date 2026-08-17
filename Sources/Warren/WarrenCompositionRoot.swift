@@ -15,6 +15,7 @@ struct WarrenCompositionRoot: View {
     @State private var workspaceCreatorProjectID: ProjectID?
     @State private var terminalSearchPresented = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
@@ -43,6 +44,7 @@ struct WarrenCompositionRoot: View {
             chromeMode: .workspace,
             actions: WarrenDesktopActions(send: handle),
             webStatus: remoteModel.webStatus,
+            creatingSessionWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
             endpointOptions: endpointOptions,
             selectedEndpointID: selectedEndpointID,
             onSelectEndpoint: selectEndpoint,
@@ -57,6 +59,8 @@ struct WarrenCompositionRoot: View {
                 context: context,
                 surfaceManager: surfaceManager,
                 maintenanceMessage: remoteModel.maintenanceMessage,
+                connectionState: remoteModel.projection.connectionState,
+                isAttaching: remoteModel.attachingSessionID == context.tab.sessionID,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)
                 },
@@ -75,9 +79,10 @@ struct WarrenCompositionRoot: View {
                     Color.black.opacity(0.5)
                         .ignoresSafeArea()
                     VStack(spacing: WarrenSpacing.compact) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(tokens.highlight)
+                        WarrenParticleSpinner(
+                            size: 22,
+                            accessibilityLabel: "Reading Superset"
+                        )
                         Text("Reading Superset…")
                             .font(WarrenTypography.navigationItem)
                             .foregroundStyle(tokens.foreground)
@@ -102,10 +107,10 @@ struct WarrenCompositionRoot: View {
         .sheet(item: $supersetImportPreview) { preview in
             WarrenSupersetImportView(preview: preview) { selectedPreview in
                 supersetImportPreview = nil
-                isSupersetImporting = true
+                setSupersetImporting(true)
                 Task { @MainActor in
                     await remoteModel.commitSupersetImport(selectedPreview)
-                    isSupersetImporting = false
+                    setSupersetImporting(false)
                 }
             }
         }
@@ -292,14 +297,20 @@ struct WarrenCompositionRoot: View {
 
     private func beginSupersetImport() {
         guard !isSupersetImporting else { return }
-        isSupersetImporting = true
+        setSupersetImporting(true)
         Task { @MainActor in
             do {
                 supersetImportPreview = try await remoteModel.previewSupersetImport()
             } catch {
                 remoteModel.report(error)
             }
-            isSupersetImporting = false
+            setSupersetImporting(false)
+        }
+    }
+
+    private func setSupersetImporting(_ importing: Bool) {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            isSupersetImporting = importing
         }
     }
 
@@ -584,6 +595,8 @@ private struct WarrenTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
     let surfaceManager: TerminalSurfaceManager
     let maintenanceMessage: String?
+    let connectionState: WarrenDesktopConnectionState
+    let isAttaching: Bool
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
     @Binding var searchPresented: Bool
@@ -604,6 +617,9 @@ private struct WarrenTerminalSurfaceView: View {
             )
             if context.tab.sessionID == nil {
                 WarrenEmptyWorkspacePanel()
+            }
+            if let loadingLabel {
+                WarrenTerminalLoadingOverlay(label: loadingLabel)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -629,8 +645,10 @@ private struct WarrenTerminalSurfaceView: View {
         .overlay(alignment: .top) {
             if let maintenanceMessage {
                 HStack(spacing: WarrenSpacing.small) {
-                    ProgressView()
-                        .controlSize(.mini)
+                    WarrenParticleSpinner(
+                        size: 14,
+                        accessibilityLabel: "Updating Warren"
+                    )
                     Text("Updating Warren…")
                         .font(WarrenTypography.supporting)
                         .lineLimit(1)
@@ -676,6 +694,51 @@ private struct WarrenTerminalSurfaceView: View {
             surfaceManager.requestFocusForActiveSurface()
             if let sessionID = context.tab.sessionID {
                 surfaceManager.requestPresent(sessionID)
+            }
+        }
+    }
+
+    private var loadingLabel: String? {
+        guard maintenanceMessage == nil else { return nil }
+        if connectionState == .reconnecting {
+            return "Reconnecting terminal…"
+        }
+        if isAttaching {
+            return "Connecting terminal…"
+        }
+        return nil
+    }
+}
+
+private struct WarrenTerminalLoadingOverlay: View {
+    let label: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+
+    var body: some View {
+        Group {
+            if isVisible {
+                HStack(spacing: WarrenSpacing.compact) {
+                    WarrenParticleSpinner(size: 18, accessibilityLabel: label)
+                    Text(label)
+                        .font(WarrenTypography.supporting)
+                }
+                .padding(.horizontal, WarrenSpacing.standard)
+                .padding(.vertical, WarrenSpacing.compact)
+                .background(Color.black.opacity(0.62), in: RoundedRectangle(
+                    cornerRadius: WarrenRadius.medium
+                ))
+                .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+        .task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            withAnimation(WarrenMotion.animation(.stateChange, reduceMotion: reduceMotion)) {
+                isVisible = true
             }
         }
     }

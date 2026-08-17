@@ -5,7 +5,6 @@ import WarrenDesignSystem
 /// 48pt bar; their 40pt TabBar owns the complete top chrome instead.
 struct WarrenDesktopTopBar: View {
     let hostName: String
-    let isConnected: Bool
     let isSidebarCollapsed: Bool
     let hasInspector: Bool
     let isInspectorVisible: Bool

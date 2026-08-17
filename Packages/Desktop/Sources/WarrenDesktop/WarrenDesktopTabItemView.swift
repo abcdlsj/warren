@@ -37,8 +37,9 @@ struct WarrenDesktopTabItem: View {
             Button(action: onSelect) {
                 HStack(spacing: WarrenSpacing.small) {
                     if tab.sessionID == nil {
-                        ProgressView()
-                            .controlSize(.mini)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(tokens.info.opacity(0.8))
+                            .frame(width: 7, height: 7)
                             .accessibilityHidden(true)
                     }
                     if isPinned {
@@ -137,8 +138,14 @@ struct WarrenDesktopTabItem: View {
                 ? tokens.background
                 : (isHovered ? tokens.fillHover : .clear)
         )
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isHovered)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.1), value: isSelected)
+        .animation(
+            WarrenMotion.animation(.feedback, reduceMotion: reduceMotion),
+            value: isHovered
+        )
+        .animation(
+            WarrenMotion.animation(.feedback, reduceMotion: reduceMotion),
+            value: isSelected
+        )
         .overlay {
             Rectangle()
                 .stroke(isSelected ? tokens.border : .clear, lineWidth: isSelected ? 1 : 0)
@@ -204,7 +211,7 @@ private struct WarrenTabButtonStyle: ButtonStyle {
                     .stroke(isFocused ? tokens.focusRing : .clear, lineWidth: isFocused ? 1 : 0)
             }
             .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.1),
+                WarrenMotion.animation(.feedback, reduceMotion: reduceMotion),
                 value: configuration.isPressed
             )
     }
@@ -213,6 +220,7 @@ private struct WarrenTabButtonStyle: ButtonStyle {
 struct WarrenDesktopTabAddSlot: View {
     let action: () -> Void
     let isEnabled: Bool
+    let isLoading: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -220,12 +228,18 @@ struct WarrenDesktopTabAddSlot: View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack {
             Button(action: action) {
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .medium))
-                    .accessibilityHidden(true)
+                Group {
+                    if isLoading {
+                        WarrenParticleSpinner(size: 14, accessibilityLabel: "Starting session")
+                    } else {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+                .accessibilityHidden(true)
             }
             .buttonStyle(.plain)
-            .disabled(!isEnabled)
+            .disabled(!isEnabled || isLoading)
             .frame(width: 28, height: 28)
             .contentShape(.rect)
             .foregroundStyle(tokens.mutedForeground)
@@ -236,12 +250,12 @@ struct WarrenDesktopTabAddSlot: View {
             }
             .clipShape(.rect(cornerRadius: WarrenRadius.small))
             .opacity(isEnabled ? 1 : 0.45)
-            .accessibilityLabel("New tab")
+            .accessibilityLabel(isLoading ? "Starting session" : "New tab")
             .warrenSemanticElement(
                 id: "tab.new",
                 role: .button,
                 label: "New tab",
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && !isLoading,
                 action: action
             )
         }

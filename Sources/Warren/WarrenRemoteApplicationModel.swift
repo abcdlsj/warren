@@ -612,7 +612,9 @@ private enum WarrenRemoteDiagnostics {
 @MainActor
 @Observable
 final class WarrenRemoteApplicationModel {
-    private(set) var projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: "Server"))
+    private(set) var projection = WarrenDesktopProjection
+        .empty(host: WarrenDomain.Host(name: "Server"))
+        .withConnectionState(.connecting)
     private(set) var navigation: WarrenDesktopNavigationState {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
@@ -625,6 +627,8 @@ final class WarrenRemoteApplicationModel {
     /// window (for example an app install that restarts the daemon). Clients
     /// show an update state instead of treating the disconnect as a failure.
     private(set) var maintenanceMessage: String?
+    private(set) var creatingSessionWorkspaceIDs: Set<WorkspaceID> = []
+    private(set) var attachingSessionID: TerminalSessionID?
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
     @ObservationIgnored private var endpointConfiguration: WarrenRemoteEndpointConfiguration?
@@ -678,7 +682,9 @@ final class WarrenRemoteApplicationModel {
             )
         }
         publishProjectionIfChanged(
-            WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
+            WarrenDesktopProjection
+                .empty(host: WarrenDomain.Host(name: configuration.name))
+                .withConnectionState(.connecting)
         )
         eventTask = Task { @MainActor [weak self] in
             await self?.runConnectionLoop(configuration)
@@ -696,8 +702,10 @@ final class WarrenRemoteApplicationModel {
         agentActivityBySessionID.removeAll()
         tabOrderByWorkspaceID.removeAll()
         dismissedActivityBySessionID.removeAll()
+        creatingSessionWorkspaceIDs.removeAll()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
+        publishProjectionIfChanged(projection.withConnectionState(.disconnected))
     }
 
     /// Keeps the endpoint alive across daemon restarts and transient network
@@ -745,6 +753,7 @@ final class WarrenRemoteApplicationModel {
     /// selected tab on a fresh transport. The projection and navigation are
     /// intentionally kept: the old tab remains visible while reconnecting.
     private func resetAttachmentState() {
+        attachingSessionID = nil
         selectedSessionID = nil
         attachedSessionID = nil
         focusedSessionID = nil
@@ -830,8 +839,10 @@ final class WarrenRemoteApplicationModel {
     }
 
     func createSession(workspaceID: WorkspaceID, request launch: TerminalSessionLaunchRequest) {
-        guard let wire else { return }
+        guard let wire, !creatingSessionWorkspaceIDs.contains(workspaceID) else { return }
+        creatingSessionWorkspaceIDs.insert(workspaceID)
         Task { @MainActor [weak self] in
+            defer { self?.finishCreatingSession(in: workspaceID) }
             do {
                 let data = try await wire.request("session.create", params: [
                     "workspace": workspaceID.description,
@@ -853,6 +864,10 @@ final class WarrenRemoteApplicationModel {
                 try await self?.refreshRoster(using: wire)
                 guard let self,
                       self.selectedWorkspaceID == workspaceID else { return }
+                // Creating and attaching are separate waits. End the create
+                // indication before the terminal attach indication begins so
+                // one user action never displays two spinners at once.
+                self.finishCreatingSession(in: workspaceID)
                 self.publishNavigationIfChanged(WarrenDesktopNavigationState(
                     selection: .workspace(workspaceID),
                     selectedTabID: Self.tabID(sessionID)
@@ -862,6 +877,11 @@ final class WarrenRemoteApplicationModel {
                 self?.present(error)
             }
         }
+    }
+
+    private func finishCreatingSession(in workspaceID: WorkspaceID) {
+        guard creatingSessionWorkspaceIDs.contains(workspaceID) else { return }
+        creatingSessionWorkspaceIDs.remove(workspaceID)
     }
 
     func addProject(_ folder: URL) async {
@@ -1628,6 +1648,12 @@ final class WarrenRemoteApplicationModel {
         }
         attachGeneration &+= 1
         let generation = attachGeneration
+        attachingSessionID = sessionID
+        defer {
+            if generation == attachGeneration, attachingSessionID == sessionID {
+                attachingSessionID = nil
+            }
+        }
         attachedSessionID = nil
         focusedSessionID = nil
         focusClaimInFlight = false

@@ -18,6 +18,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let navigation: WarrenDesktopNavigationState
     public let chromeMode: WarrenDesktopChromeMode
     public let webStatus: WarrenDesktopWebStatus
+    public let creatingSessionWorkspaceIDs: Set<WorkspaceID>
 
     private let endpointOptions: [WarrenDesktopEndpointOption]
     private let selectedEndpointID: String
@@ -52,6 +53,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @AppStorage(WarrenPreferenceKey.gnarSharingEnabled)
     private var gnarSharingEnabled = true
     @Environment(\.warrenSemanticRecorder) private var semanticRecorder
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Presentation {
         let workspace: Workspace?
@@ -67,6 +69,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         chromeMode: WarrenDesktopChromeMode = .workspace,
         actions: WarrenDesktopActions = WarrenDesktopActions(),
         webStatus: WarrenDesktopWebStatus = .init(),
+        creatingSessionWorkspaceIDs: Set<WorkspaceID> = [],
         endpointOptions: [WarrenDesktopEndpointOption] = [
             .init(id: "local", label: "Local", isLocal: true),
         ],
@@ -85,6 +88,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.navigation = navigation ?? WarrenDesktopNavigationReducer.initial(for: projection)
         self.chromeMode = chromeMode
         self.webStatus = webStatus
+        self.creatingSessionWorkspaceIDs = creatingSessionWorkspaceIDs
         self.endpointOptions = endpointOptions
         self.selectedEndpointID = selectedEndpointID
         self.onSelectEndpoint = onSelectEndpoint
@@ -150,7 +154,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     if chromeMode.showsIndependentTopBar {
                         WarrenDesktopTopBar(
                             hostName: projection.host.name,
-                            isConnected: projection.isConnected,
                             isSidebarCollapsed: sidebarState.isCollapsed,
                             hasInspector: projection.inspector != nil,
                             isInspectorVisible: inspectorVisible,
@@ -166,7 +169,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         selectedTabID: navigation.selectedTabID,
                         chromeMode: chromeMode,
                         isSidebarCollapsed: sidebarState.isCollapsed,
-                        isConnected: projection.isConnected,
+                        connectionState: projection.connectionState,
                         endpointOptions: endpointOptions,
                         selectedEndpointID: selectedEndpointID,
                         webStatus: webStatus,
@@ -174,24 +177,27 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
                         onToggleInspector: toggleInspector,
-                        onCommandPalette: { commandPalettePresented = true },
+                        onCommandPalette: { setCommandPalettePresented(true) },
                         onSettings: {
-                            commandPalettePresented = false
+                            setCommandPalettePresented(false)
                             navigationBeforeSettings = navigation
                             // Settings overlays a still-mounted shell so its
                             // Ghostty grid survives the trip; drop keyboard
                             // ownership so keystrokes go to Settings instead
                             // of the hidden terminal.
                             NSApp.keyWindow?.makeFirstResponder(nil)
-                            settingsPresented = true
+                            setSettingsPresented(true)
                         },
-                        onWeb: { webPresented.toggle() },
+                        onWeb: { setWebPresented(!webPresented) },
                         onSelectEndpoint: onSelectEndpoint,
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))
                         },
                         canAddTab: presentation.workspace != nil,
+                        isAddingTab: presentation.workspace.map {
+                            creatingSessionWorkspaceIDs.contains($0.id)
+                        } ?? false,
                         onAddTab: {
                             guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.requestNewSession(workspaceID))
@@ -211,6 +217,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     )
                     WarrenDesktopPresetBar(
                         workspace: presentation.workspace,
+                        isBusy: presentation.workspace.map {
+                            creatingSessionWorkspaceIDs.contains($0.id)
+                        } ?? false,
                         onLaunch: { request in
                             guard let workspaceID = presentation.workspace?.id else { return }
                             dispatch(.launchSession(workspaceID, request))
@@ -221,6 +230,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             workspace: presentation.contentWorkspace,
                             tab: presentation.tab,
                             hasProjects: !projection.groups.isEmpty,
+                            connectionState: projection.connectionState,
                             // Superset keeps the 28pt pane toolbar in workspace
                             // mode too. It is pane chrome, not a duplicate top bar.
                             showsPaneHeader: true,
@@ -241,10 +251,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         )
                         if inspectorVisible, let inspector = projection.inspector {
                             WarrenDesktopInspectorSlot(content: inspector)
-                                .transition(.move(edge: .trailing).combined(with: .opacity))
                         }
                     }
-                    .animation(.easeOut(duration: 0.18), value: inspectorVisible)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -288,7 +296,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 : WarrenDesktopSidebarTreeState()
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.commandPalette)) { _ in
-            commandPalettePresented = true
+            setCommandPalettePresented(true)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.newSession)) { _ in
             guard let workspace = presentation.workspace else { return }
@@ -349,12 +357,12 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     ZStack(alignment: .top) {
                         Color.black.opacity(0.5)
                             .ignoresSafeArea()
-                            .onTapGesture { commandPalettePresented = false }
+                            .onTapGesture { setCommandPalettePresented(false) }
 
                         WarrenDesktopCommandPalette(
                             projection: projection,
                             onAction: dispatch,
-                            onDismiss: { commandPalettePresented = false },
+                            onDismiss: { setCommandPalettePresented(false) },
                             width: panelWidth,
                             resultsMaxHeight: resultsMaxHeight
                         )
@@ -391,6 +399,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 )
                 .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.small)
                 .padding(.trailing, WarrenSpacing.medium)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .onChange(of: webPresented) { _, isPresented in
@@ -410,7 +419,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             try? await Task.sleep(for: WarrenDesktopWebDismissal.interval)
             guard !Task.isCancelled else { return }
             guard !webStatus.tunnelRunning else { return }
-            webPresented = false
+            setWebPresented(false)
         }
         .warrenSemanticObservationRoot(recorder: semanticRecorder)
     }
@@ -458,7 +467,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private func closeSettings() {
         let previousNavigation = navigationBeforeSettings
         navigationBeforeSettings = nil
-        settingsPresented = false
+        setSettingsPresented(false)
         if let previousNavigation {
             dispatch(.restoreNavigation(previousNavigation))
         }
@@ -466,15 +475,33 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     }
 
     private func toggleSidebar() {
-        withAnimation(.easeOut(duration: 0.18)) {
-            sidebarState.toggleCollapsed()
-        }
+        // Resizing this boundary animates the AppKit terminal viewport on
+        // every frame. Switch geometry once and reserve motion for overlays.
+        sidebarState.toggleCollapsed()
         actions(.toggleSidebar)
     }
 
     private func toggleInspector() {
         inspectorVisible.toggle()
         actions(.toggleInspector)
+    }
+
+    private func setCommandPalettePresented(_ presented: Bool) {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            commandPalettePresented = presented
+        }
+    }
+
+    private func setSettingsPresented(_ presented: Bool) {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            settingsPresented = presented
+        }
+    }
+
+    private func setWebPresented(_ presented: Bool) {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            webPresented = presented
+        }
     }
 
     private func refreshWebDismissal() {
@@ -484,7 +511,15 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private func presentDeletion(_ request: WarrenDesktopDeletionRequest) {
         deleteWorkspaceRemoveWorktree = false
-        pendingDeletion = request
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            pendingDeletion = request
+        }
+    }
+
+    private func dismissDeletion() {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            pendingDeletion = nil
+        }
     }
 
     @ViewBuilder
@@ -497,13 +532,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         workspace: workspace,
                         project: project,
                         removeWorktree: $deleteWorkspaceRemoveWorktree,
-                        onCancel: { self.pendingDeletion = nil },
+                        onCancel: dismissDeletion,
                         onConfirm: {
                             dispatch(.deleteWorkspace(
                                 workspace.id,
                                 removeLocalWorktree: deleteWorkspaceRemoveWorktree
                             ))
-                            self.pendingDeletion = nil
+                            dismissDeletion()
                         }
                     )
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)
@@ -511,10 +546,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     WarrenDesktopDeleteProjectConfirmation(
                         project: project,
                         workspaceCount: workspaceCount,
-                        onCancel: { self.pendingDeletion = nil },
+                        onCancel: dismissDeletion,
                         onConfirm: {
                             dispatch(.deleteProject(project.id))
-                            self.pendingDeletion = nil
+                            dismissDeletion()
                         }
                     )
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)

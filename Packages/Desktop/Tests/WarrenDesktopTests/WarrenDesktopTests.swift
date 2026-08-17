@@ -243,7 +243,7 @@ final class WarrenDesktopTests: XCTestCase {
             selectedTabID: tabs.first?.id,
             chromeMode: .workspace,
             isSidebarCollapsed: false,
-            isConnected: true,
+            connectionState: .attached,
             endpointOptions: [WarrenDesktopEndpointOption(id: "local", label: "Local", isLocal: true)],
             selectedEndpointID: "local",
             webStatus: WarrenDesktopWebStatus(),
@@ -258,6 +258,7 @@ final class WarrenDesktopTests: XCTestCase {
             onSelectTab: { _ in },
             onMoveTab: { _, _ in },
             canAddTab: true,
+            isAddingTab: false,
             onAddTab: {},
             onCloseTab: { _ in },
             onCloseOtherTabs: { _ in },
@@ -328,6 +329,23 @@ final class WarrenDesktopTests: XCTestCase {
             persistedExpansions: [projectID],
             autoCollapse: .allProjects
         ))
+    }
+
+    func testConnectionPresentationDistinguishesLoadingAndFailureStates() {
+        let connecting = WarrenDesktopConnectionPresentation(.connecting)
+        XCTAssertEqual(connecting.label, "Connecting…")
+        XCTAssertEqual(connecting.tone, .info)
+        XCTAssertTrue(connecting.isActive)
+
+        let reconnecting = WarrenDesktopConnectionPresentation(.reconnecting)
+        XCTAssertEqual(reconnecting.label, "Reconnecting…")
+        XCTAssertEqual(reconnecting.tone, .warning)
+        XCTAssertTrue(reconnecting.isActive)
+
+        let failed = WarrenDesktopConnectionPresentation(.failed)
+        XCTAssertEqual(failed.label, "Connection failed")
+        XCTAssertEqual(failed.tone, .destructive)
+        XCTAssertFalse(failed.isActive)
     }
 
     func testActivityDragRequiresFivePointMovementThreshold() {

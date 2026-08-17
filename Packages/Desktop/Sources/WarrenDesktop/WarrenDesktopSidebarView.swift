@@ -44,7 +44,10 @@ struct WarrenDesktopSidebar: View {
                 }
                 .onChange(of: selection) { _, newSelection in
                     guard case let .workspace(workspaceID)? = newSelection else { return }
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                    withAnimation(WarrenMotion.animation(
+                        .stateChange,
+                        reduceMotion: reduceMotion
+                    )) {
                         proxy.scrollTo(workspaceID, anchor: .center)
                     }
                 }

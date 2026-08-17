@@ -90,3 +90,74 @@ private struct WarrenStatusPulseRing: View {
             }
     }
 }
+
+/// Warren's single indeterminate loading mark: square particles orbit as one
+/// compositor transform. Use it only where the user is actively waiting.
+public struct WarrenParticleSpinner: View {
+    private let size: CGFloat
+    private let accessibilityLabel: String
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+
+    public init(size: CGFloat = 18, accessibilityLabel: String = "Loading") {
+        self.size = size
+        self.accessibilityLabel = accessibilityLabel
+    }
+
+    public var body: some View {
+        let color = WarrenColorTokens.resolved(for: colorScheme).highlight
+        Group {
+            if reduceMotion {
+                WarrenParticleField(size: size, color: color)
+            } else {
+                WarrenSpinningParticleField(size: size, color: color)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+private struct WarrenSpinningParticleField: View {
+    let size: CGFloat
+    let color: Color
+
+    @State private var rotates = false
+
+    var body: some View {
+        WarrenParticleField(size: size, color: color)
+            .rotationEffect(.degrees(rotates ? 360 : 0))
+            .onAppear {
+                withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
+                    rotates = true
+                }
+            }
+    }
+}
+
+private struct WarrenParticleField: View {
+    let size: CGFloat
+    let color: Color
+
+    private static let positions: [CGPoint] = [
+        CGPoint(x: -1, y: -1), CGPoint(x: 0, y: -1),
+        CGPoint(x: 1, y: -1), CGPoint(x: 1, y: 0),
+        CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1),
+        CGPoint(x: -1, y: 1), CGPoint(x: -1, y: 0),
+    ]
+
+    var body: some View {
+        let particleSize = max(2, size * 0.15)
+        let radius = size * 0.34
+        ZStack {
+            ForEach(Array(Self.positions.enumerated()), id: \.offset) { index, point in
+                RoundedRectangle(cornerRadius: particleSize * 0.34)
+                    .fill(color.opacity(0.28 + Double(index) * 0.09))
+                    .frame(width: particleSize, height: particleSize)
+                    .offset(x: point.x * radius, y: point.y * radius)
+            }
+        }
+    }
+}

@@ -9,6 +9,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let workspace: Workspace?
     let tab: ClientTab?
     let hasProjects: Bool
+    let connectionState: WarrenDesktopConnectionState
     let showsPaneHeader: Bool
     let session: WarrenDesktopSession?
     let hostName: String
@@ -51,6 +52,12 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                     )
                 )
             )
+        } else if workspace == nil, tab == nil,
+                  connectionState == .connecting || connectionState == .reconnecting {
+            connectionLoadingState(tokens: tokens)
+        } else if workspace == nil, tab == nil,
+                  connectionState == .disconnected || connectionState == .failed {
+            connectionUnavailableState(tokens: tokens)
         } else if workspace == nil, tab == nil, !hasProjects {
             emptyWelcome(tokens: tokens)
         } else {
@@ -105,6 +112,44 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
         .padding(.bottom, emptyStatePageOffset * 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
+    }
+
+    private func connectionLoadingState(tokens: WarrenColorTokens) -> some View {
+        let presentation = WarrenDesktopConnectionPresentation(connectionState)
+        return VStack(spacing: WarrenSpacing.standard) {
+            WarrenParticleSpinner(
+                size: 22,
+                accessibilityLabel: presentation.label
+            )
+            Text(presentation.label)
+                .font(WarrenTypography.emptyStateTitle)
+                .foregroundStyle(tokens.mutedForeground)
+            Text("Waiting for projects and sessions from \(hostName)")
+                .font(WarrenTypography.body)
+                .foregroundStyle(tokens.mutedForeground)
+                .opacity(0.72)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(presentation.label) Waiting for projects and sessions")
+    }
+
+    private func connectionUnavailableState(tokens: WarrenColorTokens) -> some View {
+        let presentation = WarrenDesktopConnectionPresentation(connectionState)
+        return VStack(spacing: WarrenSpacing.standard) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 22, weight: .light))
+            Text(presentation.label)
+                .font(WarrenTypography.emptyStateTitle)
+            Text("Choose another execution server or wait for this server to return")
+                .font(WarrenTypography.body)
+                .opacity(0.72)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(tokens.mutedForeground)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(presentation.label)
     }
 
     /// The empty state sits inside the content area below the tab and preset

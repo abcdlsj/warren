@@ -100,7 +100,10 @@ struct WarrenDesktopSidebarRows: View {
                     .flatMap(\.workspaces)
                     .first(where: { $0.id == workspaceID })
             else { return }
-            _ = withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            _ = withAnimation(WarrenMotion.animation(
+                .stateChange,
+                reduceMotion: reduceMotion
+            )) {
                 tree.expandedProjectIDs.insert(workspace.projectID)
             }
         }
@@ -143,7 +146,10 @@ struct WarrenDesktopSidebarRows: View {
             let oldCount = workspaceCount(for: projectID, in: oldGroups)
             let newCount = workspaceCount(for: projectID, in: newGroups)
             guard newCount > oldCount else { return }
-            _ = withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            _ = withAnimation(WarrenMotion.animation(
+                .stateChange,
+                reduceMotion: reduceMotion
+            )) {
                 tree.expandedProjectIDs.insert(projectID)
             }
         }
@@ -177,7 +183,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProject(_ projectID: ProjectID) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+        withAnimation(WarrenMotion.animation(.stateChange, reduceMotion: reduceMotion)) {
             if tree.expandedProjectIDs.contains(projectID) {
                 tree.expandedProjectIDs.remove(projectID)
             } else {
@@ -205,7 +211,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProjects() {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+        withAnimation(WarrenMotion.animation(.stateChange, reduceMotion: reduceMotion)) {
             tree.projectsCollapsed.toggle()
         }
     }
@@ -269,7 +275,7 @@ struct WarrenDesktopSidebarRows: View {
         }
         .opacity(dragSourceRowID == group.project.id.description ? 0.2 : 1)
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.12),
+            WarrenMotion.animation(.feedback, reduceMotion: reduceMotion),
             value: dragSourceRowID
         )
     }
@@ -336,7 +342,7 @@ struct WarrenDesktopSidebarRows: View {
         }
         .opacity(dragSourceRowID == workspace.id.description ? 0.2 : 1)
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.12),
+            WarrenMotion.animation(.feedback, reduceMotion: reduceMotion),
             value: dragSourceRowID
         )
     }
@@ -503,7 +509,13 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                             .font(.system(size: 9, weight: .semibold))
                             .rotationEffect(.degrees(disclosureExpanded ? 90 : 0))
                             .opacity(isHovered || isToggleFocused ? 1 : 0)
-                            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: disclosureExpanded)
+                            .animation(
+                                WarrenMotion.animation(
+                                    .stateChange,
+                                    reduceMotion: reduceMotion
+                                ),
+                                value: disclosureExpanded
+                            )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

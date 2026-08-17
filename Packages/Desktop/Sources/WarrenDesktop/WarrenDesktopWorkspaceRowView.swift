@@ -155,40 +155,16 @@ struct WarrenDesktopWorkspaceRow: View {
 /// a quiet static marker.
 struct WarrenDesktopActivityIndicator: View {
     let activity: AgentActivityState
-    @State private var isExpanded = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        ZStack {
-            if pulses {
-                Circle()
-                    .fill(color.opacity(0.65))
-                    .frame(width: 8, height: 8)
-                    .scaleEffect(isExpanded ? 1.9 : 1)
-                    .opacity(isExpanded ? 0 : 0.75)
-            }
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-        }
+        WarrenStatusIndicator(
+            color: color,
+            isActive: activity == .working,
+            size: 7,
+            accessibilityLabel: accessibilityLabel
+        )
         .frame(width: 10, height: 10)
-        .onAppear {
-            guard pulses else { return }
-            withAnimation(.easeOut(duration: 1.25).repeatForever(autoreverses: false)) {
-                isExpanded = true
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel(accessibilityLabel)
-    }
-
-    private var pulses: Bool {
-        guard !reduceMotion else { return false }
-        return switch activity {
-        case .working, .waitingForInput, .failed: true
-        case .ready, .exited: false
-        }
     }
 
     private var color: Color {
