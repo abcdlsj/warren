@@ -441,6 +441,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             navigationWorkspace = projection.firstWorkspace(in: projectID)
         case .workspace(let workspaceID):
             navigationWorkspace = projection.workspace(id: workspaceID)
+        case .terminalGroup:
+            navigationWorkspace = nil
         case nil:
             navigationWorkspace = firstWorkspace
         }

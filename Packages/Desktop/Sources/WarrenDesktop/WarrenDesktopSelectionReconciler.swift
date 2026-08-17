@@ -59,20 +59,21 @@ public enum WarrenDesktopNavigationReducer {
                 selection: .workspace(workspaceID),
                 selectedTabID: firstTabID(inWorkspace: workspaceID, projection: projection)
             )
+        case .selectTerminalGroup(let groupID):
+            return WarrenDesktopNavigationState(
+                selection: .terminalGroup(groupID),
+                selectedTabID: firstTabID(inTerminalGroup: groupID, projection: projection)
+            )
         case .selectTab(let tabID):
             guard projection.tabs.contains(where: { $0.id == tabID }) else { return state }
-            let selection = workspace(for: tabID, in: projection)
-                .map { WarrenDesktopSidebarSelection.workspace($0.id) }
-                ?? state.selection
+            let selection = selection(for: tabID, in: projection) ?? state.selection
             return WarrenDesktopNavigationState(selection: selection, selectedTabID: tabID)
         case .openSession(let sessionID):
             guard let session = projection.sessions.first(where: { $0.id == sessionID }) else {
                 return state
             }
-            return WarrenDesktopNavigationState(
-                selection: .workspace(session.workspaceID),
-                selectedTabID: session.tabID
-            )
+            guard let selection = selection(for: session.id, in: projection) else { return state }
+            return WarrenDesktopNavigationState(selection: selection, selectedTabID: session.tabID)
         case .deleteSession(let sessionID):
             guard projection.sessions.contains(where: { $0.id == sessionID }) else { return state }
             let deletedTabID = projection.sessions.first { $0.id == sessionID }?.tabID
@@ -108,6 +109,9 @@ public enum WarrenDesktopNavigationReducer {
              .dismissActivity,
              .moveTab, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,
+             .requestNewTerminalGroupSession, .launchTerminalGroupSession,
+             .createTerminalGroup, .renameTerminalGroup, .setTerminalGroupHome,
+             .deleteTerminalGroup, .moveTerminalGroup,
              .toggleInspector, .toggleSidebar:
             return state
         }
@@ -145,12 +149,13 @@ public enum WarrenDesktopNavigationReducer {
         in projection: WarrenDesktopProjection
     ) -> Bool {
         guard let selection else { return true }
-        guard let workspace = workspace(for: tabID, in: projection) else { return false }
         switch selection {
         case .workspace(let workspaceID):
-            return workspace.id == workspaceID
+            return projection.workspaceID(forTabID: tabID) == workspaceID
         case .project(let projectID):
-            return workspace.projectID == projectID
+            return workspace(for: tabID, in: projection)?.projectID == projectID
+        case .terminalGroup(let groupID):
+            return projection.terminalGroupID(forTabID: tabID) == groupID
         }
     }
 
@@ -164,6 +169,8 @@ public enum WarrenDesktopNavigationReducer {
             return firstTabID(inProject: projectID, projection: projection)
         case .workspace(let workspaceID):
             return firstTabID(inWorkspace: workspaceID, projection: projection)
+        case .terminalGroup(let groupID):
+            return firstTabID(inTerminalGroup: groupID, projection: projection)
         }
     }
 
@@ -179,6 +186,8 @@ public enum WarrenDesktopNavigationReducer {
             }
         case .workspace(let workspaceID):
             return projection.tabs(in: workspaceID)
+        case .terminalGroup(let groupID):
+            return projection.tabs(in: groupID)
         }
     }
 
@@ -200,6 +209,33 @@ public enum WarrenDesktopNavigationReducer {
         }?.id
     }
 
+    private static func firstTabID(
+        inTerminalGroup groupID: TerminalGroupID,
+        projection: WarrenDesktopProjection
+    ) -> String? {
+        projection.tabs(in: groupID).first?.id
+    }
+
+    private static func selection(
+        for tabID: String,
+        in projection: WarrenDesktopProjection
+    ) -> WarrenDesktopSidebarSelection? {
+        if let workspace = workspace(for: tabID, in: projection) {
+            return .workspace(workspace.id)
+        }
+        return projection.terminalGroupID(forTabID: tabID).map { .terminalGroup($0) }
+    }
+
+    private static func selection(
+        for sessionID: TerminalSessionID,
+        in projection: WarrenDesktopProjection
+    ) -> WarrenDesktopSidebarSelection? {
+        if let workspace = projection.workspace(for: sessionID) {
+            return .workspace(workspace.id)
+        }
+        return projection.terminalGroup(for: sessionID).map { .terminalGroup($0.id) }
+    }
+
     private static func workspace(
         for tabID: String,
         in projection: WarrenDesktopProjection
@@ -216,6 +252,8 @@ public enum WarrenDesktopNavigationReducer {
             projection.groups.contains { $0.project.id == projectID }
         case .workspace(let workspaceID):
             projection.workspace(id: workspaceID) != nil
+        case .terminalGroup(let groupID):
+            projection.terminalGroup(id: groupID) != nil
         }
     }
 
@@ -223,13 +261,16 @@ public enum WarrenDesktopNavigationReducer {
         in projection: WarrenDesktopProjection
     ) -> WarrenDesktopSidebarSelection? {
         if let tabID = projection.tabs.first?.id,
-           let workspace = workspace(for: tabID, in: projection) {
-            return .workspace(workspace.id)
+           let selection = selection(for: tabID, in: projection) {
+            return selection
         }
         for group in projection.groups {
             if let workspace = group.workspaces.first {
                 return .workspace(workspace.id)
             }
+        }
+        if let group = projection.terminalGroups.first {
+            return .terminalGroup(group.id)
         }
         return projection.groups.first.map { .project($0.project.id) }
     }

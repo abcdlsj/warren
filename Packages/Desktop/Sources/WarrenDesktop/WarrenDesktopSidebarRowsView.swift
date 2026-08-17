@@ -126,6 +126,8 @@ struct WarrenDesktopSidebarRows: View {
             return projectID
         case .workspace(let workspaceID):
             return groups.first { $0.workspaces.contains { $0.id == workspaceID } }?.project.id
+        case .terminalGroup:
+            return nil
         case nil:
             return nil
         }
@@ -144,6 +146,8 @@ struct WarrenDesktopSidebarRows: View {
             onAction(.selectProject(projectID))
         case .workspace(let workspaceID):
             onAction(.selectWorkspace(workspaceID))
+        case .terminalGroup(let groupID):
+            onAction(.selectTerminalGroup(groupID))
         }
     }
 

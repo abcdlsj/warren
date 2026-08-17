@@ -19,6 +19,29 @@ public struct WarrenDesktopProjectGroup: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A Host-owned terminal group and its derived desktop session metrics.
+public struct WarrenDesktopTerminalGroup: Identifiable, Hashable, Sendable {
+    public let group: TerminalGroup
+    public let sessions: [WarrenDesktopSession]
+
+    public var id: TerminalGroupID { group.id }
+
+    public var runningSessionCount: Int {
+        sessions.filter { $0.state.isActive }.count
+    }
+
+    public var activity: AgentActivityState? {
+        sessions.compactMap(\.activity).max { lhs, rhs in
+            lhs.terminalPriority < rhs.terminalPriority
+        }
+    }
+
+    public init(group: TerminalGroup, sessions: [WarrenDesktopSession] = []) {
+        self.group = group
+        self.sessions = sessions
+    }
+}
+
 /// Optional trailing inspector content. The shell owns its slot geometry.
 public struct WarrenDesktopInspectorContent: Identifiable, Hashable, Sendable {
     public let id: String
@@ -42,7 +65,8 @@ public struct WarrenDesktopInspectorContent: Identifiable, Hashable, Sendable {
 /// present only when the current Window Layout contains an entry for it.
 public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
     public let id: TerminalSessionID
-    public let workspaceID: WorkspaceID
+    public let workspaceID: WorkspaceID?
+    public let terminalGroupID: TerminalGroupID?
     public let tabID: String?
     public let title: String
     public let customTitle: String?
@@ -55,7 +79,8 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
 
     public init(
         id: TerminalSessionID,
-        workspaceID: WorkspaceID,
+        workspaceID: WorkspaceID? = nil,
+        terminalGroupID: TerminalGroupID? = nil,
         tabID: String? = nil,
         title: String,
         customTitle: String? = nil,
@@ -66,8 +91,13 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         runtimeProcess: String = "",
         workingDirectory: String = ""
     ) {
+        precondition(
+            (workspaceID == nil) != (terminalGroupID == nil),
+            "A terminal session must belong to exactly one context."
+        )
         self.id = id
         self.workspaceID = workspaceID
+        self.terminalGroupID = terminalGroupID
         self.tabID = tabID
         self.title = title
         self.customTitle = customTitle
@@ -83,6 +113,7 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         Self(
             id: id,
             workspaceID: workspaceID,
+            terminalGroupID: terminalGroupID,
             tabID: tabID,
             title: title,
             customTitle: customTitle,
@@ -141,18 +172,21 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     public struct ReconciliationKey: Sendable, Hashable {
         public let projectIDs: [ProjectID]
         public let workspaceIDs: [WorkspaceID]
+        public let terminalGroupIDs: [TerminalGroupID]
         public let tabIDs: [String]
         public let sessionIDs: [TerminalSessionID]
         public let inspectorID: String?
 
         fileprivate init(
             groups: [WarrenDesktopProjectGroup],
+            terminalGroups: [TerminalGroup],
             sessions: [WarrenDesktopSession],
             tabs: [ClientTab],
             inspectorID: String?
         ) {
             self.projectIDs = groups.map(\.project.id)
             self.workspaceIDs = groups.flatMap { $0.workspaces.map(\.id) }
+            self.terminalGroupIDs = terminalGroups.map(\.id)
             self.tabIDs = tabs.map(\.id)
             self.sessionIDs = sessions.map(\.id)
             self.inspectorID = inspectorID
@@ -161,10 +195,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
 
     public let host: WarrenDomain.Host
     public let groups: [WarrenDesktopProjectGroup]
+    public let terminalGroups: [TerminalGroup]
     public let sessions: [WarrenDesktopSession]
     public let tabs: [ClientTab]
     public let sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID]
+    public let sessionTerminalGroupIDs: [TerminalSessionID: TerminalGroupID]
     public let tabWorkspaceIDs: [String: WorkspaceID]
+    public let tabTerminalGroupIDs: [String: TerminalGroupID]
     public let reconciliationKey: ReconciliationKey
     /// Lookup tables are built once at the projection boundary. SwiftUI can
     /// ask for the same relationship many times while reconciling a frame;
@@ -172,9 +209,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     private let workspacesByID: [WorkspaceID: Workspace]
     private let sessionsByID: [TerminalSessionID: WarrenDesktopSession]
     private let tabsByWorkspaceID: [WorkspaceID: [ClientTab]]
+    private let sessionsByTerminalGroupID: [TerminalGroupID: [WarrenDesktopSession]]
+    private let tabsByTerminalGroupID: [TerminalGroupID: [ClientTab]]
     private let firstWorkspaceID: WorkspaceID?
     private let firstWorkspaceIDByProjectID: [ProjectID: WorkspaceID]
     private let activityByWorkspaceID: [WorkspaceID: AgentActivityState]
+    private let activityByTerminalGroupID: [TerminalGroupID: AgentActivityState]
+    private let terminalGroupsByID: [TerminalGroupID: TerminalGroup]
     public let inspector: WarrenDesktopInspectorContent?
     public let connectionState: WarrenDesktopConnectionState
 
@@ -196,10 +237,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.host == rhs.host
             && lhs.groups == rhs.groups
+            && lhs.terminalGroups == rhs.terminalGroups
             && lhs.sessions == rhs.sessions
             && lhs.tabs == rhs.tabs
             && lhs.sessionWorkspaceIDs == rhs.sessionWorkspaceIDs
+            && lhs.sessionTerminalGroupIDs == rhs.sessionTerminalGroupIDs
             && lhs.tabWorkspaceIDs == rhs.tabWorkspaceIDs
+            && lhs.tabTerminalGroupIDs == rhs.tabTerminalGroupIDs
             && lhs.inspector == rhs.inspector
             && lhs.connectionState == rhs.connectionState
     }
@@ -207,10 +251,13 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(host)
         hasher.combine(groups)
+        hasher.combine(terminalGroups)
         hasher.combine(sessions)
         hasher.combine(tabs)
         hasher.combine(sessionWorkspaceIDs)
+        hasher.combine(sessionTerminalGroupIDs)
         hasher.combine(tabWorkspaceIDs)
+        hasher.combine(tabTerminalGroupIDs)
         hasher.combine(inspector)
         hasher.combine(connectionState)
     }
@@ -223,7 +270,10 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID] = [:],
         tabWorkspaceIDs: [String: WorkspaceID] = [:],
         inspector: WarrenDesktopInspectorContent? = nil,
-        connectionState: WarrenDesktopConnectionState = .attached
+        connectionState: WarrenDesktopConnectionState = .attached,
+        terminalGroups: [TerminalGroup] = [],
+        sessionTerminalGroupIDs: [TerminalSessionID: TerminalGroupID] = [:],
+        tabTerminalGroupIDs: [String: TerminalGroupID] = [:]
     ) {
         let pinnedBySessionID = Dictionary(
             uniqueKeysWithValues: sessions.map { ($0.id, $0.pinned) }
@@ -235,18 +285,39 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
                 workspaces: Self.pinnedFirst(group.workspaces) { $0.pinned }
             )
         }
+        self.terminalGroups = terminalGroups
         self.sessions = Self.pinnedFirst(sessions) { $0.pinned }
         self.tabs = Self.pinnedFirst(tabs) { tab in
             tab.sessionID.flatMap { pinnedBySessionID[$0] } ?? false
         }
-        self.sessionWorkspaceIDs = sessionWorkspaceIDs
+        let resolvedSessionWorkspaceIDs = sessionWorkspaceIDs.merging(
+            Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
+                session.workspaceID.map { (session.id, $0) }
+            }),
+            uniquingKeysWith: { explicit, _ in explicit }
+        )
+        let resolvedSessionTerminalGroupIDs = sessionTerminalGroupIDs.merging(
+            Dictionary(uniqueKeysWithValues: sessions.compactMap { session in
+                session.terminalGroupID.map { (session.id, $0) }
+            }),
+            uniquingKeysWith: { explicit, _ in explicit }
+        )
+        self.sessionWorkspaceIDs = resolvedSessionWorkspaceIDs
+        self.sessionTerminalGroupIDs = resolvedSessionTerminalGroupIDs
         let resolvedTabWorkspaceIDs = tabWorkspaceIDs.merging(
             Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
-                tab.sessionID.flatMap { sessionWorkspaceIDs[$0] }.map { (tab.id, $0) }
+                tab.sessionID.flatMap { resolvedSessionWorkspaceIDs[$0] }.map { (tab.id, $0) }
+            }),
+            uniquingKeysWith: { explicit, _ in explicit }
+        )
+        let resolvedTabTerminalGroupIDs = tabTerminalGroupIDs.merging(
+            Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
+                tab.sessionID.flatMap { resolvedSessionTerminalGroupIDs[$0] }.map { (tab.id, $0) }
             }),
             uniquingKeysWith: { explicit, _ in explicit }
         )
         self.tabWorkspaceIDs = resolvedTabWorkspaceIDs
+        self.tabTerminalGroupIDs = resolvedTabTerminalGroupIDs
 
         var workspacesByID: [WorkspaceID: Workspace] = [:]
         var firstWorkspaceID: WorkspaceID?
@@ -275,20 +346,48 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         }
         self.tabsByWorkspaceID = tabsByWorkspaceID
 
+        var sessionsByTerminalGroupID: [TerminalGroupID: [WarrenDesktopSession]] = [:]
+        for session in self.sessions {
+            guard let groupID = resolvedSessionTerminalGroupIDs[session.id] else { continue }
+            sessionsByTerminalGroupID[groupID, default: []].append(session)
+        }
+        self.sessionsByTerminalGroupID = sessionsByTerminalGroupID
+
+        var tabsByTerminalGroupID: [TerminalGroupID: [ClientTab]] = [:]
+        for tab in tabs {
+            guard let groupID = resolvedTabTerminalGroupIDs[tab.id] else { continue }
+            tabsByTerminalGroupID[groupID, default: []].append(tab)
+        }
+        self.tabsByTerminalGroupID = tabsByTerminalGroupID
+
         var activityByWorkspaceID: [WorkspaceID: AgentActivityState] = [:]
         for session in sessions {
-            guard let activity = session.activity else { continue }
-            guard let current = activityByWorkspaceID[session.workspaceID],
+            guard let workspaceID = session.workspaceID,
+                  let activity = session.activity else { continue }
+            guard let current = activityByWorkspaceID[workspaceID],
                   current.workspacePriority >= activity.workspacePriority else {
-                activityByWorkspaceID[session.workspaceID] = activity
+                activityByWorkspaceID[workspaceID] = activity
                 continue
             }
         }
         self.activityByWorkspaceID = activityByWorkspaceID
+        var activityByTerminalGroupID: [TerminalGroupID: AgentActivityState] = [:]
+        for session in sessions {
+            guard let groupID = session.terminalGroupID,
+                  let activity = session.activity else { continue }
+            guard let current = activityByTerminalGroupID[groupID],
+                  current.terminalPriority >= activity.terminalPriority else {
+                activityByTerminalGroupID[groupID] = activity
+                continue
+            }
+        }
+        self.activityByTerminalGroupID = activityByTerminalGroupID
+        self.terminalGroupsByID = Dictionary(uniqueKeysWithValues: terminalGroups.map { ($0.id, $0) })
         self.inspector = inspector
         self.connectionState = connectionState
         self.reconciliationKey = ReconciliationKey(
             groups: groups,
+            terminalGroups: terminalGroups,
             sessions: sessions,
             tabs: tabs,
             inspectorID: inspector?.id
@@ -306,7 +405,10 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         sessionWorkspaceIDs: [TerminalSessionID: WorkspaceID] = [:],
         tabWorkspaceIDs: [String: WorkspaceID] = [:],
         inspector: WarrenDesktopInspectorContent? = nil,
-        connectionState: WarrenDesktopConnectionState = .attached
+        connectionState: WarrenDesktopConnectionState = .attached,
+        terminalGroups: [TerminalGroup] = [],
+        sessionTerminalGroupIDs: [TerminalSessionID: TerminalGroupID] = [:],
+        tabTerminalGroupIDs: [String: TerminalGroupID] = [:]
     ) {
         var workspacesByProjectID: [ProjectID: [Workspace]] = [:]
         for workspace in Self.pinnedFirst(workspaces, isPinned: \.pinned) {
@@ -326,7 +428,10 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
             sessionWorkspaceIDs: sessionWorkspaceIDs,
             tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
-            connectionState: connectionState
+            connectionState: connectionState,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroupIDs,
+            tabTerminalGroupIDs: tabTerminalGroupIDs
         )
     }
 
@@ -358,12 +463,25 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         return workspacesByID[workspaceID]
     }
 
+    public func terminalGroup(id: TerminalGroupID) -> TerminalGroup? {
+        terminalGroupsByID[id]
+    }
+
+    public func terminalGroup(for sessionID: TerminalSessionID) -> TerminalGroup? {
+        guard let groupID = sessionTerminalGroupIDs[sessionID] else { return nil }
+        return terminalGroupsByID[groupID]
+    }
+
     public func session(id: TerminalSessionID) -> WarrenDesktopSession? {
         sessionsByID[id]
     }
 
     public func workspaceID(forTabID tabID: String) -> WorkspaceID? {
         tabWorkspaceIDs[tabID]
+    }
+
+    public func terminalGroupID(forTabID tabID: String) -> TerminalGroupID? {
+        tabTerminalGroupIDs[tabID]
     }
 
     /// Tabs are workspace-local UI. The Host may keep tabs from several
@@ -373,10 +491,35 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
         tabsByWorkspaceID[workspaceID] ?? []
     }
 
+    public func tabs(in workspaceID: WorkspaceID?) -> [ClientTab] {
+        guard let workspaceID else { return [] }
+        return tabs(in: workspaceID)
+    }
+
+    public func tabs(in terminalGroupID: TerminalGroupID) -> [ClientTab] {
+        tabsByTerminalGroupID[terminalGroupID] ?? []
+    }
+
+    public func sessions(in terminalGroupID: TerminalGroupID) -> [WarrenDesktopSession] {
+        sessionsByTerminalGroupID[terminalGroupID] ?? []
+    }
+
     /// Returns the most actionable state for a Workspace. A failure or input
     /// request must remain visible even when another Session is still working.
     public func activity(in workspaceID: WorkspaceID) -> AgentActivityState? {
         activityByWorkspaceID[workspaceID]
+    }
+
+    public func activity(in workspaceID: WorkspaceID?) -> AgentActivityState? {
+        workspaceID.flatMap(activity(in:))
+    }
+
+    public func activity(in terminalGroupID: TerminalGroupID) -> AgentActivityState? {
+        activityByTerminalGroupID[terminalGroupID]
+    }
+
+    public func runningSessionCount(in terminalGroupID: TerminalGroupID) -> Int {
+        sessions(in: terminalGroupID).filter { $0.state.isActive }.count
     }
 
     /// Returns a projection with one session's client-local activity
@@ -400,7 +543,10 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
             sessionWorkspaceIDs: sessionWorkspaceIDs,
             tabWorkspaceIDs: tabWorkspaceIDs,
             inspector: inspector,
-            connectionState: connectionState
+            connectionState: connectionState,
+            terminalGroups: terminalGroups,
+            sessionTerminalGroupIDs: sessionTerminalGroupIDs,
+            tabTerminalGroupIDs: tabTerminalGroupIDs
         )
     }
 }
@@ -415,6 +561,8 @@ private extension AgentActivityState {
         case .exited: 0
         }
     }
+
+    var terminalPriority: Int { workspacePriority }
 }
 
 /// A deterministic preview/test-only fixture. Production composition should
@@ -424,6 +572,7 @@ public struct WarrenDesktopFixture: Sendable {
 
     public var host: WarrenDomain.Host { projection.host }
     public var groups: [WarrenDesktopProjectGroup] { projection.groups }
+    public var terminalGroups: [TerminalGroup] { projection.terminalGroups }
     public var sessions: [WarrenDesktopSession] { projection.sessions }
     public var tabs: [ClientTab] { projection.tabs }
     public var inspector: WarrenDesktopInspectorContent? { projection.inspector }
@@ -438,15 +587,19 @@ public struct WarrenDesktopFixture: Sendable {
         groups: [WarrenDesktopProjectGroup],
         tabs: [ClientTab] = [],
         inspector: WarrenDesktopInspectorContent? = nil,
-        isConnected: Bool = true
+        isConnected: Bool = true,
+        terminalGroups: [TerminalGroup] = [],
+        sessions: [WarrenDesktopSession] = []
     ) {
         self.init(
             projection: WarrenDesktopProjection(
                 host: host,
                 groups: groups,
+                sessions: sessions,
                 tabs: tabs,
                 inspector: inspector,
-                connectionState: isConnected ? .attached : .disconnected
+                connectionState: isConnected ? .attached : .disconnected,
+                terminalGroups: terminalGroups
             )
         )
     }
@@ -457,16 +610,20 @@ public struct WarrenDesktopFixture: Sendable {
         workspaces: [Workspace],
         tabs: [ClientTab] = [],
         inspector: WarrenDesktopInspectorContent? = nil,
-        isConnected: Bool = true
+        isConnected: Bool = true,
+        terminalGroups: [TerminalGroup] = [],
+        sessions: [WarrenDesktopSession] = []
     ) {
         self.init(
             projection: WarrenDesktopProjection(
                 host: host,
                 projects: projects,
                 workspaces: workspaces,
+                sessions: sessions,
                 tabs: tabs,
                 inspector: inspector,
-                connectionState: isConnected ? .attached : .disconnected
+                connectionState: isConnected ? .attached : .disconnected,
+                terminalGroups: terminalGroups
             )
         )
     }
@@ -590,6 +747,7 @@ public struct WarrenDesktopFixture: Sendable {
 public enum WarrenDesktopSidebarSelection: Hashable, Sendable {
     case project(ProjectID)
     case workspace(WorkspaceID)
+    case terminalGroup(TerminalGroupID)
 }
 
 /// User intent emitted by the desktop shell. The composition root translates
@@ -609,6 +767,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case dismissActivity(TerminalSessionID, AgentActivityState)
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
+    case selectTerminalGroup(TerminalGroupID)
     case moveProject(ProjectID, before: ProjectID?)
     case moveWorkspace(WorkspaceID, before: WorkspaceID?)
     case openSession(TerminalSessionID)
@@ -617,6 +776,13 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case moveTab(String, before: String?)
     case requestNewSession(WorkspaceID)
     case launchSession(WorkspaceID, TerminalSessionLaunchRequest)
+    case requestNewTerminalGroupSession(TerminalGroupID)
+    case launchTerminalGroupSession(TerminalGroupID, TerminalSessionLaunchRequest)
+    case createTerminalGroup(String, home: String?)
+    case renameTerminalGroup(TerminalGroupID, String)
+    case setTerminalGroupHome(TerminalGroupID, String?)
+    case deleteTerminalGroup(TerminalGroupID)
+    case moveTerminalGroup(TerminalGroupID, before: TerminalGroupID?)
     case closeTab(String)
     case closeOtherTabs(String)
     case closeAllTabs
@@ -649,7 +815,8 @@ public struct WarrenDesktopActions {
 /// bytes and forwards input through its own injected adapter; this value never
 /// contains a process, transport, or persistence dependency.
 public struct WarrenDesktopTerminalContext: Hashable, Sendable {
-    public let workspace: Workspace
+    public let workspace: Workspace?
+    public let terminalGroup: TerminalGroup?
     public let tab: ClientTab
     public let font: TerminalFontPreference
 
@@ -659,6 +826,18 @@ public struct WarrenDesktopTerminalContext: Hashable, Sendable {
         font: TerminalFontPreference = .init()
     ) {
         self.workspace = workspace
+        self.terminalGroup = nil
+        self.tab = tab
+        self.font = font
+    }
+
+    public init(
+        terminalGroup: TerminalGroup,
+        tab: ClientTab,
+        font: TerminalFontPreference = .init()
+    ) {
+        self.workspace = nil
+        self.terminalGroup = terminalGroup
         self.tab = tab
         self.font = font
     }

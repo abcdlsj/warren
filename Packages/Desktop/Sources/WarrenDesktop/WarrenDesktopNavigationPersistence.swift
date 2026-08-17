@@ -24,6 +24,9 @@ public enum WarrenDesktopNavigationPersistence {
         case "project":
             guard let id = ProjectID(uuidString: parts[1]) else { return nil }
             selection = .project(id)
+        case "terminal-group":
+            guard let id = TerminalGroupID(uuidString: parts[1]) else { return nil }
+            selection = .terminalGroup(id)
         default:
             return nil
         }
@@ -43,6 +46,8 @@ public enum WarrenDesktopNavigationPersistence {
             defaults.set("workspace:\(id.description)", forKey: selectionKey)
         case .project(let id):
             defaults.set("project:\(id.description)", forKey: selectionKey)
+        case .terminalGroup(let id):
+            defaults.set("terminal-group:\(id.description)", forKey: selectionKey)
         case nil:
             defaults.removeObject(forKey: selectionKey)
         }

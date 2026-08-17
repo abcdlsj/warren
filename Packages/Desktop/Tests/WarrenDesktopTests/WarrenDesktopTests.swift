@@ -10,7 +10,7 @@ private struct TestTerminalSurface: View {
     let context: WarrenDesktopTerminalContext
 
     var body: some View {
-        Text("surface:\(context.tab.id):\(context.workspace.id.rawValue.uuidString)")
+        Text("surface:\(context.tab.id):\(context.workspace?.id.rawValue.uuidString ?? context.terminalGroup?.id.rawValue.uuidString ?? "none")")
     }
 }
 
@@ -602,6 +602,71 @@ final class WarrenDesktopTests: XCTestCase {
 
         XCTAssertEqual(projection.firstWorkspace, workspace)
         XCTAssertEqual(projection.firstWorkspace(in: populatedProject.id), workspace)
+    }
+
+    func testTerminalGroupProjectionKeepsGroupTabsAndNavigationScoped() {
+        let host = WarrenDomain.Host(name: "Terminal Host")
+        let group = TerminalGroup(hostID: host.id, name: "Inbox", home: "/tmp")
+        let sessionID = TerminalSessionID()
+        let session = WarrenDesktopSession(
+            id: sessionID,
+            terminalGroupID: group.id,
+            title: "Shell",
+            state: .attached,
+            activity: .working,
+            workingDirectory: "/tmp"
+        )
+        let tab = ClientTab(
+            id: "group-tab",
+            title: "Shell",
+            sessionID: sessionID
+        )
+        let projection = WarrenDesktopProjection(
+            host: host,
+            groups: [],
+            sessions: [session],
+            tabs: [tab],
+            terminalGroups: [group]
+        )
+
+        XCTAssertEqual(projection.terminalGroup(id: group.id), group)
+        XCTAssertEqual(projection.tabs(in: group.id), [tab])
+        XCTAssertEqual(projection.sessions(in: group.id), [session])
+        XCTAssertEqual(projection.runningSessionCount(in: group.id), 1)
+        XCTAssertEqual(projection.activity(in: group.id), .working)
+
+        let selected = WarrenDesktopNavigationReducer.reduce(
+            .init(selection: nil, selectedTabID: nil),
+            action: .selectTerminalGroup(group.id),
+            in: projection
+        )
+        XCTAssertEqual(selected.selection, .terminalGroup(group.id))
+        XCTAssertEqual(selected.selectedTabID, tab.id)
+
+        let selectedByTab = WarrenDesktopNavigationReducer.reduce(
+            .init(selection: nil, selectedTabID: nil),
+            action: .selectTab(tab.id),
+            in: projection
+        )
+        XCTAssertEqual(selectedByTab.selection, .terminalGroup(group.id))
+    }
+
+    func testNavigationPersistenceRoundTripsTerminalGroup() {
+        let suiteName = "warren-terminal-group-navigation-\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let groupID = TerminalGroupID()
+        let state = WarrenDesktopNavigationState(
+            selection: .terminalGroup(groupID),
+            selectedTabID: "group-tab"
+        )
+
+        WarrenDesktopNavigationPersistence.save(state, to: defaults)
+
+        XCTAssertEqual(
+            WarrenDesktopNavigationPersistence.restore(from: defaults),
+            state
+        )
     }
 
     func testActionsExposeProjectWorkspaceAndTabIntentWithoutSideEffects() {
