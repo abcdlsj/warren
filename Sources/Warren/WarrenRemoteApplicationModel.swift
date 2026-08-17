@@ -647,6 +647,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
+    @ObservationIgnored private var dismissedActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
     @ObservationIgnored private var tabOrderByWorkspaceID: [WorkspaceID: [String]] = [:]
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
@@ -694,6 +695,7 @@ final class WarrenRemoteApplicationModel {
         currentRoster = nil
         agentActivityBySessionID.removeAll()
         tabOrderByWorkspaceID.removeAll()
+        dismissedActivityBySessionID.removeAll()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
     }
@@ -1138,6 +1140,13 @@ final class WarrenRemoteApplicationModel {
             request("workspace.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .setSessionPinned(let id, let pinned):
             request("session.pin", params: ["id": id.description, "pinned": String(pinned)])
+        case .dismissActivity(let id):
+            if let activity = projection.session(id: id)?.activity {
+                dismissedActivityBySessionID[id] = activity
+            }
+            if let currentRoster {
+                apply(currentRoster)
+            }
         case .moveProject(let projectID, let before):
             var params = ["id": projectID.description]
             if let before { params["before"] = before.description }
@@ -1354,6 +1363,12 @@ final class WarrenRemoteApplicationModel {
             apply(roster)
         case .agent(let sessionID, let activity):
             agentActivityBySessionID[sessionID] = activity
+            if WarrenActivityDismissal.presentedActivity(
+                candidate: activity,
+                dismissed: dismissedActivityBySessionID[sessionID]
+            ).clearsDismissal {
+                dismissedActivityBySessionID.removeValue(forKey: sessionID)
+            }
             if let currentRoster {
                 apply(currentRoster)
             }
@@ -1476,7 +1491,16 @@ final class WarrenRemoteApplicationModel {
             return (value, id, workspaceID)
         }
         let sessions = remoteSessions.map { value, id, workspaceID in
-            WarrenDesktopSession(
+            let candidateActivity = agentActivityBySessionID[id]
+                ?? AgentActivityState(rawValue: value.activity ?? "")
+            let presentation = WarrenActivityDismissal.presentedActivity(
+                candidate: candidateActivity,
+                dismissed: dismissedActivityBySessionID[id]
+            )
+            if presentation.clearsDismissal {
+                dismissedActivityBySessionID.removeValue(forKey: id)
+            }
+            return WarrenDesktopSession(
                 id: id,
                 workspaceID: workspaceID,
                 tabID: Self.tabID(id),
@@ -1485,13 +1509,15 @@ final class WarrenRemoteApplicationModel {
                 pinned: value.pinned ?? false,
                 kind: TerminalSessionKind(rawValue: value.kind) ?? .custom,
                 state: value.lifecycle == "running" ? .attached : .exited,
-                activity: agentActivityBySessionID[id]
-                    ?? AgentActivityState(rawValue: value.activity ?? ""),
+                activity: presentation.activity,
                 runtimeProcess: value.process ?? value.command ?? "",
                 workingDirectory: value.directory ?? workspacePaths[workspaceID] ?? ""
             )
         }
         let liveSessionIDs = Set(remoteSessions.map(\.1))
+        dismissedActivityBySessionID = dismissedActivityBySessionID.filter {
+            liveSessionIDs.contains($0.key)
+        }
         let activeActivitySessionIDs = Set(
             remoteSessions.compactMap { value, id, _ in
                 (value.activity ?? "").isEmpty ? nil : id

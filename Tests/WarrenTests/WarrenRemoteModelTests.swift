@@ -169,6 +169,49 @@ final class WarrenRemoteModelTests: XCTestCase {
         ))
     }
 
+    func testActivityDismissalHidesOnlyTheDismissedState() {
+        XCTAssertEqual(
+            WarrenActivityDismissal.presentedActivity(
+                candidate: .ready,
+                dismissed: nil
+            ),
+            WarrenActivityDismissal.Presentation(
+                activity: .ready,
+                clearsDismissal: false
+            )
+        )
+        XCTAssertEqual(
+            WarrenActivityDismissal.presentedActivity(
+                candidate: .ready,
+                dismissed: .ready
+            ),
+            WarrenActivityDismissal.Presentation(
+                activity: nil,
+                clearsDismissal: false
+            )
+        )
+        XCTAssertEqual(
+            WarrenActivityDismissal.presentedActivity(
+                candidate: .working,
+                dismissed: .ready
+            ),
+            WarrenActivityDismissal.Presentation(
+                activity: .working,
+                clearsDismissal: true
+            )
+        )
+        XCTAssertEqual(
+            WarrenActivityDismissal.presentedActivity(
+                candidate: nil,
+                dismissed: .ready
+            ),
+            WarrenActivityDismissal.Presentation(
+                activity: nil,
+                clearsDismissal: true
+            )
+        )
+    }
+
     func testLosslessAsyncBufferBackpressuresAndPreservesOrder() async throws {
         let buffer = WarrenLosslessAsyncBuffer<Int>(capacity: 2)
         let progress = SendProgress()

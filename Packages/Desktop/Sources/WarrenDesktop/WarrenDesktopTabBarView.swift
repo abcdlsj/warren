@@ -35,6 +35,7 @@ struct WarrenDesktopTabBar: View {
     let onCloseAllTabs: () -> Void
     let onRenameSession: (TerminalSessionID, String) -> Void
     let onToggleSessionPin: (TerminalSessionID, Bool) -> Void
+    let onDismissActivity: (TerminalSessionID) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var pendingRenameSessionID: TerminalSessionID?
@@ -85,6 +86,10 @@ struct WarrenDesktopTabBar: View {
                                         sessionID,
                                         !pinnedSessionIDs.contains(sessionID)
                                     )
+                                },
+                                onDismissActivity: {
+                                    guard let sessionID = tab.sessionID else { return }
+                                    onDismissActivity(sessionID)
                                 }
                             )
                         }

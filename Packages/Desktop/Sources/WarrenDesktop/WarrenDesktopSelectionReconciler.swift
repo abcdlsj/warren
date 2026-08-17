@@ -105,6 +105,7 @@ public enum WarrenDesktopNavigationReducer {
              .renameProject, .renameWorkspace, .deleteProject, .deleteWorkspace,
              .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
+             .dismissActivity,
              .moveTab, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,
              .toggleInspector, .toggleSidebar:

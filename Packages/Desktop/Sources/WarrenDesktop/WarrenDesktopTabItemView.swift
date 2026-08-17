@@ -17,6 +17,7 @@ struct WarrenDesktopTabItem: View {
     let onMoveBefore: (String) -> Void
     let onRename: () -> Void
     let onTogglePin: () -> Void
+    let onDismissActivity: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -47,8 +48,13 @@ struct WarrenDesktopTabItem: View {
                             .accessibilityHidden(true)
                     }
                     if let activity {
-                        WarrenDesktopActivityIndicator(activity: activity)
-                            .accessibilityHidden(true)
+                        ZStack {
+                            WarrenDesktopActivityIndicator(activity: activity)
+                                .accessibilityHidden(true)
+                            WarrenDesktopTabActivityDragHandle(onDismiss: onDismissActivity)
+                        }
+                        .frame(width: 12, height: 12)
+                        .accessibilityHidden(true)
                     }
                     Text(displayTitle)
                         .font(WarrenTypography.tabShellTitle)
@@ -159,6 +165,9 @@ struct WarrenDesktopTabItem: View {
         .contextMenu {
             if tab.sessionID != nil {
                 Button(isPinned ? "Unpin Session" : "Pin Session", action: onTogglePin)
+                if activity != nil {
+                    Button("Dismiss Activity", action: onDismissActivity)
+                }
                 Button("Rename Session", action: onRename)
                 Button("Close Tab", action: onClose)
                 Button("Close Other Tabs", action: onCloseOthers)
