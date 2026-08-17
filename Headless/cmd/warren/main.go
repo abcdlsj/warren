@@ -319,6 +319,11 @@ func resourceCommand(args []string) error {
 	if resource == "session" && (action == "create" || action == "add") && len(positionals(params)) > 1 {
 		return newUsageError("session create accepts at most one context ID", actionUsageText(commandName, action))
 	}
+	if resource == "session" && (action == "create" || action == "add") &&
+		(len(positionals(params)) > 0 || stringValue(params, "workspace") != "") &&
+		stringValue(params, "group") != "" {
+		return newUsageError("workspace and --group are mutually exclusive", actionUsageText(commandName, action))
+	}
 	if label := missingRequiredFlag(resource, action, params); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
 	}

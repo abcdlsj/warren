@@ -1,14 +1,32 @@
 import Foundation
 import WarrenDomain
 
-/// Device-local persistence for the foreground navigation state.
+/// Device-local tab ordering for each resource scope. IDs are stored as raw
+/// strings so a layout can survive a reconnect before the remote roster has
+/// been decoded, while callers still validate them against their domain type.
+public struct WarrenDesktopTabOrders: Codable, Hashable, Sendable {
+    public var workspace: [String: [String]]
+    public var terminalGroup: [String: [String]]
+
+    public init(
+        workspace: [String: [String]] = [:],
+        terminalGroup: [String: [String]] = [:]
+    ) {
+        self.workspace = workspace
+        self.terminalGroup = terminalGroup
+    }
+}
+
+/// Device-local persistence for foreground navigation and scope-local tab
+/// ordering.
 ///
-/// Host state owns projects, workspaces, tabs and sessions; this only
-/// remembers which workspace/session the window was showing so a relaunch can
-/// restore the same view instead of falling back to the first tab.
+/// Host state owns projects, workspaces, and sessions; this remembers which
+/// scope/session the window was showing and how its tabs were arranged so a
+/// relaunch can restore the same view instead of falling back to roster order.
 public enum WarrenDesktopNavigationPersistence {
     private static let selectionKey = "warren.desktop.navigation.selection"
     private static let selectedTabIDKey = "warren.desktop.navigation.selectedTabID"
+    private static let tabOrdersKey = "warren.desktop.navigation.tabOrders"
 
     public static func restore(from defaults: UserDefaults = .standard) -> WarrenDesktopNavigationState? {
         guard let rawSelection = defaults.string(forKey: selectionKey),
@@ -56,5 +74,23 @@ public enum WarrenDesktopNavigationPersistence {
         } else {
             defaults.removeObject(forKey: selectedTabIDKey)
         }
+    }
+
+    public static func restoreTabOrders(
+        from defaults: UserDefaults = .standard
+    ) -> WarrenDesktopTabOrders {
+        guard let data = defaults.data(forKey: tabOrdersKey),
+              let orders = try? JSONDecoder().decode(WarrenDesktopTabOrders.self, from: data) else {
+            return WarrenDesktopTabOrders()
+        }
+        return orders
+    }
+
+    public static func saveTabOrders(
+        _ orders: WarrenDesktopTabOrders,
+        to defaults: UserDefaults = .standard
+    ) {
+        guard let data = try? JSONEncoder().encode(orders) else { return }
+        defaults.set(data, forKey: tabOrdersKey)
     }
 }

@@ -97,15 +97,20 @@ type Service struct {
 
 	metadataCache *metadataCache
 
-	outputMu       sync.Mutex
-	outputs        map[string]*outputSession
-	peers          map[string]map[*wsPeer]struct{}
-	focusedPeers   map[string]*wsPeer
-	runtimeSizes   map[string]ghostline.Size
-	broadcastLocks map[string]*sync.Mutex
-	agentsMu       sync.Mutex
-	agents         map[string]*agentSession
-	agentEpoch     uint64
+	outputMu sync.Mutex
+	// terminalGroupLifecycleMu serializes Group deletion with Group Session
+	// creation. Runtime creation and its durable Session record must observe
+	// the same Group snapshot, otherwise a concurrent forced deletion can
+	// leave an orphan runtime or a Session whose Group no longer exists.
+	terminalGroupLifecycleMu sync.Mutex
+	outputs                  map[string]*outputSession
+	peers                    map[string]map[*wsPeer]struct{}
+	focusedPeers             map[string]*wsPeer
+	runtimeSizes             map[string]ghostline.Size
+	broadcastLocks           map[string]*sync.Mutex
+	agentsMu                 sync.Mutex
+	agents                   map[string]*agentSession
+	agentEpoch               uint64
 
 	lifecycleOnce   sync.Once
 	lifecycleCancel context.CancelFunc
@@ -862,6 +867,9 @@ func (s *Service) MoveTerminalGroup(id, before string) error {
 }
 
 func (s *Service) RemoveTerminalGroup(ctx context.Context, id string, force bool) error {
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
+
 	state := s.Store.Snapshot()
 	found := false
 	for _, group := range state.TerminalGroups {
@@ -1226,17 +1234,22 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 }
 
 func (s *Service) CreateGroupSession(ctx context.Context, groupID, command, kind, title, runtimeKind string) (api.Session, error) {
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
 	return s.createSession(ctx, "", groupID, command, kind, title, runtimeKind)
 }
 
 // CreateDefaultGroupSession creates a standalone shell in the first ordered
 // Group, recreating Inbox when a Host has no Groups left.
 func (s *Service) CreateDefaultGroupSession(ctx context.Context, command, kind, title, runtimeKind string) (api.Session, error) {
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
+
 	group, err := s.ensureTerminalGroup()
 	if err != nil {
 		return api.Session{}, err
 	}
-	return s.CreateGroupSession(ctx, group.ID, command, kind, title, runtimeKind)
+	return s.createSession(ctx, "", group.ID, command, kind, title, runtimeKind)
 }
 
 func (s *Service) createSession(ctx context.Context, workspaceID, groupID, command, kind, title, runtimeKind string) (api.Session, error) {

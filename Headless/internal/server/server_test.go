@@ -851,6 +851,28 @@ func requestResult[T any](t *testing.T, connection *websocket.Conn, method strin
 	}
 }
 
+func requestError(t *testing.T, connection *websocket.Conn, method string, params map[string]any) string {
+	t.Helper()
+	id := store.NewID()
+	if err := connection.WriteJSON(api.Envelope{Type: "request", ID: id, Method: method, Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		_, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response api.Response
+		if json.Unmarshal(data, &response) != nil || response.Type != "response" || response.ID != id {
+			continue
+		}
+		if response.OK {
+			t.Fatalf("request %s unexpectedly succeeded: %#v", method, response.Result)
+		}
+		return response.Error
+	}
+}
+
 func requestResultBeforeBinary[T any](t *testing.T, connection *websocket.Conn, method string, params map[string]any) T {
 	t.Helper()
 	id := store.NewID()

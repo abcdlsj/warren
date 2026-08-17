@@ -94,6 +94,17 @@ func TestSessionRowsJoinsTerminalGroup(t *testing.T) {
 	}
 }
 
+func TestSessionCreateRejectsWorkspaceAndGroupTogether(t *testing.T) {
+	err := run([]string{"session", "create", "workspace-1", "--group", "group-1"})
+	var usageErr *usageError
+	if !errors.As(err, &usageErr) {
+		t.Fatalf("error = %v, want *usageError", err)
+	}
+	if usageErr.message != "workspace and --group are mutually exclusive" {
+		t.Fatalf("message = %q", usageErr.message)
+	}
+}
+
 func TestParseFlagsBareBooleanDoesNotConsumePositional(t *testing.T) {
 	params := parseFlags([]string{"session-1", "--raw", "hello world"})
 	if !boolValue(params, "raw") {

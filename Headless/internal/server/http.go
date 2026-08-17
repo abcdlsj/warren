@@ -845,7 +845,12 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 	case "session.create":
 		var value api.Session
 		var err error
-		if groupID := stringParam(params, "group"); groupID != "" {
+		groupID := stringParam(params, "group")
+		workspaceID := stringParam(params, "workspace")
+		if groupID != "" && workspaceID != "" {
+			return errors.New("workspace and terminal group are mutually exclusive")
+		}
+		if groupID != "" {
 			value, err = p.server.Service.CreateGroupSession(
 				ctx,
 				groupID,
@@ -854,7 +859,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 				stringParam(params, "title"),
 				stringParam(params, "runtimeKind"),
 			)
-		} else if workspaceID := stringParam(params, "workspace"); workspaceID != "" {
+		} else if workspaceID != "" {
 			value, err = p.server.Service.CreateSession(
 				ctx,
 				workspaceID,

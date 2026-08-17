@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/store"
@@ -14,6 +15,26 @@ import (
 type directoryRecordingRuntime struct {
 	*memoryRuntime
 	directory string
+}
+
+type blockingCreateRuntime struct {
+	*memoryRuntime
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (runtime *blockingCreateRuntime) Create(ctx context.Context, name, directory, command string, env []string) error {
+	select {
+	case <-runtime.entered:
+	default:
+		close(runtime.entered)
+	}
+	select {
+	case <-runtime.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return runtime.memoryRuntime.Create(ctx, name, directory, command, env)
 }
 
 func (runtime *directoryRecordingRuntime) Create(ctx context.Context, name, directory, command string, env []string) error {
@@ -117,5 +138,83 @@ func TestTerminalGroupWebSocketProtocol(t *testing.T) {
 	roster := requestResult[api.State](t, connection, "roster", nil)
 	if len(roster.TerminalGroups) != 2 {
 		t.Fatalf("roster groups = %#v", roster.TerminalGroups)
+	}
+}
+
+func TestTerminalGroupHTTPRejectsConflictingSessionScope(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: newMemoryRuntime(t)}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	errText := requestError(t, connection, "session.create", map[string]any{
+		"workspace": "workspace-1",
+		"group":     "group-1",
+	})
+	if errText != "workspace and terminal group are mutually exclusive" {
+		t.Fatalf("error = %q", errText)
+	}
+}
+
+func TestTerminalGroupLifecycleSerializesCreateAndDelete(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &blockingCreateRuntime{
+		memoryRuntime: newMemoryRuntime(t),
+		entered:       make(chan struct{}),
+		release:       make(chan struct{}),
+	}
+	service := &Service{Store: state, Runtime: runtime}
+	group := state.Snapshot().TerminalGroups[0]
+
+	created := make(chan struct {
+		session api.Session
+		err     error
+	}, 1)
+	go func() {
+		session, err := service.CreateGroupSession(context.Background(), group.ID, "", "shell", "", "")
+		created <- struct {
+			session api.Session
+			err     error
+		}{session: session, err: err}
+	}()
+	select {
+	case <-runtime.entered:
+	case <-time.After(time.Second):
+		t.Fatal("Group Session creation did not reach the runtime")
+	}
+
+	removed := make(chan error, 1)
+	go func() {
+		removed <- service.RemoveTerminalGroup(context.Background(), group.ID, true)
+	}()
+	select {
+	case err := <-removed:
+		t.Fatalf("Group deletion completed while creation was in progress: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(runtime.release)
+
+	createdResult := <-created
+	if createdResult.err != nil {
+		t.Fatalf("CreateGroupSession: %v", createdResult.err)
+	}
+	if err := <-removed; err != nil {
+		t.Fatalf("RemoveTerminalGroup: %v", err)
+	}
+
+	snapshot := state.Snapshot()
+	if len(snapshot.TerminalGroups) != 0 || len(snapshot.Sessions) != 0 {
+		t.Fatalf("lifecycle left durable state: %#v", snapshot)
+	}
+	if runtime.Exists(context.Background(), createdResult.session.Runtime) {
+		t.Fatal("lifecycle left an orphan runtime")
 	}
 }

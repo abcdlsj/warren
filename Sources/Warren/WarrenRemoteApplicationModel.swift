@@ -675,10 +675,20 @@ final class WarrenRemoteApplicationModel {
         self.surfaceManager = surfaceManager
         self.navigation = WarrenDesktopNavigationPersistence.restore()
             ?? WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
+        let tabOrders = WarrenDesktopNavigationPersistence.restoreTabOrders()
+        self.tabOrderByWorkspaceID = tabOrders.workspace.reduce(into: [:]) { result, entry in
+            guard let id = WorkspaceID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
+        self.tabOrderByTerminalGroupID = tabOrders.terminalGroup.reduce(into: [:]) { result, entry in
+            guard let id = TerminalGroupID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
     }
 
     func connect(_ configuration: WarrenRemoteEndpointConfiguration) {
         disconnect()
+        restorePersistedTabOrders()
         endpointConfiguration = configuration
         runtimeSettingsLoaded = false
         defaultRuntime = nil
@@ -1922,6 +1932,7 @@ final class WarrenRemoteApplicationModel {
         )
         guard nextOrder != currentOrder else { return }
         reorder(nextOrder)
+        persistTabOrders()
         publishProjectionIfChanged(
             projection.reorderingTabs(
                 tabID: tabID,
@@ -2041,6 +2052,29 @@ final class WarrenRemoteApplicationModel {
     private func publishNavigationIfChanged(_ nextNavigation: WarrenDesktopNavigationState) {
         guard navigation != nextNavigation else { return }
         navigation = nextNavigation
+    }
+
+    private func restorePersistedTabOrders() {
+        let orders = WarrenDesktopNavigationPersistence.restoreTabOrders()
+        tabOrderByWorkspaceID = orders.workspace.reduce(into: [:]) { result, entry in
+            guard let id = WorkspaceID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
+        tabOrderByTerminalGroupID = orders.terminalGroup.reduce(into: [:]) { result, entry in
+            guard let id = TerminalGroupID(uuidString: entry.key) else { return }
+            result[id] = entry.value
+        }
+    }
+
+    private func persistTabOrders() {
+        WarrenDesktopNavigationPersistence.saveTabOrders(WarrenDesktopTabOrders(
+            workspace: Dictionary(uniqueKeysWithValues: tabOrderByWorkspaceID.map {
+                ($0.key.description, $0.value)
+            }),
+            terminalGroup: Dictionary(uniqueKeysWithValues: tabOrderByTerminalGroupID.map {
+                ($0.key.description, $0.value)
+            })
+        ))
     }
     private static func terminalGroupDate(_ rawValue: String?) -> Date {
         guard let rawValue, let date = ISO8601DateFormatter().date(from: rawValue) else {

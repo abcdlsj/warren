@@ -1296,6 +1296,23 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(WarrenDesktopNavigationPersistence.restore(from: defaults), state)
     }
 
+    func testNavigationPersistenceRoundTripsTerminalGroupTabOrders() throws {
+        let suiteName = "WarrenDesktopTests.navigation.tabOrders.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let orders = WarrenDesktopTabOrders(
+            workspace: [WorkspaceID().description: ["workspace-tab-b", "workspace-tab-a"]],
+            terminalGroup: [TerminalGroupID().description: ["group-tab-b", "group-tab-a"]]
+        )
+
+        WarrenDesktopNavigationPersistence.saveTabOrders(orders, to: defaults)
+
+        XCTAssertEqual(
+            WarrenDesktopNavigationPersistence.restoreTabOrders(from: defaults),
+            orders
+        )
+    }
+
     func testNavigationPersistenceClearsWhenEmpty() throws {
         let suiteName = "WarrenDesktopTests.navigation.empty.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
