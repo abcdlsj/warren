@@ -492,17 +492,8 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
             }
             surface?.mountedTerminalView = terminal
             terminal.isHidden = hidden
-            if !hidden, surface?.state.surface == nil {
-                // A recreated view (empty workspace -> populated workspace)
-                // can be attached to its window before Ghostty has rebuilt
-                // the native surface. Ask the view to fit/rebuild now; once
-                // healthy this branch is skipped on later roster updates.
-                TerminalDiagnostics.log("probe_surface_rebuild", [
-                    "session": surface?.id.description ?? "nil",
-                ])
-                terminal.fitToSize()
-                surface?.requestDisplayRefresh()
-                _ = surface?.presentNow()
+            if !hidden {
+                surface?.rebuildIfMissing(afterReveal: terminal)
             }
             TerminalDiagnostics.log("probe_apply_hidden", [
                 "hidden": hidden ? "true" : "false",
