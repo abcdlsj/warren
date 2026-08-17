@@ -624,16 +624,22 @@ private struct WarrenTerminalSurfaceView: View {
                         .accessibilityHidden(!isActive)
                 }
                 if activeSurface == nil {
-                    ConnectingPlaceholder(
-                        title: context.tab.sessionID == nil
-                            ? "Start a session"
-                            : context.tab.title,
-                        updating: maintenanceMessage != nil
-                    )
-                    .frame(
-                        width: proxy.size.width,
-                        height: proxy.size.height
-                    )
+                    if context.tab.sessionID == nil {
+                        WarrenEmptyWorkspacePanel()
+                            .frame(
+                                width: proxy.size.width,
+                                height: proxy.size.height
+                            )
+                    } else {
+                        ConnectingPlaceholder(
+                            title: context.tab.title,
+                            updating: maintenanceMessage != nil
+                        )
+                        .frame(
+                            width: proxy.size.width,
+                            height: proxy.size.height
+                        )
+                    }
                 }
             }
             .frame(
@@ -724,6 +730,60 @@ private struct WarrenTerminalSurfaceView: View {
             )
             surface.requestDisplayRefresh()
         }
+    }
+}
+
+/// Empty workspace state rendered above the still-mounted terminal surfaces.
+/// Keeping the surfaces alive across a transient nil tab avoids recreating
+/// Ghostty views; this panel is the visual placeholder while no tab is active.
+private struct WarrenEmptyWorkspacePanel: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        VStack(spacing: WarrenSpacing.standard) {
+            Text("Start a session")
+                .font(WarrenTypography.emptyStateTitle)
+                .foregroundStyle(tokens.mutedForeground)
+            Text("Open a terminal with the + button or a preset")
+                .font(WarrenTypography.body)
+                .foregroundStyle(tokens.mutedForeground)
+                .opacity(0.72)
+                .multilineTextAlignment(.center)
+                .lineSpacing(WarrenSpacing.small)
+            VStack(spacing: WarrenSpacing.compact) {
+                shortcutRow(tokens: tokens, key: "⌘T", label: "New terminal")
+                shortcutRow(tokens: tokens, key: "⌘X", label: "Next tab")
+                shortcutRow(tokens: tokens, key: "⇧⌘X", label: "Previous tab")
+                shortcutRow(tokens: tokens, key: "⌘1…⌘9", label: "Switch to tab")
+                shortcutRow(tokens: tokens, key: "⌘W", label: "Close terminal")
+            }
+            .frame(maxWidth: 420)
+            .padding(.top, WarrenSpacing.compact)
+        }
+        .padding(.bottom, 60)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No open sessions")
+    }
+
+    private func shortcutRow(
+        tokens: WarrenColorTokens,
+        key: String,
+        label: String
+    ) -> some View {
+        HStack(spacing: WarrenSpacing.medium) {
+            Text(key)
+                .font(WarrenTypography.shortcut)
+                .foregroundStyle(tokens.mutedForeground)
+                .frame(width: 72, alignment: .leading)
+            Spacer(minLength: WarrenSpacing.medium)
+            Text(label)
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(key): \(label)")
     }
 }
 
