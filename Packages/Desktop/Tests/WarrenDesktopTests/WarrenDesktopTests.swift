@@ -287,6 +287,48 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testSidebarDragAutoCollapseKeepsOnlyValidDestinationsVisible() {
+        let projectID = ProjectID()
+        let otherProjectID = ProjectID()
+        let workspaceID = WorkspaceID()
+        let projectInfo = WarrenSidebarRowDragInfo(
+            id: projectID.description,
+            kind: .project(projectID),
+            name: "Project",
+            isLastOfList: false
+        )
+        let workspaceInfo = WarrenSidebarRowDragInfo(
+            id: workspaceID.description,
+            kind: .workspace(workspaceID, projectID: projectID),
+            name: "Workspace",
+            isLastOfList: false
+        )
+
+        XCTAssertEqual(
+            WarrenSidebarDragPresentation.autoCollapse(for: projectInfo),
+            .allProjects
+        )
+        XCTAssertEqual(
+            WarrenSidebarDragPresentation.autoCollapse(for: workspaceInfo),
+            .projectsExcept(projectID)
+        )
+        XCTAssertTrue(WarrenSidebarDragPresentation.isExpanded(
+            projectID,
+            persistedExpansions: [projectID, otherProjectID],
+            autoCollapse: .projectsExcept(projectID)
+        ))
+        XCTAssertFalse(WarrenSidebarDragPresentation.isExpanded(
+            otherProjectID,
+            persistedExpansions: [projectID, otherProjectID],
+            autoCollapse: .projectsExcept(projectID)
+        ))
+        XCTAssertFalse(WarrenSidebarDragPresentation.isExpanded(
+            projectID,
+            persistedExpansions: [projectID],
+            autoCollapse: .allProjects
+        ))
+    }
+
     func testWindowDragRegionPerformsDragOnSingleClick() {
         let view = WarrenDesktopWindowDragView()
         let window = WarrenDragProbeWindow(

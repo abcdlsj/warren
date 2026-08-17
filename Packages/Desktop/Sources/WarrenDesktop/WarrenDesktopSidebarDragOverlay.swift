@@ -49,6 +49,40 @@ enum WarrenSidebarDragGesture {
     }
 }
 
+enum WarrenSidebarDragAutoCollapse: Equatable, Sendable {
+    case allProjects
+    case projectsExcept(ProjectID)
+}
+
+enum WarrenSidebarDragPresentation {
+    static func autoCollapse(
+        for info: WarrenSidebarRowDragInfo
+    ) -> WarrenSidebarDragAutoCollapse {
+        switch info.kind {
+        case .project:
+            return .allProjects
+        case .workspace(_, let projectID):
+            return .projectsExcept(projectID)
+        }
+    }
+
+    static func isExpanded(
+        _ projectID: ProjectID,
+        persistedExpansions: Set<ProjectID>,
+        autoCollapse: WarrenSidebarDragAutoCollapse?
+    ) -> Bool {
+        guard persistedExpansions.contains(projectID) else { return false }
+        switch autoCollapse {
+        case nil:
+            return true
+        case .allProjects:
+            return false
+        case .projectsExcept(let sourceProjectID):
+            return projectID == sourceProjectID
+        }
+    }
+}
+
 /// Metadata for one sidebar row. Workspace rows carry their containing
 /// project so a drop can be validated without cross-view lookups.
 struct WarrenSidebarRowDragInfo: Equatable, Sendable {
@@ -132,6 +166,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
     let rows: [String: WarrenSidebarRowDragFrame]
     let onDropProject: (String, ProjectID?) -> Bool
     let onDropWorkspace: (String, WorkspaceID?, ProjectID?) -> Bool
+    let onDragAutoCollapseChanged: (WarrenSidebarDragAutoCollapse?) -> Void
     let onDragSourceChanged: (String?) -> Void
     let onMeasurementNeededChanged: (Bool) -> Void
 
@@ -140,6 +175,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         view.rows = rows
         view.onDropProject = onDropProject
         view.onDropWorkspace = onDropWorkspace
+        view.onDragAutoCollapseChanged = onDragAutoCollapseChanged
         view.onDragSourceChanged = onDragSourceChanged
         view.onMeasurementNeededChanged = onMeasurementNeededChanged
         return view
@@ -149,6 +185,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         nsView.rows = rows
         nsView.onDropProject = onDropProject
         nsView.onDropWorkspace = onDropWorkspace
+        nsView.onDragAutoCollapseChanged = onDragAutoCollapseChanged
         nsView.onDragSourceChanged = onDragSourceChanged
         nsView.onMeasurementNeededChanged = onMeasurementNeededChanged
     }
@@ -163,6 +200,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     var onDropProject: ((String, ProjectID?) -> Bool)?
     var onDropWorkspace: ((String, WorkspaceID?, ProjectID?) -> Bool)?
+    var onDragAutoCollapseChanged: ((WarrenSidebarDragAutoCollapse?) -> Void)?
     var onDragSourceChanged: ((String?) -> Void)?
     var onMeasurementNeededChanged: ((Bool) -> Void)?
 
@@ -172,6 +210,9 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     private var pendingRow: WarrenSidebarRowDragFrame?
     private var mouseDownPoint: NSPoint?
     private var currentPayload: String?
+    private var currentDragInfo: WarrenSidebarRowDragInfo?
+    private var dragGeneration: UInt64 = 0
+    private var didRequestAutoCollapse = false
     private var escapePressed = false
     private var escapeMonitor: Any?
     private var suppressClickUntil: Date?
@@ -259,6 +300,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     private func beginNativeDrag(row: WarrenSidebarRowDragFrame, event: NSEvent) {
         let payload = Self.payload(for: row.info)
+        dragGeneration &+= 1
         pendingRow = nil
         mouseDownPoint = nil
         onDragSourceChanged?(row.info.id)
@@ -267,6 +309,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         )
         item.setDraggingFrame(row.frame, contents: snapshotRow(row.frame))
         currentPayload = payload
+        currentDragInfo = row.info
         escapePressed = false
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
@@ -319,6 +362,24 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, willBeginAt screenPoint: NSPoint) {
+        guard let currentDragInfo else { return }
+        let autoCollapse = WarrenSidebarDragPresentation.autoCollapse(
+            for: currentDragInfo
+        )
+        let generation = dragGeneration
+        // Tree reflow must happen after AppKit establishes the native drag
+        // session. Reflowing synchronously before this callback can invert
+        // the SwiftUI view-tree and AppKit drag-session lock order.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.dragGeneration == generation,
+                  self.session.isActive,
+                  self.currentDragInfo == currentDragInfo,
+                  !self.didRequestAutoCollapse
+            else { return }
+            self.didRequestAutoCollapse = true
+            self.onDragAutoCollapseChanged?(autoCollapse)
+        }
     }
 
     func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
@@ -428,6 +489,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     }
 
     private func finishDrag(suppressClick: Bool) {
+        dragGeneration &+= 1
         if let escapeMonitor {
             NSEvent.removeMonitor(escapeMonitor)
             self.escapeMonitor = nil
@@ -435,9 +497,17 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         pendingRow = nil
         mouseDownPoint = nil
         currentPayload = nil
+        currentDragInfo = nil
         escapePressed = false
         if suppressClick {
             suppressClickUntil = Date().addingTimeInterval(0.5)
+        }
+        if didRequestAutoCollapse {
+            didRequestAutoCollapse = false
+            let notify = onDragAutoCollapseChanged
+            DispatchQueue.main.async {
+                notify?(nil)
+            }
         }
         onDragSourceChanged?(nil)
         session.setActive(false)

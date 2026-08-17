@@ -24,6 +24,8 @@ struct WarrenDesktopSidebarRows: View {
     @State private var pendingRenameProject: Project?
     @State private var projectName = ""
     @State private var dragSession = WarrenDesktopSidebarDragSession()
+    /// Ephemeral presentation state; persisted expansion preferences remain untouched.
+    @State private var dragAutoCollapse: WarrenSidebarDragAutoCollapse?
     @State private var dragSourceRowID: String?
     @State private var isDragMeasurementEnabled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -58,7 +60,7 @@ struct WarrenDesktopSidebarRows: View {
             if isCollapsed || !tree.projectsCollapsed {
                 ForEach(groups) { group in
                     projectRow(for: group)
-                    if isCollapsed || tree.expandedProjectIDs.contains(group.project.id) {
+                    if isCollapsed || isProjectExpanded(group.project.id) {
                         ForEach(group.workspaces) { workspace in
                             workspaceRow(workspace, in: group)
                         }
@@ -82,6 +84,7 @@ struct WarrenDesktopSidebarRows: View {
                         inProject: projectID
                     )
                 },
+                onDragAutoCollapseChanged: setDragAutoCollapse,
                 onDragSourceChanged: { id in
                     dragSourceRowID = id
                 },
@@ -183,6 +186,24 @@ struct WarrenDesktopSidebarRows: View {
         }
     }
 
+    private func isProjectExpanded(_ projectID: ProjectID) -> Bool {
+        WarrenSidebarDragPresentation.isExpanded(
+            projectID,
+            persistedExpansions: tree.expandedProjectIDs,
+            autoCollapse: dragAutoCollapse
+        )
+    }
+
+    private func setDragAutoCollapse(_ autoCollapse: WarrenSidebarDragAutoCollapse?) {
+        guard autoCollapse == nil || !isCollapsed else { return }
+        guard dragAutoCollapse != autoCollapse else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            dragAutoCollapse = autoCollapse
+        }
+    }
+
     private func toggleProjects() {
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
             tree.projectsCollapsed.toggle()
@@ -199,7 +220,7 @@ struct WarrenDesktopSidebarRows: View {
                 workspaceCount: group.workspaces.count,
                 isCollapsed: isCollapsed,
                 isSelected: selection == .project(group.project.id),
-                isExpanded: tree.expandedProjectIDs.contains(group.project.id),
+                isExpanded: isProjectExpanded(group.project.id),
                 isPinned: group.project.pinned,
                 onSelect: { select(.project(group.project.id)) },
                 onToggleExpansion: { toggleProject(group.project.id) },
