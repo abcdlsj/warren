@@ -606,7 +606,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case setProjectPinned(ProjectID, Bool)
     case setWorkspacePinned(WorkspaceID, Bool)
     case setSessionPinned(TerminalSessionID, Bool)
-    case dismissActivity(TerminalSessionID)
+    case dismissActivity(TerminalSessionID, AgentActivityState)
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
     case moveProject(ProjectID, before: ProjectID?)

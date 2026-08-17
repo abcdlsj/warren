@@ -211,8 +211,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onToggleSessionPin: { sessionID, pinned in
                             dispatch(.setSessionPinned(sessionID, pinned))
                         },
-                        onDismissActivity: { sessionID in
-                            dispatch(.dismissActivity(sessionID))
+                        onDismissActivity: { sessionID, activity in
+                            dispatch(.dismissActivity(sessionID, activity))
                         }
                     )
                     WarrenDesktopPresetBar(

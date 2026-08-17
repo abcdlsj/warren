@@ -1160,9 +1160,13 @@ final class WarrenRemoteApplicationModel {
             request("workspace.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .setSessionPinned(let id, let pinned):
             request("session.pin", params: ["id": id.description, "pinned": String(pinned)])
-        case .dismissActivity(let id):
-            guard let activity = projection.session(id: id)?.activity else { return }
-            dismissedActivityBySessionID[id] = activity
+        case .dismissActivity(let id, let expectedActivity):
+            let candidate = projection.session(id: id)?.activity
+            guard WarrenActivityDismissal.canDismiss(
+                candidate: candidate,
+                expected: expectedActivity
+            ) else { return }
+            dismissedActivityBySessionID[id] = expectedActivity
             publishProjectionIfChanged(projection.withSessionActivity(nil, for: id))
         case .moveProject(let projectID, let before):
             var params = ["id": projectID.description]

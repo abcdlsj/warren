@@ -265,7 +265,7 @@ final class WarrenDesktopTests: XCTestCase {
             onCloseAllTabs: {},
             onRenameSession: { _, _ in },
             onToggleSessionPin: { _, _ in },
-            onDismissActivity: { _ in }
+            onDismissActivity: { _, _ in }
         )
         .frame(width: 1000, height: WarrenLayoutMetrics.tabBarHeight)
     }
@@ -495,7 +495,7 @@ final class WarrenDesktopTests: XCTestCase {
         actions(.closeTab("tab-main"))
         actions(.toggleInspector)
         actions(.toggleSidebar)
-        actions(.dismissActivity(sessionID))
+        actions(.dismissActivity(sessionID, .working))
 
         XCTAssertEqual(
             received,
@@ -516,7 +516,7 @@ final class WarrenDesktopTests: XCTestCase {
                 .closeTab("tab-main"),
                 .toggleInspector,
                 .toggleSidebar,
-                .dismissActivity(sessionID),
+                .dismissActivity(sessionID, .working),
             ]
         )
     }
@@ -1126,7 +1126,7 @@ final class WarrenDesktopTests: XCTestCase {
             XCTAssertEqual(
                 WarrenDesktopNavigationReducer.reduce(
                     initial,
-                    action: .dismissActivity(sessionID),
+                    action: .dismissActivity(sessionID, .working),
                     in: projection
                 ),
                 initial

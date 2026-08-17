@@ -217,6 +217,14 @@ final class WarrenRemoteModelTests: XCTestCase {
                 clearsDismissal: true
             )
         )
+        XCTAssertTrue(WarrenActivityDismissal.canDismiss(
+            candidate: .working,
+            expected: .working
+        ))
+        XCTAssertFalse(WarrenActivityDismissal.canDismiss(
+            candidate: .waitingForInput,
+            expected: .working
+        ))
     }
 
     func testLosslessAsyncBufferBackpressuresAndPreservesOrder() async throws {

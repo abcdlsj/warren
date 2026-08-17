@@ -30,11 +30,16 @@ struct WarrenDesktopTabActivityDragHandle: NSViewRepresentable {
 }
 
 final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
+    private static let pasteboardType = NSPasteboard.PasteboardType(
+        "com.abcdlsj.warren.activity-dismiss"
+    )
+
     var onDismiss: (() -> Void)?
     var onClick: (() -> Void)?
 
-    private var dragWindow: NSWindow?
+    private weak var dragWindow: NSWindow?
     private var mouseDownPoint: NSPoint?
+    private var pendingDismiss: (() -> Void)?
     private var isDragging = false
 
     override var isFlipped: Bool { true }
@@ -47,6 +52,9 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         guard let window else { return }
         dragWindow = window
         mouseDownPoint = convert(event.locationInWindow, from: nil)
+        // Freeze the dismissal intent at mouse-down. SwiftUI may update the
+        // represented activity while the native drag session is in flight.
+        pendingDismiss = onDismiss
         isDragging = false
     }
 
@@ -72,9 +80,9 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         mouseDownPoint = nil
         isDragging = true
 
-        let item = NSDraggingItem(
-            pasteboardWriter: NSString(string: "warren.activity.dismiss")
-        )
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setString("dismiss", forType: Self.pasteboardType)
+        let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
         item.setDraggingFrame(bounds, contents: nil)
         beginDraggingSession(with: [item], event: event, source: self)
     }
@@ -94,7 +102,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         defer { finishPendingInteraction() }
         guard let dragWindow,
               !dragWindow.frame.contains(screenPoint) else { return }
-        onDismiss?()
+        pendingDismiss?()
     }
 
     override func viewDidMoveToWindow() {
@@ -107,6 +115,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     private func finishPendingInteraction() {
         dragWindow = nil
         mouseDownPoint = nil
+        pendingDismiss = nil
         isDragging = false
     }
 }

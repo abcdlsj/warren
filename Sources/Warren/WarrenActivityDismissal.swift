@@ -20,4 +20,11 @@ enum WarrenActivityDismissal {
         if dismissed == candidate { return Presentation(activity: nil, clearsDismissal: false) }
         return Presentation(activity: candidate, clearsDismissal: true)
     }
+
+    static func canDismiss(
+        candidate: AgentActivityState?,
+        expected: AgentActivityState
+    ) -> Bool {
+        candidate == expected
+    }
 }
