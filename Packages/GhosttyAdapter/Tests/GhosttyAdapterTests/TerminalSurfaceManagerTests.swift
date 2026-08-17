@@ -50,6 +50,40 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertEqual(manager.snapshot().activeSessionID, first.id)
     }
 
+    func testPresentRequestBeforeActivationIsRetainedByLifecycleTransition() async throws {
+        _ = NSApplication.shared
+        let manager = TerminalSurfaceManager(warmLimit: 1)
+        let surface = makeSurface()
+        manager.insert(surface)
+
+        manager.requestPresent(surface.id)
+        XCTAssertEqual(manager.snapshot().hiddenRenderAttemptCount, 0)
+
+        let host = TerminalHostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer {
+            manager.shutdown()
+            window.orderOut(nil as Any?)
+        }
+
+        submit(surface.id, to: manager, host: host)
+        try await waitUntil {
+            manager.snapshot().activeSessionID == surface.id
+                && surface.terminalViewIsPresentable
+        }
+
+        XCTAssertNotNil(surface.state.surface)
+        XCTAssertEqual(manager.snapshot().hiddenRenderAttemptCount, 0)
+    }
+
     func testManagerEvictsLeastRecentlyUsedWarmSurface() async throws {
         _ = NSApplication.shared
         let manager = TerminalSurfaceManager(warmLimit: 1)
