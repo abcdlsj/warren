@@ -4,6 +4,11 @@ import WarrenDesignSystem
 import WarrenDomain
 import WarrenObservation
 
+enum WarrenDesktopDeletionRequest {
+    case workspace(Workspace, project: Project?)
+    case project(Project, workspaceCount: Int)
+}
+
 struct WarrenDesktopSidebarRows: View {
     let groups: [WarrenDesktopProjectGroup]
     let workspaceActivities: [WorkspaceID: AgentActivityState]
@@ -12,14 +17,12 @@ struct WarrenDesktopSidebarRows: View {
     let selection: WarrenDesktopSidebarSelection?
     let onAddProject: () -> Void
     let onAction: (WarrenDesktopAction) -> Void
+    let onRequestDeletion: (WarrenDesktopDeletionRequest) -> Void
 
     @State private var pendingRename: Workspace?
     @State private var workspaceName = ""
     @State private var pendingRenameProject: Project?
     @State private var projectName = ""
-    @State private var pendingDeleteWorkspace: Workspace?
-    @State private var pendingDeleteProject: Project?
-    @State private var deleteWorkspaceRemoveWorktree = false
     @State private var dragSession = WarrenDesktopSidebarDragSession()
     @State private var dragRestoreExpansions: Set<ProjectID> = []
     @State private var isProjectDragActive = false
@@ -136,45 +139,6 @@ struct WarrenDesktopSidebarRows: View {
                 )
             }
         }
-        .overlay {
-            if let workspace = pendingDeleteWorkspace {
-                let project = groups.first {
-                    $0.workspaces.contains { $0.id == workspace.id }
-                }?.project
-                WarrenModalBackdrop {
-                    WarrenDesktopDeleteWorkspaceConfirmation(
-                        workspace: workspace,
-                        project: project,
-                        removeWorktree: $deleteWorkspaceRemoveWorktree,
-                        onCancel: { pendingDeleteWorkspace = nil },
-                        onConfirm: {
-                            onAction(.deleteWorkspace(
-                                workspace.id,
-                                removeLocalWorktree: deleteWorkspaceRemoveWorktree
-                            ))
-                            pendingDeleteWorkspace = nil
-                        }
-                    )
-                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
-                }
-            }
-        }
-        .overlay {
-            if let project = pendingDeleteProject {
-                WarrenModalBackdrop {
-                    WarrenDesktopDeleteProjectConfirmation(
-                        project: project,
-                        workspaceCount: groups.first { $0.project.id == project.id }?.workspaces.count ?? 0,
-                        onCancel: { pendingDeleteProject = nil },
-                        onConfirm: {
-                            onAction(.deleteProject(project.id))
-                            pendingDeleteProject = nil
-                        }
-                    )
-                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
-                }
-            }
-        }
         .onChange(of: groups) { oldGroups, newGroups in
             guard let projectID = selectedProjectID else { return }
             let oldCount = workspaceCount(for: projectID, in: oldGroups)
@@ -257,7 +221,10 @@ struct WarrenDesktopSidebarRows: View {
                     ))
                 },
                 onDelete: {
-                    pendingDeleteProject = group.project
+                    onRequestDeletion(.project(
+                        group.project,
+                        workspaceCount: group.workspaces.count
+                    ))
                 }
             )
         }
@@ -316,8 +283,10 @@ struct WarrenDesktopSidebarRows: View {
                     ))
                 },
                 onDelete: {
-                    deleteWorkspaceRemoveWorktree = false
-                    pendingDeleteWorkspace = workspace
+                    onRequestDeletion(.workspace(
+                        workspace,
+                        project: group.project
+                    ))
                 }
             )
         }
@@ -569,7 +538,7 @@ private struct WarrenDesktopSidebarSectionHeader: View {
     }
 }
 
-private struct WarrenDesktopDeleteWorkspaceConfirmation: View {
+struct WarrenDesktopDeleteWorkspaceConfirmation: View {
     let workspace: Workspace
     let project: Project?
     @Binding var removeWorktree: Bool
@@ -623,7 +592,7 @@ private struct WarrenDesktopDeleteWorkspaceConfirmation: View {
     }
 }
 
-private struct WarrenDesktopDeleteProjectConfirmation: View {
+struct WarrenDesktopDeleteProjectConfirmation: View {
     let project: Project
     let workspaceCount: Int
     let onCancel: () -> Void

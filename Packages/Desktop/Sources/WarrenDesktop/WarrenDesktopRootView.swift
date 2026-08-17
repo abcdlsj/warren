@@ -41,6 +41,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
     @State private var webPresented = false
     @State private var webDismissalNonce = 0
+    @State private var pendingDeletion: WarrenDesktopDeletionRequest?
+    @State private var deleteWorkspaceRemoveWorktree = false
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var terminalTitleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -139,7 +141,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     selection: navigation.selection,
                     chromeMode: chromeMode,
                     onAction: dispatch,
-                    onCommandPalette: { commandPalettePresented = true }
+                    onCommandPalette: { commandPalettePresented = true },
+                    onRequestDeletion: presentDeletion
                 )
                 .frame(width: sidebarState.renderedWidth)
 
@@ -325,6 +328,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             toggleInspector()
         }
         .overlay {
+            deletionDialog
+        }
+        .overlay {
             if commandPalettePresented && !settingsPresented {
                 GeometryReader { proxy in
                     let panelWidth = min(
@@ -471,6 +477,48 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private func refreshWebDismissal() {
         guard webPresented else { return }
         webDismissalNonce += 1
+    }
+
+    private func presentDeletion(_ request: WarrenDesktopDeletionRequest) {
+        deleteWorkspaceRemoveWorktree = false
+        pendingDeletion = request
+    }
+
+    @ViewBuilder
+    private var deletionDialog: some View {
+        if let pendingDeletion {
+            WarrenModalBackdrop {
+                switch pendingDeletion {
+                case .workspace(let workspace, let project):
+                    WarrenDesktopDeleteWorkspaceConfirmation(
+                        workspace: workspace,
+                        project: project,
+                        removeWorktree: $deleteWorkspaceRemoveWorktree,
+                        onCancel: { self.pendingDeletion = nil },
+                        onConfirm: {
+                            dispatch(.deleteWorkspace(
+                                workspace.id,
+                                removeLocalWorktree: deleteWorkspaceRemoveWorktree
+                            ))
+                            self.pendingDeletion = nil
+                        }
+                    )
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
+                case .project(let project, let workspaceCount):
+                    WarrenDesktopDeleteProjectConfirmation(
+                        project: project,
+                        workspaceCount: workspaceCount,
+                        onCancel: { self.pendingDeletion = nil },
+                        onConfirm: {
+                            dispatch(.deleteProject(project.id))
+                            self.pendingDeletion = nil
+                        }
+                    )
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
+                }
+            }
+            .zIndex(30)
+        }
     }
 
     private func reconcileInspector(with newProjection: WarrenDesktopProjection) {
