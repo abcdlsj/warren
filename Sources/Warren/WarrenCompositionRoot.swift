@@ -640,6 +640,14 @@ private struct WarrenTerminalSurfaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .onAppear {
+            TerminalDiagnostics.log("terminal_view_appear", [
+                "workspace": context.workspace.id.rawValue.uuidString,
+                "tab": context.tab.sessionID.map(\.description) ?? "nil",
+                "mounted": String(surfaces.count),
+                "active": activeSurface != nil ? "true" : "false",
+            ])
+        }
         .overlay(alignment: .topTrailing) {
             if searchPresented, activeSurface != nil {
                 WarrenTerminalSearchBar(
@@ -684,6 +692,14 @@ private struct WarrenTerminalSurfaceView: View {
             for surface in surfaces { surface.endSearch() }
             searchQuery = ""
             searchPresented = false
+        }
+        .onChange(of: context.workspace.id) { _, _ in
+            TerminalDiagnostics.log("workspace_switch", [
+                "workspace": context.workspace.id.rawValue.uuidString,
+                "tab": context.tab.sessionID.map(\.description) ?? "nil",
+                "mounted": String(surfaces.count),
+                "active": activeSurface != nil ? "true" : "false",
+            ])
         }
         .onReceive(
             NotificationCenter.default.publisher(

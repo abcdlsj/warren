@@ -59,11 +59,21 @@ public struct GhosttyManagedSurface: View {
             }
             .onAppear {
                 guard isActive else { return }
+                TerminalDiagnostics.log("managed_view_appear", [
+                    "session": surface.id.description,
+                    "active": isActive ? "true" : "false",
+                    "surfaceReady": surface.state.surface != nil ? "true" : "false",
+                ])
                 surfaceFocused = true
                 requestSelectionFocus()
                 requestImmediateDisplayRefresh()
             }
             .onChange(of: isActive, initial: true) { _, active in
+                TerminalDiagnostics.log("managed_active_change", [
+                    "session": surface.id.description,
+                    "active": active ? "true" : "false",
+                    "surfaceReady": surface.state.surface != nil ? "true" : "false",
+                ])
                 surfaceFocused = active
                 if active {
                     requestSelectionFocus()
@@ -466,6 +476,7 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
                 "session": surface.id.description,
                 "window": String(window.windowNumber),
                 "bounds": GhosttyDiagnosticsFormat.finiteSize(window.frame.size),
+                "surfaceReady": surface.state.surface != nil ? "true" : "false",
             ])
             focusDriver.register(state, in: window)
             repair()
@@ -492,14 +503,15 @@ private struct GhosttyWindowProbe: NSViewRepresentable {
             }
             surface?.mountedTerminalView = terminal
             terminal.isHidden = hidden
-            if !hidden {
-                surface?.rebuildIfMissing(afterReveal: terminal)
-            }
             TerminalDiagnostics.log("probe_apply_hidden", [
                 "hidden": hidden ? "true" : "false",
                 "found": "true",
                 "session": surface?.id.description ?? "nil",
+                "surfaceReady": surface?.state.surface != nil ? "true" : "false",
             ])
+            if !hidden {
+                surface?.rebuildIfMissing(afterReveal: terminal)
+            }
         }
     }
 
