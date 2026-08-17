@@ -32,4 +32,12 @@ final class WarrenDesignSystemTests: XCTestCase {
         )
     }
 
+    func testMotionPolicyDisablesAnimationsForReducedMotion() {
+        XCTAssertNil(WarrenMotion.animation(.feedback, reduceMotion: true))
+        XCTAssertNil(WarrenMotion.animation(.stateChange, reduceMotion: true))
+        XCTAssertNil(WarrenMotion.animation(.overlay, reduceMotion: true))
+        XCTAssertNotNil(WarrenMotion.animation(.feedback, reduceMotion: false))
+        XCTAssertLessThan(WarrenMotion.feedbackDuration, WarrenMotion.overlayDuration)
+    }
+
 }
