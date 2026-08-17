@@ -132,10 +132,18 @@ it does not fork or patch Ghostty:
   because the public API does not expose enough state to address those cases
   without changing terminal semantics.
 
+The compatibility release also bumps the Ghostline protocol to `0.6.0`. During
+rolling migration, the new server recognizes source protocols `0.4.0` and
+`0.5.0`, keeps the old session paused, skips the old native snapshot request,
+and rebuilds the destination emulator from the retained gzip archives and live
+spool. Sources advertising newer protocols continue to use authoritative native
+snapshot transfer, so the bridge is not part of the steady-state path.
+
 This keeps Ghostline compatible with older libghostty-vt behavior while the
-upstream fix is investigated. The workaround is only present in newly started
-Ghostline processes; an already-running v0.4.0 server cannot load it without a
-restart.
+upstream fix is investigated. The VT repair is only present in newly started
+Ghostline processes; the migration bridge is what lets a new process adopt an
+already-running v0.4.0/v0.5.0 server without asking that old process to encode
+the invalid state.
 
 ## Investigation Evidence
 
@@ -208,6 +216,9 @@ reproducible `-2` after the no-reflow resize.
   normal display snapshot.
 - The Ghostline wrapper workaround makes the retained replay encodable after
   the same resize.
+- A real old `v0.4.0` server with the minimized malformed state was adopted by
+  the compatibility build through spool replay; its old socket retired and
+  the transferred session remained usable.
 
 ### Unconfirmed
 
@@ -230,8 +241,9 @@ reproducible `-2` after the no-reflow resize.
 
 ## Follow-up Work
 
-1. Publish the Ghostline compatibility change and restart the detached server;
-   an already-running v0.4.0 process cannot use code loaded by a new binary.
+1. Publish the Ghostline compatibility release with protocol `0.6.0`, update
+   Warren's `go.mod`, and restart the detached server; an already-running
+   v0.4.0 process cannot load code from a new binary in place.
 2. File an upstream Ghostty issue with the minimized no-reflow shrink reproducer
    and the invalid-grid snapshot result.
 3. Make spool archive/truncate and watcher re-anchoring atomic from the host's
@@ -239,12 +251,12 @@ reproducible `-2` after the no-reflow resize.
 4. Preserve the current migration failure contract: do not retire the old
    server unless every session has been prepared and committed.
 5. Retry the upgrade with the affected session still alive and verify that the
-   stable socket reports `0.5.0` without ending the PTY child.
+   stable socket reports `0.6.0` without ending the PTY child.
 
 ## Acceptance Criteria
 
 - The affected session can be migrated while remaining interactive.
-- The stable ghostline socket reports `0.5.0` after a successful daemon restart.
+- The stable ghostline socket reports `0.6.0` after a successful daemon restart.
 - No PTY output is lost across archive, migration, or re-anchoring boundaries.
 - A deliberately unencodable session causes a clear, structured diagnostic and
   leaves the old server serving all sessions.
