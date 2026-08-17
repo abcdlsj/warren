@@ -15,7 +15,7 @@ The system must keep stable boundaries for a future iOS native client, Session s
 ## 2. First Principles
 
 1. Sessions belong to Hosts, Tabs belong to Windows, Runtimes belong to Sessions. An open Tab holds one Session; closing the Tab also ends that Session and its Runtime.
-2. Workspaces are the isolation boundary for terminals, Tabs, and async commands.
+2. Workspaces and Terminal Groups are the isolation boundaries for terminal Tabs; Workspaces remain the isolation boundary for Git-aware async commands.
 3. tmux is a replaceable Runtime Adapter, not a product domain model.
 4. In Warren v1, an open Tab corresponds to one Warren Terminal Session; closing a Tab explicitly terminates that Session's Runtime. Switching Workspaces or quitting the Client does not additionally terminate Tabs/Sessions that are still retained in the client layout.
 5. Only Close Tab or an explicit Terminate Session ends a Runtime; switching Workspaces, detaching, and quitting the Client never end a still-running Session.
@@ -35,7 +35,11 @@ The system must keep stable boundaries for a future iOS native client, Session s
 
 **Workspace**: a concrete, accessible local working directory under a Project, together with its Git context. The main checkout and worktrees are both Workspaces. A Workspace ID is stable identity; branch and path are mutable attributes.
 
-**Terminal Session**: interactive terminal context on a Host. It belongs to exactly one Workspace and is accessed through an open Tab; closing the Tab ends the Session. Sessions still running when the Client quits can be kept by the Host and restored after restart.
+**Terminal Group**: Host-owned ordered container for standalone terminal Sessions that are not tied to a Project or Workspace. The first Group is the default destination for newly created standalone Sessions. A Group may define a default startup directory; otherwise the Host user's home directory is used.
+
+**Session Scope**: the single ownership context of a Terminal Session. A Scope is either a Workspace or a Terminal Group; a Session never belongs to both.
+
+**Terminal Session**: interactive terminal context on a Host. It belongs to exactly one Session Scope and is accessed through an open Tab; closing the Tab ends the Session. Sessions still running when the Client quits can be kept by the Host and restored after restart.
 
 **Runtime Binding**: persistent mapping from a Terminal Session to its concrete runtime implementation. In phase one, one Warren Session maps to one runtime process: a ghostline PTY by default, or a tmux session when the alternative runtime is selected.
 
@@ -45,9 +49,11 @@ The system must keep stable boundaries for a future iOS native client, Session s
 
 **Client Instance**: one run of the app. It is invalidated when the app quits.
 
-**Client Window**: independent navigation and layout scope. Each Window independently stores its Active Workspace and Workspace Views.
+**Client Window**: independent navigation and layout scope. Each Window independently stores its Active Session Context and Workspace or Terminal Group Views.
 
 **Workspace View**: local presentation state a Window keeps for a Workspace, including ordered Tabs and the Active Tab.
+
+**Terminal Group View**: local presentation state a Window keeps for a Terminal Group, including ordered Tabs and the Active Tab.
 
 **Tab**: local entry in a Workspace View that points to a Terminal Session. In Warren v1, an open Tab corresponds to one Session; closing a Tab terminates that Session's Runtime. The same active Session is not opened twice within one Workspace View.
 
@@ -72,17 +78,21 @@ The system must keep stable boundaries for a future iOS native client, Session s
 ```text
 Resource Authority
 Selected Host
-└── Project
-    └── Workspace
-        └── Terminal Session
-            └── Runtime Binding
+├── Project
+│   └── Workspace
+│       └── Terminal Session
+│           └── Runtime Binding
+└── Terminal Group
+    └── Terminal Session
+        └── Runtime Binding
 
 Presentation Authority
 Device
 └── Client Instance
     └── Client Window
         ├── Active Workspace
-        └── Workspace Views
+        ├── Active Session Context
+        └── Workspace / Terminal Group Views
             └── Tabs / Active Tab
 
 Connection Authority
@@ -94,11 +104,11 @@ Terminal Session
 
 | State | Single authority | Persisted |
 | --- | --- | --- |
-| Projects, Workspaces, Sessions | Host Store | Yes |
-| Project and Workspace sidebar order | Host Store | Yes |
+| Projects, Workspaces, Terminal Groups, Sessions | Host Store | Yes |
+| Project, Workspace, and Terminal Group sidebar order | Host Store | Yes |
 | Runtime Bindings, Session state | Host Store | Yes |
 | PTY output recovery position | Host Output Store | Yes |
-| Windows, Workspace Views, Tabs | Client Layout Store | Yes, device-local |
+| Windows, Workspace / Terminal Group Views, Tabs | Client Layout Store | Yes, device-local |
 | Attachments, Leases, Viewport Owners | Host in-memory state | No |
 | Agent activity (working, waiting, ready, failed) | Host in-memory state | No |
 | Surfaces, focus, measured size | Renderer Coordinator | No |
@@ -107,21 +117,23 @@ Terminal Session
 ## 5. Required Invariants
 
 1. A Workspace belongs to exactly one Project.
-2. A Terminal Session belongs to exactly one Workspace.
-3. A Tab belongs to exactly one Window's Workspace View and references only Sessions in that Workspace.
-4. The top Tab bar shows only Tabs of the Active Workspace.
-5. Switching Workspaces must atomically switch Tabs, the Active Tab, and the Renderer Set.
-6. A Window has exactly one Active Workspace; a Workspace View has at most one Active Tab.
-7. Background Workspaces mount no Surfaces and send no input or resize.
+2. A Terminal Session belongs to exactly one Session Scope: a Workspace or a Terminal Group.
+3. A Tab belongs to exactly one Window's Workspace View or Terminal Group View and references only Sessions in that context.
+4. The top Tab bar shows only Tabs of the Active Session Context.
+5. Switching Workspaces or Terminal Groups must atomically switch Tabs, the Active Tab, and the Renderer Set.
+6. A Window has exactly one Active Session Context; each context View has at most one Active Tab.
+7. Background Workspaces and Terminal Groups mount no Surfaces and send no input or resize.
 8. A Session has at most one Input Lease and one Canonical Viewport Owner.
 9. In Warren v1, closing a Tab terminates its Runtime; it is not merely a detach. Ended Session records without a Tab can be retained for history and later cleanup.
-10. Adding a Project creates a Workspace; adding a Workspace or Tab-bar entry creates a Session.
-11. Creating a Session must carry a fixed Workspace ID and Request ID; the same Request ID creates at most one Session.
+10. Adding a Project creates a Workspace; adding a Workspace or Terminal Group Tab-bar entry creates a Session.
+11. Creating a Session must carry a fixed Session Scope and Request ID; the same Request ID creates at most one Session.
 12. App initialization must not auto-create shell, Codex, or Claude Sessions.
-13. Selecting a Workspace with no Tabs must idempotently create a default Shell Tab; repeated selection must not create duplicates.
+13. Selecting a Workspace with no Tabs may idempotently create its default Shell Tab; selecting an empty Terminal Group does not start a process until the user creates a Terminal.
 14. The app allows only one foreground Client Instance; repeated launches activate the existing instance and then exit.
 15. Quitting the app must end the Client process but must not kill created Runtime sessions (ghostline PTYs or tmux sessions).
 16. Import must not modify Superset data, Git repositories, worktrees, or runtimes.
+17. A Host always has at least one Terminal Group when a standalone Session is created; the first ordered Group is the default.
+18. Deleting a Terminal Group must not silently terminate its running Sessions; Sessions must be moved to another Group or explicitly terminated.
 
 ## 6. Module Boundaries
 
@@ -195,7 +207,7 @@ through explicit flags or environment variables without touching user data.
 Minimal data set in `state.json`:
 
 - Host identity and display name.
-- Projects, Workspaces, and their sidebar order.
+- Projects, Workspaces, Terminal Groups, and their sidebar order.
 - Terminal Sessions with lifecycle and output position (`epoch`/`sequence`).
 - Runtime Bindings with adapter (`ghostline` or `tmux`), runtime identifier,
   and recovery metadata.
@@ -208,7 +220,8 @@ Constraints:
 
 - Projects are deduplicated by normalized repository identity.
 - Workspaces are deduplicated by normalized real path within a Host.
-- A Session belongs to exactly one Workspace.
+- A Session belongs to exactly one Session Scope.
+- A Terminal Group home path is Host-local and is used as the startup working directory for new Group Sessions.
 - Runtime Binding records the engine a Session was created with and never
   migrates Sessions between engines.
 - Sidebar order is normalized within each Host.
@@ -268,11 +281,11 @@ identity.
 ### 9.2 Creation
 
 ```text
-CreateSession(workspaceID, launchSpec, requestID)
-→ validate Workspace and request idempotency
+CreateSession(sessionScope, launchSpec, requestID)
+→ validate Workspace or Terminal Group and request idempotency
 → subscribe to Runtime output
 → create Runtime (ghostline PTY, or detached tmux session)
-→ set working directory, TERM, size, and shell environment
+→ resolve Group home or Workspace path, then set working directory, TERM, size, and shell environment
 → install the output spool
 → persist Session and Runtime Binding
 → return resource events
@@ -310,7 +323,7 @@ Every byte position is identified by `epoch + sequence`. On reconnect, a client 
 
 ### 9.5 Size and Focus
 
-Only the Active Tab Surface of the Active Workspace can take local keyboard focus. Only the Canonical Viewport Owner can resize the PTY.
+Only the Active Tab Surface of the Active Session Context can take local keyboard focus. Only the Canonical Viewport Owner can resize the PTY.
 
 Resize uses one worker per Session with latest-wins semantics; after a Surface becomes active, row/column counts are forcibly recomputed from the actual visible area once. Layout callbacks from hidden Surfaces are discarded.
 
@@ -339,12 +352,12 @@ The UI information architecture follows Superset's proven base relationships wit
 ```text
 Window
 ├── Sidebar
-│   └── Project
+│   ├── Terminal Groups
+│   └── Projects
 │       └── Workspaces
-└── Workspace Screen
+└── Session Context Screen
     ├── Top Bar
-    ├── Preset Bar
-    ├── Workspace-scoped Tab Bar
+    ├── Context-scoped Tab Bar
     └── Active Terminal
 ```
 
@@ -354,10 +367,14 @@ Behavior requirements:
 - Projects are collapsed by default; Workspaces appear only after explicit expansion, and newly added Projects are collapsed by default.
 - Besides a dedicated add button, the whole Project row is the expand/collapse hot zone; expanding does not implicitly create a Session.
 - The whole Workspace row is the hot zone for selecting and entering a Session; no small, easy-to-misclick add buttons remain.
+- The Terminal Groups section appears above Projects, has a fixed height of at most three rows, and scrolls internally when more Groups exist.
+- Each Terminal Group row shows the Group identity and aggregate Session state; individual Group Sessions appear in the context-scoped Tab Bar.
 - Clicking a Workspace must switch immediately without waiting for the daemon, Git, or disk operations.
+- Clicking a Terminal Group switches the active Session Context immediately; an empty Group shows a New Terminal action without starting a process.
 - After clicking a Workspace with no Tabs, show a non-interactive `Starting Shell…` loading Tab and content progress state immediately, then create the default Shell in that Workspace's serial command queue. Rapid repeated clicks share the same in-flight operation; on success the loading Tab is replaced in place; on failure it is removed and a recoverable error is shown. If the user has already navigated elsewhere, the creation result must not steal the selection back.
 - Clicking a Tab must switch the Active Session immediately and hand focus to Ghostty.
 - Presets create a Session in the Workspace captured at click time; switching Workspaces must not change the in-flight request target.
+- In Terminal Group mode, `Command+T` creates a shell in the captured Group; in Workspace mode it preserves the existing Workspace target.
 - The Tab add button sits right after the last Tab; with no Tabs it sits at the start position.
 - Icons that are meaningless, actionless, or redundant are not shown.
 - Typography, density, spacing, hierarchy, and hover/selected states use the Superset macOS Desktop as the phase-one visual baseline; the terminal itself uses monospace fonts and Ghostty theme capabilities.

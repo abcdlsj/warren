@@ -16,10 +16,21 @@ The identity of one Git repository rooted at its main checkout. A Project owns
 the repository identity and the set of Git Workspaces derived from that
 repository. It is metadata about the repository, not a terminal runtime.
 
+**Terminal Group**:
+A Host-owned ordered container for standalone terminal sessions that are not
+bound to a Project or Workspace. The first Group is the default destination
+for newly created standalone sessions. A Group may define a default startup
+directory; when it does not, the Host user's home directory is used.
+
+**Session Scope**:
+The single ownership context of a Warren Terminal Session. A scope is either a
+Workspace or a Terminal Group. A Session never belongs to both contexts and
+never exists without one.
+
 **Warren Terminal Session**:
-A Host-owned terminal execution resource belonging to one Workspace. It has a
-durable lifecycle independent of client connectivity; in Warren v1, closing its
-Tab is the user's command to end it.
+A Host-owned terminal execution resource belonging to one Session Scope. It has
+a durable lifecycle independent of client connectivity; in Warren v1, closing
+its Tab is the user's command to end it.
 _Avoid_: Session
 
 **Runtime Binding**:
@@ -44,9 +55,10 @@ The currently observed work state of an external Agent Conversation. It is
 optional and does not represent terminal lifecycle or client connectivity.
 
 **Tab**:
-A device-local window entry that references one Warren Terminal Session. It
-does not own Host state, although Close Tab is the Warren v1 command for ending
-the referenced Session and removing the entry.
+A device-local window entry that references one Warren Terminal Session within a
+Workspace View or Terminal Group View. It does not own Host state, although
+Close Tab is the Warren v1 command for ending the referenced Session and
+removing the entry.
 
 **Attachment**:
 A temporary client connection to a Warren Terminal Session. Disconnecting an
