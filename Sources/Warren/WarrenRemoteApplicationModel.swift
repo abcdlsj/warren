@@ -1816,6 +1816,12 @@ final class WarrenRemoteApplicationModel {
         if let existingSurface {
             surface = existingSurface
         } else {
+            // A brand-new Ghostty surface has no content. The daemon may still
+            // consider the old recovery anchor valid after a warm surface was
+            // evicted for memory, and would then skip the snapshot and leave
+            // the pane blank. Force a full reanchor for every recreated surface.
+            outputAnchors.removeValue(forKey: sessionID)
+            suppressFramedAnchorUpdates.remove(sessionID)
             let inputBridge = WarrenOrderedInputBridge { [weak self] data in
                 await self?.sendInput(data)
             }
