@@ -49,6 +49,24 @@ const moreIcon = (
   </svg>
 );
 
+const MenuIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </svg>
+);
+
+const ChevronLeftIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="m15 6-6 6 6 6" />
+  </svg>
+);
+
+const ChevronRightIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+
 export function ActivityDot({ activity }) {
   const label = activityLabels[activity];
   if (!label) return null;
@@ -145,7 +163,7 @@ export function Sidebar({
         </span>
       </div>
       <div className="sidebar-scroll">
-        <div className="section-label">PROJECTS</div>
+        <div className="section-label">Projects</div>
         {catalog.projects.length ? catalog.projects.map(project => {
           const workspaces = catalog.workspacesByProject.get(project.id) || [];
           const open = expandedProjects.has(project.id);
@@ -190,7 +208,7 @@ export function Sidebar({
                   aria-label={open ? `Collapse ${project.name}` : `Expand ${project.name}`}
                   onClick={() => onToggleProject(project.id)}
                 >
-                  <span className="chevron">›</span>
+                  <span className="chevron">{ChevronRightIcon}</span>
                 </button>
               </div>
               <div className="workspace-list">
@@ -258,7 +276,7 @@ export function Sidebar({
           onClick={onNewSession}
         >
           <PlusIcon />
-          <span>New Session</span>
+          <span>New session</span>
         </button>
         <button type="button" className="chrome-button" aria-label="Settings" onClick={onOpenSettings}>
           <SettingsIcon />
@@ -321,9 +339,26 @@ export function TopBar({
     el.scrollBy({ left: direction === "left" ? -distance : distance, behavior: "smooth" });
   }, []);
 
+  const handleTabListKeyDown = event => {
+    const keys = ["ArrowRight", "ArrowLeft", "Home", "End"];
+    if (!keys.includes(event.key)) return;
+    if (!tabs.length) return;
+    const current = Math.max(0, tabs.findIndex(session => session.id === activeSession));
+    let next = current;
+    if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    event.preventDefault();
+    const session = tabs[next];
+    if (!session) return;
+    onAttachSession(session.id);
+    tabRefs.current.get(session.id)?.focus();
+  };
+
   return (
     <header className="topbar">
-      <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
+      <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>{MenuIcon}</button>
       <div className="tabs-wrap">
         {hasOverflow && canScrollLeft && (
           <button
@@ -332,13 +367,15 @@ export function TopBar({
             aria-label="Earlier tabs"
             onClick={() => scrollTabs("left")}
           >
-            ‹
+            {ChevronLeftIcon}
           </button>
         )}
         <div
           ref={tabsRef}
           className={`tabs${canScrollLeft ? " fade-left" : ""}${canScrollRight ? " fade-right" : ""}`}
           role="tablist"
+          aria-label="Sessions"
+          onKeyDown={handleTabListKeyDown}
         >
           {tabs.map(session => {
             const active = session.id === activeSession;
@@ -370,11 +407,13 @@ export function TopBar({
             aria-label="More tabs"
             onClick={() => scrollTabs("right")}
           >
-            ›
+            {ChevronRightIcon}
           </button>
         )}
       </div>
-      <button type="button" className="new-session" aria-label="New shell" onClick={onNewSession}>+</button>
+      <button type="button" className="new-session" aria-label="New shell" onClick={onNewSession}>
+        <PlusIcon />
+      </button>
       <div className="chrome-spacer" />
       <button type="button" className="chrome-button" aria-label="Search projects" onClick={onOpenSearch}>
         <SearchIcon />
@@ -399,10 +438,26 @@ export function MobileShell({
   onOpenSessionMenu,
   onSessionContextMenu,
 }) {
+  const handleTabListKeyDown = event => {
+    const keys = ["ArrowRight", "ArrowLeft", "Home", "End"];
+    if (!keys.includes(event.key) || !tabs.length) return;
+    const current = Math.max(0, tabs.findIndex(session => session.id === activeSession));
+    let next = current;
+    if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+    else if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = tabs.length - 1;
+    event.preventDefault();
+    const session = tabs[next];
+    if (!session) return;
+    onAttachSession(session.id);
+    document.querySelector(`.mobile-tab[data-session="${session.id}"]`)?.focus();
+  };
+
   return (
     <header className="mobile-shell">
       <div className="mobile-command">
-        <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>☰</button>
+        <button type="button" className="menu-button" aria-label="Open navigation" onClick={onOpenMenu}>{MenuIcon}</button>
         <div className="mobile-workspace" title={connection.message}>
           <span className="mobile-workspace-name">{workspace?.branch || workspace?.name || "Warren"}</span>
           <span className={`mobile-connection${connection.online ? " online" : ""}`} aria-label={connection.message}>
@@ -438,15 +493,18 @@ export function MobileShell({
         <button type="button" className="chrome-button" aria-label="Search projects" onClick={onOpenSearch}>
           <SearchIcon />
         </button>
-        <button type="button" className="new-session" aria-label="New session" onClick={onNewSession}>+</button>
+        <button type="button" className="new-session" aria-label="New session" onClick={onNewSession}>
+          <PlusIcon />
+        </button>
       </div>
-      <nav className="mobile-tabs" role="tablist" aria-label="Sessions">
+      <nav className="mobile-tabs" role="tablist" aria-label="Sessions" onKeyDown={handleTabListKeyDown}>
         {tabs.map(session => {
           const active = session.id === activeSession;
           return (
             <button
               type="button"
               role="tab"
+              data-session={session.id}
               aria-selected={active}
               className={`mobile-tab${active ? " active" : ""}`}
               key={session.id}
@@ -468,11 +526,25 @@ export function ContextMenu({ menu, onClose }) {
 
   useEffect(() => {
     if (!menu) return undefined;
+    const items = () => Array.from(menuRef.current?.querySelectorAll('[role="menuitem"]') || []);
+    items()[0]?.focus();
     const handlePointerDown = event => {
       if (!menuRef.current?.contains(event.target)) onClose();
     };
     const handleKeyDown = event => {
       if (event.key === "Escape") onClose();
+      else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const list = items();
+        if (!list.length) return;
+        const current = Math.max(0, list.indexOf(document.activeElement));
+        let next = current;
+        if (event.key === "ArrowDown") next = (current + 1) % list.length;
+        else if (event.key === "ArrowUp") next = (current - 1 + list.length) % list.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = list.length - 1;
+        list[next]?.focus();
+      }
     };
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
@@ -543,13 +615,19 @@ export function EmptyTerminal({
   } else if (activeSession) {
     content = <Loading message="Connecting…" />;
   } else if (activeWorkspace && tabCount) {
-    content = <span>Select a session</span>;
+    content = (
+      <div className="empty-state">
+        <div className="empty-title">Select a session</div>
+        <p className="empty-hint">Choose a tab above to open its terminal.</p>
+      </div>
+    );
   } else if (activeWorkspace) {
     content = (
       <div className="empty-state">
         {terminalIcon}
         <div className="empty-title">Start a session</div>
-        <button type="button" className="empty-action" onClick={onNewSession}>New Session</button>
+        <p className="empty-hint">Create a shell in this workspace to get started.</p>
+        <button type="button" className="empty-action" onClick={onNewSession}>New session</button>
       </div>
     );
   } else {
@@ -557,6 +635,11 @@ export function EmptyTerminal({
       <div className="empty-state">
         {folderIcon}
         <div className="empty-title">{projectCount ? "Select a workspace" : "No projects on this host"}</div>
+        <p className="empty-hint">
+          {projectCount
+            ? "Choose a workspace from the sidebar to open its sessions."
+            : "Projects appear here after you connect to a host."}
+        </p>
       </div>
     );
   }
@@ -677,8 +760,11 @@ export function MobileKeys({ onInput }) {
 }
 
 export function SessionSheet({ open, presets, onChoose, onClose }) {
+  const firstItemRef = useRef(null);
+
   useEffect(() => {
     if (!open) return undefined;
+    firstItemRef.current?.focus();
     const handleKeyDown = event => {
       if (event.key === "Escape") onClose();
     };
@@ -698,8 +784,14 @@ export function SessionSheet({ open, presets, onChoose, onClose }) {
       >
         <div className="session-sheet-handle" aria-hidden="true" />
         <div className="session-sheet-title">New session</div>
-        {presets.map(preset => (
-          <button type="button" className="session-sheet-item" key={preset.kind} onClick={() => onChoose(preset.kind)}>
+        {presets.map((preset, index) => (
+          <button
+            type="button"
+            className="session-sheet-item"
+            key={preset.kind}
+            ref={index === 0 ? firstItemRef : undefined}
+            onClick={() => onChoose(preset.kind)}
+          >
             <SessionPresetIcon kind={preset.kind} />
             <span>{preset.label}</span>
           </button>
@@ -781,7 +873,9 @@ export function SettingsPage({
         </div>
         <div className="settings-search">
           <SearchIcon />
+          <label className="visually-hidden" htmlFor="settings-search">Search settings</label>
           <input
+            id="settings-search"
             value={searchQuery}
             onChange={event => setSearchQuery(event.target.value)}
             placeholder="Search settings…"
@@ -795,12 +889,12 @@ export function SettingsPage({
               aria-label="Clear settings search"
               onClick={() => setSearchQuery("")}
             >
-              ×
+              <CloseIcon />
             </button>
           )}
         </div>
         <div className="settings-nav-scroll">
-          <div className="settings-nav-label">TERMINAL</div>
+          <div className="settings-nav-label">Terminal</div>
           {visibleSections.map(section => (
             <button
               type="button"
@@ -813,7 +907,7 @@ export function SettingsPage({
               <span>{section.label}</span>
             </button>
           ))}
-          {!visibleSections.length && <div className="settings-nav-empty">No settings found</div>}
+          {!visibleSections.length && <div className="settings-nav-empty">No settings match your search</div>}
         </div>
       </nav>
       <div className="settings-detail">
@@ -884,7 +978,7 @@ export function SettingsPage({
             <div className="settings-empty">No settings match “{searchQuery}”.</div>
           )}
           <div className="settings-footer">
-            <button type="button" className="settings-reset" onClick={onRestore}>Restore Terminal Defaults</button>
+            <button type="button" className="settings-reset" onClick={onRestore}>Restore terminal defaults</button>
           </div>
         </div>
       </div>
@@ -973,6 +1067,9 @@ export function SearchPanel({
     } else if (event.key === "Enter") {
       event.preventDefault();
       chooseRow(activeRow);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
     }
   };
 
@@ -986,8 +1083,10 @@ export function SearchPanel({
       <section className="search-panel" role="dialog" aria-modal="true" aria-label="Project search">
         <div className="search-input-wrap">
           <SearchIcon />
+          <label className="visually-hidden" htmlFor="warren-search">Search projects and workspaces</label>
           <input
             ref={inputRef}
+            id="warren-search"
             className="search-input"
             value={query}
             onChange={event => onQueryChange(event.target.value)}
@@ -1041,7 +1140,13 @@ export function SearchPanel({
               })}
             </div>
           ))}
-          {!rowCount && <div className="search-empty">No results found.</div>}
+          {!rowCount && (
+            <div className="search-empty">
+              {needle
+                ? <>No results for “{query.trim()}”. Try a different name or path.</>
+                : "Search projects and workspaces by name or path."}
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -1061,7 +1166,7 @@ function highestActivity(sessions) {
 
 function PlusIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
@@ -1069,7 +1174,7 @@ function PlusIcon() {
 
 function BackIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="M19 12H5m6-7-7 7 7 7" />
     </svg>
   );
@@ -1077,7 +1182,7 @@ function BackIcon() {
 
 function BranchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <circle cx="6" cy="6" r="2.5" />
       <circle cx="6" cy="18" r="2.5" />
       <circle cx="18" cy="6" r="2.5" />
@@ -1088,7 +1193,7 @@ function BranchIcon() {
 
 function TitleIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="M4 7V4h16v3M9 20h6M12 4v16" />
     </svg>
   );
@@ -1096,7 +1201,7 @@ function TitleIcon() {
 
 function SettingsIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.1A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3V9.6h.1A1.7 1.7 0 0 0 4.6 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.1A1.7 1.7 0 0 0 15.5 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.16.38.38.72.68 1 .3.28.69.42 1.1.4h.1v4h-.1A1.7 1.7 0 0 0 19.4 15Z" />
     </svg>
@@ -1105,7 +1210,7 @@ function SettingsIcon() {
 
 function SearchIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <circle cx="11" cy="11" r="6" />
       <path d="m16 16 4 4" />
     </svg>
@@ -1114,7 +1219,7 @@ function SearchIcon() {
 
 function ChevronUpIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="m6 15 6-6 6 6" />
     </svg>
   );
@@ -1122,7 +1227,7 @@ function ChevronUpIcon() {
 
 function ChevronDownIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="m6 9 6 6 6-6" />
     </svg>
   );
@@ -1130,7 +1235,7 @@ function ChevronDownIcon() {
 
 function CloseIcon() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
       <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );

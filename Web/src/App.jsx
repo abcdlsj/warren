@@ -1539,7 +1539,9 @@ export default function App() {
 
   return (
     <>
+      <h1 className="visually-hidden">Warren</h1>
       <div className={`app${drawerOpen ? " drawer-open" : ""}`} hidden={settingsOpen}>
+        <a className="skip-link" href="#main">Skip to content</a>
         <Sidebar
           catalog={catalog}
           activeWorkspace={selectedWorkspaceID}
@@ -1559,7 +1561,7 @@ export default function App() {
           onEndProjectDrag={endProjectDrag}
         />
         <button type="button" className="backdrop" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />
-        <main className="main" ref={mainRef}>
+        <main id="main" className="main" ref={mainRef} tabIndex={-1}>
           {isMobile ? (
             <MobileShell
               workspace={selectedWorkspace}

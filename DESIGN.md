@@ -391,6 +391,33 @@ Performance goals:
 - PTY output must not be backpressured by database writes.
 - A single Workspace failure must not freeze other Workspaces or the whole window.
 
+### 11.1 Visual Tokens
+
+Both clients share one visual language sourced from the Ember dark palette
+already used by the terminal renderer. The macOS DesignSystem
+(`WarrenColorTokens`, `WarrenSpacing`, `WarrenRadius`, `WarrenTypography`) is
+the semantic source of truth; the Web client mirrors the same roles as CSS
+custom properties in `Web/src/style.css`:
+
+- Surfaces: page background `#151110`, chrome/sidebar `#1c1918`, popovers
+  `#201e1c`, inputs `#181615`; borders and separators stay within the
+  `#2a2827`/`#3a3837` range.
+- Text: primary `#eae8e6`, secondary `#a8a5a3`, links `#7ec0f5`, danger
+  `#e88888`.
+- Accent: interactive/focus uses `#e07850`; brand cursor uses `#f59e0b`.
+- Status: working `#f59e0b`, waiting `#e5c07b`, ready/success `#7ec699`,
+  failed/danger `#dc6b6b`, exited/connecting neutral `#a8a5a3`.
+- Spacing: one scale (`1/2/4/6/8/12/16/24/32/40px`) with the same semantic
+  names as `WarrenSpacing`.
+- Radius: `4/6/8/10/12px` tiers matching `WarrenRadius`, plus full-pill
+  (`999px`) for chips, toggles, and sheets.
+- Typography: UI text is 13px by default, chrome metadata 10–12px, headings
+  17–20px; light weights are display-only.
+
+Web components must reference semantic CSS variables, never raw hex values.
+Focus rings use the accent token, hover treatments are gated behind
+`@media (hover: hover)`, and all motion honors `prefers-reduced-motion`.
+
 ## 12. Non-Intrusive Observability and Acceptance Design
 
 Acceptance must not depend on screenshots, must not move the mouse, and must not steal keyboard focus from the user's current app.

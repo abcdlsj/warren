@@ -208,7 +208,7 @@ function AgentBlock({ block }) {
     return (
       <div className={`agent-tool-card ${event.toolStatus || "success"}`}>
         <div className="agent-tool-head">
-          <span className={`agent-tool-chevron open`} aria-hidden="true">▸</span>
+          <span className="agent-tool-chevron open" aria-hidden="true"><ChevronRightIcon /></span>
           <span className="agent-tool-name">{displayToolName(event.toolName)}</span>
           <span className="agent-tool-status">{statusText(event.toolStatus)}</span>
         </div>
@@ -293,7 +293,7 @@ function ToolCard({ block, defaultOpen = false }) {
   return (
     <div className={`agent-tool-card ${status}`}>
       <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true">▸</span>
+        <span className={`agent-tool-chevron${open ? " open" : ""}`} aria-hidden="true"><ChevronRightIcon /></span>
         <span className="agent-tool-name">{displayToolName(call.toolName)}</span>
         {summary && <code className="agent-tool-summary">{summary}</code>}
         {!isWebSearch && <span className="agent-tool-status">{statusText(status)}</span>}
@@ -386,8 +386,16 @@ function displayToolName(name) {
 
 function SendIcon() {
   return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path d="M1.5 1.8l13 6.2-13 6.2 2.2-6.2L1.5 1.8zm3.6 7.2l-1.2 3.5 7.4-3.5-7.4-3.5 1.2 3.5z" fill="currentColor"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M4 20.5 21 12 4 3.5l1.8 6.9 8.5 1.6-8.5 1.6z" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="m9 6 6 6-6 6" />
     </svg>
   );
 }
