@@ -73,11 +73,6 @@ struct WarrenDesktopTabItem: View {
                                     value: isActivityHovered
                                 )
                                 .accessibilityHidden(true)
-                            WarrenDesktopTabActivityDragHandle(
-                                onDismiss: onDismissActivity,
-                                onClick: onSelect,
-                                onHoverChanged: { isActivityHovered = $0 }
-                            )
                         }
                         .frame(
                             width: WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
@@ -164,6 +159,25 @@ struct WarrenDesktopTabItem: View {
                 action: onClose
             )
             .padding(.trailing, WarrenSpacing.xs)
+        }
+        .overlay(alignment: .leading) {
+            // Keep the native activity drag surface above the tab button. A
+            // nested AppKit view inside a SwiftUI Button can lose the drag
+            // sequence to the button's gesture recognizer.
+            if activity != nil {
+                WarrenDesktopTabActivityDragHandle(
+                    onDismiss: onDismissActivity,
+                    onClick: onSelect,
+                    onHoverChanged: { isActivityHovered = $0 }
+                )
+                .frame(
+                    width: WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
+                    height: WarrenDesktopTabActivityDragGesture.hitTargetSize.height
+                )
+                .offset(x: WarrenSpacing.medium)
+                .zIndex(1)
+                .accessibilityHidden(true)
+            }
         }
         .frame(width: WarrenLayoutMetrics.tabWidth, height: WarrenLayoutMetrics.tabBarHeight)
         .background(

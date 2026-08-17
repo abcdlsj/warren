@@ -11,7 +11,8 @@ enum WarrenDesktopTabActivityDragGesture {
 }
 
 enum WarrenDesktopActivityDragPresentation {
-    static let previewSize = CGSize(width: 132, height: 30)
+    static let previewLabel = "Drag out to dismiss"
+    static let previewSize = CGSize(width: 124, height: 24)
 
     static func isOutside(windowFrame: CGRect, screenPoint: CGPoint) -> Bool {
         !windowFrame.contains(screenPoint)
@@ -19,29 +20,15 @@ enum WarrenDesktopActivityDragPresentation {
 
     static func previewImage() -> NSImage {
         NSImage(size: previewSize, flipped: false) { rect in
-            let background = NSBezierPath(
-                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
-                xRadius: 9,
-                yRadius: 9
-            )
-            NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
-            background.fill()
-            NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
-            background.lineWidth = 1
-            background.stroke()
-
-            NSColor.controlAccentColor.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 10, y: 11, width: 8, height: 8)).fill()
-
             let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .left
+            paragraph.alignment = .center
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.secondaryLabelColor,
                 .paragraphStyle: paragraph,
             ]
-            NSString(string: "Drag out to dismiss").draw(
-                in: NSRect(x: 26, y: 7, width: rect.width - 34, height: 16),
+            NSString(string: previewLabel).draw(
+                in: rect.insetBy(dx: 2, dy: 3),
                 withAttributes: attributes
             )
             return true
@@ -86,6 +73,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     private var mouseDownPoint: NSPoint?
     private var pendingDismiss: (() -> Void)?
     private var isDragging = false
+    private var suppressClickUntil: Date?
     private var hoverTrackingArea: NSTrackingArea?
 
     override var isFlipped: Bool { true }
@@ -130,6 +118,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         NSCursor.closedHand.set()
         dragWindow = window
         mouseDownPoint = convert(event.locationInWindow, from: nil)
+        suppressClickUntil = nil
         // Freeze the dismissal intent at mouse-down. SwiftUI may update the
         // represented activity while the native drag session is in flight.
         pendingDismiss = onDismiss
@@ -149,6 +138,10 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         guard !isDragging else { return }
+        if let deadline = suppressClickUntil, Date() < deadline {
+            suppressClickUntil = nil
+            return
+        }
         finishPendingInteraction()
         onClick?()
     }
@@ -188,7 +181,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        defer { finishPendingInteraction() }
+        defer { finishPendingInteraction(suppressClick: true) }
         guard let dragWindow,
               WarrenDesktopActivityDragPresentation.isOutside(
                   windowFrame: dragWindow.frame,
@@ -209,6 +202,10 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         (isOutside ? NSCursor.disappearingItem : NSCursor.closedHand).set()
     }
 
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
+        true
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -216,11 +213,14 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         }
     }
 
-    private func finishPendingInteraction() {
+    private func finishPendingInteraction(suppressClick: Bool = false) {
         dragWindow?.invalidateCursorRects(for: self)
         dragWindow = nil
         mouseDownPoint = nil
         pendingDismiss = nil
+        suppressClickUntil = suppressClick
+            ? Date().addingTimeInterval(0.5)
+            : nil
         isDragging = false
     }
 }

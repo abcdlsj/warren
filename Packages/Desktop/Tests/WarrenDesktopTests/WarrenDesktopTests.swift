@@ -437,6 +437,66 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(hoverStates, [true, false])
     }
 
+    func testActivityDragHandleSitsAboveTheTabButtonHitArea() {
+        let tab = ClientTab(
+            id: "tab-activity",
+            title: "Activity",
+            sessionID: TerminalSessionID(rawValue: UUID()),
+            kind: .shell
+        )
+        let tabView = WarrenDesktopTabItem(
+            tab: tab,
+            displayTitle: tab.title,
+            activity: .working,
+            isSelected: true,
+            isPinned: false,
+            onSelect: {},
+            onClose: {},
+            onCloseOthers: {},
+            onCloseAll: {},
+            onMoveBefore: { _ in },
+            onRename: {},
+            onTogglePin: {},
+            onDismissActivity: {}
+        )
+        .environment(\.colorScheme, .dark)
+        let hostingView = NSHostingView(rootView: tabView)
+        hostingView.frame = NSRect(
+            x: 0,
+            y: 0,
+            width: WarrenLayoutMetrics.tabWidth,
+            height: WarrenLayoutMetrics.tabBarHeight
+        )
+        hostingView.layoutSubtreeIfNeeded()
+        let window = WarrenDragProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: WarrenLayoutMetrics.tabWidth, height: WarrenLayoutMetrics.tabBarHeight),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.displayIfNeeded()
+        defer { window.orderOut(nil) }
+
+        guard let handle = descendantViews(
+            of: hostingView,
+            as: WarrenDesktopTabActivityDragHandleView.self
+        ).first else {
+            XCTFail("Activity drag handle is missing from the tab surface")
+            return
+        }
+
+        XCTAssertEqual(
+            handle.convert(handle.bounds, to: hostingView).minX,
+            WarrenSpacing.medium,
+            accuracy: 1
+        )
+        XCTAssertGreaterThanOrEqual(handle.frame.width, 20)
+        let activityRect = handle.convert(handle.bounds, to: hostingView)
+        let activityPoint = NSPoint(x: activityRect.midX, y: activityRect.midY)
+        XCTAssertTrue(window.contentView?.hitTest(activityPoint) === handle)
+    }
+
     func testWindowDragRegionPerformsDragOnSingleClick() {
         let view = WarrenDesktopWindowDragView()
         let window = WarrenDragProbeWindow(
