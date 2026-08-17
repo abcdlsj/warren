@@ -27,7 +27,7 @@ struct WarrenDesktopTerminalGroupRow: View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         return Button(action: onSelect) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "rectangle.3.group")
+                Image(systemName: "square.3.stack.3d")
                     .font(.system(size: 12, weight: .regular))
                 if let activity = group.activity {
                     WarrenDesktopActivityIndicator(activity: activity)
@@ -61,7 +61,7 @@ struct WarrenDesktopTerminalGroupRow: View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         return Button(action: onSelect) {
             HStack(spacing: WarrenSpacing.compact) {
-                Image(systemName: "rectangle.3.group")
+                Image(systemName: "square.3.stack.3d")
                     .font(.system(size: 12, weight: .regular))
                     .frame(
                         width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
