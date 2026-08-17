@@ -192,6 +192,10 @@ public final class GhosttySurface: Identifiable {
         return view.window != nil && !view.isHidden && !view.visibleRect.isEmpty
     }
 
+    public var terminalSurfaceIsReady: Bool {
+        state.surface?.rawValue != nil
+    }
+
     public var terminalViewDescription: String {
         guard let view = mountedTerminalView else { return "nil" }
         let size = GhosttyDiagnosticsFormat.finiteSize(view.visibleRect.size)

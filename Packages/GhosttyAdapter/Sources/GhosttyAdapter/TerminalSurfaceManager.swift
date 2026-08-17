@@ -125,6 +125,8 @@ public final class TerminalSurfaceManager {
         let surface: GhosttySurface
         let view: AppTerminalView
         var transitionGeneration: UInt64 = 0
+        var presentationGeneration: UInt64 = 0
+        var presentationTask: Task<Void, Never>?
 
         init(surface: GhosttySurface, view: AppTerminalView) {
             self.surface = surface
@@ -241,7 +243,16 @@ public final class TerminalSurfaceManager {
     }
 
     public func hostDidLayout(_ host: TerminalHostContainerView, size: CGSize) {
-        guard self.host === host, latestIntent.viewportSize != size else { return }
+        guard self.host === host else { return }
+        guard latestIntent.viewportSize != size else {
+            guard let sessionID = policy.activeSessionID,
+                  let entry = entries[sessionID],
+                  entry.presentationTask == nil else { return }
+            guard !entry.surface.terminalViewIsPresentable
+                || !entry.surface.terminalSurfaceIsReady else { return }
+            schedulePresent(entry, generation: entry.transitionGeneration)
+            return
+        }
         latestIntent = TerminalPresentationIntent(
             activeSessionID: latestIntent.activeSessionID,
             viewportSize: size,
@@ -256,9 +267,14 @@ public final class TerminalSurfaceManager {
     }
 
     public func requestPresent(_ sessionID: TerminalSessionID) {
-        guard policy.activeSessionID == sessionID,
-              let entry = entries[sessionID] else {
+        guard let entry = entries[sessionID] else {
             hiddenRenderAttemptCount &+= 1
+            return
+        }
+        guard policy.activeSessionID == sessionID else {
+            // Reconciliation always presents the entry when it becomes
+            // active, so a request arriving before SwiftUI's next turn is
+            // intentionally retained by the lifecycle transition.
             return
         }
         schedulePresent(entry, generation: entry.transitionGeneration)
@@ -343,6 +359,7 @@ public final class TerminalSurfaceManager {
         generation: UInt64
     ) {
         let viewport = sanitizedViewport(latestIntent.viewportSize, fallback: host.bounds.size)
+        cancelPresentation(for: entry)
         entry.view.setSurfaceVisible(false)
         entry.view.isHidden = true
         if entry.view.superview !== host {
@@ -380,6 +397,7 @@ public final class TerminalSurfaceManager {
     private func demote(_ sessionID: TerminalSessionID) {
         guard let entry = entries[sessionID] else { return }
         entry.transitionGeneration &+= 1
+        cancelPresentation(for: entry)
         if entry.view.window?.firstResponder === entry.view {
             entry.view.window?.makeFirstResponder(nil)
         }
@@ -392,6 +410,7 @@ public final class TerminalSurfaceManager {
     private func dispose(_ sessionID: TerminalSessionID) {
         guard let entry = entries.removeValue(forKey: sessionID) else { return }
         entry.transitionGeneration &+= 1
+        cancelPresentation(for: entry)
         if entry.view.window?.firstResponder === entry.view {
             entry.view.window?.makeFirstResponder(nil)
         }
@@ -420,13 +439,21 @@ public final class TerminalSurfaceManager {
 
     private func schedulePresent(_ entry: Entry, generation: UInt64) {
         let sessionID = entry.surface.id
-        Task { @MainActor [weak self, weak entry] in
+        cancelPresentation(for: entry)
+        let presentationGeneration = entry.presentationGeneration
+        let targetEpoch = entry.surface.outputWriter.bufferEpoch
+        let targetSequence = entry.surface.outputWriter.enqueuedSequence
+        entry.presentationTask = Task { @MainActor [weak self, weak entry] in
             guard let self, let entry else { return }
-            let targetSequence = entry.surface.outputWriter.enqueuedSequence
             let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-            while entry.surface.outputWriter.renderedSequence < targetSequence,
-                  ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(16))
+            defer {
+                if entry.presentationGeneration == presentationGeneration {
+                    entry.presentationTask = nil
+                }
+            }
+
+            while true {
+                guard !Task.isCancelled else { return }
                 guard isCurrent(
                     sessionID,
                     entry: entry,
@@ -436,19 +463,64 @@ public final class TerminalSurfaceManager {
                     staleCommandCancellationCount &+= 1
                     return
                 }
+
+                let outputReady = outputHasReached(
+                    entry.surface,
+                    targetEpoch: targetEpoch,
+                    targetSequence: targetSequence
+                )
+                let viewReady = entry.surface.terminalViewIsPresentable
+                if outputReady, viewReady, entry.surface.terminalSurfaceIsReady {
+                    entry.surface.requestDisplayRefresh()
+                    if entry.surface.presentNow() {
+                        TerminalDiagnostics.log("present_complete", [
+                            "session": sessionID.description,
+                            "targetEpoch": targetEpoch.map { String($0) } ?? "nil",
+                            "targetSequence": String(targetSequence),
+                            "renderedEpoch": String(entry.surface.renderedEpoch),
+                            "renderedSequence": String(entry.surface.renderedSequence),
+                        ])
+                        return
+                    }
+                }
+
+                guard ContinuousClock.now < deadline else {
+                    TerminalDiagnostics.log("present_wait_timeout", [
+                        "session": sessionID.description,
+                        "targetEpoch": targetEpoch.map { String($0) } ?? "nil",
+                        "targetSequence": String(targetSequence),
+                        "renderedEpoch": String(entry.surface.renderedEpoch),
+                        "renderedSequence": String(entry.surface.renderedSequence),
+                        "surfaceReady": entry.surface.terminalSurfaceIsReady ? "true" : "false",
+                        "viewPresentable": viewReady ? "true" : "false",
+                    ])
+                    return
+                }
+
+                do {
+                    try await Task.sleep(for: .milliseconds(16))
+                } catch {
+                    return
+                }
             }
-            guard isCurrent(
-                sessionID,
-                entry: entry,
-                host: host,
-                generation: generation
-            ) else {
-                staleCommandCancellationCount &+= 1
-                return
-            }
-            entry.surface.requestDisplayRefresh()
-            _ = entry.surface.presentNow()
         }
+    }
+
+    private func cancelPresentation(for entry: Entry) {
+        entry.presentationGeneration &+= 1
+        entry.presentationTask?.cancel()
+        entry.presentationTask = nil
+    }
+
+    private func outputHasReached(
+        _ surface: GhosttySurface,
+        targetEpoch: UInt64?,
+        targetSequence: UInt64
+    ) -> Bool {
+        guard let targetEpoch else { return true }
+        return surface.renderedEpoch > targetEpoch
+            || (surface.renderedEpoch == targetEpoch
+                && surface.renderedSequence >= targetSequence)
     }
 
     private func installWindowObservers(for window: NSWindow?) {
@@ -461,8 +533,31 @@ public final class TerminalSurfaceManager {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, latestIntent.wantsTerminalFocus else { return }
-                requestFocusForActiveSurface()
+                guard let self else { return }
+                if latestIntent.wantsTerminalFocus {
+                    requestFocusForActiveSurface()
+                }
+                requestPresentForActiveSurface()
+            }
+        })
+        windowObservers.append(center.addObserver(
+            forName: NSWindow.didDeminiaturizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                requestPresentForActiveSurface()
+            }
+        })
+        windowObservers.append(center.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                requestPresentForActiveSurface()
             }
         })
         windowObservers.append(center.addObserver(
@@ -481,6 +576,11 @@ public final class TerminalSurfaceManager {
         let center = NotificationCenter.default
         windowObservers.forEach(center.removeObserver)
         windowObservers.removeAll()
+    }
+
+    private func requestPresentForActiveSurface() {
+        guard let sessionID = policy.activeSessionID else { return }
+        requestPresent(sessionID)
     }
 
     private func isCurrent(
