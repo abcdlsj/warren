@@ -82,8 +82,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 Text("Add Project…")
                     .font(WarrenTypography.body)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(tokens.mutedForeground)
+            .buttonStyle(WarrenPrimaryButtonStyle(isFocused: primaryButtonFocused))
             .focused($primaryButtonFocused)
             .warrenSemanticElement(
                 id: "onboarding.add-project",
@@ -95,9 +94,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 Text("Import from Superset")
                     .font(WarrenTypography.body)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(tokens.mutedForeground)
-            .opacity(0.72)
+            .buttonStyle(WarrenSecondaryButtonStyle())
             .warrenSemanticElement(
                 id: "onboarding.import-superset",
                 role: .button,

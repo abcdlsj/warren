@@ -413,10 +413,22 @@ custom properties in `Web/src/style.css`:
   (`999px`) for chips, toggles, and sheets.
 - Typography: UI text is 13px by default, chrome metadata 10–12px, headings
   17–20px; light weights are display-only.
+- Status: success `#7ec699`, warning `#e5c07b`, info `#61afef`, amber working
+  `#f59e0b`, failed/destructive `#cc4444`, exited neutral `#a8a5a3`.
 
 Web components must reference semantic CSS variables, never raw hex values.
 Focus rings use the accent token, hover treatments are gated behind
 `@media (hover: hover)`, and all motion honors `prefers-reduced-motion`.
+
+The macOS client shares one presentation vocabulary through
+`WarrenDesignSystem` primitives: `warrenPanelSurface` for floating panels
+(command palette, Web panel, endpoint popover, terminal search), and
+`WarrenModalBackdrop` / `WarrenTextInputDialog` / `WarrenInputField` /
+`WarrenSecondaryButtonStyle` / `WarrenDestructiveButtonStyle` for dialogs,
+inputs, and confirmations. Settings, rename dialogs, delete confirmations,
+workspace creation, Superset import, and progress overlays all use these
+primitives instead of system alerts, sheets, rounded-border fields, or
+per-screen radius/shadow values.
 
 ## 12. Non-Intrusive Observability and Acceptance Design
 

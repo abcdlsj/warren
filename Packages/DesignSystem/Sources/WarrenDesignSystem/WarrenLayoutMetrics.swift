@@ -120,6 +120,7 @@ public enum WarrenSpacing {
 /// fallback (`0.625rem`, i.e. 10px); the smaller values cover confirmed row
 /// hit areas and compact controls.
 public enum WarrenRadius {
+    public static let xs: CGFloat = 4
     public static let row: CGFloat = 6
     public static let small: CGFloat = 6
     public static let medium: CGFloat = 8

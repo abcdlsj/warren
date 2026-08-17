@@ -71,19 +71,13 @@ public struct WarrenDesktopWebPanel: View {
             }
         }
         .frame(width: 320, alignment: .leading)
-        .background(tokens.popoverSurface)
-        .clipShape(.rect(cornerRadius: WarrenRadius.base))
-        .overlay {
-            RoundedRectangle(cornerRadius: WarrenRadius.base)
-                .stroke(tokens.border.opacity(0.8), lineWidth: WarrenSpacing.hairline)
-        }
-        .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
+        .warrenPanelSurface(cornerRadius: WarrenRadius.base)
     }
 
     private func header(tokens: WarrenColorTokens) -> some View {
         HStack(spacing: WarrenSpacing.small) {
             Image(systemName: "globe")
-                .font(.system(size: 13, weight: .medium))
+                .font(WarrenTypography.navigationGroup)
                 .foregroundStyle(tokens.foreground)
                 .accessibilityHidden(true)
             Text("Web")
@@ -91,7 +85,7 @@ public struct WarrenDesktopWebPanel: View {
                 .foregroundStyle(tokens.foreground)
             Spacer()
             Circle()
-                .fill(status.isRunning ? Color.green : tokens.mutedForeground)
+                .fill(status.isRunning ? tokens.success : tokens.mutedForeground)
                 .frame(width: 7, height: 7)
             Text(status.isRunning ? "Running" : "Stopped")
                 .font(WarrenTypography.navigationMeta)
@@ -146,10 +140,10 @@ public struct WarrenDesktopWebPanel: View {
             if let secureURL = status.secureURL {
                 HStack(spacing: WarrenSpacing.xs) {
                     Circle()
-                        .fill(Color.blue)
+                        .fill(tokens.info)
                         .frame(width: 6, height: 6)
                     Text(secureURL.absoluteString)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(WarrenTypography.code)
                         .foregroundStyle(tokens.mutedForeground)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -157,7 +151,7 @@ public struct WarrenDesktopWebPanel: View {
                         onCopyURL(secureURL)
                     } label: {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(WarrenTypography.navigationMeta)
                     }
                     .buttonStyle(WarrenChromeButtonStyle())
                     .frame(width: 22, height: 22)
@@ -172,11 +166,11 @@ public struct WarrenDesktopWebPanel: View {
     private func webAddressField(_ url: URL, tokens: WarrenColorTokens) -> some View {
         HStack(spacing: WarrenSpacing.compact) {
             Image(systemName: "link")
-                .font(.system(size: 11, weight: .medium))
+                .font(WarrenTypography.navigationMeta)
                 .foregroundStyle(tokens.mutedForeground)
                 .accessibilityHidden(true)
             Text(url.absoluteString)
-                .font(.system(size: 11, design: .monospaced))
+                .font(WarrenTypography.code)
                 .foregroundStyle(tokens.foreground.opacity(0.9))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -210,13 +204,13 @@ private struct WarrenDesktopWebCommandButton: View {
         Button(action: action) {
             Text(title)
                 .font(WarrenTypography.chromeLabel)
-                .foregroundStyle(isEmphasized ? Color.blue : tokens.mutedForeground)
+                .foregroundStyle(isEmphasized ? tokens.info : tokens.mutedForeground)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: WarrenLayoutMetrics.compactControlHeight
                 )
                 .background(
-                    isEmphasized ? Color.blue.opacity(0.12) : Color.clear
+                    isEmphasized ? tokens.info.opacity(0.12) : Color.clear
                 )
                 .contentShape(.rect)
         }

@@ -7,36 +7,50 @@ struct WarrenWorkspaceCreatorView: View {
     let onCreate: (WorkspaceCreationRequest) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var requestID = UUID()
     @State private var displayName = ""
     @State private var branch = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("New Workspace")
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        VStack(alignment: .leading, spacing: WarrenSpacing.standard) {
+            Text("New workspace")
                 .font(WarrenTypography.dialogTitle)
+                .foregroundStyle(tokens.foreground)
             Text("Create a Git worktree for \(project.name).")
                 .font(WarrenTypography.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tokens.mutedForeground)
 
-            TextField("Workspace name", text: $displayName)
-                .textFieldStyle(.roundedBorder)
+            WarrenInputField(
+                "Workspace name",
+                text: $displayName,
+                placeholder: "feature/my-change",
+                monospaced: false,
+                focusOnAppear: true
+            )
 
-            TextField("Branch", text: $branch)
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: branch) { _, value in
-                    if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        displayName = value
-                    }
+            WarrenInputField(
+                "Branch",
+                text: $branch,
+                placeholder: "main",
+                monospaced: false
+            )
+            .onChange(of: branch) { _, value in
+                if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    displayName = value
                 }
+            }
 
             Text("Worktree files are stored under ~/.warren/worktrees.")
-                .font(WarrenTypography.badge)
-                .foregroundStyle(.secondary)
+                .font(WarrenTypography.supporting)
+                .foregroundStyle(tokens.mutedForeground)
 
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
+                    .buttonStyle(WarrenSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
                 Button("Create") {
                     onCreate(WorkspaceCreationRequest(
                         requestID: requestID,
@@ -46,6 +60,7 @@ struct WarrenWorkspaceCreatorView: View {
                     ))
                     dismiss()
                 }
+                .buttonStyle(WarrenPrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(
                     branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -53,7 +68,11 @@ struct WarrenWorkspaceCreatorView: View {
                 )
             }
         }
-        .padding(24)
+        .padding(WarrenSpacing.large)
         .frame(width: 480)
+        .background(tokens.popoverSurface)
+        .onExitCommand {
+            dismiss()
+        }
     }
 }

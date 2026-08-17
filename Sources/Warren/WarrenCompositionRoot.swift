@@ -13,6 +13,7 @@ struct WarrenCompositionRoot: View {
     @State private var isSupersetImporting = false
     @State private var workspaceCreatorProjectID: ProjectID?
     @State private var terminalSearchPresented = false
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
@@ -63,19 +64,23 @@ struct WarrenCompositionRoot: View {
         .disabled(isSupersetImporting)
         .overlay {
             if isSupersetImporting {
+                let tokens = WarrenColorTokens.resolved(for: colorScheme)
                 ZStack {
-                    Color.black.opacity(0.28)
+                    Color.black.opacity(0.5)
                         .ignoresSafeArea()
                     VStack(spacing: WarrenSpacing.compact) {
                         ProgressView()
                             .controlSize(.small)
+                            .tint(tokens.highlight)
                         Text("Reading Superset…")
                             .font(WarrenTypography.navigationItem)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(tokens.foreground)
                         Text("Reading workspaces project by project, please wait")
                             .font(WarrenTypography.supporting)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(tokens.mutedForeground)
                     }
+                    .padding(WarrenSpacing.large)
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 }
                 .transition(.opacity)
             }
@@ -467,7 +472,7 @@ private struct WarrenSupersetImportView: View {
             Toggle("", isOn: selectionBinding(for: project))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-                .tint(Color.accentColor)
+                .tint(tokens.highlight)
                 .disabled(!isSelectable)
                 .accessibilityLabel(project.name)
 
@@ -534,9 +539,9 @@ private struct WarrenSupersetImportView: View {
     ) -> Color {
         switch status {
         case .ready:
-            Color.green
+            tokens.success
         case .missing:
-            Color.orange
+            tokens.warning
         case .invalid:
             tokens.destructive
         }
@@ -553,13 +558,14 @@ private struct WarrenSupersetImportView: View {
             Button("Cancel") {
                 dismiss()
             }
+            .buttonStyle(WarrenSecondaryButtonStyle())
             .keyboardShortcut(.cancelAction)
 
             Button("Import") {
                 dismiss()
                 onConfirm(selectedPreview)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(WarrenPrimaryButtonStyle())
             .keyboardShortcut(.defaultAction)
             .disabled(selectedProjectIDs.isEmpty)
         }
@@ -794,16 +800,19 @@ private struct ConnectingPlaceholder: View {
     let title: String
     let updating: Bool
     @State private var visible = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
         Group {
             if visible {
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
+                        .tint(tokens.highlight)
                     Text(updating ? "Updating Warren…" : "Connecting \(title)…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(WarrenTypography.supporting)
+                        .foregroundStyle(tokens.mutedForeground)
                 }
             }
         }
@@ -836,12 +845,12 @@ private struct WarrenTerminalSearchBar: View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack(spacing: WarrenSpacing.xs) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
+                .font(WarrenTypography.navigationMeta)
                 .foregroundStyle(tokens.mutedForeground)
 
             TextField("Find", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
+                .font(WarrenTypography.code)
                 .focused($fieldFocused)
                 .frame(width: 170)
                 .onSubmit {
@@ -874,15 +883,11 @@ private struct WarrenTerminalSearchBar: View {
             .help("Close search (esc)")
         }
         .buttonStyle(.plain)
-        .font(.system(size: 11, weight: .medium))
+        .font(WarrenTypography.navigationMeta)
         .foregroundStyle(tokens.mutedForeground)
         .padding(.horizontal, WarrenSpacing.small)
         .frame(height: 30)
-        .background(tokens.popoverSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
-        }
+        .warrenPanelSurface(cornerRadius: WarrenRadius.medium)
         .onAppear {
             surface?.search(for: query)
             fieldFocused = true

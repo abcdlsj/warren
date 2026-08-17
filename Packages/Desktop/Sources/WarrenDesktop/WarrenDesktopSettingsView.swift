@@ -154,18 +154,18 @@ struct WarrenDesktopSettingsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: WarrenSpacing.small) {
-                    groupLabel("TERMINAL", tokens: tokens)
+                    groupLabel("Terminal", tokens: tokens)
                     ForEach(visibleSections.filter(\.isTerminalSection)) { section in
                         navigationItem(section, tokens: tokens)
                     }
 
-                    groupLabel("WEB", tokens: tokens)
+                    groupLabel("Web", tokens: tokens)
                     ForEach(visibleSections.filter { !$0.isTerminalSection }) { section in
                         navigationItem(section, tokens: tokens)
                     }
 
                     if visibleSections.isEmpty {
-                        Text("No settings found")
+                        Text("No settings match your search")
                             .font(WarrenTypography.body)
                             .foregroundStyle(tokens.mutedForeground)
                             .frame(maxWidth: .infinity)
@@ -182,6 +182,7 @@ struct WarrenDesktopSettingsView: View {
     private func groupLabel(_ title: String, tokens: WarrenColorTokens) -> some View {
         Text(title)
             .font(WarrenTypography.settingsGroupLabel)
+            .textCase(.uppercase)
             .tracking(1.0)
             .foregroundStyle(tokens.mutedForeground)
             .padding(.horizontal, WarrenSpacing.standard)
@@ -272,7 +273,7 @@ struct WarrenDesktopSettingsView: View {
                     webSharingSection(tokens: tokens)
                 }
 
-                Button("Restore Terminal Defaults") {
+                Button("Restore terminal defaults") {
                     titleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
                     fontFamily = TerminalFontPreference.defaultFamily
                     fontSize = TerminalFontPreference.defaultSize
@@ -296,12 +297,11 @@ struct WarrenDesktopSettingsView: View {
     private func terminalFontSection(tokens: WarrenColorTokens) -> some View {
         settingsSection("Terminal font", section: .terminalFont, tokens: tokens) {
             HStack(alignment: .bottom, spacing: WarrenSpacing.xlarge) {
-                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Font family").font(WarrenTypography.bodyEmphasis)
-                    TextField(TerminalFontPreference.defaultFamily, text: $fontFamily)
-                        .textFieldStyle(.roundedBorder)
-                        .font(WarrenTypography.code)
-                }
+                WarrenInputField(
+                    "Font family",
+                    text: $fontFamily,
+                    placeholder: TerminalFontPreference.defaultFamily
+                )
                 VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
                     Text("Size").font(WarrenTypography.bodyEmphasis)
                     Stepper(value: $fontSize, in: 8...32, step: 1) {
@@ -331,9 +331,11 @@ struct WarrenDesktopSettingsView: View {
 
     private func terminalTitleSection(tokens: WarrenColorTokens) -> some View {
         settingsSection("Terminal title", section: .terminalTitle, tokens: tokens) {
-            TextField("Title template", text: $titleTemplate)
-                .textFieldStyle(.roundedBorder)
-                .font(WarrenTypography.code)
+            WarrenInputField(
+                "Title template",
+                text: $titleTemplate,
+                placeholder: "Title template"
+            )
             Text(preview)
                 .font(WarrenTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
@@ -368,24 +370,21 @@ struct WarrenDesktopSettingsView: View {
     private func presetsSection(tokens: WarrenColorTokens) -> some View {
         settingsSection("Launch commands", section: .presets, tokens: tokens) {
             VStack(alignment: .leading, spacing: WarrenSpacing.xlarge) {
-                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Shell").font(WarrenTypography.bodyEmphasis)
-                    TextField("default shell (empty)", text: $shellCommand)
-                        .textFieldStyle(.roundedBorder)
-                        .font(WarrenTypography.code)
-                }
-                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Claude").font(WarrenTypography.bodyEmphasis)
-                    TextField("claude", text: $claudeCommand)
-                        .textFieldStyle(.roundedBorder)
-                        .font(WarrenTypography.code)
-                }
-                VStack(alignment: .leading, spacing: WarrenSpacing.xs) {
-                    Text("Codex").font(WarrenTypography.bodyEmphasis)
-                    TextField("codex --dangerously-bypass-hook-trust", text: $codexCommand)
-                        .textFieldStyle(.roundedBorder)
-                        .font(WarrenTypography.code)
-                }
+                WarrenInputField(
+                    "Shell",
+                    text: $shellCommand,
+                    placeholder: "default shell (empty)"
+                )
+                WarrenInputField(
+                    "Claude",
+                    text: $claudeCommand,
+                    placeholder: "claude"
+                )
+                WarrenInputField(
+                    "Codex",
+                    text: $codexCommand,
+                    placeholder: "codex --dangerously-bypass-hook-trust"
+                )
             }
             Text(
                 "Commands are typed into a plain shell after it opens, so "

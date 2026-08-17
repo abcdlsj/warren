@@ -125,13 +125,7 @@ struct WarrenDesktopCommandPalette: View {
             }
         }
         .frame(width: width)
-        .background(tokens.popoverSurface)
-        .clipShape(.rect(cornerRadius: WarrenRadius.base))
-        .overlay {
-            RoundedRectangle(cornerRadius: WarrenRadius.base)
-                .stroke(tokens.border, lineWidth: WarrenSpacing.hairline)
-        }
-        .shadow(color: .black.opacity(0.5), radius: 35, y: 18)
+        .warrenPanelSurface(cornerRadius: WarrenRadius.base)
         .onAppear { searchFocused = true }
         .onExitCommand(perform: onDismiss)
         .onChange(of: query) { _, _ in
@@ -187,15 +181,15 @@ struct WarrenDesktopCommandPalette: View {
             }
 
             Text("esc")
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .font(WarrenTypography.shortcut)
                 .tracking(0.5)
                 .foregroundStyle(tokens.mutedForeground)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(tokens.muted)
-                .clipShape(.rect(cornerRadius: 4))
+                .clipShape(.rect(cornerRadius: WarrenRadius.xs))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 4)
+                    RoundedRectangle(cornerRadius: WarrenRadius.xs)
                         .stroke(tokens.ring, lineWidth: WarrenSpacing.hairline)
                 }
                 .accessibilityHidden(true)

@@ -108,62 +108,78 @@ struct WarrenDesktopSidebarRows: View {
                 tree.expandedProjectIDs.insert(workspace.projectID)
             }
         }
-        .alert("Rename Workspace", isPresented: Binding(
-            get: { pendingRename != nil },
-            set: { if !$0 { pendingRename = nil } }
-        )) {
-            TextField("Workspace name", text: $workspaceName)
-            Button("Rename") {
-                guard let workspace = pendingRename else { return }
-                pendingRename = nil
-                onAction(.renameWorkspace(workspace.id, workspaceName))
+        .overlay {
+            if pendingRename != nil {
+                WarrenTextInputDialog(
+                    title: "Rename Workspace",
+                    message: "The Git branch name and worktree path are unchanged.",
+                    fieldLabel: "Workspace name",
+                    text: $workspaceName,
+                    confirmLabel: "Rename",
+                    onCancel: { pendingRename = nil },
+                    onConfirm: {
+                        guard let workspace = pendingRename else { return }
+                        pendingRename = nil
+                        onAction(.renameWorkspace(workspace.id, workspaceName))
+                    }
+                )
             }
-            Button("Cancel", role: .cancel) { pendingRename = nil }
-        } message: {
-            Text("The Git branch name and worktree path are unchanged.")
         }
-        .alert("Rename Project", isPresented: Binding(
-            get: { pendingRenameProject != nil },
-            set: { if !$0 { pendingRenameProject = nil } }
-        )) {
-            TextField("Project name", text: $projectName)
-            Button("Rename") {
-                guard let project = pendingRenameProject else { return }
-                pendingRenameProject = nil
-                onAction(.renameProject(project.id, projectName))
+        .overlay {
+            if pendingRenameProject != nil {
+                WarrenTextInputDialog(
+                    title: "Rename Project",
+                    message: "Only the sidebar label changes; the repository path stays the same.",
+                    fieldLabel: "Project name",
+                    text: $projectName,
+                    confirmLabel: "Rename",
+                    onCancel: { pendingRenameProject = nil },
+                    onConfirm: {
+                        guard let project = pendingRenameProject else { return }
+                        pendingRenameProject = nil
+                        onAction(.renameProject(project.id, projectName))
+                    }
+                )
             }
-            Button("Cancel", role: .cancel) { pendingRenameProject = nil }
-        } message: {
-            Text("Only the sidebar label changes; the repository path stays the same.")
         }
-        .sheet(item: $pendingDeleteWorkspace) { workspace in
-            let project = groups.first {
-                $0.workspaces.contains { $0.id == workspace.id }
-            }?.project
-            WarrenDesktopDeleteWorkspaceConfirmation(
-                workspace: workspace,
-                project: project,
-                removeWorktree: $deleteWorkspaceRemoveWorktree,
-                onCancel: { pendingDeleteWorkspace = nil },
-                onConfirm: {
-                    onAction(.deleteWorkspace(
-                        workspace.id,
-                        removeLocalWorktree: deleteWorkspaceRemoveWorktree
-                    ))
-                    pendingDeleteWorkspace = nil
+        .overlay {
+            if let workspace = pendingDeleteWorkspace {
+                let project = groups.first {
+                    $0.workspaces.contains { $0.id == workspace.id }
+                }?.project
+                WarrenModalBackdrop {
+                    WarrenDesktopDeleteWorkspaceConfirmation(
+                        workspace: workspace,
+                        project: project,
+                        removeWorktree: $deleteWorkspaceRemoveWorktree,
+                        onCancel: { pendingDeleteWorkspace = nil },
+                        onConfirm: {
+                            onAction(.deleteWorkspace(
+                                workspace.id,
+                                removeLocalWorktree: deleteWorkspaceRemoveWorktree
+                            ))
+                            pendingDeleteWorkspace = nil
+                        }
+                    )
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 }
-            )
+            }
         }
-        .sheet(item: $pendingDeleteProject) { project in
-            WarrenDesktopDeleteProjectConfirmation(
-                project: project,
-                workspaceCount: groups.first { $0.project.id == project.id }?.workspaces.count ?? 0,
-                onCancel: { pendingDeleteProject = nil },
-                onConfirm: {
-                    onAction(.deleteProject(project.id))
-                    pendingDeleteProject = nil
+        .overlay {
+            if let project = pendingDeleteProject {
+                WarrenModalBackdrop {
+                    WarrenDesktopDeleteProjectConfirmation(
+                        project: project,
+                        workspaceCount: groups.first { $0.project.id == project.id }?.workspaces.count ?? 0,
+                        onCancel: { pendingDeleteProject = nil },
+                        onConfirm: {
+                            onAction(.deleteProject(project.id))
+                            pendingDeleteProject = nil
+                        }
+                    )
+                    .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 }
-            )
+            }
         }
         .onChange(of: groups) { oldGroups, newGroups in
             guard let projectID = selectedProjectID else { return }
@@ -468,7 +484,7 @@ private struct WarrenDesktopSessionRow: View {
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.red.opacity(0.85))
+                .foregroundStyle(tokens.destructive)
                 .accessibilityLabel("Delete Session \(session.title)")
                 .help("Delete Session")
                 .warrenSemanticElement(
@@ -560,6 +576,8 @@ private struct WarrenDesktopDeleteWorkspaceConfirmation: View {
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     private var isWorktree: Bool {
         guard let project else { return true }
         return URL(fileURLWithPath: workspace.path)
@@ -569,30 +587,39 @@ private struct WarrenDesktopDeleteWorkspaceConfirmation: View {
     }
 
     var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
         VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
-            Text("Delete Workspace?")
-                .font(WarrenTypography.navigationItem)
+            Text("Delete workspace?")
+                .font(WarrenTypography.dialogTitle)
+                .foregroundStyle(tokens.foreground)
 
             Text("“\(workspace.name)” and every session it owns will be removed from Warren.")
                 .font(WarrenTypography.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tokens.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
 
             if isWorktree {
                 Toggle("Also delete the local worktree directory", isOn: $removeWorktree)
                     .toggleStyle(.checkbox)
                     .font(WarrenTypography.body)
+                    .foregroundStyle(tokens.foreground)
+                    .tint(tokens.highlight)
                     .help("Leave unchecked to keep the Git worktree and branch on disk.")
             }
 
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                Button("Delete", role: .destructive, action: onConfirm)
+                    .buttonStyle(WarrenSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Delete", action: onConfirm)
+                    .buttonStyle(WarrenDestructiveButtonStyle())
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(WarrenSpacing.large)
         .frame(width: 380)
+        .onExitCommand(perform: onCancel)
     }
 }
 
@@ -602,27 +629,36 @@ private struct WarrenDesktopDeleteProjectConfirmation: View {
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
         VStack(alignment: .leading, spacing: WarrenSpacing.medium) {
-            Text("Delete Project?")
-                .font(WarrenTypography.navigationItem)
+            Text("Delete project?")
+                .font(WarrenTypography.dialogTitle)
+                .foregroundStyle(tokens.foreground)
 
             Text("“\(project.name)” and its \(workspaceCount) workspace(s) will be removed from Warren.")
                 .font(WarrenTypography.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tokens.mutedForeground)
+                .fixedSize(horizontal: false, vertical: true)
 
             Text("Local Git worktree directories are kept on disk.")
                 .font(WarrenTypography.supporting)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tokens.mutedForeground)
 
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
-                Button("Delete", role: .destructive, action: onConfirm)
+                    .buttonStyle(WarrenSecondaryButtonStyle())
+                    .keyboardShortcut(.cancelAction)
+                Button("Delete", action: onConfirm)
+                    .buttonStyle(WarrenDestructiveButtonStyle())
                     .keyboardShortcut(.defaultAction)
             }
         }
         .padding(WarrenSpacing.large)
         .frame(width: 380)
+        .onExitCommand(perform: onCancel)
     }
 }

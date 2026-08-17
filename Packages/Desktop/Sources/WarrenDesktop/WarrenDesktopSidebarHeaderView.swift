@@ -99,7 +99,7 @@ struct WarrenDesktopSidebarHeader: View {
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
                     .background(WarrenColorTokens.resolved(for: colorScheme).fillHover)
-                    .clipShape(.rect(cornerRadius: 4))
+                    .clipShape(.rect(cornerRadius: WarrenRadius.xs))
             }
             .padding(.horizontal, WarrenSpacing.compact)
             .frame(height: WarrenLayoutMetrics.sidebarProjectRowHeight)

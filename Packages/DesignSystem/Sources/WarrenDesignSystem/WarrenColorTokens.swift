@@ -16,6 +16,10 @@ public struct WarrenColorTokens: Sendable {
     public let primary: Color
     public let highlight: Color
     public let destructive: Color
+    public let success: Color
+    public let warning: Color
+    public let info: Color
+    public let amber: Color
 
     /// Low-contrast chrome surface: `muted/35` over the Ember background.
     public let chromeSurface: Color
@@ -44,6 +48,10 @@ public struct WarrenColorTokens: Sendable {
         primary: Color,
         highlight: Color,
         destructive: Color,
+        success: Color,
+        warning: Color,
+        info: Color,
+        amber: Color,
         chromeSurface: Color,
         sidebarSurface: Color,
         popoverSurface: Color,
@@ -62,6 +70,10 @@ public struct WarrenColorTokens: Sendable {
         self.primary = primary
         self.highlight = highlight
         self.destructive = destructive
+        self.success = success
+        self.warning = warning
+        self.info = info
+        self.amber = amber
         self.chromeSurface = chromeSurface
         self.sidebarSurface = sidebarSurface
         self.popoverSurface = popoverSurface
@@ -82,6 +94,10 @@ public struct WarrenColorTokens: Sendable {
         primary: Color(red: 234 / 255, green: 232 / 255, blue: 230 / 255), // #eae8e6
         highlight: Color(red: 224 / 255, green: 120 / 255, blue: 80 / 255), // #e07850
         destructive: Color(red: 204 / 255, green: 68 / 255, blue: 68 / 255), // #cc4444
+        success: Color(red: 126 / 255, green: 198 / 255, blue: 153 / 255), // #7ec699
+        warning: Color(red: 229 / 255, green: 192 / 255, blue: 123 / 255), // #e5c07b
+        info: Color(red: 97 / 255, green: 175 / 255, blue: 239 / 255), // #61afef
+        amber: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255), // #f59e0b
         chromeOpacity: 0.35,
         sidebarOpacity: 0.35,
         hoverOpacity: 0.07,
@@ -104,6 +120,10 @@ public struct WarrenColorTokens: Sendable {
         primary: Color,
         highlight: Color,
         destructive: Color,
+        success: Color,
+        warning: Color,
+        info: Color,
+        amber: Color,
         chromeOpacity: Double,
         sidebarOpacity: Double,
         hoverOpacity: Double,
@@ -121,6 +141,10 @@ public struct WarrenColorTokens: Sendable {
             primary: primary,
             highlight: highlight,
             destructive: destructive,
+            success: success,
+            warning: warning,
+            info: info,
+            amber: amber,
             // Superset blends muted/35 over the Ember background before
             // compositing. An opacity color would otherwise render black over
             // an NSHostingView/terminal surface; keep the blended value opaque

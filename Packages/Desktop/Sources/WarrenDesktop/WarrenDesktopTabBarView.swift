@@ -168,19 +168,22 @@ struct WarrenDesktopTabBar: View {
             .frame(height: WarrenLayoutMetrics.tabBarHeight)
         }
         .frame(height: WarrenLayoutMetrics.tabBarHeight)
-        .alert("Rename Session", isPresented: Binding(
-            get: { pendingRenameSessionID != nil },
-            set: { if !$0 { pendingRenameSessionID = nil } }
-        )) {
-            TextField("Session title", text: $sessionRenameTitle)
-            Button("Rename") {
-                guard let sessionID = pendingRenameSessionID else { return }
-                pendingRenameSessionID = nil
-                onRenameSession(sessionID, sessionRenameTitle)
+        .overlay {
+            if pendingRenameSessionID != nil {
+                WarrenTextInputDialog(
+                    title: "Rename Session",
+                    message: "Custom titles are stored on the Host and shared by every client.",
+                    fieldLabel: "Session title",
+                    text: $sessionRenameTitle,
+                    confirmLabel: "Rename",
+                    onCancel: { pendingRenameSessionID = nil },
+                    onConfirm: {
+                        guard let sessionID = pendingRenameSessionID else { return }
+                        pendingRenameSessionID = nil
+                        onRenameSession(sessionID, sessionRenameTitle)
+                    }
+                )
             }
-            Button("Cancel", role: .cancel) { pendingRenameSessionID = nil }
-        } message: {
-            Text("Custom titles are stored on the Host and shared by every client.")
         }
         .overlay(alignment: .bottom) {
             WarrenDesktopChromeDivider()
@@ -229,7 +232,10 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let onSelectEndpoint: (String) -> Void
     let onToggleInspector: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack(spacing: WarrenSpacing.xs) {
             WarrenDesktopChromeButton(
                 systemImage: "gearshape",
@@ -251,8 +257,8 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                     : (webStatus.isRunning ? "Web is running" : "Web is stopped"),
                 action: onWeb,
                 tint: webStatus.tunnelRunning
-                    ? .blue
-                    : (webStatus.isRunning ? .green : nil)
+                    ? tokens.info
+                    : (webStatus.isRunning ? tokens.success : nil)
             )
             WarrenDesktopChromeButton(
                 systemImage: "magnifyingglass",
@@ -299,7 +305,7 @@ private struct WarrenDesktopEndpointControl: View {
                     .padding(.trailing, 2)
                     .accessibilityHidden(true)
                 Circle()
-                    .fill(isConnected ? Color.green : Color.orange)
+                    .fill(isConnected ? tokens.success : tokens.warning)
                     .frame(width: 6, height: 6)
                     .accessibilityHidden(true)
             }
@@ -324,7 +330,7 @@ private struct WarrenDesktopEndpointControl: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: WarrenSpacing.compact) {
                 Circle()
-                    .fill(isConnected ? Color.green : Color.orange)
+                    .fill(isConnected ? tokens.success : tokens.warning)
                     .frame(width: 8, height: 8)
                 Text(isConnected ? "Connected" : "Disconnected")
                     .font(WarrenTypography.supporting)
@@ -339,17 +345,17 @@ private struct WarrenDesktopEndpointControl: View {
                 .padding(.bottom, WarrenSpacing.small)
 
             ForEach(endpoints) { endpoint in
-                Button {
+            Button {
                     onSelect(endpoint.id)
                     dismissTask?.cancel()
                     dismissTask = nil
                     isPresented = false
-                } label: {
-                    HStack(spacing: WarrenSpacing.compact) {
-                        Image(systemName: endpoint.id == selectedID ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(
-                                endpoint.id == selectedID
-                                    ? tokens.highlight
+            } label: {
+                HStack(spacing: WarrenSpacing.compact) {
+                    Image(systemName: endpoint.id == selectedID ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(
+                            endpoint.id == selectedID
+                                ? tokens.highlight
                                     : tokens.mutedForeground
                             )
                         VStack(alignment: .leading, spacing: 2) {
@@ -372,6 +378,7 @@ private struct WarrenDesktopEndpointControl: View {
         }
         .padding(WarrenSpacing.medium)
         .frame(width: 220)
+        .warrenPanelSurface(cornerRadius: WarrenRadius.base)
     }
 
     private func toggle() {

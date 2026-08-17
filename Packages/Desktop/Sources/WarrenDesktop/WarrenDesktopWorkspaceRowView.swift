@@ -157,6 +157,7 @@ struct WarrenDesktopActivityIndicator: View {
     let activity: AgentActivityState
     @State private var isExpanded = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
@@ -191,12 +192,13 @@ struct WarrenDesktopActivityIndicator: View {
     }
 
     private var color: Color {
-        switch activity {
-        case .failed: Color(red: 239 / 255, green: 68 / 255, blue: 68 / 255)
-        case .waitingForInput: Color(red: 234 / 255, green: 179 / 255, blue: 8 / 255)
-        case .working: Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
-        case .ready: Color(red: 34 / 255, green: 197 / 255, blue: 94 / 255)
-        case .exited: Color.gray
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        return switch activity {
+        case .failed: tokens.destructive
+        case .waitingForInput: tokens.warning
+        case .working: tokens.amber
+        case .ready: tokens.success
+        case .exited: tokens.mutedForeground
         }
     }
 

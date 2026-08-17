@@ -195,14 +195,14 @@ struct WarrenDesktopProjectRow: View {
     /// icon); Warren uses the same slot for its first-letter avatar.
     private func projectAvatar(tokens: WarrenColorTokens) -> some View {
         Text(String(project.name.prefix(1)).uppercased())
-            .font(.system(size: 11, weight: .semibold))
+            .font(WarrenTypography.compactCode)
             .foregroundStyle(tokens.foreground.opacity(0.92))
             .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
                    height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
             .background(tokens.muted.opacity(0.55))
-            .clipShape(.rect(cornerRadius: 4))
+            .clipShape(.rect(cornerRadius: WarrenRadius.xs))
             .overlay {
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: WarrenRadius.xs)
                     .stroke(tokens.border.opacity(0.55), lineWidth: WarrenSpacing.hairline)
             }
             .accessibilityHidden(true)
