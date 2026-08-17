@@ -584,62 +584,64 @@ private struct WarrenTerminalSurfaceView: View {
     }
 
     var body: some View {
-        Group {
-            if surfaces.isEmpty {
-                ConnectingPlaceholder(
-                    title: context.tab.title,
-                    updating: maintenanceMessage != nil
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                GeometryReader { proxy in
-                    ZStack {
-                        ForEach(surfaces) { surface in
-                            let isActive = surface.id == context.tab.sessionID
-                            GhosttyManagedSurface(
-                                surface: surface,
-                                isActive: isActive,
-                                focusDriver: focusDriver,
-                                viewportSize: proxy.size,
-                                onFocused: {
-                                    onFocused(
-                                        surface.id,
-                                        surface.state.surfaceSize.flatMap {
-                                            TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
-                                        }
-                                    )
-                                },
-                                onBlurred: {
-                                    onBlurred(surface.id)
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(surfaces) { surface in
+                    let isActive = surface.id == context.tab.sessionID
+                    GhosttyManagedSurface(
+                        surface: surface,
+                        isActive: isActive,
+                        focusDriver: focusDriver,
+                        viewportSize: proxy.size,
+                        onFocused: {
+                            onFocused(
+                                surface.id,
+                                surface.state.surfaceSize.flatMap {
+                                    TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
                                 }
                             )
-                                // Every mounted renderer owns the same pane-sized
-                                // viewport, including hidden siblings. Otherwise
-                                // AppKit reports the hidden view's 50x17 intrinsic
-                                // grid to tmux and switching tabs visibly reflows
-                                // the agent before it expands again.
-                                .frame(
-                                    width: proxy.size.width,
-                                    height: proxy.size.height
-                                )
-                                // Ghostty's CAMetalLayer does not honor SwiftUI
-                                // opacity; a hidden sibling must be removed
-                                // from compositing. GhosttyWindowProbe sets the
-                                // underlying NSView.isHidden directly so the
-                                // surface stays alive across tab switches.
-                                .opacity(isActive ? 1 : 0)
-                                .allowsHitTesting(isActive)
-                                .accessibilityHidden(!isActive)
+                        },
+                        onBlurred: {
+                            onBlurred(surface.id)
                         }
-                    }
+                    )
+                        // Every mounted renderer owns the same pane-sized
+                        // viewport, including hidden siblings. Otherwise
+                        // AppKit reports the hidden view's 50x17 intrinsic
+                        // grid to tmux and switching tabs visibly reflows
+                        // the agent before it expands again.
+                        .frame(
+                            width: proxy.size.width,
+                            height: proxy.size.height
+                        )
+                        // Ghostty's CAMetalLayer does not honor SwiftUI
+                        // opacity; a hidden sibling must be removed
+                        // from compositing. GhosttyWindowProbe sets the
+                        // underlying NSView.isHidden directly so the
+                        // surface stays alive across tab switches.
+                        .opacity(isActive ? 1 : 0)
+                        .allowsHitTesting(isActive)
+                        .accessibilityHidden(!isActive)
+                }
+                if activeSurface == nil {
+                    ConnectingPlaceholder(
+                        title: context.tab.sessionID == nil
+                            ? "Start a session"
+                            : context.tab.title,
+                        updating: maintenanceMessage != nil
+                    )
                     .frame(
                         width: proxy.size.width,
                         height: proxy.size.height
                     )
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(
+                width: proxy.size.width,
+                height: proxy.size.height
+            )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             TerminalDiagnostics.log("terminal_view_appear", [
                 "workspace": context.workspace.id.rawValue.uuidString,

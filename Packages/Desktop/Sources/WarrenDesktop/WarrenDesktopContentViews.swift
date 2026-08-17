@@ -24,10 +24,21 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
 
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        if let workspace, let tab {
+        if let workspace {
+            // Keep the terminal surface mounted even while the roster has not
+            // yet published a tab for this workspace. Tearing the view down on
+            // a transient nil tab recreates Ghostty surfaces in a loop and
+            // leaves a blank pane; the injected surface view decides what to
+            // show while no session is active.
+            let resolvedTab = tab ?? ClientTab(
+                id: "workspace-empty-\(workspace.id.rawValue.uuidString)",
+                title: "No open sessions",
+                sessionID: nil,
+                kind: .shell
+            )
             WarrenDesktopPaneView(
                 workspace: workspace,
-                tab: tab,
+                tab: resolvedTab,
                 session: session,
                 hostName: hostName,
                 titleTemplate: titleTemplate,
@@ -35,15 +46,13 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 terminalSurface: terminalSurface(
                     WarrenDesktopTerminalContext(
                         workspace: workspace,
-                        tab: tab,
+                        tab: resolvedTab,
                         font: terminalFont
                     )
                 )
             )
         } else if workspace == nil, tab == nil, !hasProjects {
             emptyWelcome(tokens: tokens)
-        } else if let workspace, tab == nil {
-            emptyWorkspace(tokens: tokens, workspace: workspace)
         } else {
             VStack(spacing: WarrenSpacing.standard) {
                 Text("Select a workspace")
@@ -101,33 +110,6 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
         .accessibilityElement(children: .contain)
     }
 
-    private func emptyWorkspace(tokens: WarrenColorTokens, workspace: Workspace) -> some View {
-        VStack(spacing: WarrenSpacing.standard) {
-            Text("Start a session")
-                .font(WarrenTypography.emptyStateTitle)
-                .foregroundStyle(tokens.mutedForeground)
-            Text("Open a terminal with the + button or a preset")
-                .font(WarrenTypography.body)
-                .foregroundStyle(tokens.mutedForeground)
-                .opacity(0.72)
-                .multilineTextAlignment(.center)
-                .lineSpacing(WarrenSpacing.small)
-            VStack(spacing: WarrenSpacing.compact) {
-                shortcutRow(tokens: tokens, key: "⌘T", label: "New terminal")
-                shortcutRow(tokens: tokens, key: "⌘X", label: "Next tab")
-                shortcutRow(tokens: tokens, key: "⇧⌘X", label: "Previous tab")
-                shortcutRow(tokens: tokens, key: "⌘1…⌘9", label: "Switch to tab")
-                shortcutRow(tokens: tokens, key: "⌘W", label: "Close terminal")
-            }
-            .frame(maxWidth: 420)
-            .padding(.top, WarrenSpacing.compact)
-        }
-        .padding(.bottom, emptyStatePageOffset * 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("No open sessions in \(workspace.name)")
-    }
-
     /// The empty state sits inside the content area below the tab and preset
     /// bars; nudge it up by half that chrome so its visual center lands on the
     /// whole page's center instead of the terminal pane's center.
@@ -135,22 +117,6 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
         (WarrenLayoutMetrics.tabBarHeight + WarrenLayoutMetrics.presetBarHeight) / 2
     }
 
-    private func shortcutRow(
-        tokens: WarrenColorTokens,
-        key: String,
-        label: String
-    ) -> some View {
-        HStack(spacing: WarrenSpacing.medium) {
-            Text(key)
-                .font(WarrenTypography.shortcut)
-                .foregroundStyle(tokens.mutedForeground)
-                .frame(width: 72, alignment: .leading)
-            Spacer(minLength: WarrenSpacing.medium)
-            Text(label)
-                .font(WarrenTypography.supporting)
-                .foregroundStyle(tokens.mutedForeground)
-        }
-    }
 }
 
 private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
