@@ -35,14 +35,21 @@ const (
 )
 
 type HTTPServer struct {
-	Service          *Service
-	Token            string
-	Logger           *slog.Logger
-	Tunnels          *tunnel.Manager
-	BuildVersion     string
+	Service      *Service
+	Token        string
+	Logger       *slog.Logger
+	Tunnels      *tunnel.Manager
+	BuildVersion string
+	// GhostlineVersion is the legacy health field and aliases the RPC version.
 	GhostlineVersion string
-	CACertPath       string
-	upgrader         websocket.Upgrader
+	// GhostlineRPCVersion is the protocol version reported by the running
+	// Ghostline server.
+	GhostlineRPCVersion string
+	// GhostlineTagVersion is the Ghostline Go module version compiled into
+	// Warren.
+	GhostlineTagVersion string
+	CACertPath          string
+	upgrader            websocket.Upgrader
 
 	peersMu sync.Mutex
 	peers   map[*wsPeer]struct{}
@@ -129,11 +136,17 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
+		rpcVersion := s.GhostlineRPCVersion
+		if rpcVersion == "" {
+			rpcVersion = s.GhostlineVersion
+		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"ok":               true,
-			"version":          api.Version,
-			"build":            s.BuildVersion,
-			"ghostlineVersion": s.GhostlineVersion,
+			"ok":                  true,
+			"version":             api.Version,
+			"build":               s.BuildVersion,
+			"ghostlineVersion":    rpcVersion,
+			"ghostlineRPCVersion": rpcVersion,
+			"ghostlineTagVersion": s.GhostlineTagVersion,
 		})
 	})
 	mux.HandleFunc("GET /v1/state", s.handleState)

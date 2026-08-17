@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,6 +33,30 @@ import (
 var version = "dev"
 
 const tokenRepairInterval = time.Second
+
+const ghostlineModulePath = "github.com/abcdlsj/ghostline"
+
+// ghostlineReleaseVersion returns the module version embedded by the Go
+// linker. A local replace or an unversioned development build may not expose a
+// tag, so callers should treat an empty result as unknown.
+func ghostlineReleaseVersion() string {
+	buildInfo, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, dependency := range buildInfo.Deps {
+		if dependency.Path != ghostlineModulePath {
+			continue
+		}
+		if dependency.Replace != nil {
+			if dependency.Replace.Version != "" {
+				return dependency.Replace.Version
+			}
+		}
+		return dependency.Version
+	}
+	return ""
+}
 
 func main() {
 	configDir := defaultConfigDirectory()
@@ -134,11 +159,12 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	ghostlineVersion, err := ghostlineClient.Version(context.Background())
+	ghostlineRPCVersion, err := ghostlineClient.Version(context.Background())
 	if err != nil {
 		logger.Warn("unable to read running ghostline version", "error", err)
-		ghostlineVersion = ""
+		ghostlineRPCVersion = ""
 	}
+	ghostlineTagVersion := ghostlineReleaseVersion()
 	runtimes := map[string]server.Runtime{
 		settings.RuntimeGhostline: server.NewGhostlineRuntime(ghostlineClient),
 	}
@@ -178,7 +204,9 @@ func main() {
 	}()
 	httpHandler := server.NewHTTPServer(service, token, logger)
 	httpHandler.BuildVersion = version
-	httpHandler.GhostlineVersion = ghostlineVersion
+	httpHandler.GhostlineVersion = ghostlineRPCVersion
+	httpHandler.GhostlineRPCVersion = ghostlineRPCVersion
+	httpHandler.GhostlineTagVersion = ghostlineTagVersion
 	var lanHTTPServer *http.Server
 	if *lanHTTPS != "" {
 		certStore := tlscert.NewStore(*tlsDir)

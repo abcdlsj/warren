@@ -31,7 +31,8 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private var pollTask: Task<Void, Never>?
     private var autoStartDisabled = false
     private var buildVersion: String?
-    private var ghostlineVersion: String?
+    private var ghostlineRPCVersion: String?
+    private var ghostlineTagVersion: String?
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
@@ -123,10 +124,14 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         version.tag = 3
         version.isEnabled = false
         menu.addItem(version)
-        let ghostlineVersion = NSMenuItem(title: "Ghostline: —", action: nil, keyEquivalent: "")
-        ghostlineVersion.tag = 4
-        ghostlineVersion.isEnabled = false
-        menu.addItem(ghostlineVersion)
+        let ghostlineRPCVersion = NSMenuItem(title: "Ghostline RPC: —", action: nil, keyEquivalent: "")
+        ghostlineRPCVersion.tag = 4
+        ghostlineRPCVersion.isEnabled = false
+        menu.addItem(ghostlineRPCVersion)
+        let ghostlineTagVersion = NSMenuItem(title: "Ghostline tag: —", action: nil, keyEquivalent: "")
+        ghostlineTagVersion.tag = 5
+        ghostlineTagVersion.isEnabled = false
+        menu.addItem(ghostlineTagVersion)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Restart Headless", action: #selector(restartDaemon), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Stop Headless", action: #selector(stopDaemonAction), keyEquivalent: "s"))
@@ -200,7 +205,8 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             guard (response as? HTTPURLResponse)?.statusCode == 200,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             buildVersion = (object["build"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            ghostlineVersion = (object["ghostlineVersion"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ghostlineRPCVersion = ((object["ghostlineRPCVersion"] as? String) ?? (object["ghostlineVersion"] as? String)).flatMap { $0.isEmpty ? nil : $0 }
+            ghostlineTagVersion = (object["ghostlineTagVersion"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             updateStatusItem()
         } catch {
             return
@@ -342,8 +348,11 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         if let buildVersion {
             toolTip += " · \(buildVersion)"
         }
-        if let ghostlineVersion {
-            toolTip += " · ghostline \(ghostlineVersion)"
+        if let ghostlineRPCVersion {
+            toolTip += " · ghostline RPC \(ghostlineRPCVersion)"
+        }
+        if let ghostlineTagVersion {
+            toolTip += " · ghostline tag \(ghostlineTagVersion)"
         }
         button.toolTip = toolTip
         if let status = statusItem.menu?.item(withTag: 1) {
@@ -365,8 +374,11 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         if let version = statusItem.menu?.item(withTag: 3) {
             version.title = "Version: \(buildVersion ?? "—")"
         }
-        if let ghostlineVersion = statusItem.menu?.item(withTag: 4) {
-            ghostlineVersion.title = "Ghostline: \(self.ghostlineVersion ?? "—")"
+        if let ghostlineRPCVersion = statusItem.menu?.item(withTag: 4) {
+            ghostlineRPCVersion.title = "Ghostline RPC: \(self.ghostlineRPCVersion ?? "—")"
+        }
+        if let ghostlineTagVersion = statusItem.menu?.item(withTag: 5) {
+            ghostlineTagVersion.title = "Ghostline tag: \(self.ghostlineTagVersion ?? "—")"
         }
     }
 }
