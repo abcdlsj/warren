@@ -125,7 +125,7 @@ events that describe the attach and draw path:
 
 ```sh
 diagnostics=~/Library/Logs/Warren/terminal-diagnostics.log
-rg '"event":"(workspace_switch|terminal_tab_switch|terminal_view_appear|select_session|attach_start|attach_size|attach_complete|feed_output|present_now|present_stall_suspected|present_complete|present_wait_timeout|present_wait_extended|roster_apply|resize_request|viewport_sync)"' \
+rg '"event":"(workspace_switch|terminal_tab_switch|terminal_view_appear|select_session|attach_start|attach_size|attach_complete|feed_output|present_now|present_stall_suspected|present_complete|present_wait_extended|activation_resync|roster_apply|resize_request|viewport_sync)"' \
   "$diagnostics" | tail -150
 ```
 
@@ -139,8 +139,8 @@ Use the events as a sequence rather than treating one line as a root cause:
 | `present_now` with `surfaceReady`, `viewAttached`, `viewHidden`, `viewVisible` | Whether a draw was attempted and whether the native view was actually able to show it |
 | `present_stall_suspected` with `reason` | A draw happened while the view was absent, unattached, hidden, or not visible; this strongly favors a lifecycle/presentation issue |
 | `present_complete` | The delayed attach presentation reached a ready surface and presentable view |
-| `present_wait_timeout` | The output, surface, or view did not become ready within the bounded wait; compare `targetEpoch`, `targetSequence`, `renderedEpoch`, and `renderedSequence` |
 | `present_wait_extended` | The first 2-second present window passed but the presentation task is still waiting; this is diagnostic only and no longer means the attempt was abandoned |
+| `activation_resync` | A warm surface reattach pinned the viewport to the live bottom and forced an immediate draw; its absence on a warm reattach means the old viewport/page-list state was carried over untouched |
 | `roster_apply` | Roster processing and retained-surface count; repeated events indicate churn but do not prove that a changed projection was published |
 | `resize_request`, `viewport_sync` | The grid-size negotiation around the black pane; a resize that recovers the pane is useful evidence, not a root-cause fix |
 
@@ -155,12 +155,18 @@ The most useful patterns are:
   `surfaceReady=false`: investigate surface ownership and teardown first.
 - `present_stall_suspected` reports `view-not-attached`, `view-hidden`, or
   `view-not-visible`: the draw path ran before the AppKit view was presentable.
-- `present_wait_timeout` shows a ready output sequence but an unready view:
+- `present_wait_extended` shows a ready output sequence but an unready view:
   this is a desktop lifecycle/presentation stall. The presentation task keeps
   waiting past the diagnostic marker, so compare the event with later
   `present_complete` events before concluding the pane is lost. If both the
   rendered and target sequences are behind, continue with the Host/spool
   checks.
+- A warm tab shows only recent history until the window is resized: this is
+  the scrollback-compression lazy-restore path. Warren disables idle
+  compression and calls `activation_resync` on reattach
+  (see `problems/2026-08-17-warm-reattach-truncated-scrollback.md`); a
+  missing `activation_resync` after a warm attach is evidence the fix is not
+  in the running build.
 - After switching from an empty workspace to one with tabs, repeated
   `terminal_view_appear` events followed by `surfaceReady` changing from true
   to false indicate a surface lifecycle/ownership race. This is the failure

@@ -387,6 +387,7 @@ public final class TerminalSurfaceManager {
             entry.view.isHidden = false
             entry.view.setSurfaceVisible(true)
             entry.view.fitToSize()
+            entry.surface.resyncForActivation()
             schedulePresent(entry, generation: generation)
             if latestIntent.wantsTerminalFocus {
                 focus(sessionID, generation: generation)

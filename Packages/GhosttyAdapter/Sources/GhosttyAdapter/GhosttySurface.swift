@@ -226,6 +226,15 @@ public final class GhosttySurface: Identifiable {
             builder.withCustom("search-selected-background", "#e07850")
             builder.withWindowPaddingX(0)
             builder.withWindowPaddingY(0)
+            // Ghostty compresses cold scrollback pages while idle and restores
+            // them lazily; a resize is what pulls compressed history back into
+            // the active area. Warren reattaches the same warm surface on every
+            // tab switch without a size change, so compressed pages can stay
+            // unreachable until the user resizes the window. Disable idle
+            // compression so history stays reachable on reattach; the
+            // scrollback limit still bounds logical history, and only resident
+            // memory grows (see docs/decisions/2026-08-17-warm-surface-memory.md).
+            builder.withCustom("scrollback-compression", "false")
             // Ghostty's macOS app doubles precise trackpad deltas before they
             // reach the C API; libghostty-swift forwards raw pixels instead.
             // Compensate in the core so scroll pacing matches standalone
@@ -264,6 +273,28 @@ public final class GhosttySurface: Identifiable {
 
     public func semanticSnapshot() -> TerminalSemanticSnapshot {
         ansiObserver.snapshot()
+    }
+
+    /// Re-sync a reattached warm surface with Ghostty's viewport state.
+    ///
+    /// A warm surface keeps its native Ghostty state while demoted, but the
+    /// viewport/page-list state can go stale (compressed history that is only
+    /// restored lazily, a pinned offset that no longer matches the current
+    /// page list, or a framebuffer that stopped repainting while occluded).
+    /// The user-visible workaround for all of these is a resize, which forces
+    /// Ghostty to reflow and repaint. This reproduces the essential part
+    /// without changing the pixel size: pin the viewport to the live bottom
+    /// (resetting any stale pin/offset cache) and draw immediately so the
+    /// surface repaints even when no new output arrived.
+    public func resyncForActivation() {
+        TerminalDiagnostics.log("activation_resync", [
+            "session": id.description,
+        ])
+        scrollToBottom()
+        requestDisplayRefresh()
+        if terminalViewIsPresentable {
+            _ = presentNow()
+        }
     }
 
     /// Re-submit Ghostty's current grid even when the renderer's pixel size
@@ -325,6 +356,11 @@ public extension GhosttySurface {
 
     func endSearch() {
         _ = performBindingAction("end_search")
+    }
+
+    /// Jump the viewport back to the live prompt at the bottom.
+    func scrollToBottom() {
+        _ = performBindingAction("scroll_to_bottom")
     }
 
     /// Current selection text, used to prefill the find box (⌘F with a

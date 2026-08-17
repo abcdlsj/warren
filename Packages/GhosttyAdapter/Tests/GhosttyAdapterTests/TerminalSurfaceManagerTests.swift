@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyKit
 import WarrenDomain
 import XCTest
 @testable import GhosttyAdapter
@@ -157,6 +158,116 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertEqual(snapshot.retainedSurfaceCount, 2)
         XCTAssertEqual(host.subviews.count, 1)
         XCTAssertEqual(snapshot.hiddenRenderAttemptCount, 0)
+    }
+
+    func testReattachResyncsViewportToLiveBottom() async throws {
+        _ = NSApplication.shared
+        let manager = TerminalSurfaceManager(warmLimit: 2)
+        let first = makeSurface()
+        let second = makeSurface()
+        manager.insert(first)
+
+        let host = TerminalHostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer {
+            manager.shutdown()
+            window.orderOut(nil as Any?)
+        }
+
+        submit(first.id, to: manager, host: host)
+        try await waitUntil {
+            first.state.surface != nil && first.terminalViewIsPresentable
+        }
+        let raw = try XCTUnwrap(first.state.surface?.rawValue)
+
+        first.receive(makeLines(start: 0, count: 2000))
+        try await Task.sleep(for: .milliseconds(200))
+        _ = "scroll_to_row:1000".withCString { pointer in
+            ghostty_surface_binding_action(raw, pointer, UInt("scroll_to_row:1000".utf8.count))
+        }
+        try await waitForViewport(on: first, containing: "line-1000")
+        let pinned = try viewportText(on: first)
+        XCTAssertFalse(pinned.contains("line-1999"), "pinned viewport must not already be at bottom")
+
+        manager.insert(second)
+        submit(second.id, to: manager, host: host)
+        try await waitUntil { manager.snapshot().activeSessionID == second.id }
+
+        submit(first.id, to: manager, host: host)
+        try await waitUntil {
+            manager.snapshot().activeSessionID == first.id && first.terminalViewIsPresentable
+        }
+        do {
+            try await waitForViewport(on: first, containing: "line-1999")
+        } catch {
+            let text = try viewportText(on: first)
+            print("REATTACHED_VIEWPORT=\(text.prefix(300))")
+            throw error
+        }
+    }
+
+    private func makeLines(start: Int, count: Int) -> Data {
+        var data = Data()
+        for index in start..<(start + count) {
+            data.append(Data("line-\(String(format: "%04d", index))\n".utf8))
+        }
+        return data
+    }
+
+    private func viewportText(on surface: GhosttySurface) throws -> String {
+        guard let raw = surface.state.surface?.rawValue else {
+            struct NoSurface: Error {}
+            throw NoSurface()
+        }
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+        var out = ghostty_text_s()
+        guard ghostty_surface_read_text(raw, selection, &out) else {
+            struct ReadFailed: Error {}
+            throw ReadFailed()
+        }
+        defer { ghostty_surface_free_text(raw, &out) }
+        guard let text = out.text, out.text_len > 0 else { return "" }
+        let bytes = UnsafeBufferPointer(start: text, count: Int(out.text_len))
+            .map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    private func waitForViewport(
+        on surface: GhosttySurface,
+        containing needle: String,
+        timeout: TimeInterval = 10
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        while ContinuousClock.now < deadline {
+            if try viewportText(on: surface).contains(needle) { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        struct Timeout: Error {}
+        throw Timeout()
     }
 
     private func makeSurface() -> GhosttySurface {
