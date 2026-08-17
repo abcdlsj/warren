@@ -385,6 +385,14 @@ final class TerminalSurfaceCoordinator {
         controller?.shouldProcessWakeup = nil
         bridge.rawSurface = nil
         let hadSurface = surface != nil
+        // SwiftUI can replace an AppTerminalView while the old view is still
+        // being released. Each view owns its own coordinator/surface, but the
+        // delegate's `surface` is shared state; an old view's teardown must not
+        // clear a newer surface that has already been installed.
+        let detachingSurface = surface
+        let detachIsCurrent = (delegate as? TerminalViewState).map {
+            $0.surface === detachingSurface
+        } ?? true
         surface?.setFocus(false)
         surface?.free()
         surface = nil
@@ -396,7 +404,7 @@ final class TerminalSurfaceCoordinator {
         pendingImmediateTick = true
         lastTickTimestamp = 0
         controller?.remove(bridge)
-        if hadSurface {
+        if hadSurface, detachIsCurrent {
             (delegate as? any TerminalSurfaceLifecycleDelegate)?
                 .terminalDidDetachSurface()
         }
