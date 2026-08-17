@@ -13,7 +13,7 @@ import WarrenTerminalRenderer
 /// renders the PTY byte stream and forwards input/resize back to Warren. This is
 /// the same in-memory shape Termio uses for its companion/status architecture.
 @MainActor
-public final class GhosttySurface: Identifiable, ObservableObject {
+public final class GhosttySurface: Identifiable {
     /// Matches the 1.12 line-height used by the Web terminal while keeping
     /// Ghostty's cell grid authoritative for tmux resize calculations.
     private static let defaultCellHeightAdjustment = "12%"
@@ -192,19 +192,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
         return view.window != nil && !view.isHidden && !view.visibleRect.isEmpty
     }
 
-    /// Rebuilds the Ghostty surface when a recreated view is revealed before
-    /// the native surface exists (empty workspace -> populated workspace).
-    /// Healthy surfaces skip this path entirely.
-    func rebuildIfMissing(afterReveal view: TerminalView) {
-        guard state.surface == nil else { return }
-        TerminalDiagnostics.log("probe_surface_rebuild", [
-            "session": id.description,
-        ])
-        view.fitToSize()
-        requestDisplayRefresh()
-        _ = presentNow()
-    }
-
     public var terminalViewDescription: String {
         guard let view = mountedTerminalView else { return "nil" }
         let size = GhosttyDiagnosticsFormat.finiteSize(view.visibleRect.size)
@@ -286,10 +273,6 @@ public final class GhosttySurface: Identifiable, ObservableObject {
             "size": "\(size.columns)x\(size.rows)",
         ])
         onViewportResize(Int(size.columns), Int(size.rows))
-    }
-
-    public var view: TerminalSurfaceView {
-        TerminalSurfaceView(context: state)
     }
 
     /// Warren's open semantics for terminal links. Only non-empty URLs with a

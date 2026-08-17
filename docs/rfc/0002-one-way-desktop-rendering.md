@@ -1,8 +1,9 @@
 # RFC 0002: One-way desktop rendering and terminal lifecycle
 
-- Status: Proposed
+- Status: Implemented
 - Owner: Warren desktop client
 - Created: 2026-08-17
+- Implemented: 2026-08-17
 - Supersedes: [RFC 0001](0001-terminal-surface-retention.md) view-layer
   retention design
 
@@ -329,6 +330,28 @@ be derived without a feedback loop.
 - Add LRU eviction by count and measured memory.
 - Validate cold-session replay from the stored output anchor.
 - Tune the default warm budget from Instruments data.
+
+## Implementation
+
+The desktop now uses this design.
+
+- `TerminalSurfaceManager` is created at the composition root and excluded
+  from Swift Observation.
+- `TerminalHostRepresentable` owns one stable AppKit container. Its update
+  method submits intent only; reconciliation runs on a later main-loop turn.
+- The manager retains one active surface and up to two warm surfaces. It also
+  enforces a 256 MiB estimated warm-surface budget using triple-buffered BGRA
+  viewport cost.
+- Warm views are occluded, unfocused, detached from their window, and kept by
+  the manager registry. LRU eviction disposes their renderer resources.
+- Production semantic observation installs no geometry readers unless UIProbe
+  injects a recorder.
+- Tab overflow uses a structurally stable track and AppKit scroll-edge
+  observation. Sidebar row geometry exists only while a drag is prepared or
+  active.
+- Equal desktop projections are discarded before observation publication.
+- Automated tests cover native active/warm reattachment, count and memory
+  eviction, deferred host mutation, and 500 consecutive native switches.
 
 ## Verification
 

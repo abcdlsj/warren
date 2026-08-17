@@ -10,11 +10,17 @@ public enum TerminalSurfaceResidency: String, Equatable, Sendable {
 
 public struct TerminalSurfaceRetentionPolicy: Equatable, Sendable {
     public let warmLimit: Int
+    public let warmByteLimit: Int
     public private(set) var activeSessionID: TerminalSessionID?
     public private(set) var warmSessionIDs: [TerminalSessionID] = []
+    private var estimatedBytesBySessionID: [TerminalSessionID: Int] = [:]
 
-    public init(warmLimit: Int = 2) {
+    public init(
+        warmLimit: Int = 2,
+        warmByteLimit: Int = 256 * 1024 * 1024
+    ) {
         self.warmLimit = max(0, warmLimit)
+        self.warmByteLimit = max(0, warmByteLimit)
     }
 
     @discardableResult
@@ -43,6 +49,16 @@ public struct TerminalSurfaceRetentionPolicy: Equatable, Sendable {
             activeSessionID = nil
         }
         warmSessionIDs.removeAll { $0 == sessionID }
+        estimatedBytesBySessionID[sessionID] = nil
+    }
+
+    @discardableResult
+    public mutating func updateEstimatedBytes(
+        _ estimatedBytes: Int,
+        for sessionID: TerminalSessionID
+    ) -> [TerminalSessionID] {
+        estimatedBytesBySessionID[sessionID] = max(0, estimatedBytes)
+        return trimWarmSessions()
     }
 
     public func residency(of sessionID: TerminalSessionID) -> TerminalSurfaceResidency {
@@ -51,10 +67,19 @@ public struct TerminalSurfaceRetentionPolicy: Equatable, Sendable {
         return .cold
     }
 
+    public var estimatedWarmBytes: Int {
+        warmSessionIDs.reduce(into: 0) { total, sessionID in
+            total += estimatedBytesBySessionID[sessionID] ?? 0
+        }
+    }
+
     private mutating func trimWarmSessions() -> [TerminalSessionID] {
-        guard warmSessionIDs.count > warmLimit else { return [] }
-        let evicted = Array(warmSessionIDs.dropFirst(warmLimit))
-        warmSessionIDs.removeLast(warmSessionIDs.count - warmLimit)
+        var evicted: [TerminalSessionID] = []
+        while warmSessionIDs.count > warmLimit || estimatedWarmBytes > warmByteLimit {
+            guard let sessionID = warmSessionIDs.popLast() else { break }
+            estimatedBytesBySessionID[sessionID] = nil
+            evicted.append(sessionID)
+        }
         return evicted
     }
 }
@@ -84,6 +109,7 @@ public struct TerminalSurfaceManagerSnapshot: Equatable, Sendable {
     public let surfaceCreationCount: UInt64
     public let surfaceDisposalCount: UInt64
     public let hiddenRenderAttemptCount: UInt64
+    public let estimatedWarmBytes: Int
 }
 
 /// The only owner of AppKit terminal views and Ghostty presentation work.
@@ -121,8 +147,14 @@ public final class TerminalSurfaceManager {
     private var onFocused: (TerminalSessionID, TerminalSize?) -> Void = { _, _ in }
     private var onBlurred: (TerminalSessionID) -> Void = { _ in }
 
-    public init(warmLimit: Int = 2) {
-        policy = TerminalSurfaceRetentionPolicy(warmLimit: warmLimit)
+    public init(
+        warmLimit: Int = 2,
+        warmByteLimit: Int = 256 * 1024 * 1024
+    ) {
+        policy = TerminalSurfaceRetentionPolicy(
+            warmLimit: warmLimit,
+            warmByteLimit: warmByteLimit
+        )
     }
 
     public var retainedSurfaceCount: Int { entries.count }
@@ -251,7 +283,8 @@ public final class TerminalSurfaceManager {
             staleCommandCancellationCount: staleCommandCancellationCount,
             surfaceCreationCount: surfaceCreationCount,
             surfaceDisposalCount: surfaceDisposalCount,
-            hiddenRenderAttemptCount: hiddenRenderAttemptCount
+            hiddenRenderAttemptCount: hiddenRenderAttemptCount,
+            estimatedWarmBytes: policy.estimatedWarmBytes
         )
     }
 
@@ -275,13 +308,23 @@ public final class TerminalSurfaceManager {
             demote(previousSessionID)
         }
 
-        let evicted: [TerminalSessionID]
+        var evicted: [TerminalSessionID]
         if let nextSessionID, entries[nextSessionID] != nil {
             evicted = policy.activate(nextSessionID)
+            evicted.append(contentsOf: policy.updateEstimatedBytes(
+                estimatedSurfaceBytes(in: host),
+                for: nextSessionID
+            ))
         } else {
             evicted = policy.deactivate()
         }
         evicted.forEach(dispose)
+        let retainedSessionIDs = Set(
+            policy.warmSessionIDs + [policy.activeSessionID].compactMap { $0 }
+        )
+        for sessionID in Array(entries.keys) where !retainedSessionIDs.contains(sessionID) {
+            dispose(sessionID)
+        }
 
         guard let nextSessionID,
               let entry = entries[nextSessionID],
@@ -457,6 +500,18 @@ public final class TerminalSurfaceManager {
     private func sanitizedViewport(_ requested: CGSize, fallback: CGSize) -> CGSize {
         let candidate = requested.width > 0 && requested.height > 0 ? requested : fallback
         return CGSize(width: max(candidate.width, 1), height: max(candidate.height, 1))
+    }
+
+    private func estimatedSurfaceBytes(in host: TerminalHostContainerView?) -> Int {
+        guard let host else { return 0 }
+        let viewport = sanitizedViewport(latestIntent.viewportSize, fallback: host.bounds.size)
+        let scale = host.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let pixels = viewport.width * scale * viewport.height * scale
+        guard pixels.isFinite, pixels > 0 else { return 0 }
+        // Triple-buffered BGRA is the dominant predictable surface cost.
+        let bytes = pixels * 4 * 3
+        guard bytes < Double(Int.max) else { return Int.max }
+        return Int(bytes.rounded(.up))
     }
 }
 

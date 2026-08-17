@@ -580,7 +580,7 @@ final class WarrenRemoteApplicationModel {
     private(set) var navigation: WarrenDesktopNavigationState {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
-    private(set) var issue: Error?
+    @ObservationIgnored private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Default engine for new sessions, owned by the headless daemon.
     private(set) var defaultRuntime: String?
@@ -613,9 +613,10 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
+    @ObservationIgnored private(set) var projectionPublicationCount: UInt64 = 0
 
-    init() {
-        surfaceManager = TerminalSurfaceManager(warmLimit: 2)
+    init(surfaceManager: TerminalSurfaceManager = TerminalSurfaceManager(warmLimit: 2)) {
+        self.surfaceManager = surfaceManager
         self.navigation = WarrenDesktopNavigationPersistence.restore()
             ?? WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
     }
@@ -638,7 +639,9 @@ final class WarrenRemoteApplicationModel {
                 canControl: true
             )
         }
-        projection = WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
+        publishProjectionIfChanged(
+            WarrenDesktopProjection.empty(host: WarrenDomain.Host(name: configuration.name))
+        )
         eventTask = Task { @MainActor [weak self] in
             await self?.runConnectionLoop(configuration)
         }
@@ -691,7 +694,7 @@ final class WarrenRemoteApplicationModel {
             await wire.close()
             guard !Task.isCancelled else { return }
             resetAttachmentState()
-            projection = projection.withConnectionState(.reconnecting)
+            publishProjectionIfChanged(projection.withConnectionState(.reconnecting))
             let delay = Self.reconnectDelay(attempt: attempt)
             attempt += 1
             try? await Task.sleep(for: .milliseconds(delay))
@@ -810,10 +813,10 @@ final class WarrenRemoteApplicationModel {
                 try await self?.refreshRoster(using: wire)
                 guard let self,
                       self.selectedWorkspaceID == workspaceID else { return }
-                self.navigation = WarrenDesktopNavigationState(
+                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
                     selection: .workspace(workspaceID),
                     selectedTabID: Self.tabID(sessionID)
-                )
+                ))
                 await self.attachSelectedSession()
             } catch {
                 self?.present(error)
@@ -1041,7 +1044,9 @@ final class WarrenRemoteApplicationModel {
         TerminalDiagnostics.log("action", [
             "action": String(String(describing: action).prefix(160)),
         ])
-        navigation = WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
+        publishNavigationIfChanged(
+            WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
+        )
         switch action {
         case .selectProject, .selectWorkspace, .selectTab, .restoreNavigation:
             Task { await attachSelectedSession() }
@@ -1477,9 +1482,7 @@ final class WarrenRemoteApplicationModel {
             sessionWorkspaceIDs: sessionWorkspaces,
             connectionState: .attached
         )
-        if projection != nextProjection {
-            projection = nextProjection
-        }
+        publishProjectionIfChanged(nextProjection)
         TerminalDiagnostics.log("roster_apply", [
             "tabs": String(tabs.count),
             "selectedTab": navigation.selectedTabID ?? "nil",
@@ -1663,10 +1666,10 @@ final class WarrenRemoteApplicationModel {
             "session": id.description,
             "workspace": session.workspaceID.description,
         ])
-        navigation = WarrenDesktopNavigationState(
+        publishNavigationIfChanged(WarrenDesktopNavigationState(
             selection: .workspace(session.workspaceID),
             selectedTabID: Self.tabID(id)
-        )
+        ))
         Task { await attachSelectedSession() }
     }
 
@@ -1680,7 +1683,7 @@ final class WarrenRemoteApplicationModel {
 
     private func present(_ error: Error) {
         issue = error
-        projection = projection.withIssue(
+        publishProjectionIfChanged(projection.withIssue(
             error,
             detail: Self.diagnosticText(
                 error: error,
@@ -1689,7 +1692,20 @@ final class WarrenRemoteApplicationModel {
                 attachedSessionID: attachedSessionID,
                 focusedSessionID: focusedSessionID
             )
-        )
+        ))
+    }
+
+    @discardableResult
+    func publishProjectionIfChanged(_ nextProjection: WarrenDesktopProjection) -> Bool {
+        guard projection != nextProjection else { return false }
+        projection = nextProjection
+        projectionPublicationCount &+= 1
+        return true
+    }
+
+    private func publishNavigationIfChanged(_ nextNavigation: WarrenDesktopNavigationState) {
+        guard navigation != nextNavigation else { return }
+        navigation = nextNavigation
     }
     private static func tabID(_ id: TerminalSessionID) -> String { "remote-\(id.description)" }
 }

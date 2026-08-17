@@ -7,7 +7,8 @@ import WarrenStateStore
 import WarrenDesignSystem
 
 struct WarrenCompositionRoot: View {
-    @State private var remoteModel = WarrenRemoteApplicationModel()
+    @State private var remoteModel: WarrenRemoteApplicationModel
+    @State private var surfaceManager: TerminalSurfaceManager
     @State private var isProjectImporterPresented = false
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var isSupersetImporting = false
@@ -24,6 +25,11 @@ struct WarrenCompositionRoot: View {
 
     @MainActor
     init() {
+        let surfaceManager = TerminalSurfaceManager(warmLimit: 2)
+        _surfaceManager = State(initialValue: surfaceManager)
+        _remoteModel = State(initialValue: WarrenRemoteApplicationModel(
+            surfaceManager: surfaceManager
+        ))
         // Endpoint configuration is user input, not frame state. Seed the
         // catalog once and refresh it from disk in the background so CLI
         // changes appear without restarting Warren.
@@ -49,7 +55,7 @@ struct WarrenCompositionRoot: View {
         ) { context in
             WarrenTerminalSurfaceView(
                 context: context,
-                surfaceManager: remoteModel.surfaceManager,
+                surfaceManager: surfaceManager,
                 maintenanceMessage: remoteModel.maintenanceMessage,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)

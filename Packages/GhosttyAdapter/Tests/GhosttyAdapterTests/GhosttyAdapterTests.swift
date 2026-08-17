@@ -46,6 +46,40 @@ final class GhosttyAdapterTests: XCTestCase {
         XCTAssertTrue(policy.warmSessionIDs.isEmpty)
     }
 
+    func testRetentionPolicyEvictsWarmSurfaceAboveMemoryBudget() {
+        let first = TerminalSessionID(rawValue: UUID())
+        let second = TerminalSessionID(rawValue: UUID())
+        var policy = TerminalSurfaceRetentionPolicy(
+            warmLimit: 2,
+            warmByteLimit: 100
+        )
+        _ = policy.updateEstimatedBytes(120, for: first)
+        _ = policy.updateEstimatedBytes(80, for: second)
+        _ = policy.activate(first)
+
+        XCTAssertEqual(policy.activate(second), [first])
+        XCTAssertEqual(policy.estimatedWarmBytes, 0)
+        XCTAssertEqual(policy.residency(of: first), .cold)
+    }
+
+    func testRetentionPolicyRemainsBoundedAcrossFiveHundredSwitches() {
+        let ids = (0..<11).map { _ in TerminalSessionID(rawValue: UUID()) }
+        var policy = TerminalSurfaceRetentionPolicy(warmLimit: 2)
+        var evicted: [TerminalSessionID] = []
+
+        for index in 0..<500 {
+            evicted.append(contentsOf: policy.activate(ids[index % ids.count]))
+            XCTAssertLessThanOrEqual(policy.warmSessionIDs.count, 2)
+            if let activeSessionID = policy.activeSessionID {
+                XCTAssertFalse(policy.warmSessionIDs.contains(activeSessionID))
+            }
+            XCTAssertEqual(Set(policy.warmSessionIDs).count, policy.warmSessionIDs.count)
+        }
+
+        XCTAssertFalse(evicted.isEmpty)
+        XCTAssertNotNil(policy.activeSessionID)
+    }
+
     @MainActor
     func testSemanticSnapshotPreservesANSIStyleAndUnicodeWithoutWindow() {
         let surface = GhosttySurface(

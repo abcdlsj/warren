@@ -4,6 +4,21 @@ import WarrenDomain
 @testable import Warren
 
 final class WarrenRemoteModelTests: XCTestCase {
+    @MainActor
+    func testEqualProjectionDoesNotPublishAgain() {
+        let model = WarrenRemoteApplicationModel()
+        let initial = model.projection
+
+        XCTAssertFalse(model.publishProjectionIfChanged(initial))
+        XCTAssertEqual(model.projectionPublicationCount, 0)
+
+        let changed = type(of: initial).empty(host: Host(name: "Changed"))
+        XCTAssertTrue(model.publishProjectionIfChanged(changed))
+        XCTAssertEqual(model.projectionPublicationCount, 1)
+        XCTAssertFalse(model.publishProjectionIfChanged(changed))
+        XCTAssertEqual(model.projectionPublicationCount, 1)
+    }
+
     func testRemoteAttachParametersCarryViewportWithoutClaimingFocus() throws {
         let sessionID = TerminalSessionID()
         let size = try XCTUnwrap(TerminalSize(columns: 117, rows: 38))
