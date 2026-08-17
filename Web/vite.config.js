@@ -29,5 +29,16 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    proxy: {
+      // The daemon owns the WebSocket endpoint; proxying lets the Vite dev
+      // server show the redesigned Web UI against the same local headless
+      // Host the Desktop client uses, so both packages can be viewed
+      // side by side in one session.
+      "/v1/ws": {
+        target: "http://127.0.0.1:8789",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 });

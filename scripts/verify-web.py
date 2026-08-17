@@ -84,6 +84,8 @@ def read_text_frame():
 
 
 send_text(json.dumps({"t": "auth", "token": token, "version": "1.0"}))
+welcome = read_text_frame()
+assert welcome.get("t") == "welcome", welcome
 roster = read_text_frame()
 assert roster.get("t") == "roster", roster
 assert isinstance(roster.get("state"), dict), roster

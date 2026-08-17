@@ -73,6 +73,11 @@ struct WarrenDesktopSidebarHeader: View {
             WarrenDesktopWindowDragRegion()
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .accessibilityHidden(true)
+
+            if WarrenBuildVariant.isBuild {
+                WarrenDesktopBuildBadge()
+                    .padding(.trailing, WarrenSpacing.compact)
+            }
         }
         .frame(height: WarrenLayoutMetrics.sidebarTrafficRowHeight)
     }

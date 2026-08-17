@@ -67,6 +67,33 @@ const ChevronRightIcon = (
   </svg>
 );
 
+function useBuildVariant() {
+  // The Vite dev server is always a preview build. In production the daemon
+  // serves a build-variant.txt stamped by scripts/build-app.sh, so a Web UI
+  // shipped by a release install stays unmarked.
+  const [isBuild, setIsBuild] = useState(() => import.meta.env.DEV);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(webAssetURL("build-variant.txt"), { cache: "no-store" });
+        if (!response.ok) return;
+        const value = (await response.text()).trim();
+        if (!cancelled) setIsBuild(value === "build");
+      } catch {
+        // Keep the dev-server default; a release install without a marker
+        // stays unmarked.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return isBuild;
+}
+
 export function ActivityDot({ activity }) {
   const label = activityLabels[activity];
   if (!label) return null;
@@ -104,6 +131,7 @@ export function Sidebar({
   onBeginProjectDrag,
   onEndProjectDrag,
 }) {
+  const isBuild = useBuildVariant();
   const [dragState, setDragState] = useState(null);
   const [dragOverID, setDragOverID] = useState(null);
 
@@ -157,6 +185,7 @@ export function Sidebar({
     <aside className="sidebar" aria-label="Projects and workspaces">
       <div className="brand">
         <img className="brand-mark" src={webAssetURL("icon.svg")} alt="Warren" />
+        {isBuild && <span className="build-badge">Build</span>}
         <span className={`connection${connection.online ? " online" : ""}`}>
           <span className="connection-dot" />
           <span>{connection.message}</span>

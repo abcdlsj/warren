@@ -246,6 +246,17 @@ button:disabled {
   outline-offset: -1px;
 }
 
+.build-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-brand-solid);
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .connection {
   display: flex;
   align-items: center;
