@@ -104,6 +104,48 @@ final class WarrenRemoteModelTests: XCTestCase {
         XCTAssertEqual(WarrenRemoteApplicationModel.reconnectDelay(attempt: 99), 30_000)
     }
 
+    func testRemoteTabOrderingMovesBeforeDestinationAndToEnd() {
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.moving("tab-c", before: "tab-a", in: [
+                "tab-a", "tab-b", "tab-c",
+            ]),
+            ["tab-c", "tab-a", "tab-b"]
+        )
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.moving("tab-a", before: nil, in: [
+                "tab-a", "tab-b", "tab-c",
+            ]),
+            ["tab-b", "tab-c", "tab-a"]
+        )
+    }
+
+    func testRemoteTabOrderingRejectsInvalidMoves() {
+        let tabs = ["tab-a", "tab-b", "tab-c"]
+
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.moving("missing", before: "tab-a", in: tabs),
+            tabs
+        )
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.moving("tab-a", before: "missing", in: tabs),
+            tabs
+        )
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.moving("tab-a", before: "tab-a", in: tabs),
+            tabs
+        )
+    }
+
+    func testRemoteTabOrderingReconcilesRosterChanges() {
+        XCTAssertEqual(
+            WarrenRemoteTabOrdering.reconciling(
+                preferredOrder: ["tab-c", "closed", "tab-a", "tab-c"],
+                availableTabIDs: ["tab-a", "tab-b", "tab-c", "tab-new"]
+            ),
+            ["tab-c", "tab-a", "tab-b", "tab-new"]
+        )
+    }
+
     func testStaleSessionDeleteErrorIsBenign() {
         let sessionID = TerminalSessionID()
 

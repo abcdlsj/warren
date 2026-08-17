@@ -143,6 +143,42 @@ struct TerminalOutputAnchor: Equatable, Sendable {
     let sequence: UInt64
 }
 
+enum WarrenRemoteTabOrdering {
+    static func moving(
+        _ tabID: String,
+        before destinationTabID: String?,
+        in tabIDs: [String]
+    ) -> [String] {
+        guard let sourceIndex = tabIDs.firstIndex(of: tabID) else { return tabIDs }
+        if let destinationTabID {
+            guard destinationTabID != tabID, tabIDs.contains(destinationTabID) else {
+                return tabIDs
+            }
+        }
+        var result = tabIDs
+        let moved = result.remove(at: sourceIndex)
+        if let destinationTabID,
+           let destinationIndex = result.firstIndex(of: destinationTabID) {
+            result.insert(moved, at: destinationIndex)
+        } else {
+            result.append(moved)
+        }
+        return result
+    }
+
+    static func reconciling(
+        preferredOrder: [String],
+        availableTabIDs: [String]
+    ) -> [String] {
+        let available = Set(availableTabIDs)
+        var seen: Set<String> = []
+        let retained = preferredOrder.filter {
+            available.contains($0) && seen.insert($0).inserted
+        }
+        return retained + availableTabIDs.filter { seen.insert($0).inserted }
+    }
+}
+
 /// Parameters shared by the desktop attach path and its protocol tests. The
 /// viewport is optional for compatibility with older clients, but a valid
 /// viewport is always sent when Ghostty has produced one.
@@ -612,6 +648,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
+    @ObservationIgnored private var tabOrderByWorkspaceID: [WorkspaceID: [String]] = [:]
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
     @ObservationIgnored private(set) var projectionPublicationCount: UInt64 = 0
 
@@ -656,6 +693,7 @@ final class WarrenRemoteApplicationModel {
         wire = nil
         currentRoster = nil
         agentActivityBySessionID.removeAll()
+        tabOrderByWorkspaceID.removeAll()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
     }
@@ -1108,7 +1146,9 @@ final class WarrenRemoteApplicationModel {
             var params = ["id": workspaceID.description]
             if let before { params["before"] = before.description }
             request("workspace.move", params: params)
-        case .importSuperset, .requestNewWorkspace, .requestNewSession, .moveTab,
+        case .moveTab(let tabID, let before):
+            moveTab(tabID, before: before)
+        case .importSuperset, .requestNewWorkspace, .requestNewSession,
              .toggleInspector, .toggleSidebar:
             break
         }
@@ -1463,7 +1503,7 @@ final class WarrenRemoteApplicationModel {
         // Ended sessions stay in the projection for history, but they are
         // not openable tabs: attaching to them would fail and leave the user
         // staring at a terminal that cannot accept input.
-        let tabs = remoteSessions.compactMap { value, id, _ -> ClientTab? in
+        let unorderedTabs = remoteSessions.compactMap { value, id, _ -> ClientTab? in
             guard value.lifecycle == "running" else { return nil }
             return ClientTab(
                 id: Self.tabID(id),
@@ -1473,6 +1513,10 @@ final class WarrenRemoteApplicationModel {
             )
         }
         let sessionWorkspaces = Dictionary(uniqueKeysWithValues: remoteSessions.map { ($0.1, $0.2) })
+        let tabs = applyingLocalTabOrder(
+            unorderedTabs,
+            sessionWorkspaces: sessionWorkspaces
+        )
         let nextProjection = WarrenDesktopProjection(
             host: host,
             projects: projects,
@@ -1569,12 +1613,15 @@ final class WarrenRemoteApplicationModel {
         if let existingSurface {
             surface = existingSurface
         } else {
+            let inputBridge = WarrenOrderedInputBridge { [weak self] data in
+                await self?.sendInput(data)
+            }
             surface = GhosttySurface(
                 id: sessionID,
                 attachmentID: TerminalAttachmentID(),
                 workingDirectory: session.workingDirectory,
                 font: terminalFont,
-                onInput: { [weak self] data in Task { await self?.sendInput(data) } },
+                onInput: { data in inputBridge.send(data) },
                 onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
             )
             surfaceManager.insert(surface)
@@ -1673,6 +1720,57 @@ final class WarrenRemoteApplicationModel {
         Task { await attachSelectedSession() }
     }
 
+    private func moveTab(_ tabID: String, before destinationTabID: String?) {
+        guard let workspaceID = projection.workspaceID(forTabID: tabID) else { return }
+        if let destinationTabID,
+           projection.workspaceID(forTabID: destinationTabID) != workspaceID {
+            return
+        }
+        let currentOrder = projection.tabs(in: workspaceID).map(\.id)
+        let nextOrder = WarrenRemoteTabOrdering.moving(
+            tabID,
+            before: destinationTabID,
+            in: currentOrder
+        )
+        guard nextOrder != currentOrder else { return }
+        tabOrderByWorkspaceID[workspaceID] = nextOrder
+        publishProjectionIfChanged(
+            projection.reorderingTabs(in: workspaceID, accordingTo: nextOrder)
+        )
+    }
+
+    private func applyingLocalTabOrder(
+        _ tabs: [ClientTab],
+        sessionWorkspaces: [TerminalSessionID: WorkspaceID]
+    ) -> [ClientTab] {
+        let tabWorkspaceIDs = Dictionary(uniqueKeysWithValues: tabs.compactMap { tab in
+            tab.sessionID.flatMap { sessionWorkspaces[$0] }.map { (tab.id, $0) }
+        })
+        let liveWorkspaceIDs = Set(tabWorkspaceIDs.values)
+        tabOrderByWorkspaceID = tabOrderByWorkspaceID.filter {
+            liveWorkspaceIDs.contains($0.key)
+        }
+
+        var result = tabs
+        for workspaceID in liveWorkspaceIDs {
+            let availableIDs = tabs.compactMap { tab in
+                tabWorkspaceIDs[tab.id] == workspaceID ? tab.id : nil
+            }
+            let preferredOrder = tabOrderByWorkspaceID[workspaceID] ?? availableIDs
+            let reconciledOrder = WarrenRemoteTabOrdering.reconciling(
+                preferredOrder: preferredOrder,
+                availableTabIDs: availableIDs
+            )
+            tabOrderByWorkspaceID[workspaceID] = reconciledOrder
+            let tabsByID = Dictionary(uniqueKeysWithValues: result.map { ($0.id, $0) })
+            var orderedTabs = reconciledOrder.compactMap { tabsByID[$0] }.makeIterator()
+            result = result.map { tab in
+                tabWorkspaceIDs[tab.id] == workspaceID ? (orderedTabs.next() ?? tab) : tab
+            }
+        }
+        return result
+    }
+
     private var selectedWorkspaceID: WorkspaceID? {
         switch navigation.selection {
         case .workspace(let id): id
@@ -1711,6 +1809,24 @@ final class WarrenRemoteApplicationModel {
 }
 
 private extension WarrenDesktopProjection {
+    func reorderingTabs(in workspaceID: WorkspaceID, accordingTo orderedIDs: [String]) -> Self {
+        let tabsByID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var orderedTabs = orderedIDs.compactMap { tabsByID[$0] }.makeIterator()
+        let reorderedTabs = tabs.map { tab in
+            tabWorkspaceIDs[tab.id] == workspaceID ? (orderedTabs.next() ?? tab) : tab
+        }
+        return Self(
+            host: host,
+            groups: groups,
+            sessions: sessions,
+            tabs: reorderedTabs,
+            sessionWorkspaceIDs: sessionWorkspaceIDs,
+            tabWorkspaceIDs: tabWorkspaceIDs,
+            inspector: inspector,
+            connectionState: connectionState
+        )
+    }
+
     func withConnectionState(_ state: WarrenDesktopConnectionState) -> Self {
         Self(
             host: host,
