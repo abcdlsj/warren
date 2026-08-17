@@ -204,8 +204,8 @@ exit 1
 	if err != nil {
 		t.Fatalf("start gnar: %v", err)
 	}
-	if !status.Running {
-		t.Fatal("gnar should start before reporting an error")
+	if status.Error == "" {
+		t.Fatal("gnar error should be surfaced by start")
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
