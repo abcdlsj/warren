@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
 )
@@ -39,6 +40,14 @@ func Open(path, hostName string) (*Store, error) {
 		if s.state.Schema != 1 {
 			return nil, fmt.Errorf("unsupported state schema %d", s.state.Schema)
 		}
+		if len(s.state.TerminalGroups) == 0 {
+			if err := ensureTerminalGroups(&s.state); err != nil {
+				return nil, err
+			}
+			if err := s.saveLocked(); err != nil {
+				return nil, err
+			}
+		}
 		return s, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
@@ -51,6 +60,9 @@ func Open(path, hostName string) (*Store, error) {
 	s.state = api.State{
 		Schema: 1,
 		Host:   api.Host{ID: NewID(), Name: hostName, User: userName(current), OS: runtime.GOOS + "/" + runtime.GOARCH, Version: api.Version},
+	}
+	if err := ensureTerminalGroups(&s.state); err != nil {
+		return nil, err
 	}
 	if err := s.saveLocked(); err != nil {
 		return nil, err
@@ -137,6 +149,7 @@ func clone(value api.State) api.State {
 	result := value
 	result.Projects = append([]api.Project(nil), value.Projects...)
 	result.Workspaces = append([]api.Workspace(nil), value.Workspaces...)
+	result.TerminalGroups = append([]api.TerminalGroup(nil), value.TerminalGroups...)
 	result.Sessions = append([]api.Session(nil), value.Sessions...)
 	for index := range result.Sessions {
 		if value.Sessions[index].EndedAt == nil {
@@ -146,4 +159,16 @@ func clone(value api.State) api.State {
 		result.Sessions[index].EndedAt = &endedAt
 	}
 	return result
+}
+
+func ensureTerminalGroups(state *api.State) error {
+	if len(state.TerminalGroups) > 0 {
+		return nil
+	}
+	state.TerminalGroups = []api.TerminalGroup{{
+		ID:        NewID(),
+		Name:      "Inbox",
+		CreatedAt: time.Now().UTC(),
+	}}
+	return nil
 }

@@ -1,13 +1,45 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
 )
+
+func TestOpenMigratesMissingTerminalGroups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	data, err := json.Marshal(api.State{
+		Schema: 1,
+		Host:   api.Host{ID: "host-1", Name: "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := Open(path, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := state.Snapshot()
+	if len(snapshot.TerminalGroups) != 1 {
+		t.Fatalf("terminal groups = %#v, want one migrated Inbox", snapshot.TerminalGroups)
+	}
+	group := snapshot.TerminalGroups[0]
+	if group.Name != "Inbox" || group.Order != 0 || group.ID == "" {
+		t.Fatalf("migrated group = %#v", group)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("migrated state was not persisted: %v", err)
+	}
+}
 
 func BenchmarkSnapshot(b *testing.B) {
 	state := api.State{Schema: 1, Host: api.Host{ID: NewID(), Name: "benchmark"}}

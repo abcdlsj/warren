@@ -523,6 +523,7 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	}
 	sortProjects(state.Projects)
 	sortWorkspaces(state.Workspaces)
+	sortTerminalGroups(state.TerminalGroups)
 	sort.Slice(state.Sessions, func(i, j int) bool {
 		if state.Sessions[i].Pinned != state.Sessions[j].Pinned {
 			return state.Sessions[i].Pinned
@@ -531,6 +532,9 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	})
 	for i := range state.Sessions {
 		session := &state.Sessions[i]
+		if session.Scope == "" {
+			session.Scope = session.ScopeKind()
+		}
 		if session.Lifecycle != "running" {
 			continue
 		}
@@ -579,6 +583,18 @@ func sortWorkspaces(workspaces []api.Workspace) {
 			return workspaces[i].CreatedAt.Before(workspaces[j].CreatedAt)
 		}
 		return workspaces[i].ID < workspaces[j].ID
+	})
+}
+
+func sortTerminalGroups(groups []api.TerminalGroup) {
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].Order != groups[j].Order {
+			return groups[i].Order < groups[j].Order
+		}
+		if groups[i].CreatedAt != groups[j].CreatedAt {
+			return groups[i].CreatedAt.Before(groups[j].CreatedAt)
+		}
+		return groups[i].ID < groups[j].ID
 	})
 }
 
@@ -748,6 +764,160 @@ func (s *Service) MoveWorkspace(id, before string) error {
 		}
 		return nil
 	})
+}
+
+func (s *Service) CreateTerminalGroup(name, home string) (api.TerminalGroup, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Terminal Group"
+	}
+	home, err := normalizeTerminalGroupHome(home)
+	if err != nil {
+		return api.TerminalGroup{}, err
+	}
+	group := api.TerminalGroup{
+		ID:        store.NewID(),
+		Name:      name,
+		Home:      home,
+		CreatedAt: time.Now().UTC(),
+	}
+	err = s.Store.Update(func(state *api.State) error {
+		group.Order = len(state.TerminalGroups)
+		state.TerminalGroups = append(state.TerminalGroups, group)
+		return nil
+	})
+	return group, err
+}
+
+func (s *Service) RenameTerminalGroup(id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("terminal group name cannot be empty")
+	}
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.TerminalGroups {
+			if state.TerminalGroups[index].ID == id {
+				state.TerminalGroups[index].Name = name
+				return nil
+			}
+		}
+		return fmt.Errorf("terminal group not found: %s", id)
+	})
+}
+
+func (s *Service) SetTerminalGroupHome(id, home string) error {
+	home, err := normalizeTerminalGroupHome(home)
+	if err != nil {
+		return err
+	}
+	return s.Store.Update(func(state *api.State) error {
+		for index := range state.TerminalGroups {
+			if state.TerminalGroups[index].ID == id {
+				state.TerminalGroups[index].Home = home
+				return nil
+			}
+		}
+		return fmt.Errorf("terminal group not found: %s", id)
+	})
+}
+
+func (s *Service) MoveTerminalGroup(id, before string) error {
+	return s.Store.Update(func(state *api.State) error {
+		sortTerminalGroups(state.TerminalGroups)
+		index := -1
+		for i := range state.TerminalGroups {
+			if state.TerminalGroups[i].ID == id {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("terminal group not found: %s", id)
+		}
+		target := len(state.TerminalGroups)
+		if before != "" {
+			found := false
+			for i := range state.TerminalGroups {
+				if state.TerminalGroups[i].ID == before {
+					target = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("before terminal group not found: %s", before)
+			}
+		}
+		group := state.TerminalGroups[index]
+		state.TerminalGroups = append(state.TerminalGroups[:index], state.TerminalGroups[index+1:]...)
+		if index < target {
+			target--
+		}
+		state.TerminalGroups = slices.Insert(state.TerminalGroups, target, group)
+		for i := range state.TerminalGroups {
+			state.TerminalGroups[i].Order = i
+		}
+		return nil
+	})
+}
+
+func (s *Service) RemoveTerminalGroup(ctx context.Context, id string, force bool) error {
+	state := s.Store.Snapshot()
+	found := false
+	for _, group := range state.TerminalGroups {
+		if group.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("terminal group not found: %s", id)
+	}
+	for _, session := range state.Sessions {
+		if session.TerminalGroupID == id && !force {
+			return errors.New("terminal group has sessions; use --force")
+		}
+	}
+	if force {
+		s.removeTerminalGroupRuntimes(ctx, state, id)
+	}
+	return s.Store.Update(func(value *api.State) error {
+		value.TerminalGroups = filter(value.TerminalGroups, func(group api.TerminalGroup) bool {
+			return group.ID != id
+		})
+		value.Sessions = filter(value.Sessions, func(session api.Session) bool {
+			return session.TerminalGroupID != id
+		})
+		for index := range value.TerminalGroups {
+			value.TerminalGroups[index].Order = index
+		}
+		return nil
+	})
+}
+
+func (s *Service) ensureTerminalGroup() (api.TerminalGroup, error) {
+	state := s.Store.Snapshot()
+	if len(state.TerminalGroups) > 0 {
+		sortTerminalGroups(state.TerminalGroups)
+		return state.TerminalGroups[0], nil
+	}
+	var group api.TerminalGroup
+	err := s.Store.Update(func(state *api.State) error {
+		if len(state.TerminalGroups) == 0 {
+			group = api.TerminalGroup{
+				ID:        store.NewID(),
+				Name:      "Inbox",
+				Order:     0,
+				CreatedAt: time.Now().UTC(),
+			}
+			state.TerminalGroups = append(state.TerminalGroups, group)
+		} else {
+			sortTerminalGroups(state.TerminalGroups)
+			group = state.TerminalGroups[0]
+		}
+		return nil
+	})
+	return group, err
 }
 
 func (s *Service) RemoveProject(id string, force bool) error {
@@ -1052,16 +1222,57 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
+	return s.createSession(ctx, workspaceID, "", command, kind, title, runtimeKind)
+}
+
+func (s *Service) CreateGroupSession(ctx context.Context, groupID, command, kind, title, runtimeKind string) (api.Session, error) {
+	return s.createSession(ctx, "", groupID, command, kind, title, runtimeKind)
+}
+
+// CreateDefaultGroupSession creates a standalone shell in the first ordered
+// Group, recreating Inbox when a Host has no Groups left.
+func (s *Service) CreateDefaultGroupSession(ctx context.Context, command, kind, title, runtimeKind string) (api.Session, error) {
+	group, err := s.ensureTerminalGroup()
+	if err != nil {
+		return api.Session{}, err
+	}
+	return s.CreateGroupSession(ctx, group.ID, command, kind, title, runtimeKind)
+}
+
+func (s *Service) createSession(ctx context.Context, workspaceID, groupID, command, kind, title, runtimeKind string) (api.Session, error) {
+	if workspaceID == "" && groupID == "" {
+		return api.Session{}, errors.New("workspace or terminal group is required")
+	}
+	if workspaceID != "" && groupID != "" {
+		return api.Session{}, errors.New("workspace and terminal group are mutually exclusive")
+	}
 	state := s.Store.Snapshot()
 	var workspace *api.Workspace
-	for i := range state.Workspaces {
-		if state.Workspaces[i].ID == workspaceID {
-			workspace = &state.Workspaces[i]
-			break
+	var group *api.TerminalGroup
+	if workspaceID != "" {
+		for i := range state.Workspaces {
+			if state.Workspaces[i].ID == workspaceID {
+				workspace = &state.Workspaces[i]
+				break
+			}
+		}
+		if workspace == nil {
+			return api.Session{}, fmt.Errorf("workspace not found: %s", workspaceID)
+		}
+	} else {
+		for i := range state.TerminalGroups {
+			if state.TerminalGroups[i].ID == groupID {
+				group = &state.TerminalGroups[i]
+				break
+			}
+		}
+		if group == nil {
+			return api.Session{}, fmt.Errorf("terminal group not found: %s", groupID)
 		}
 	}
-	if workspace == nil {
-		return api.Session{}, fmt.Errorf("workspace not found: %s", workspaceID)
+	workingDirectory, err := sessionWorkingDirectory(state, workspaceID, groupID)
+	if err != nil {
+		return api.Session{}, err
 	}
 	id := store.NewID()
 	runtimeName := "warren_" + strings.ReplaceAll(id, "-", "")
@@ -1075,7 +1286,12 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 		title = map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
 	}
 	if title == "" {
-		title = strings.Fields(command)[0]
+		fields := strings.Fields(command)
+		if len(fields) > 0 {
+			title = fields[0]
+		} else {
+			title = "Shell"
+		}
 	}
 	sessionKind := runtimeKind
 	if sessionKind == "" {
@@ -1102,10 +1318,26 @@ func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind,
 	// inside a plain shell is bound to the same Warren session by its own
 	// lifecycle hooks.
 	env := agent.BindEnvironment(id, kind)
-	if err := adapter.Create(ctx, runtimeName, workspace.Path, command, env); err != nil {
+	if err := adapter.Create(ctx, runtimeName, workingDirectory, command, env); err != nil {
 		return api.Session{}, err
 	}
-	session := api.Session{ID: id, WorkspaceID: workspaceID, Title: title, CustomTitle: customTitle, Kind: kind, Command: command, Runtime: runtimeName, RuntimeKind: sessionKind, Lifecycle: "running", CreatedAt: time.Now().UTC()}
+	session := api.Session{
+		ID:              id,
+		WorkspaceID:     workspaceID,
+		TerminalGroupID: groupID,
+		Scope:           api.SessionScopeWorkspace,
+		Title:           title,
+		CustomTitle:     customTitle,
+		Kind:            kind,
+		Command:         command,
+		Runtime:         runtimeName,
+		RuntimeKind:     sessionKind,
+		Lifecycle:       "running",
+		CreatedAt:       time.Now().UTC(),
+	}
+	if groupID != "" {
+		session.Scope = api.SessionScopeTerminalGroup
+	}
 	if injectedClaude {
 		session.AgentSessionID = id
 	}
@@ -1233,6 +1465,50 @@ func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, w
 	return nil
 }
 
+func (s *Service) removeTerminalGroupRuntimes(ctx context.Context, state api.State, groupID string) {
+	for _, session := range state.Sessions {
+		if session.TerminalGroupID != groupID || session.Lifecycle != "running" {
+			continue
+		}
+		_ = s.runtimeFor(session).Kill(ctx, session.Runtime)
+		s.stopOutput(session.ID, true)
+		if output := s.outputAdapterFor(session); output != nil {
+			output.RemoveSpool(session.Runtime)
+		}
+		agent.RemoveBinding(session.ID)
+	}
+}
+
+func sessionWorkingDirectory(state api.State, workspaceID, groupID string) (string, error) {
+	if groupID != "" {
+		for _, group := range state.TerminalGroups {
+			if group.ID != groupID {
+				continue
+			}
+			home := group.Home
+			if home == "" {
+				var err error
+				home, err = os.UserHomeDir()
+				if err != nil {
+					return "", fmt.Errorf("resolve host home directory: %w", err)
+				}
+			}
+			info, err := os.Stat(home)
+			if err != nil || !info.IsDir() {
+				return "", fmt.Errorf("terminal group home is not a directory: %s", home)
+			}
+			return home, nil
+		}
+		return "", fmt.Errorf("terminal group not found: %s", groupID)
+	}
+	for _, workspace := range state.Workspaces {
+		if workspace.ID == workspaceID {
+			return workspace.Path, nil
+		}
+	}
+	return "", fmt.Errorf("workspace not found: %s", workspaceID)
+}
+
 // ensureOutput adopts a running Session: idempotently installs the output
 // pipe, opens the spool watcher from the persisted offset, and creates the
 // output ring. Repeating attach/adopt never stacks another pipe.
@@ -1316,14 +1592,12 @@ func (s *Service) ensureAgent(ctx context.Context, session api.Session) (*agentS
 		return nil, nil
 	}
 
-	workspacePath := ""
-	for _, workspace := range s.Store.Snapshot().Workspaces {
-		if workspace.ID == session.WorkspaceID {
-			workspacePath = workspace.Path
-			break
-		}
-	}
-	if workspacePath == "" {
+	workspacePath, pathErr := sessionWorkingDirectory(
+		s.Store.Snapshot(),
+		session.WorkspaceID,
+		session.TerminalGroupID,
+	)
+	if pathErr != nil {
 		s.stopAgent(session.ID)
 		return nil, nil
 	}
@@ -2514,6 +2788,22 @@ func expandHome(path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+func normalizeTerminalGroupHome(home string) (string, error) {
+	home = strings.TrimSpace(home)
+	if home == "" {
+		return "", nil
+	}
+	resolved, err := filepath.Abs(expandHome(home))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("terminal group home is not a directory: %s", resolved)
+	}
+	return resolved, nil
 }
 func samePath(left, right string) bool {
 	a, _ := filepath.Abs(left)

@@ -84,7 +84,7 @@ func run(arguments []string) error {
 		return endpointCommand(args[1:])
 	case "ssh":
 		return sshCommand(args[1:])
-	case "project", "workspace", "worktree", "session":
+	case "project", "workspace", "worktree", "terminal-group", "group", "session":
 		return resourceCommand(args)
 	case "headless":
 		return headlessCommand(args[1:])
@@ -187,6 +187,9 @@ func canonicalResource(name string) string {
 	if name == "worktree" {
 		return "workspace"
 	}
+	if name == "group" {
+		return "terminal-group"
+	}
 	return name
 }
 
@@ -202,6 +205,10 @@ var resourceActions = map[string]map[string]bool{
 	"workspace": {
 		"list": true, "create": true, "add": true, "remove": true, "delete": true,
 		"rename": true, "pin": true, "move": true,
+	},
+	"terminal-group": {
+		"list": true, "create": true, "add": true, "remove": true, "delete": true,
+		"rename": true, "home": true, "move": true,
 	},
 	"session": {
 		"list": true, "create": true, "add": true, "remove": true, "delete": true,
@@ -224,8 +231,8 @@ func requiredPositionals(resource, action string) []string {
 		return []string{"PROJECT_ID"}
 	case "workspace.remove", "workspace.delete", "workspace.rename", "workspace.pin", "workspace.move":
 		return []string{"WORKSPACE_ID"}
-	case "session.create", "session.add":
-		return []string{"WORKSPACE_ID"}
+	case "terminal-group.remove", "terminal-group.delete", "terminal-group.rename", "terminal-group.home", "terminal-group.move":
+		return []string{"GROUP_ID"}
 	case "session.remove", "session.delete", "session.kill", "session.rename", "session.pin",
 		"session.send", "session.read", "session.attach":
 		return []string{"SESSION_ID"}
@@ -245,7 +252,7 @@ func missingPositional(params map[string]any, labels []string) string {
 
 func missingRequiredFlag(resource, action string, params map[string]any) string {
 	switch resource + "." + action {
-	case "project.rename", "workspace.rename":
+	case "project.rename", "workspace.rename", "terminal-group.rename":
 		if stringValue(params, "name") == "" {
 			return "--name NAME"
 		}
@@ -256,6 +263,10 @@ func missingRequiredFlag(resource, action string, params map[string]any) string 
 	case "workspace.create", "workspace.add":
 		if stringValue(params, "branch") == "" {
 			return "--branch BRANCH"
+		}
+	case "terminal-group.home":
+		if stringValue(params, "path") == "" {
+			return "--path PATH"
 		}
 	}
 	return ""
@@ -305,6 +316,9 @@ func resourceCommand(args []string) error {
 	if label := missingPositional(params, requiredPositionals(resource, action)); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
 	}
+	if resource == "session" && (action == "create" || action == "add") && len(positionals(params)) > 1 {
+		return newUsageError("session create accepts at most one context ID", actionUsageText(commandName, action))
+	}
 	if label := missingRequiredFlag(resource, action, params); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
 	}
@@ -326,6 +340,8 @@ func resourceCommand(args []string) error {
 			return printValue(projectRows(state))
 		case "workspace":
 			return printValue(workspaceRows(state))
+		case "terminal-group":
+			return printValue(state.TerminalGroups)
 		case "session":
 			return printValue(sessionRows(state, boolValue(params, "all"), boolValue(params, "ended")))
 		}
@@ -368,6 +384,21 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 	case "workspace.move":
 		method = "workspace.move"
+		result = &map[string]any{}
+	case "terminal-group.create", "terminal-group.add":
+		method = "terminal-group.create"
+		result = &api.TerminalGroup{}
+	case "terminal-group.remove", "terminal-group.delete":
+		method = "terminal-group.remove"
+		result = &map[string]any{}
+	case "terminal-group.rename":
+		method = "terminal-group.rename"
+		result = &map[string]any{}
+	case "terminal-group.home":
+		method = "terminal-group.home"
+		result = &map[string]any{}
+	case "terminal-group.move":
+		method = "terminal-group.move"
 		result = &map[string]any{}
 	case "session.create", "session.add":
 		method = "session.create"
@@ -688,11 +719,12 @@ func durationValue(value map[string]any, key string, fallback time.Duration) tim
 // JSON payload backward compatible while adding the resolved names/paths.
 type SessionRow struct {
 	api.Session
-	ProjectID     string `json:"projectId,omitempty"`
-	ProjectName   string `json:"projectName,omitempty"`
-	WorkspaceName string `json:"workspaceName,omitempty"`
-	Branch        string `json:"branch,omitempty"`
-	Path          string `json:"path,omitempty"`
+	ProjectID         string `json:"projectId,omitempty"`
+	ProjectName       string `json:"projectName,omitempty"`
+	WorkspaceName     string `json:"workspaceName,omitempty"`
+	TerminalGroupName string `json:"terminalGroupName,omitempty"`
+	Branch            string `json:"branch,omitempty"`
+	Path              string `json:"path,omitempty"`
 }
 
 func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
@@ -720,6 +752,15 @@ func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
 			if project, ok := projects[workspace.ProjectID]; ok {
 				row.ProjectID = project.ID
 				row.ProjectName = project.Name
+			}
+		}
+		for _, group := range state.TerminalGroups {
+			if group.ID == session.TerminalGroupID {
+				row.TerminalGroupName = group.Name
+				if row.Path == "" {
+					row.Path = group.Home
+				}
+				break
 			}
 		}
 		rows = append(rows, row)
@@ -798,12 +839,18 @@ func printValue(value any) error {
 			rows = append(rows, workspaceRowCells(item))
 		}
 		printTable([]string{"ID", "PROJECT", "NAME", "BRANCH", "PATH", "KIND", "SESSIONS", "PINNED", "CREATED"}, rows...)
+	case []api.TerminalGroup:
+		rows := make([][]string, 0, len(items))
+		for _, item := range items {
+			rows = append(rows, terminalGroupRowCells(item))
+		}
+		printTable([]string{"ID", "NAME", "HOME", "ORDER", "CREATED"}, rows...)
 	case []SessionRow:
 		rows := make([][]string, 0, len(items))
 		for _, item := range items {
 			rows = append(rows, sessionRowCells(item))
 		}
-		printTable([]string{"ID", "PROJECT", "WORKSPACE", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "ACTIVITY", "ENDED AT", "PINNED", "CREATED"}, rows...)
+		printTable([]string{"ID", "PROJECT", "WORKSPACE", "GROUP", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "ACTIVITY", "ENDED AT", "PINNED", "CREATED"}, rows...)
 	case api.WorkspaceCreateResult:
 		printKVTable(workspaceCreateResultPairs(items))
 	case *api.WorkspaceCreateResult:
@@ -816,6 +863,10 @@ func printValue(value any) error {
 		printKVTable(projectPairs(items))
 	case *api.Project:
 		printKVTable(projectPairs(*items))
+	case api.TerminalGroup:
+		printKVTable(terminalGroupPairs(items))
+	case *api.TerminalGroup:
+		printKVTable(terminalGroupPairs(*items))
 	case api.Session:
 		printKVTable(sessionPairs(items))
 	case *api.Session:
@@ -872,11 +923,22 @@ func workspaceRowCells(item WorkspaceRow) []string {
 	}
 }
 
+func terminalGroupRowCells(item api.TerminalGroup) []string {
+	return []string{
+		item.ID,
+		item.Name,
+		displayValue(item.Home),
+		strconv.Itoa(item.Order),
+		formatTime(item.CreatedAt),
+	}
+}
+
 func sessionRowCells(item SessionRow) []string {
 	return []string{
 		item.ID,
 		displayValue(item.ProjectName),
 		displayValue(item.WorkspaceName),
+		displayValue(item.TerminalGroupName),
 		displayValue(item.Branch),
 		item.Title,
 		item.Kind,
@@ -914,10 +976,22 @@ func projectPairs(value api.Project) [][2]string {
 	}
 }
 
+func terminalGroupPairs(value api.TerminalGroup) [][2]string {
+	return [][2]string{
+		{"ID", value.ID},
+		{"NAME", value.Name},
+		{"HOME", displayValue(value.Home)},
+		{"ORDER", strconv.Itoa(value.Order)},
+		{"CREATED AT", formatTime(value.CreatedAt)},
+	}
+}
+
 func sessionPairs(value api.Session) [][2]string {
 	return [][2]string{
 		{"ID", value.ID},
+		{"SCOPE", value.ScopeKind()},
 		{"WORKSPACE", value.WorkspaceID},
+		{"TERMINAL GROUP", value.TerminalGroupID},
 		{"TITLE", value.Title},
 		{"KIND", value.Kind},
 		{"COMMAND", displayValue(value.Command)},
@@ -1065,6 +1139,7 @@ Commands:
   endpoint list|add|use|remove|current
   project list|add|remove|rename|pin|move
   workspace list|create|remove|rename|pin|move  (alias: worktree)
+  terminal-group list|create|remove|rename|home|move  (alias: group)
   session list|create|delete|rename|pin|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
@@ -1087,7 +1162,12 @@ Examples:
   warren workspace remove WORKSPACE_ID --force
     --keep-worktree keeps the local Git worktree on disk
   warren workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
+  warren terminal-group create --name NAME [--home PATH]
+  warren terminal-group move GROUP_ID --before OTHER_GROUP_ID
+  warren terminal-group remove GROUP_ID --force
   warren session create WORKSPACE_ID --kind codex --command codex
+  warren session create --group GROUP_ID
+  warren session create
   warren session attach SESSION_ID
 `
 }
@@ -1099,6 +1179,8 @@ func resourceUsageText(commandName string) string {
 		aliasNote = "\nworktree is an alias for workspace; use either name.\n"
 	case "workspace":
 		aliasNote = "\nworkspace has alias: worktree.\n"
+	case "group":
+		aliasNote = "\ngroup is an alias for terminal-group; use either name.\n"
 	}
 	switch canonicalResource(commandName) {
 	case "project":
@@ -1119,10 +1201,19 @@ func resourceUsageText(commandName string) string {
   warren %s pin WORKSPACE_ID --pinned BOOL
   warren %s move WORKSPACE_ID [--before OTHER_WORKSPACE_ID]
 %s`, commandName, commandName, commandName, commandName, commandName, commandName, aliasNote)
+	case "terminal-group":
+		return fmt.Sprintf(`Usage:
+  warren %s list
+  warren %s create [--name NAME] [--home PATH]
+  warren %s remove GROUP_ID [--force]
+  warren %s rename GROUP_ID --name NAME
+  warren %s home GROUP_ID --path PATH
+  warren %s move GROUP_ID [--before OTHER_GROUP_ID]
+%s`, commandName, commandName, commandName, commandName, commandName, commandName, aliasNote)
 	case "session":
 		return `Usage:
   warren session list [--all | --ended]
-  warren session create WORKSPACE_ID [--kind KIND] [--command CMD] [--title TITLE]
+  warren session create [WORKSPACE_ID] [--group GROUP_ID] [--kind KIND] [--command CMD] [--title TITLE]
   warren session remove SESSION_ID [--force]
   warren session rename SESSION_ID --title TITLE
   warren session pin SESSION_ID --pinned BOOL
@@ -1162,8 +1253,18 @@ func actionUsageText(commandName, action string) string {
 		return fmt.Sprintf("Usage:\n  warren %s pin WORKSPACE_ID --pinned BOOL\n", name)
 	case "workspace.move":
 		return fmt.Sprintf("Usage:\n  warren %s move WORKSPACE_ID [--before OTHER_WORKSPACE_ID]\n", name)
+	case "terminal-group.create", "terminal-group.add":
+		return fmt.Sprintf("Usage:\n  warren %s create [--name NAME] [--home PATH]\n", name)
+	case "terminal-group.remove", "terminal-group.delete":
+		return fmt.Sprintf("Usage:\n  warren %s remove GROUP_ID [--force]\n", name)
+	case "terminal-group.rename":
+		return fmt.Sprintf("Usage:\n  warren %s rename GROUP_ID --name NAME\n", name)
+	case "terminal-group.home":
+		return fmt.Sprintf("Usage:\n  warren %s home GROUP_ID --path PATH\n", name)
+	case "terminal-group.move":
+		return fmt.Sprintf("Usage:\n  warren %s move GROUP_ID [--before OTHER_GROUP_ID]\n", name)
 	case "session.create", "session.add":
-		return fmt.Sprintf("Usage:\n  warren %s create WORKSPACE_ID [--kind KIND] [--command CMD] [--title TITLE]\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s create [WORKSPACE_ID] [--group GROUP_ID] [--kind KIND] [--command CMD] [--title TITLE]\n", name)
 	case "session.remove", "session.delete", "session.kill":
 		return fmt.Sprintf("Usage:\n  warren %s remove SESSION_ID [--force]\n", name)
 	case "session.rename":

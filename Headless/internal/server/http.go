@@ -816,15 +816,62 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"moved": true})
+	case "terminal-group.create":
+		value, err := p.server.Service.CreateTerminalGroup(stringParam(params, "name"), stringParam(params, "home"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
+	case "terminal-group.remove":
+		if err := p.server.Service.RemoveTerminalGroup(ctx, stringParam(params, "id"), boolParam(params, "force")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"removed": true})
+	case "terminal-group.rename":
+		if err := p.server.Service.RenameTerminalGroup(stringParam(params, "id"), stringParam(params, "name")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"renamed": true})
+	case "terminal-group.home":
+		if err := p.server.Service.SetTerminalGroupHome(stringParam(params, "id"), stringParam(params, "path")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"updated": true})
+	case "terminal-group.move":
+		if err := p.server.Service.MoveTerminalGroup(stringParam(params, "id"), stringParam(params, "before")); err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]bool{"moved": true})
 	case "session.create":
-		value, err := p.server.Service.CreateSession(
-			ctx,
-			stringParam(params, "workspace"),
-			stringParam(params, "command"),
-			stringParam(params, "kind"),
-			stringParam(params, "title"),
-			stringParam(params, "runtimeKind"),
-		)
+		var value api.Session
+		var err error
+		if groupID := stringParam(params, "group"); groupID != "" {
+			value, err = p.server.Service.CreateGroupSession(
+				ctx,
+				groupID,
+				stringParam(params, "command"),
+				stringParam(params, "kind"),
+				stringParam(params, "title"),
+				stringParam(params, "runtimeKind"),
+			)
+		} else if workspaceID := stringParam(params, "workspace"); workspaceID != "" {
+			value, err = p.server.Service.CreateSession(
+				ctx,
+				workspaceID,
+				stringParam(params, "command"),
+				stringParam(params, "kind"),
+				stringParam(params, "title"),
+				stringParam(params, "runtimeKind"),
+			)
+		} else {
+			value, err = p.server.Service.CreateDefaultGroupSession(
+				ctx,
+				stringParam(params, "command"),
+				stringParam(params, "kind"),
+				stringParam(params, "title"),
+				stringParam(params, "runtimeKind"),
+			)
+		}
 		if err != nil {
 			return err
 		}

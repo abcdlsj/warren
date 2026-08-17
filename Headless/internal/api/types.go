@@ -42,9 +42,28 @@ type WorkspaceCreateResult struct {
 	GitWorktree bool `json:"gitWorktree"`
 }
 
+type TerminalGroup struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Home      string    `json:"home,omitempty"`
+	Order     int       `json:"order,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+const (
+	SessionScopeWorkspace     = "workspace"
+	SessionScopeTerminalGroup = "terminalGroup"
+)
+
 type Session struct {
 	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace"`
+	WorkspaceID string `json:"workspace,omitempty"`
+	// TerminalGroupID is set for standalone shell Sessions. WorkspaceID and
+	// TerminalGroupID are mutually exclusive ownership fields.
+	TerminalGroupID string `json:"terminalGroup,omitempty"`
+	// Scope is explicit for new clients and derived from the ownership fields
+	// for legacy records that predate Terminal Groups.
+	Scope       string `json:"scope,omitempty"`
 	Title       string `json:"title"`
 	CustomTitle string `json:"customTitle,omitempty"`
 	Kind        string `json:"kind"`
@@ -70,6 +89,16 @@ type Session struct {
 	AgentActivity AgentActivity `json:"activity,omitempty"`
 	CreatedAt     time.Time     `json:"createdAt"`
 	EndedAt       *time.Time    `json:"endedAt,omitempty"`
+}
+
+func (session Session) ScopeKind() string {
+	if session.Scope != "" {
+		return session.Scope
+	}
+	if session.TerminalGroupID != "" {
+		return SessionScopeTerminalGroup
+	}
+	return SessionScopeWorkspace
 }
 
 // AgentActivity is the live state of an agent conversation as projected from
@@ -154,11 +183,12 @@ type AgentHistoryResult struct {
 }
 
 type State struct {
-	Schema     int         `json:"schema"`
-	Host       Host        `json:"host"`
-	Projects   []Project   `json:"projects"`
-	Workspaces []Workspace `json:"workspaces"`
-	Sessions   []Session   `json:"sessions"`
+	Schema         int             `json:"schema"`
+	Host           Host            `json:"host"`
+	Projects       []Project       `json:"projects"`
+	Workspaces     []Workspace     `json:"workspaces"`
+	TerminalGroups []TerminalGroup `json:"terminalGroups"`
+	Sessions       []Session       `json:"sessions"`
 }
 
 type Envelope struct {

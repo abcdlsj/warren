@@ -57,6 +57,43 @@ func TestSessionRowsJoinsWorkspaceAndProject(t *testing.T) {
 	}
 }
 
+func TestTerminalGroupAliasAndSessionCreateParams(t *testing.T) {
+	if got := canonicalResource("group"); got != "terminal-group" {
+		t.Fatalf("group alias = %q, want terminal-group", got)
+	}
+	if !knownResourceAction("terminal-group", "home") {
+		t.Fatal("terminal-group home action is not registered")
+	}
+	params := normalizedParams(parseFlags([]string{"--group", "group-1", "--kind", "shell"}), "session", "create")
+	if params["group"] != "group-1" {
+		t.Fatalf("normalized group = %#v", params["group"])
+	}
+	if _, ok := params["workspace"]; ok {
+		t.Fatalf("group session unexpectedly has workspace: %#v", params)
+	}
+	defaultParams := normalizedParams(parseFlags(nil), "session", "create")
+	if _, ok := defaultParams["workspace"]; ok {
+		t.Fatalf("default session unexpectedly has workspace: %#v", defaultParams)
+	}
+}
+
+func TestSessionRowsJoinsTerminalGroup(t *testing.T) {
+	state := api.State{
+		TerminalGroups: []api.TerminalGroup{{ID: "group-1", Name: "Inbox", Home: "/home/test"}},
+		Sessions: []api.Session{{
+			ID: "session-1", TerminalGroupID: "group-1", Scope: api.SessionScopeTerminalGroup,
+			Title: "Shell", Kind: "shell", Lifecycle: "running",
+		}},
+	}
+	rows := sessionRows(state, false, false)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].TerminalGroupName != "Inbox" || rows[0].Path != "/home/test" {
+		t.Fatalf("group context = %#v", rows[0])
+	}
+}
+
 func TestParseFlagsBareBooleanDoesNotConsumePositional(t *testing.T) {
 	params := parseFlags([]string{"session-1", "--raw", "hello world"})
 	if !boolValue(params, "raw") {
