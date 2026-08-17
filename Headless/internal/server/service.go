@@ -1210,7 +1210,13 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		if _, err := terminateProcessesUnder(workspace.Path); err != nil {
 			return fmt.Errorf("terminate worktree processes: %w", err)
 		}
-		if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
+		if _, err := os.Stat(workspace.Path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("stat worktree path: %w", err)
+			}
+			// The worktree was already removed outside Warren. Converge on
+			// state cleanup instead of failing on git's "not a worktree".
+		} else if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
 			return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
