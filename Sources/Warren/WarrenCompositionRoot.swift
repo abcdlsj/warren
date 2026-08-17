@@ -25,7 +25,7 @@ struct WarrenCompositionRoot: View {
 
     @MainActor
     init() {
-        let surfaceManager = TerminalSurfaceManager(warmLimit: 2)
+        let surfaceManager = TerminalSurfaceManager()
         _surfaceManager = State(initialValue: surfaceManager)
         _remoteModel = State(initialValue: WarrenRemoteApplicationModel(
             surfaceManager: surfaceManager

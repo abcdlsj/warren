@@ -164,8 +164,9 @@ cold -> warming -> active -> warm -> active
 - `closing`: rejects new work and disposes native resources exactly once.
 
 The active surface is never evicted. Warm surfaces use an LRU budget defined
-by both count and estimated memory. The initial policy is one active surface
-plus two warm surfaces. The budget may become configurable after measurement.
+by both count and estimated memory. The initial policy is one active surface,
+up to eight warm surfaces, and a 1 GiB estimated warm-memory ceiling. The
+budget may become configurable after measurement.
 
 Promotion and demotion are serialized. Only the active session may claim
 focus, send input, or resize the runtime.
@@ -339,8 +340,8 @@ The desktop now uses this design.
   from Swift Observation.
 - `TerminalHostRepresentable` owns one stable AppKit container. Its update
   method submits intent only; reconciliation runs on a later main-loop turn.
-- The manager retains one active surface and up to two warm surfaces. It also
-  enforces a 256 MiB estimated warm-surface budget using triple-buffered BGRA
+- The manager retains one active surface and up to eight warm surfaces. It also
+  enforces a 1 GiB estimated warm-surface budget using triple-buffered BGRA
   viewport cost.
 - Warm views are occluded, unfocused, detached from their window, and kept by
   the manager registry. LRU eviction disposes their renderer resources.

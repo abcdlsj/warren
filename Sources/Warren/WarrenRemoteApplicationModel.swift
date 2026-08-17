@@ -615,7 +615,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
     @ObservationIgnored private(set) var projectionPublicationCount: UInt64 = 0
 
-    init(surfaceManager: TerminalSurfaceManager = TerminalSurfaceManager(warmLimit: 2)) {
+    init(surfaceManager: TerminalSurfaceManager = TerminalSurfaceManager()) {
         self.surfaceManager = surfaceManager
         self.navigation = WarrenDesktopNavigationPersistence.restore()
             ?? WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)

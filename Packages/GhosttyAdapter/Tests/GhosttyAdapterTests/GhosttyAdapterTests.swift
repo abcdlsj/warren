@@ -6,6 +6,13 @@ import GhosttyTerminal
 @testable import GhosttyAdapter
 
 final class GhosttyAdapterTests: XCTestCase {
+    func testDefaultRetentionBudgetSupportsNormalMultiAgentWorkflows() {
+        let policy = TerminalSurfaceRetentionPolicy()
+
+        XCTAssertEqual(policy.warmLimit, 8)
+        XCTAssertEqual(policy.warmByteLimit, 1024 * 1024 * 1024)
+    }
+
     func testRetentionPolicyKeepsOneActiveAndTwoMostRecentWarmSurfaces() {
         let ids = (0..<4).map { _ in TerminalSessionID(rawValue: UUID()) }
         var policy = TerminalSurfaceRetentionPolicy(warmLimit: 2)

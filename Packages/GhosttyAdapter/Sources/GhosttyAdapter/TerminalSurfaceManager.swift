@@ -9,6 +9,9 @@ public enum TerminalSurfaceResidency: String, Equatable, Sendable {
 }
 
 public struct TerminalSurfaceRetentionPolicy: Equatable, Sendable {
+    public static let defaultWarmLimit = 8
+    public static let defaultWarmByteLimit = 1024 * 1024 * 1024
+
     public let warmLimit: Int
     public let warmByteLimit: Int
     public private(set) var activeSessionID: TerminalSessionID?
@@ -16,8 +19,8 @@ public struct TerminalSurfaceRetentionPolicy: Equatable, Sendable {
     private var estimatedBytesBySessionID: [TerminalSessionID: Int] = [:]
 
     public init(
-        warmLimit: Int = 2,
-        warmByteLimit: Int = 256 * 1024 * 1024
+        warmLimit: Int = TerminalSurfaceRetentionPolicy.defaultWarmLimit,
+        warmByteLimit: Int = TerminalSurfaceRetentionPolicy.defaultWarmByteLimit
     ) {
         self.warmLimit = max(0, warmLimit)
         self.warmByteLimit = max(0, warmByteLimit)
@@ -148,8 +151,8 @@ public final class TerminalSurfaceManager {
     private var onBlurred: (TerminalSessionID) -> Void = { _ in }
 
     public init(
-        warmLimit: Int = 2,
-        warmByteLimit: Int = 256 * 1024 * 1024
+        warmLimit: Int = TerminalSurfaceRetentionPolicy.defaultWarmLimit,
+        warmByteLimit: Int = TerminalSurfaceRetentionPolicy.defaultWarmByteLimit
     ) {
         policy = TerminalSurfaceRetentionPolicy(
             warmLimit: warmLimit,
