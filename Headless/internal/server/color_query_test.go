@@ -1,0 +1,45 @@
+package server
+
+import (
+	"testing"
+
+	"github.com/abcdlsj/ghostline"
+)
+
+func TestWarrenColorQuery(t *testing.T) {
+	tests := []struct {
+		name string
+		kind ghostline.ColorQueryKind
+		want string
+	}{
+		{name: "foreground", kind: ghostline.ColorQueryForeground, want: warrenTerminalForeground},
+		{name: "background", kind: ghostline.ColorQueryBackground, want: warrenTerminalBackground},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := WarrenColorQuery(test.kind)
+			if !ok || got != test.want {
+				t.Fatalf("WarrenColorQuery(%d) = %q, %t; want %q, true", test.kind, got, ok, test.want)
+			}
+		})
+	}
+	if got, ok := WarrenColorQuery(0); ok || got != "" {
+		t.Fatalf("WarrenColorQuery(0) = %q, %t; want empty, false", got, ok)
+	}
+}
+
+func TestServiceQueryResponderUsesColorQuery(t *testing.T) {
+	service := &Service{
+		ColorQuery: func(kind ghostline.ColorQueryKind) (string, bool) {
+			if kind == ghostline.ColorQueryBackground {
+				return "#151110", true
+			}
+			return "", false
+		},
+	}
+	responder := service.newQueryResponder()
+	replies := responder.Feed([]byte("\x1b]11;?\x1b\\"))
+	if len(replies) != 1 || string(replies[0]) != "\x1b]11;rgb:1515/1111/1010\x1b\\" {
+		t.Fatalf("service responder replies = %q; want Warren background reply", replies)
+	}
+}

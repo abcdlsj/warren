@@ -72,7 +72,10 @@ type Service struct {
 	SettingsPath string
 	// Logger receives lifecycle warnings. A nil logger falls back to slog's
 	// process-wide default so tests and embedders do not need to configure one.
-	Logger       *slog.Logger
+	Logger *slog.Logger
+	// ColorQuery supplies terminal foreground and background colors for
+	// capability queries answered while no client is attached.
+	ColorQuery   ghostline.ColorQueryCallback
 	WorktreeRoot string
 	// AgentFinder locates Codex/Claude transcript files. When nil, agent
 	// projection is disabled and sessions behave exactly as before.
@@ -208,6 +211,10 @@ func (s *Service) runtimeForKind(kind string) Runtime {
 func (s *Service) outputAdapterFor(session api.Session) OutputRuntime {
 	adapter, _ := s.runtimeFor(session).(OutputRuntime)
 	return adapter
+}
+
+func (s *Service) newQueryResponder() *ghostline.QueryResponder {
+	return ghostline.NewQueryResponderWithColorQuery(s.ColorQuery)
 }
 
 func (s *Service) lazyInit() {
@@ -1563,7 +1570,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapterFor(session)
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, runtimeKind: s.runtimeKindFor(session), ring: ring, responder: ghostline.NewQueryResponder()}
+		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, runtimeKind: s.runtimeKindFor(session), ring: ring, responder: s.newQueryResponder()}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -1586,7 +1593,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 		sessionID:         session.ID,
 		runtimeName:       session.Runtime,
 		runtimeKind:       s.runtimeKindFor(session),
-		responder:         ghostline.NewQueryResponder(),
+		responder:         s.newQueryResponder(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}

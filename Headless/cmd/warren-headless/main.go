@@ -193,6 +193,7 @@ func main() {
 		Runtimes:        runtimes,
 		DefaultRuntime:  defaultKind,
 		Logger:          logger,
+		ColorQuery:      server.WarrenColorQuery,
 		ProbeForeground: *ghostlineProbeForeground,
 		Settings:        loadedSettings,
 		SettingsPath:    *settingsFile,
