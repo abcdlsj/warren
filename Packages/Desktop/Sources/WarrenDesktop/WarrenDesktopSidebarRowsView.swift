@@ -24,8 +24,6 @@ struct WarrenDesktopSidebarRows: View {
     @State private var pendingRenameProject: Project?
     @State private var projectName = ""
     @State private var dragSession = WarrenDesktopSidebarDragSession()
-    @State private var dragRestoreExpansions: Set<ProjectID> = []
-    @State private var isProjectDragActive = false
     @State private var dragSourceRowID: String?
     @State private var isDragMeasurementEnabled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -84,8 +82,6 @@ struct WarrenDesktopSidebarRows: View {
                         inProject: projectID
                     )
                 },
-                onProjectDragBegan: beginProjectDrag,
-                onProjectDragEnded: endProjectDrag,
                 onDragSourceChanged: { id in
                     dragSourceRowID = id
                 },
@@ -326,28 +322,6 @@ struct WarrenDesktopSidebarRows: View {
 
     private func workspaceActivity(_ workspaceID: WorkspaceID) -> AgentActivityState? {
         workspaceActivities[workspaceID]
-    }
-
-    /// While a project is being reordered, collapse every expanded project so
-    /// the whole project list is visible; restore the previous expansion set
-    /// when the drag session ends.
-    private func beginProjectDrag() {
-        guard !isCollapsed, !isProjectDragActive else { return }
-        isProjectDragActive = true
-        dragRestoreExpansions = tree.expandedProjectIDs
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-            tree.expandedProjectIDs = []
-        }
-    }
-
-    private func endProjectDrag() {
-        guard isProjectDragActive else { return }
-        isProjectDragActive = false
-        let restore = dragRestoreExpansions
-        dragRestoreExpansions = []
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-            tree.expandedProjectIDs = restore
-        }
     }
 
     private func dropProject(

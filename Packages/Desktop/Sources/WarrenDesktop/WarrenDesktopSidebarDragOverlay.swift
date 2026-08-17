@@ -41,6 +41,14 @@ struct WarrenSidebarRowDragFramesKey: PreferenceKey {
     }
 }
 
+enum WarrenSidebarDragGesture {
+    static let threshold: CGFloat = 5
+
+    static func hasExceededThreshold(from origin: CGPoint, to current: CGPoint) -> Bool {
+        hypot(current.x - origin.x, current.y - origin.y) >= threshold
+    }
+}
+
 /// Metadata for one sidebar row. Workspace rows carry their containing
 /// project so a drop can be validated without cross-view lookups.
 struct WarrenSidebarRowDragInfo: Equatable, Sendable {
@@ -114,8 +122,9 @@ final class WarrenDesktopSidebarDragSession {
 }
 
 /// A transparent AppKit surface covering the sidebar rows. It only intercepts
-/// a left mouse press while Command is held and the press lands on a row, then
-/// starts a native drag session. The session's own `movedTo`/`endedAt`
+/// a left mouse press while Command is held and the press lands on a row. A
+/// native drag starts only after the pointer crosses the movement threshold.
+/// The session's own `movedTo`/`endedAt`
 /// callbacks drive the drop highlight and resolve the final row, so the drag
 /// works even when AppKit cannot find a SwiftUI-backed drop destination.
 struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
@@ -123,8 +132,6 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
     let rows: [String: WarrenSidebarRowDragFrame]
     let onDropProject: (String, ProjectID?) -> Bool
     let onDropWorkspace: (String, WorkspaceID?, ProjectID?) -> Bool
-    let onProjectDragBegan: () -> Void
-    let onProjectDragEnded: () -> Void
     let onDragSourceChanged: (String?) -> Void
     let onMeasurementNeededChanged: (Bool) -> Void
 
@@ -133,8 +140,6 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         view.rows = rows
         view.onDropProject = onDropProject
         view.onDropWorkspace = onDropWorkspace
-        view.onProjectDragBegan = onProjectDragBegan
-        view.onProjectDragEnded = onProjectDragEnded
         view.onDragSourceChanged = onDragSourceChanged
         view.onMeasurementNeededChanged = onMeasurementNeededChanged
         return view
@@ -144,8 +149,6 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         nsView.rows = rows
         nsView.onDropProject = onDropProject
         nsView.onDropWorkspace = onDropWorkspace
-        nsView.onProjectDragBegan = onProjectDragBegan
-        nsView.onProjectDragEnded = onProjectDragEnded
         nsView.onDragSourceChanged = onDragSourceChanged
         nsView.onMeasurementNeededChanged = onMeasurementNeededChanged
     }
@@ -160,14 +163,14 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     var onDropProject: ((String, ProjectID?) -> Bool)?
     var onDropWorkspace: ((String, WorkspaceID?, ProjectID?) -> Bool)?
-    var onProjectDragBegan: (() -> Void)?
-    var onProjectDragEnded: (() -> Void)?
     var onDragSourceChanged: ((String?) -> Void)?
     var onMeasurementNeededChanged: ((Bool) -> Void)?
 
     private let session: WarrenDesktopSidebarDragSession
     private var highlightRect: NSRect?
     private var attachedToWindow = false
+    private var pendingRow: WarrenSidebarRowDragFrame?
+    private var mouseDownPoint: NSPoint?
     private var currentPayload: String?
     private var escapePressed = false
     private var escapeMonitor: Any?
@@ -195,14 +198,16 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
                 self?.onMeasurementNeededChanged?(isNeeded)
             }
         } else if window == nil, attachedToWindow {
+            finishDrag(suppressClick: false)
             attachedToWindow = false
             session.removeClient(id: clientID)
         }
     }
 
     deinit {
-        if attachedToWindow {
-            MainActor.assumeIsolated {
+        MainActor.assumeIsolated {
+            finishDrag(suppressClick: false)
+            if attachedToWindow {
                 session.removeClient(id: clientID)
             }
         }
@@ -211,13 +216,14 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     // MARK: - Event interception
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
+        let local = point
         guard bounds.contains(local) else { return nil }
         if session.isActive {
             return self
         }
-        guard session.commandHeld,
-              NSApp.currentEvent?.type == .leftMouseDown,
+        guard let event = NSApp.currentEvent,
+              event.type == .leftMouseDown,
+              event.modifierFlags.contains(.command),
               rowFrame(at: local) != nil
         else { return nil }
         return self
@@ -225,20 +231,42 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard session.commandHeld, let row = rowFrame(at: point) else {
+        guard event.modifierFlags.contains(.command),
+              let row = rowFrame(at: point) else {
             super.mouseDown(with: event)
             return
         }
         suppressClickUntil = nil
-        onDragSourceChanged?(row.info.id)
-        if row.info.isProjectRow {
-            onProjectDragBegan?()
+        pendingRow = row
+        mouseDownPoint = point
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let row = pendingRow, let origin = mouseDownPoint else {
+            super.mouseDragged(with: event)
+            return
         }
+        guard event.modifierFlags.contains(.command) else {
+            finishDrag(suppressClick: false)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        guard WarrenSidebarDragGesture.hasExceededThreshold(from: origin, to: point) else {
+            return
+        }
+        beginNativeDrag(row: row, event: event)
+    }
+
+    private func beginNativeDrag(row: WarrenSidebarRowDragFrame, event: NSEvent) {
+        let payload = Self.payload(for: row.info)
+        pendingRow = nil
+        mouseDownPoint = nil
+        onDragSourceChanged?(row.info.id)
         let item = NSDraggingItem(
-            pasteboardWriter: NSString(string: Self.payload(for: row.info))
+            pasteboardWriter: NSString(string: payload)
         )
         item.setDraggingFrame(row.frame, contents: snapshotRow(row.frame))
-        currentPayload = Self.payload(for: row.info)
+        currentPayload = payload
         escapePressed = false
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 {
@@ -251,6 +279,10 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if pendingRow != nil {
+            finishDrag(suppressClick: false)
+            return
+        }
         if let deadline = suppressClickUntil, Date() < deadline {
             // A drag that ends without a system drop target can re-deliver the
             // mouseUp as a plain click; swallow only that immediate event.
@@ -274,22 +306,12 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        if let escapeMonitor {
-            NSEvent.removeMonitor(escapeMonitor)
-            self.escapeMonitor = nil
-        }
         if !escapePressed, let payload = currentPayload, let window {
             let local = convert(window.convertPoint(fromScreen: screenPoint), from: nil)
             let zone = dropZone(at: local, payload: payload)
             _ = performDrop(payload, zone: zone)
         }
-        onDragSourceChanged?(nil)
-        onProjectDragEnded?()
-        suppressClickUntil = Date().addingTimeInterval(0.5)
-        escapePressed = false
-        currentPayload = nil
-        self.session.setActive(false)
-        clearHighlight()
+        finishDrag(suppressClick: true)
     }
 
     func ignoreModifierKeys(for session: NSDraggingSession) -> Bool {
@@ -403,6 +425,23 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         guard highlightRect != nil else { return }
         highlightRect = nil
         needsDisplay = true
+    }
+
+    private func finishDrag(suppressClick: Bool) {
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
+        pendingRow = nil
+        mouseDownPoint = nil
+        currentPayload = nil
+        escapePressed = false
+        if suppressClick {
+            suppressClickUntil = Date().addingTimeInterval(0.5)
+        }
+        onDragSourceChanged?(nil)
+        session.setActive(false)
+        clearHighlight()
     }
 
     private func insertionRect(for zone: DropZone) -> NSRect {

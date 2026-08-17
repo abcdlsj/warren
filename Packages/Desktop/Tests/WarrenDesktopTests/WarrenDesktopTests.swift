@@ -274,6 +274,19 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertFalse(view.acceptsFirstResponder)
     }
 
+    func testSidebarDragRequiresFivePointMovementThreshold() {
+        let origin = CGPoint(x: 20, y: 20)
+
+        XCTAssertFalse(WarrenSidebarDragGesture.hasExceededThreshold(
+            from: origin,
+            to: CGPoint(x: 23, y: 23)
+        ))
+        XCTAssertTrue(WarrenSidebarDragGesture.hasExceededThreshold(
+            from: origin,
+            to: CGPoint(x: 23, y: 24)
+        ))
+    }
+
     func testWindowDragRegionPerformsDragOnSingleClick() {
         let view = WarrenDesktopWindowDragView()
         let window = WarrenDragProbeWindow(
