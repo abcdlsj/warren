@@ -12,6 +12,8 @@ on 2026-08-16/17.
 - Either:
   - the main thread is pegged at ~100% CPU inside SwiftUI
     (`ViewGraphRootValueUpdater.updateGraph` -> layout), or
+  - the main thread is blocked in a lock wait inside AppKit layout
+    (`NSHostingView.layout` -> `addSubview` -> `__ulock_wait2`), or
   - the main thread is idle but `logd` is backed up and the UI stays frozen.
 - `~/Library/Logs/Warren/terminal-diagnostics.log` stops advancing while the
   Warren GUI process is still alive.
@@ -59,6 +61,18 @@ on 2026-08-16/17.
 
    A burst (or repeated hits) is the signature of the known publish-during-
    view-update bug. Absence does not rule out a layout-only loop.
+
+3b. If there are no publishing faults, check for the lock-order deadlock:
+
+   ```sh
+   sample <pid> 2 1 -file /tmp/warren_sample.txt
+   rg 'viewDidMoveToWindow|rebuildIfReady|setSurface|dispatchResize|__ulock_wait|pthread_mutex' /tmp/warren_sample.txt
+   ```
+
+   Main thread inside `addSubview -> viewDidMoveToWindow -> rebuildIfReady ->
+   ghostty_surface_write_buffer` waiting on a lock, together with the io
+   thread waiting in `dispatchResize -> ghostty_surface_set_size`, is the
+   AppKit/Ghostty lock inversion described in root cause #4.
 
 4. Check the installed binary is newer than the last fix commit:
 
@@ -146,6 +160,62 @@ Fix: defer the writes one main-actor hop and guard equality. Commit:
 - `0aa4f2f` fix(desktop): defer preference-change state writes out of SwiftUI
   updates
 
+### 4. AppKit view-tree lock inverted against Ghostty surface lock (deadlock)
+
+The desktop can also freeze **without any publishing faults**: the main
+thread pegs at 100% while blocked inside AppKit layout.
+
+Sampled stacks (2026-08-17 10:44):
+
+- Main thread: `addSubview -> _setWindow: -> AppTerminalView.viewDidMoveToWindow`
+  (`Platform/AppKit/AppTerminalView+Lifecycle.swift`) ->
+  `TerminalSurfaceCoordinator.rebuildIfReady` ->
+  `InMemoryTerminalSession.setSurface` ->
+  `ghostty_surface_write_buffer` -> `__ulock_wait2`
+- io thread: `InMemoryTerminalSession.dispatchResize` ->
+  `ghostty_surface_set_size` -> `pthread_mutex_lock_wait`
+
+`viewDidMoveToWindow` runs inside `_setWindow:` while AppKit holds the
+view-tree lock. Creating the surface / flushing buffered bytes / syncing
+metrics synchronously can block on Ghostty's surface lock while the io thread
+holds it for a resize callback — a classic lock-order inversion that
+deadlocks the main thread.
+
+Fix: keep observer registration and focus intent synchronous, but defer all
+Ghostty surface lifecycle (`rebuildIfReady`/`synchronizeMetrics`, metal
+metrics, color scheme, display link, `setFocus(false)`) one runloop via
+`DispatchQueue.main.async`. Commit:
+
+- `72fb1ee` fix(vendor): keep ghostty surface lifecycle out of appkit view lock
+
+Impact: surface creation/first-frame sync is delayed by at most one runloop
+(~16 ms); existing settle-resync and present-poll retries cover the delay.
+Verified: the 11:09 freeze was the SwiftUI loop (root cause #2/#3 family), not
+this deadlock, after the 11:08 install included this fix.
+
+## Open issue: the publish source behind root causes #2/#3 is not fully pinned
+
+Even with all known `@Published` writes deferred and all `onPreferenceChange`
+`@State` writes deferred, a fully patched binary (installed 11:08, includes
+`63a4312`, `af20337`, `0aa4f2f`, `72fb1ee`) still froze at 11:09 with the
+SwiftUI `updateGraph` loop. The unified log showed no publishing faults in the
+minutes before the freeze (possibly dropped by logd), but the layout hot path
+was again:
+
+- `WarrenSemanticElementModifier.body` (`WarrenSemanticRecorder.swift:84`)
+- `WarrenSemanticPreferenceKey` reduce / `WarrenSemanticNode` equality
+
+`WarrenSemanticRecorder` is a plain class and `snapshot()` is only consumed by
+the UIProbe target, so the semantic preference machinery is treated as the
+loop's amplifier/cost, not its trigger. The exact observable write that
+invalidates each pass has **not** been captured with a stack yet: the fault is
+an instantaneous os_log message and sampling misses it.
+
+Next step before more static guessing: instrument temporarily (a hook that
+prints a symbolicated stack at publish time), reproduce, capture, then revert
+the instrumentation; or attach lldb to an already-frozen process and break on
+the SwiftUI fault path.
+
 ## Common trigger
 
 Switching workspaces/tabs, especially:
@@ -155,6 +225,8 @@ Switching workspaces/tabs, especially:
   workspaces and removed one while the desktop was connected);
 - while a terminal surface is being mounted/hidden and the window is
   resizing at the same time (attach `resize_request` followed by the fault).
+- The deadlock (root cause #4) fires when a terminal view is added to a
+  window while a Ghostty resize callback runs concurrently on the io thread.
 
 ## Verification
 
@@ -168,7 +240,7 @@ Switching workspaces/tabs, especially:
 
 ## How to fix a new occurrence
 
-1. Confirm the running binary includes the three commits above; if not,
+1. Confirm the running binary includes the four commits above; if not,
    rebuild/install and retest before debugging.
 2. Reproduce with the smallest fake: a bare `TerminalViewState` for vendored
    callbacks, or an `NSHostingView` harness for Warren views (see the test
@@ -178,3 +250,7 @@ Switching workspaces/tabs, especially:
    `terminalRunOnMain` callback on the main thread).
 4. Defer it one main-actor hop, guard equality, add a regression test,
    run the package tests + root build, and commit with a `fix:` prefix.
+5. If all known paths are already deferred and the fault persists, do **not**
+   guess: instrument temporarily to capture the publish stack (see
+   "Open issue" above), then revert the instrumentation before committing the
+   real fix.
