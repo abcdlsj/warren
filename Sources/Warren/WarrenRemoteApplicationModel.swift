@@ -1442,6 +1442,7 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func closeSession(_ id: TerminalSessionID) {
+        detachSessionBeingClosed(id)
         request("session.delete", params: ["id": id.description]) { [weak self] error in
             guard let self else { return }
             if Self.isSessionAlreadyClosed(error, sessionID: id) {
@@ -1454,6 +1455,34 @@ final class WarrenRemoteApplicationModel {
                 self.present(error)
             }
         }
+    }
+
+    /// Releases the local attachment as soon as a session is being closed.
+    ///
+    /// SwiftUI can demote the terminal view while the delete request is still
+    /// in flight, which makes the host call `blur` for the same session. If the
+    /// daemon has already removed the session by then, that stale focus request
+    /// fails with "no attached session" and would flash in the Inspector as a
+    /// daemon error during normal tab churn. Clearing attachment state first
+    /// keeps the blur, attach, resize, and focus paths inert for the closed
+    /// session; the roster still owns the durable cleanup.
+    private func detachSessionBeingClosed(_ id: TerminalSessionID) {
+        guard selectedSessionID == id else { return }
+        attachingSessionID = nil
+        selectedSessionID = nil
+        attachedSessionID = nil
+        focusedSessionID = nil
+        pendingFocusSessionID = nil
+        pendingFocusSize = nil
+        pendingFocusResizeSize = nil
+        focusClaimInFlight = false
+        focusClaimGeneration += 1
+        attachGeneration &+= 1
+        pendingInput.removeAll(keepingCapacity: true)
+        resizeTask?.cancel()
+        resizeTask = nil
+        focusTask?.cancel()
+        focusTask = nil
     }
 
     private func refreshRosterIfConnected() async {
