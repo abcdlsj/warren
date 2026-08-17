@@ -140,7 +140,7 @@ Use the events as a sequence rather than treating one line as a root cause:
 | `present_stall_suspected` with `reason` | A draw happened while the view was absent, unattached, hidden, or not visible; this strongly favors a lifecycle/presentation issue |
 | `present_complete` | The delayed attach presentation reached a ready surface and presentable view |
 | `present_wait_extended` | The first 2-second present window passed but the presentation task is still waiting; this is diagnostic only and no longer means the attempt was abandoned |
-| `activation_resync` | A warm surface reattach pinned the viewport to the live bottom and forced an immediate draw; its absence on a warm reattach means the old viewport/page-list state was carried over untouched |
+| `activation_resync` | A warm surface reattach detected that the viewport did not return to its pre-demotion anchor (captured at `demote`) and forced a live-bottom resync plus immediate draw; its absence means the reattach kept the user's scroll position |
 | `roster_apply` | Roster processing and retained-surface count; repeated events indicate churn but do not prove that a changed projection was published |
 | `resize_request`, `viewport_sync` | The grid-size negotiation around the black pane; a resize that recovers the pane is useful evidence, not a root-cause fix |
 
@@ -163,10 +163,11 @@ The most useful patterns are:
   checks.
 - A warm tab shows only recent history until the window is resized: this is
   the scrollback-compression lazy-restore path. Warren disables idle
-  compression and calls `activation_resync` on reattach
+  compression and resyncs a reattached viewport only when its pre-demotion
+  anchor no longer matches
   (see `problems/2026-08-17-warm-reattach-truncated-scrollback.md`); a
-  missing `activation_resync` after a warm attach is evidence the fix is not
-  in the running build.
+  missing `activation_resync` after an abnormal warm attach is evidence the
+  fix is not in the running build.
 - After switching from an empty workspace to one with tabs, repeated
   `terminal_view_appear` events followed by `surfaceReady` changing from true
   to false indicate a surface lifecycle/ownership race. This is the failure

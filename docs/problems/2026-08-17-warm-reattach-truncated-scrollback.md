@@ -40,11 +40,13 @@ lost output bytes and not a present-wait stall.
 
 Two changes in `Packages/GhosttyAdapter`:
 
-1. `GhosttySurface` gains `resyncForActivation()`, called from
-   `TerminalSurfaceManager.attach()` after the view is visible: it pins the
-   viewport to the live bottom (`scroll_to_bottom`) and forces an immediate
-   draw (`presentNow()`), resetting stale pin/offset state and repainting a
-   reattached surface even without new output.
+1. `TerminalSurfaceManager.demote()` captures the current viewport text as a
+   reattach anchor. On the next `attach()`, `GhosttySurface.resyncIfNeeded()`
+   compares the viewport to that anchor: a normal reattach returns to the same
+   content and keeps the user's scroll position untouched; only a mismatch
+   (stale pin, clamped offset, or blank resume) forces `resyncForActivation()`
+   — pin the viewport to the live bottom (`scroll_to_bottom`) and draw
+   immediately.
 2. `scrollback-compression` is disabled in the surface configuration so idle
    compression never leaves history lazily restored in the first place.
 

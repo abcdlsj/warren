@@ -160,7 +160,7 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertEqual(snapshot.hiddenRenderAttemptCount, 0)
     }
 
-    func testReattachResyncsViewportToLiveBottom() async throws {
+    func testReattachPreservesPinnedViewport() async throws {
         _ = NSApplication.shared
         let manager = TerminalSurfaceManager(warmLimit: 2)
         let first = makeSurface()
@@ -200,6 +200,65 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         manager.insert(second)
         submit(second.id, to: manager, host: host)
         try await waitUntil { manager.snapshot().activeSessionID == second.id }
+
+        submit(first.id, to: manager, host: host)
+        try await waitUntil {
+            manager.snapshot().activeSessionID == first.id && first.terminalViewIsPresentable
+        }
+
+        // A normal warm reattach must keep the pinned viewport where it was.
+        let reattached = try viewportText(on: first)
+        XCTAssertTrue(reattached.contains("line-1000"), "normal reattach must preserve scroll position")
+        XCTAssertFalse(reattached.contains("line-1999"), "normal reattach must not jump to live bottom")
+    }
+
+    func testReattachResyncsWhenViewportDidNotReturnToAnchor() async throws {
+        _ = NSApplication.shared
+        let manager = TerminalSurfaceManager(warmLimit: 2)
+        let first = makeSurface()
+        let second = makeSurface()
+        manager.insert(first)
+
+        let host = TerminalHostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer {
+            manager.shutdown()
+            window.orderOut(nil as Any?)
+        }
+
+        submit(first.id, to: manager, host: host)
+        try await waitUntil {
+            first.state.surface != nil && first.terminalViewIsPresentable
+        }
+        let raw = try XCTUnwrap(first.state.surface?.rawValue)
+
+        first.receive(makeLines(start: 0, count: 2000))
+        try await Task.sleep(for: .milliseconds(200))
+        _ = "scroll_to_row:1000".withCString { pointer in
+            ghostty_surface_binding_action(raw, pointer, UInt("scroll_to_row:1000".utf8.count))
+        }
+        try await waitForViewport(on: first, containing: "line-1000")
+        let pinned = try viewportText(on: first)
+        XCTAssertFalse(pinned.contains("line-1999"), "pinned viewport must not already be at bottom")
+
+        manager.insert(second)
+        submit(second.id, to: manager, host: host)
+        try await waitUntil { manager.snapshot().activeSessionID == second.id }
+
+        // While warm, the viewport moves away from the anchor captured at
+        // demotion; reattach must detect the mismatch and resync to bottom.
+        _ = "scroll_to_row:500".withCString { pointer in
+            ghostty_surface_binding_action(raw, pointer, UInt("scroll_to_row:500".utf8.count))
+        }
+        try await Task.sleep(for: .milliseconds(200))
 
         submit(first.id, to: manager, host: host)
         try await waitUntil {

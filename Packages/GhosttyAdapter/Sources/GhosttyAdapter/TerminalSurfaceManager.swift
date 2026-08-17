@@ -387,7 +387,7 @@ public final class TerminalSurfaceManager {
             entry.view.isHidden = false
             entry.view.setSurfaceVisible(true)
             entry.view.fitToSize()
-            entry.surface.resyncForActivation()
+            entry.surface.resyncIfNeeded()
             schedulePresent(entry, generation: generation)
             if latestIntent.wantsTerminalFocus {
                 focus(sessionID, generation: generation)
@@ -399,6 +399,7 @@ public final class TerminalSurfaceManager {
         guard let entry = entries[sessionID] else { return }
         entry.transitionGeneration &+= 1
         cancelPresentation(for: entry)
+        entry.surface.captureReattachAnchor()
         if entry.view.window?.firstResponder === entry.view {
             entry.view.window?.makeFirstResponder(nil)
         }

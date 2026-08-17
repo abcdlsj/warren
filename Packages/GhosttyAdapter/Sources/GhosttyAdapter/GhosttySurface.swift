@@ -28,6 +28,9 @@ public final class GhosttySurface: Identifiable {
     public let outputWriter: WarrenGhosttyOutputWriter
     private let onViewportResize: @Sendable (Int, Int) -> Void
     private let ansiObserver = TerminalANSIObserver()
+    /// Viewport fingerprint captured at demotion, used to detect a reattached
+    /// surface whose viewport did not return to its previous position.
+    private var reattachAnchorText: String?
     /// The AppKit terminal view currently backing this surface, kept weak so
     /// a recreated view is reflected on the next lookup. Used by diagnostics
     /// to distinguish "draw was called" from "draw could reach the screen".
@@ -287,14 +290,40 @@ public final class GhosttySurface: Identifiable {
     /// (resetting any stale pin/offset cache) and draw immediately so the
     /// surface repaints even when no new output arrived.
     public func resyncForActivation() {
-        TerminalDiagnostics.log("activation_resync", [
-            "session": id.description,
-        ])
         scrollToBottom()
         requestDisplayRefresh()
         if terminalViewIsPresentable {
             _ = presentNow()
         }
+    }
+
+    /// Capture the current viewport content as the anchor for the next
+    /// reattach. Called when the surface is demoted; the anchor is compared
+    /// after reattach to decide whether a forced resync is needed.
+    public func captureReattachAnchor() {
+        guard let text = viewportText() else {
+            reattachAnchorText = nil
+            return
+        }
+        reattachAnchorText = text
+    }
+
+    /// Resync the reattached viewport only when it did not return to its
+    /// pre-demotion position. A normal warm reattach keeps the same viewport
+    /// content, so no scroll is performed and the user's scroll position is
+    /// preserved. If the viewport moved (stale pin, clamped offset, or a blank
+    /// resume), the forced resync recovers it.
+    public func resyncIfNeeded() {
+        let anchor = reattachAnchorText
+        reattachAnchorText = nil
+        guard let anchor, let text = viewportText(), text != anchor else {
+            return
+        }
+        TerminalDiagnostics.log("activation_resync", [
+            "session": id.description,
+            "reason": "viewport-anchor-mismatch",
+        ])
+        resyncForActivation()
     }
 
     /// Re-submit Ghostty's current grid even when the renderer's pixel size
@@ -384,5 +413,36 @@ public extension GhosttySurface {
         return action.withCString { pointer in
             ghostty_surface_binding_action(raw, pointer, UInt(action.utf8.count))
         }
+    }
+
+    /// The current viewport text, used as a position fingerprint. Reads the
+    /// terminal grid directly, so it reflects the true viewport even when the
+    /// rendered frame is stale.
+    private func viewportText() -> String? {
+        guard let raw = state.surface?.rawValue else { return nil }
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+        var out = ghostty_text_s()
+        guard ghostty_surface_read_text(raw, selection, &out) else { return nil }
+        defer { ghostty_surface_free_text(raw, &out) }
+        guard let text = out.text, out.text_len > 0 else { return "" }
+        let bytes = UnsafeBufferPointer(start: text, count: Int(out.text_len))
+            .map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 }
