@@ -3,8 +3,8 @@
 - Recorded: 2026-08-17 (Asia/Shanghai)
 - Repository: `abcdlsj/warren`
 - Branch: `main`
-- Related repository: `../ghostline`, currently at `v0.5.0`
-- Status: Diagnosed with a reproducible failure class; exact historical parser state is not recoverable; fix pending
+- Related repository: `../ghostline` (event dependency `v0.5.0`; compatibility fix on local `main`)
+- Status: Root cause confirmed; compatibility workaround implemented in Ghostline; upstream fix pending
 - First observed: 2026-08-17 11:30:04 (Asia/Shanghai)
 - Affected runtime: `warren_150c5318c4bf404e9b9c6a2cb31bd6c1`
 - Affected session ID: `150c5318-c4bf-404e-9b9c-6a2cb31bd6c1`
@@ -56,9 +56,9 @@ should be lost.
 - The long-lived ghostline server process (PID `92390`) loads
   `~/go/pkg/mod/github.com/abcdlsj/ghostline@v0.4.0/third_party/lib/libghostty-vt.dylib`
   and reports RPC protocol version `0.4.0`.
-- `../ghostline` local `HEAD`, `origin/main`, and tag `v0.5.0` all point to
-  commit `2118ef6`; there was no newer upstream ghostline version at the time
-  of investigation.
+- The local `../ghostline` checkout is now at `v0.6.0` (`01bdbfd`); Warren's
+  event binary and the detached server still use the older `v0.5.0`/`v0.4.0`
+  generations described above.
 
 ## Upgrade Path
 
@@ -78,52 +78,100 @@ The failure occurs at step 5, before the new server can commit this session.
 
 ## What `-2` Means
 
-`-2` is `GHOSTTY_INVALID_VALUE`. The vendored ghostty snapshot API documents
-that encoding can return this value when the VT parser or UTF-8 decoder is in
-an unfinished state and continuation tracking was not enabled before the input
-that produced that state. It can also occur when the continuation state exceeds
-the configured tracking budget.
+`-2` is `GHOSTTY_INVALID_VALUE`. In this incident it is raised by the snapshot
+grid encoder after a resize leaves an invalid wide-cell pair. A wide head must
+be followed by a spacer tail; the encoder rejects a wide head at the right edge
+or any other unpaired wide state.
 
 This is a serialization precondition failure. It does not mean that the PTY
 child exited, that the session is not interactive, or that the visible screen
 cannot be formatted for display. Warren's normal display snapshot uses the
 formatter path; migration uses the stricter persistent-state encoder.
 
+## Confirmed Root Cause
+
+The failing replay is deterministic with the old libghostty-vt library:
+
+1. A 138-column session has a valid wide character whose head is at column
+   `122` and whose spacer tail is at column `123`.
+2. The session is resized to 123 columns while the alternate screen is
+   present. Alternate screens use `reflow = false`.
+3. Ghostty's no-reflow shrink path calls `page.clearCells(row, cols, old_cols)`.
+   That clears the spacer tail at the new boundary but leaves the wide head at
+   `cols - 1`.
+4. Snapshot encoding visits both primary and alternate screens and returns
+   `GHOSTTY_INVALID_VALUE` for the orphan head.
+
+The retained spool replay reaches the same invalid grid after the resize and
+returns `-2`. The historical live parser state is therefore not needed to
+explain this failure.
+
+## Ghostty Upstream Context
+
+No upstream issue or pull request with this exact shrink-path failure was found.
+The closest related change is [Ghostty PR #11135](https://github.com/ghostty-org/ghostty/pull/11135)
+([commit `678601d94`](https://github.com/ghostty-org/ghostty/commit/678601d94)),
+which fixes stale spacer heads when a no-reflow resize grows a screen. It does
+not cover the orphan wide head left by a no-reflow shrink. Recent strict
+snapshot validation makes the latent grid defect observable as `-2`; relaxing
+that validation would hide corrupted state rather than fix it.
+
+## Compatibility Fix
+
+The workaround is deliberately confined to Ghostline's `VTTerminal` wrapper;
+it does not fork or patch Ghostty:
+
+- Before a no-reflow shrink, the wrapper reads the target boundary cell through
+  Ghostty's public grid-reference API. If it is a wide head, the wrapper emits
+  a local VT erase for that pair before calling `ghostty_terminal_resize`.
+- `EncodeState` repairs an already-resized active screen as a fallback. If the
+  first encode still returns `GHOSTTY_INVALID_VALUE`, it briefly visits the
+  inactive alternate screen through mode 47, repairs the same boundary, restores
+  the original active screen and cursor position, then retries the encode.
+- The repair is skipped while the parser is off ground or origin mode is active,
+  because the public API does not expose enough state to address those cases
+  without changing terminal semantics.
+
+This keeps Ghostline compatible with older libghostty-vt behavior while the
+upstream fix is investigated. The workaround is only present in newly started
+Ghostline processes; an already-running v0.4.0 server cannot load it without a
+restart.
+
 ## Investigation Evidence
 
-### The failure class is reproducible
+### Continuation tracking is a separate failure class
 
-Using the same `libghostty-vt.dylib` binary loaded by the old server:
+The same library can independently produce `-2` for an unterminated OSC
+sequence larger than the configured continuation budget. We also reproduced
+the restored-continuation case where tracking is unavailable after restore.
+Those experiments explain why continuation tracking remains enabled in
+Ghostline, but they do not match this incident:
 
-- An unterminated OSC sequence larger than the 1 MiB continuation budget
-  returns `ghostty snapshot encode failed: -2`.
-- Encoding a snapshot with an unfinished continuation succeeds in the source
-  terminal, but restoring that snapshot and immediately encoding the restored
-  terminal returns `-2` because restore disables continuation tracking until it
-  is re-enabled for future input.
-- Ordinary mid-OSC input below the budget, a partial UTF-8 sequence, and a
-  terminal in the middle of a synchronized update all encoded successfully.
+- The retained spool replay encodes successfully before the resize.
+- The same replay returns `-2` only after the 138-to-123 resize.
+- Scans for large OSC input, partial UTF-8 input, and synchronized-update
+  boundaries did not reproduce the archived session's failure.
 
-Therefore, a normal-looking screen can coexist with an unencodable transient
-parser state.
-
-### The retained spool does not reproduce the historical failure
+### The retained spool reproduces the grid failure
 
 The affected session's retained output consists of three gzip archives followed
 by the current live spool. Replaying them in chronological order produced about
 31 MB of PTY bytes.
 
-- Full replay: `EncodeState` succeeded.
+- Full replay before resize: `EncodeState` succeeded.
+- Replaying at 138x42, resizing to 123x40, and encoding: `-2` with the old
+  wrapper/library combination; success with the Ghostline compatibility layer.
 - 4 KiB incremental scan across the complete replay: zero failures.
 - Byte-by-byte scan over the final 200 KiB, covering the upgrade failure period
   and subsequent output: zero failures.
 - The live session still returns a normal display checkpoint and remains alive.
 
-This proves that the exact state present in the old server at the time of the
-failure cannot be reconstructed from the currently retained spool bytes. It
-does not disprove a transient parser state in the live emulator.
+This reproduces the failure class from retained bytes, but it does not prove
+that the historical live session used the same output sequence or resize
+dimensions. The live emulator state and exact bytes around the original event
+were not captured.
 
-### Spool compaction is a leading investigation target
+### Spool compaction is a separate evidence gap
 
 Warren currently handles output compaction in two separate calls in
 `Headless/internal/server/service.go`:
@@ -139,10 +187,9 @@ errors are ignored, and there is no single transaction covering archive,
 truncation, and the persisted watcher offset. This can create a gap between
 what the emulator has consumed and what remains available for later replay.
 
-This is a plausible explanation for why the live emulator could have a state
-that the retained spool cannot reproduce, but it is not yet proven to be the
-specific trigger for the 11:30 failure. The exact parser state and the bytes
-around the failure were not captured at the time.
+This remains a separate reliability issue because it can make live emulator
+state unavailable for later replay. It is not required to explain the
+reproducible `-2` after the no-reflow resize.
 
 ## Confirmed vs. Unconfirmed
 
@@ -154,16 +201,21 @@ around the failure were not captured at the time.
 - The upgrade fails while encoding the migration snapshot for the session
   listed above.
 - The error is `GHOSTTY_INVALID_VALUE` from `ghostty_snapshot_encode_alloc`.
+- The old library's no-reflow shrink leaves orphan wide heads at the right
+  edge; snapshot encoding rejects those cells on either screen.
 - The old server is intentionally retained after the failed migration.
 - The session is healthy from the user's point of view and can still produce a
   normal display snapshot.
+- The Ghostline wrapper workaround makes the retained replay encodable after
+  the same resize.
 
 ### Unconfirmed
 
-- The exact unfinished VT/UTF-8 sequence or continuation state at 11:30.
+- Whether the historical live session used exactly the same byte sequence and
+  dimensions as the retained replay.
 - Whether spool compaction caused the emulator/spool evidence gap.
-- Whether the state came from a large continuation, a restored snapshot, or a
-  different libghostty-vt parser edge case.
+- Whether Ghostty will accept an upstream fix for both no-reflow shrink and
+  grow paths.
 
 ## Impact
 
@@ -176,22 +228,18 @@ around the failure were not captured at the time.
 - Repeated daemon starts retry the upgrade and emit the same failure until the
   offending session ends or the migration path is fixed.
 
-## Proposed Fix Work
+## Follow-up Work
 
-The following work is intentionally recorded for a later repair; it was not
-performed as part of this investigation:
-
-1. Add structured diagnostics around `EncodeState` failures, including whether
-   the terminal has tracked continuation data and the configured continuation
-   limit.
-2. Make spool archive/truncate and watcher re-anchoring atomic from the host's
+1. Publish the Ghostline compatibility change and restart the detached server;
+   an already-running v0.4.0 process cannot use code loaded by a new binary.
+2. File an upstream Ghostty issue with the minimized no-reflow shrink reproducer
+   and the invalid-grid snapshot result.
+3. Make spool archive/truncate and watcher re-anchoring atomic from the host's
    point of view, or refuse to truncate when archiving fails.
-3. Add tests for large unterminated OSC input, restored unfinished parser state,
-   archive/truncate races, and a rolling upgrade with one unencodable session.
 4. Preserve the current migration failure contract: do not retire the old
    server unless every session has been prepared and committed.
-5. After the fix, retry this upgrade with the affected session still alive and
-   verify that the stable socket reports `0.5.0` without ending the PTY child.
+5. Retry the upgrade with the affected session still alive and verify that the
+   stable socket reports `0.5.0` without ending the PTY child.
 
 ## Acceptance Criteria
 
@@ -200,4 +248,5 @@ performed as part of this investigation:
 - No PTY output is lost across archive, migration, or re-anchoring boundaries.
 - A deliberately unencodable session causes a clear, structured diagnostic and
   leaves the old server serving all sessions.
-- The failure and fallback behavior are covered by automated tests.
+- The wide-boundary failure and compatibility fallback are covered by automated
+  Ghostline tests.
