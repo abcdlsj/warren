@@ -368,6 +368,23 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testActivityDragPresentationDistinguishesSnapBackAndDismissZones() {
+        let windowFrame = CGRect(x: 100, y: 100, width: 800, height: 600)
+
+        XCTAssertFalse(WarrenDesktopActivityDragPresentation.isOutside(
+            windowFrame: windowFrame,
+            screenPoint: CGPoint(x: 200, y: 200)
+        ))
+        XCTAssertTrue(WarrenDesktopActivityDragPresentation.isOutside(
+            windowFrame: windowFrame,
+            screenPoint: CGPoint(x: 50, y: 200)
+        ))
+        XCTAssertEqual(
+            WarrenDesktopActivityDragPresentation.previewImage().size,
+            WarrenDesktopActivityDragPresentation.previewSize
+        )
+    }
+
     func testActivityDragHandleHasUsableHitTargetAndAcceptsFirstClick() {
         XCTAssertGreaterThanOrEqual(
             WarrenDesktopTabActivityDragGesture.hitTargetSize.width,

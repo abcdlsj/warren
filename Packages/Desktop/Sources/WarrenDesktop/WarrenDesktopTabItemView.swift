@@ -51,6 +51,18 @@ struct WarrenDesktopTabItem: View {
                     }
                     if let activity {
                         ZStack {
+                            Circle()
+                                .stroke(tokens.highlight.opacity(0.46), lineWidth: 1)
+                                .frame(width: 16, height: 16)
+                                .scaleEffect(isActivityHovered ? 1 : 0.72)
+                                .opacity(isActivityHovered ? 1 : 0)
+                                .animation(
+                                    WarrenMotion.animation(
+                                        .feedback,
+                                        reduceMotion: reduceMotion
+                                    ),
+                                    value: isActivityHovered
+                                )
                             WarrenDesktopActivityIndicator(activity: activity)
                                 .scaleEffect(isActivityHovered ? 1.35 : 1)
                                 .animation(

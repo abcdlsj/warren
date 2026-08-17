@@ -10,6 +10,45 @@ enum WarrenDesktopTabActivityDragGesture {
     }
 }
 
+enum WarrenDesktopActivityDragPresentation {
+    static let previewSize = CGSize(width: 132, height: 30)
+
+    static func isOutside(windowFrame: CGRect, screenPoint: CGPoint) -> Bool {
+        !windowFrame.contains(screenPoint)
+    }
+
+    static func previewImage() -> NSImage {
+        NSImage(size: previewSize, flipped: false) { rect in
+            let background = NSBezierPath(
+                roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: 9,
+                yRadius: 9
+            )
+            NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+            background.fill()
+            NSColor.separatorColor.withAlphaComponent(0.7).setStroke()
+            background.lineWidth = 1
+            background.stroke()
+
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 10, y: 11, width: 8, height: 8)).fill()
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph,
+            ]
+            NSString(string: "Drag out to dismiss").draw(
+                in: NSRect(x: 26, y: 7, width: rect.width - 34, height: 16),
+                withAttributes: attributes
+            )
+            return true
+        }
+    }
+}
+
 /// A native AppKit drag handle for an activity dot. Native dragging sessions
 /// continue tracking the pointer after it leaves the Warren window, which is
 /// the part SwiftUI's in-window `DragGesture` cannot guarantee.
@@ -88,6 +127,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
+        NSCursor.closedHand.set()
         dragWindow = window
         mouseDownPoint = convert(event.locationInWindow, from: nil)
         // Freeze the dismissal intent at mouse-down. SwiftUI may update the
@@ -121,8 +161,19 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString("dismiss", forType: Self.pasteboardType)
         let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
-        item.setDraggingFrame(bounds, contents: nil)
-        beginDraggingSession(with: [item], event: event, source: self)
+        let point = convert(event.locationInWindow, from: nil)
+        let previewSize = WarrenDesktopActivityDragPresentation.previewSize
+        item.setDraggingFrame(
+            NSRect(
+                x: point.x + 8,
+                y: point.y - previewSize.height / 2,
+                width: previewSize.width,
+                height: previewSize.height
+            ),
+            contents: WarrenDesktopActivityDragPresentation.previewImage()
+        )
+        let session = beginDraggingSession(with: [item], event: event, source: self)
+        session.animatesToStartingPositionsOnCancelOrFail = true
     }
 
     func draggingSession(
@@ -139,8 +190,23 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     ) {
         defer { finishPendingInteraction() }
         guard let dragWindow,
-              !dragWindow.frame.contains(screenPoint) else { return }
+              WarrenDesktopActivityDragPresentation.isOutside(
+                  windowFrame: dragWindow.frame,
+                  screenPoint: screenPoint
+              ) else { return }
         pendingDismiss?()
+    }
+
+    func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
+        guard let dragWindow else { return }
+        let isOutside = WarrenDesktopActivityDragPresentation.isOutside(
+            windowFrame: dragWindow.frame,
+            screenPoint: screenPoint
+        )
+        // Inside releases snap the preview back to the dot. Outside releases
+        // disappear in place because the activity will be dismissed.
+        session.animatesToStartingPositionsOnCancelOrFail = !isOutside
+        (isOutside ? NSCursor.disappearingItem : NSCursor.closedHand).set()
     }
 
     override func viewDidMoveToWindow() {
@@ -151,6 +217,7 @@ final class WarrenDesktopTabActivityDragHandleView: NSView, NSDraggingSource {
     }
 
     private func finishPendingInteraction() {
+        dragWindow?.invalidateCursorRects(for: self)
         dragWindow = nil
         mouseDownPoint = nil
         pendingDismiss = nil
