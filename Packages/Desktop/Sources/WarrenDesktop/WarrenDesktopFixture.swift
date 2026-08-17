@@ -79,6 +79,22 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
         self.workingDirectory = workingDirectory
     }
 
+    public func withActivity(_ activity: AgentActivityState?) -> Self {
+        Self(
+            id: id,
+            workspaceID: workspaceID,
+            tabID: tabID,
+            title: title,
+            customTitle: customTitle,
+            pinned: pinned,
+            kind: kind,
+            state: state,
+            activity: activity,
+            runtimeProcess: runtimeProcess,
+            workingDirectory: workingDirectory
+        )
+    }
+
 }
 
 public enum WarrenDesktopSessionState: String, Hashable, Sendable {
@@ -361,6 +377,31 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     /// request must remain visible even when another Session is still working.
     public func activity(in workspaceID: WorkspaceID) -> AgentActivityState? {
         activityByWorkspaceID[workspaceID]
+    }
+
+    /// Returns a projection with one session's client-local activity
+    /// presentation changed. The source projection remains immutable and all
+    /// relationship lookups are rebuilt at this boundary.
+    public func withSessionActivity(
+        _ activity: AgentActivityState?,
+        for sessionID: TerminalSessionID
+    ) -> Self {
+        guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else {
+            return self
+        }
+        guard sessions[index].activity != activity else { return self }
+        var nextSessions = sessions
+        nextSessions[index] = nextSessions[index].withActivity(activity)
+        return Self(
+            host: host,
+            groups: groups,
+            sessions: nextSessions,
+            tabs: tabs,
+            sessionWorkspaceIDs: sessionWorkspaceIDs,
+            tabWorkspaceIDs: tabWorkspaceIDs,
+            inspector: inspector,
+            connectionState: connectionState
+        )
     }
 }
 

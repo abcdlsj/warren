@@ -51,7 +51,10 @@ struct WarrenDesktopTabItem: View {
                         ZStack {
                             WarrenDesktopActivityIndicator(activity: activity)
                                 .accessibilityHidden(true)
-                            WarrenDesktopTabActivityDragHandle(onDismiss: onDismissActivity)
+                            WarrenDesktopTabActivityDragHandle(
+                                onDismiss: onDismissActivity,
+                                onClick: onSelect
+                            )
                         }
                         .frame(width: 12, height: 12)
                         .accessibilityHidden(true)

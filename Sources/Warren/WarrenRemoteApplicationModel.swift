@@ -1141,12 +1141,9 @@ final class WarrenRemoteApplicationModel {
         case .setSessionPinned(let id, let pinned):
             request("session.pin", params: ["id": id.description, "pinned": String(pinned)])
         case .dismissActivity(let id):
-            if let activity = projection.session(id: id)?.activity {
-                dismissedActivityBySessionID[id] = activity
-            }
-            if let currentRoster {
-                apply(currentRoster)
-            }
+            guard let activity = projection.session(id: id)?.activity else { return }
+            dismissedActivityBySessionID[id] = activity
+            publishProjectionIfChanged(projection.withSessionActivity(nil, for: id))
         case .moveProject(let projectID, let before):
             var params = ["id": projectID.description]
             if let before { params["before"] = before.description }

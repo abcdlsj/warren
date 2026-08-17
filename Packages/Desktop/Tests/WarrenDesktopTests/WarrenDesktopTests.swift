@@ -330,6 +330,19 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testActivityDragRequiresFivePointMovementThreshold() {
+        let origin = CGPoint(x: 20, y: 20)
+
+        XCTAssertFalse(WarrenDesktopTabActivityDragGesture.hasExceededThreshold(
+            from: origin,
+            to: CGPoint(x: 23, y: 23)
+        ))
+        XCTAssertTrue(WarrenDesktopTabActivityDragGesture.hasExceededThreshold(
+            from: origin,
+            to: CGPoint(x: 24, y: 24)
+        ))
+    }
+
     func testWindowDragRegionPerformsDragOnSingleClick() {
         let view = WarrenDesktopWindowDragView()
         let window = WarrenDragProbeWindow(
@@ -932,6 +945,23 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(projection.activity(in: workspaceID), .failed)
         XCTAssertEqual(projection.workspaceActivities[workspaceID], .failed)
         XCTAssertEqual(projection.session(id: failed.id), failed)
+    }
+
+    func testProjectionChangesOneSessionActivityWithoutChangingRelationships() {
+        let projection = WarrenDesktopFixture.preview.projection
+        let session = projection.sessions[0]
+        let updated = projection.withSessionActivity(.working, for: session.id)
+
+        XCTAssertEqual(updated.session(id: session.id)?.activity, .working)
+        XCTAssertEqual(updated.groups, projection.groups)
+        XCTAssertEqual(updated.tabs, projection.tabs)
+        XCTAssertEqual(updated.sessionWorkspaceIDs, projection.sessionWorkspaceIDs)
+        XCTAssertEqual(updated.tabWorkspaceIDs, projection.tabWorkspaceIDs)
+        XCTAssertEqual(
+            updated.tabs(in: session.workspaceID),
+            projection.tabs(in: session.workspaceID)
+        )
+        XCTAssertEqual(updated.activity(in: session.workspaceID), .working)
     }
 
     func testSelectingTabSynchronizesSidebarWorkspace() {
