@@ -238,7 +238,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             // mode too. It is pane chrome, not a duplicate top bar.
                             showsPaneHeader: true,
                             session: presentation.session,
-                            isCreatingSession: isAddingSession,
                             hostName: projection.host.name,
                             titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
                             terminalFont: TerminalFontPreference(
@@ -247,9 +246,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                             ),
                             onAddProject: { dispatch(.addProject) },
                             onImportSuperset: { dispatch(.importSuperset) },
-                            onNewSession: {
-                                addSession(in: presentation)
-                            },
                             terminalSurface: terminalSurface
                         )
                         if inspectorVisible, let inspector = projection.inspector {

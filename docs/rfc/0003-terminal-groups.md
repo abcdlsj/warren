@@ -75,8 +75,8 @@ The Sidebar adds a fixed-height `Terminals` section above `Projects`.
 - A row shows the Group name, running Session count, and aggregate activity.
 - Selecting a Group changes the active Session Context and filters the existing
   top Tab Bar to that Group's Sessions.
-- An empty Group shows an explicit New Terminal action and does not start a
-  process merely because it was selected.
+- Selecting an empty Group does not start a process; the Tab Bar add button and
+  `Command+T` remain the explicit ways to create a Terminal in that Group.
 
 When the active Session Context is a Terminal Group, `Command+T` creates a
 shell in that Group. Workspace mode keeps the existing `Command+T` behavior.

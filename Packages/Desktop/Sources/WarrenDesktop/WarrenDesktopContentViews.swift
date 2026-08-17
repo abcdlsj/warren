@@ -13,13 +13,11 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let connectionState: WarrenDesktopConnectionState
     let showsPaneHeader: Bool
     let session: WarrenDesktopSession?
-    let isCreatingSession: Bool
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let terminalFont: TerminalFontPreference
     let onAddProject: () -> Void
     let onImportSuperset: () -> Void
-    let onNewSession: () -> Void
     let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
 
     @Environment(\.colorScheme) private var colorScheme
@@ -44,8 +42,6 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 terminalGroup: nil,
                 tab: resolvedTab,
                 session: session,
-                isCreatingSession: isCreatingSession,
-                onNewSession: onNewSession,
                 hostName: hostName,
                 titleTemplate: titleTemplate,
                 showsPaneHeader: showsPaneHeader,
@@ -69,8 +65,6 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                 terminalGroup: terminalGroup,
                 tab: resolvedTab,
                 session: session,
-                isCreatingSession: isCreatingSession,
-                onNewSession: onNewSession,
                 hostName: hostName,
                 titleTemplate: titleTemplate,
                 showsPaneHeader: showsPaneHeader,
@@ -196,8 +190,6 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
     let terminalGroup: TerminalGroup?
     let tab: ClientTab
     let session: WarrenDesktopSession?
-    let isCreatingSession: Bool
-    let onNewSession: () -> Void
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let showsPaneHeader: Bool
@@ -236,19 +228,6 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(WarrenSpacing.compact)
                     .background(tokens.background)
-
-                if tab.sessionID == nil {
-                    VStack {
-                        Spacer()
-                        Button(action: onNewSession) {
-                            Label("New Terminal", systemImage: "plus")
-                        }
-                        .buttonStyle(WarrenPrimaryButtonStyle())
-                        .disabled(isCreatingSession)
-                        .accessibilityLabel("New terminal")
-                        .padding(.bottom, WarrenSpacing.large)
-                    }
-                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

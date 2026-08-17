@@ -370,7 +370,7 @@ Behavior requirements:
 - The Terminal Groups section appears above Projects, has a fixed height of at most three rows, and scrolls internally when more Groups exist.
 - Each Terminal Group row shows the Group identity and aggregate Session state; individual Group Sessions appear in the context-scoped Tab Bar.
 - Clicking a Workspace must switch immediately without waiting for the daemon, Git, or disk operations.
-- Clicking a Terminal Group switches the active Session Context immediately; an empty Group shows a New Terminal action without starting a process.
+- Clicking a Terminal Group switches the active Session Context immediately; selecting an empty Group keeps the pane blank until the user creates a Terminal through the Tab Bar or `Command+T`.
 - After clicking a Workspace with no Tabs, show a non-interactive `Starting Shell…` loading Tab and content progress state immediately, then create the default Shell in that Workspace's serial command queue. Rapid repeated clicks share the same in-flight operation; on success the loading Tab is replaced in place; on failure it is removed and a recoverable error is shown. If the user has already navigated elsewhere, the creation result must not steal the selection back.
 - Clicking a Tab must switch the Active Session immediately and hand focus to Ghostty.
 - Presets create a Session in the Workspace captured at click time; switching Workspaces must not change the in-flight request target.
