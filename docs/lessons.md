@@ -120,3 +120,86 @@ Warren owns the open semantics instead of letting Ghostty fall back:
   `__FIREHOSE_CLIENT_THROTTLED_DUE_TO_HEAVY_LOGGING__` marker.
 - Use `/usr/bin/log show ... --predicate 'process == "Warren"'`; plain `log`
   in zsh is the math builtin and fails with "too many arguments".
+
+## 003 - Black terminal pane after empty workspace -> populated workspace
+
+### Symptom
+
+Switching from a workspace with no tabs to a workspace with tabs leaves the
+desktop terminal pane black or blank (sometimes only the TUI status bar is
+visible). A resize, tab switch, or new output recovers it.
+
+The daemon side is healthy: the output spool contains the full history and a
+fresh snapshot contains all content. The problem is entirely on the desktop
+client.
+
+### Root cause
+
+The failure is structural, not a rendering timing bug:
+
+1. `WarrenDesktopWorkspaceContent` only mounted the terminal pane while
+   `tab != nil`. During a workspace switch the roster can temporarily publish
+   the new workspace before its tabs, so `tab` flips to `nil`, the PaneView is
+   replaced by the empty-workspace view, and the terminal `NSView` is
+   destroyed. When the tab arrives a new view is created — and diagnostics
+   showed this happening several times in under a second
+   (`terminal_view_appear` repeatedly fired).
+2. Each `AppTerminalView` owns its own `TerminalSurfaceCoordinator` and native
+   Ghostty surface, while `TerminalViewState.surface` is shared. A stale view
+   deinit after a newer surface had already been installed called
+   `terminalDidDetachSurface()` unconditionally, clearing the shared
+   `surface` to `nil`.
+3. Once `state.surface == nil`, every later `presentNow()` returns `false`.
+   Delayed presents cannot help: there is no surface to draw.
+
+Earlier "present later" fixes were red herrings. The diagnostics that mattered
+were `surfaceReady` on `probe_apply_hidden` / `managed_present_delayed`:
+`surfaceReady` was `true` right after the snapshot, then `false` half a second
+later.
+
+### Fixes
+
+- Keep the terminal surface mounted across transient nil tabs. A workspace
+  with a value always renders the PaneView; when no tab exists yet, a
+  placeholder tab keeps the view alive and the empty-state panel is drawn as
+  an overlay (`dd22463`, `4f77b2d`).
+- Make stale teardown identity-aware: `TerminalSurfaceCoordinator` only calls
+  `terminalDidDetachSurface()` when the surface being torn down is still the
+  one published on `TerminalViewState` (`9313d12`). The check is a plain
+  property read before the existing `surface.free()`; it adds no Ghostty calls
+  and does not reintroduce the AppKit view-lock inversion fixed by `72fb1ee`.
+- Add lifecycle probes so the next occurrence is diagnosable from logs:
+  `workspace_switch`, `terminal_view_appear`, `managed_active_change`,
+  `probe_window_available`, `probe_apply_hidden` with `surfaceReady`, and
+  `probe_surface_rebuild` (`6f8e249`).
+- Supporting fixes from the same investigation: defer color-scheme
+  publication out of SwiftUI view updates (`2cc0348`), present the first
+  attach snapshot only after the output writer has consumed it (`05b01bb`),
+  and add later settle presents for freshly recreated views (`af12ff3`).
+
+### Engineering lessons
+
+- **Log before guessing.** The first few theories (spool cap, ghostline
+  snapshot, delayed present timing) were all wrong. The decisive evidence was
+  `surfaceReady` flipping from `true` to `false` after the snapshot.
+- **"Refresh fixes it" is a fork in the road.** It can mean a stale
+  framebuffer (needs one more present) or a missing surface (needs a rebuild,
+  or better, no teardown). Check which one the logs report before adding more
+  presents.
+- **Component harnesses can pass without reproducing the bug.** The first
+  remove-and-readd harness passed even with the fix removed because it did not
+  model the transient nil tab that actually destroys the view. A red-green
+  test must reproduce the real state transition, not just the happy path.
+- **Shared resources need identity-aware teardown.** When multiple views can
+  share one logical resource, a stale owner's deinit must not clear a newer
+  owner's reference. Compare identity before mutating shared state.
+- **Keep expensive render surfaces mounted across structural UI transitions.**
+  Destroying and recreating `NSView`s on transient state changes turns a
+  one-frame glitch into a lifecycle race.
+- **Deferred work still needs ordering.** Moving Ghostty lifecycle off the
+  AppKit view lock fixes lock inversion, but async rebuilds from multiple view
+  generations can still tear down each other's surfaces. Both the deferral and
+  the ownership guard are required.
+- **Prefer probes in the product over asking users to reproduce.** Once the
+  app logs `surfaceReady` and lifecycle events at the right points, one
+  manual workspace switch gives enough data to trace the whole sequence.
