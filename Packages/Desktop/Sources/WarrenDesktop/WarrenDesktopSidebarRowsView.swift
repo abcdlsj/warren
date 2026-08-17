@@ -155,7 +155,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private var terminalGroupsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: WarrenSpacing.xxs) {
             if !isCollapsed {
                 WarrenDesktopSidebarSectionHeader(
                     title: "Terminals",
@@ -196,11 +196,12 @@ struct WarrenDesktopSidebarRows: View {
                 .frame(
                     maxHeight: (isCollapsed
                         ? WarrenLayoutMetrics.sidebarHeaderRowHeight
-                        : WarrenLayoutMetrics.sidebarWorkspaceRowHeight) * 3
+                        : WarrenLayoutMetrics.sidebarProjectRowHeight) * 3
                         + WarrenSpacing.xxs * 2
                 )
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func beginCreateTerminalGroup() {
@@ -589,30 +590,18 @@ private struct WarrenDesktopSidebarSectionHeader: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack(spacing: WarrenSpacing.small) {
-            Button(action: { onToggle?() }) {
-                HStack(spacing: WarrenSpacing.small) {
-                    Text(title.uppercased())
-                        .font(WarrenTypography.sectionLabel)
-                        .tracking(1.0)
-                    if let disclosureExpanded {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .rotationEffect(.degrees(disclosureExpanded ? 90 : 0))
-                            .opacity(isHovered || isToggleFocused ? 1 : 0)
-                            .animation(
-                                WarrenMotion.animation(
-                                    .stateChange,
-                                    reduceMotion: reduceMotion
-                                ),
-                                value: disclosureExpanded
-                            )
-                    }
+            if let onToggle {
+                Button(action: onToggle) {
+                    titleLabel
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
+                .focused($isToggleFocused)
+            } else {
+                // Sections without a disclosure control (e.g. Terminals) keep
+                // the same label styling as collapsible sections instead of
+                // rendering a disabled, dimmed button.
+                titleLabel
             }
-            .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
-            .disabled(onToggle == nil)
-            .focused($isToggleFocused)
 
             Button(action: onAction) {
                 Image(systemName: actionImage)
@@ -632,6 +621,28 @@ private struct WarrenDesktopSidebarSectionHeader: View {
         .padding(.leading, WarrenSpacing.standard)
         .padding(.trailing, WarrenSpacing.compact)
         .onHover { isHovered = $0 }
+    }
+
+    private var titleLabel: some View {
+        HStack(spacing: WarrenSpacing.small) {
+            Text(title.uppercased())
+                .font(WarrenTypography.sectionLabel)
+                .tracking(1.0)
+            if let disclosureExpanded {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(disclosureExpanded ? 90 : 0))
+                    .opacity(isHovered || isToggleFocused ? 1 : 0)
+                    .animation(
+                        WarrenMotion.animation(
+                            .stateChange,
+                            reduceMotion: reduceMotion
+                        ),
+                        value: disclosureExpanded
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

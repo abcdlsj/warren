@@ -11,7 +11,9 @@ struct WarrenDesktopTerminalGroupRow: View {
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.warrenForceHover) private var forceHover
     @FocusState private var isFocused: Bool
+    @State private var isHovered = false
 
     var body: some View {
         if isCollapsed {
@@ -39,6 +41,7 @@ struct WarrenDesktopTerminalGroupRow: View {
         .frame(width: 32, height: 32)
         .foregroundStyle(tokens.mutedForeground)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityLabel("Terminal group \(group.group.name)")
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
@@ -64,20 +67,21 @@ struct WarrenDesktopTerminalGroupRow: View {
                         width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
                         height: WarrenLayoutMetrics.sidebarRowIconSlotSize
                     )
+                    .foregroundStyle(tokens.mutedForeground)
                     .accessibilityHidden(true)
 
                 Text(group.group.name.isEmpty ? "Terminal Group" : group.group.name)
                     .font(WarrenTypography.navigationItem)
-                    .foregroundStyle(isSelected ? tokens.workspaceSelectedText : tokens.workspaceText)
+                    .foregroundStyle(tokens.projectText)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if group.runningSessionCount > 0 {
-                    Text("\(group.runningSessionCount)")
-                        .font(WarrenTypography.navigationMeta)
-                        .foregroundStyle(tokens.mutedForeground)
-                        .accessibilityLabel("\(group.runningSessionCount) running")
-                }
+                Text("(\(group.runningSessionCount))")
+                    .font(WarrenTypography.navigationMeta)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .lineLimit(1)
+                    .opacity(isHovered || isFocused || forceHover ? 1 : 0)
+                    .accessibilityHidden(true)
 
                 if let activity = group.activity {
                     WarrenDesktopActivityIndicator(activity: activity)
@@ -85,12 +89,15 @@ struct WarrenDesktopTerminalGroupRow: View {
 
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
+            .padding(.leading, WarrenSpacing.compact)
+            .padding(.trailing, WarrenSpacing.compact)
+            .frame(minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
         .focused($isFocused)
+        .foregroundStyle(tokens.projectText)
         .accessibilityLabel("Terminal group \(group.group.name)")
         .accessibilityValue(
             "\(group.runningSessionCount) running terminal\(group.runningSessionCount == 1 ? "" : "s")"
@@ -104,11 +111,20 @@ struct WarrenDesktopTerminalGroupRow: View {
             isSelected: isSelected,
             action: onSelect
         )
-        .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
-        .padding(.horizontal, WarrenSpacing.compact)
+        .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
+        .background(tokens.interactionBackground(for: .resolve(
+            disabled: false,
+            pressed: false,
+            selected: isSelected,
+            focused: isFocused,
+            hovered: isHovered
+        )))
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
+        .onHover { isHovered = $0 }
         .contextMenu { contextMenu }
+        .padding(.horizontal, WarrenSpacing.compact)
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
