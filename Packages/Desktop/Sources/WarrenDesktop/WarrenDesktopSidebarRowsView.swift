@@ -21,10 +21,10 @@ struct WarrenDesktopSidebarRows: View {
     @State private var pendingDeleteProject: Project?
     @State private var deleteWorkspaceRemoveWorktree = false
     @State private var dragSession = WarrenDesktopSidebarDragSession()
-    @State private var dragFrames: [String: WarrenSidebarRowDragFrame] = [:]
     @State private var dragRestoreExpansions: Set<ProjectID> = []
     @State private var isProjectDragActive = false
     @State private var dragSourceRowID: String?
+    @State private var isDragMeasurementEnabled = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -67,20 +67,10 @@ struct WarrenDesktopSidebarRows: View {
             }
         }
         .coordinateSpace(name: WarrenSidebarRowsDragCoordinateSpace.name)
-        .onPreferenceChange(WarrenSidebarRowDragFramesKey.self) { frames in
-            // Preference callbacks run inside the SwiftUI update transaction.
-            // Defer the @State write one main-actor hop and skip identical
-            // values so SwiftUI observes the change outside the transaction
-            // instead of re-entering layout.
-            Task { @MainActor in
-                guard dragFrames != frames else { return }
-                dragFrames = frames
-            }
-        }
-        .overlay {
+        .overlayPreferenceValue(WarrenSidebarRowDragFramesKey.self) { frames in
             WarrenDesktopSidebarDragOverlay(
                 session: dragSession,
-                rows: dragFrames,
+                rows: isDragMeasurementEnabled ? frames : [:],
                 onDropProject: { payload, beforeProjectID in
                     dropProject(payload, before: beforeProjectID)
                 },
@@ -95,6 +85,10 @@ struct WarrenDesktopSidebarRows: View {
                 onProjectDragEnded: endProjectDrag,
                 onDragSourceChanged: { id in
                     dragSourceRowID = id
+                },
+                onMeasurementNeededChanged: { isNeeded in
+                    guard isDragMeasurementEnabled != isNeeded else { return }
+                    isDragMeasurementEnabled = isNeeded
                 }
             )
         }
@@ -267,25 +261,28 @@ struct WarrenDesktopSidebarRows: View {
                 }
             )
         }
-        .background(GeometryReader { proxy in
-            Color.clear.preference(
-                key: WarrenSidebarRowDragFramesKey.self,
-                value: [
-                    group.project.id.description: WarrenSidebarRowDragFrame(
-                        info: WarrenSidebarRowDragInfo(
-                            id: group.project.id.description,
-                            kind: .project(group.project.id),
-                            name: group.project.name,
-                            isLastOfList: group.project.id == groups.last?.project.id
-                        ),
-                        frame: proxy.frame(
-                            in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
-                        )
-                    ),
-                ]
-            )
+        .background {
+            if isDragMeasurementEnabled {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: WarrenSidebarRowDragFramesKey.self,
+                        value: [
+                            group.project.id.description: WarrenSidebarRowDragFrame(
+                                info: WarrenSidebarRowDragInfo(
+                                    id: group.project.id.description,
+                                    kind: .project(group.project.id),
+                                    name: group.project.name,
+                                    isLastOfList: group.project.id == groups.last?.project.id
+                                ),
+                                frame: proxy.frame(
+                                    in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                                )
+                            ),
+                        ]
+                    )
+                }
+            }
         }
-        )
         .opacity(dragSourceRowID == group.project.id.description ? 0.2 : 1)
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.12),
@@ -326,28 +323,31 @@ struct WarrenDesktopSidebarRows: View {
         }
         .id(workspace.id)
         .transition(.opacity)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(
-                key: WarrenSidebarRowDragFramesKey.self,
-                value: [
-                    workspace.id.description: WarrenSidebarRowDragFrame(
-                        info: WarrenSidebarRowDragInfo(
-                            id: workspace.id.description,
-                            kind: .workspace(
-                                workspace.id,
-                                projectID: group.project.id
+        .background {
+            if isDragMeasurementEnabled {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: WarrenSidebarRowDragFramesKey.self,
+                        value: [
+                            workspace.id.description: WarrenSidebarRowDragFrame(
+                                info: WarrenSidebarRowDragInfo(
+                                    id: workspace.id.description,
+                                    kind: .workspace(
+                                        workspace.id,
+                                        projectID: group.project.id
+                                    ),
+                                    name: workspace.name,
+                                    isLastOfList: workspace.id == group.workspaces.last?.id
+                                ),
+                                frame: proxy.frame(
+                                    in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
+                                )
                             ),
-                            name: workspace.name,
-                            isLastOfList: workspace.id == group.workspaces.last?.id
-                        ),
-                        frame: proxy.frame(
-                            in: .named(WarrenSidebarRowsDragCoordinateSpace.name)
-                        )
-                    ),
-                ]
-            )
+                        ]
+                    )
+                }
+            }
         }
-        )
         .opacity(dragSourceRowID == workspace.id.description ? 0.2 : 1)
         .animation(
             reduceMotion ? nil : .easeOut(duration: 0.12),

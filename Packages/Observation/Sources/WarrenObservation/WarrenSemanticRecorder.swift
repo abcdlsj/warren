@@ -76,49 +76,71 @@ private struct WarrenSemanticElementModifier: ViewModifier {
     let isFocused: Bool
     let action: (() -> Void)?
 
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .accessibilityIdentifier(id)
-            .overlay {
-                GeometryReader { proxy in
-                    let frame = proxy.frame(in: .named(WarrenSemanticCoordinateSpace.name))
-                    Color.clear.preference(
-                        key: WarrenSemanticPreferenceKey.self,
-                        value: [
-                            WarrenSemanticNode(
-                                id: id,
-                                role: role,
-                                label: label,
-                                value: value,
-                                isEnabled: isEnabled,
-                                isSelected: isSelected,
-                                isFocused: isFocused,
-                                frame: WarrenSemanticRect(
-                                    x: frame.origin.x,
-                                    y: frame.origin.y,
-                                    width: frame.size.width,
-                                    height: frame.size.height
-                                )
-                            ),
-                        ]
-                    )
+        let identifiedContent = content.accessibilityIdentifier(id)
+        if let recorder {
+            identifiedContent
+                .overlay {
+                    GeometryReader { proxy in
+                        let frame = proxy.frame(in: .named(WarrenSemanticCoordinateSpace.name))
+                        Color.clear.preference(
+                            key: WarrenSemanticPreferenceKey.self,
+                            value: [
+                                WarrenSemanticNode(
+                                    id: id,
+                                    role: role,
+                                    label: label,
+                                    value: value,
+                                    isEnabled: isEnabled,
+                                    isSelected: isSelected,
+                                    isFocused: isFocused,
+                                    frame: WarrenSemanticRect(
+                                        x: frame.origin.x,
+                                        y: frame.origin.y,
+                                        width: frame.size.width,
+                                        height: frame.size.height
+                                    )
+                                ),
+                            ]
+                        )
+                    }
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-            .onAppear {
-                if let action {
-                    recorder?.registerAction(id: id, action: action)
+                .onAppear {
+                    if let action {
+                        recorder.registerAction(id: id, action: action)
+                    }
                 }
-            }
-            .onDisappear {
-                recorder?.removeAction(id: id)
-            }
+                .onDisappear {
+                    recorder.removeAction(id: id)
+                }
+        } else {
+            identifiedContent
+        }
     }
 }
 
 private enum WarrenSemanticCoordinateSpace {
     static let name = "WarrenSemanticRoot"
+}
+
+private struct WarrenSemanticObservationRootModifier: ViewModifier {
+    let recorder: WarrenSemanticRecorder?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let recorder {
+            content
+                .coordinateSpace(name: WarrenSemanticCoordinateSpace.name)
+                .onPreferenceChange(WarrenSemanticPreferenceKey.self) { values in
+                    recorder.replace(values)
+                }
+        } else {
+            content
+        }
+    }
 }
 
 public extension View {
@@ -149,9 +171,6 @@ public extension View {
     func warrenSemanticObservationRoot(
         recorder: WarrenSemanticRecorder?
     ) -> some View {
-        coordinateSpace(name: WarrenSemanticCoordinateSpace.name)
-            .onPreferenceChange(WarrenSemanticPreferenceKey.self) { values in
-                recorder?.replace(values)
-            }
+        modifier(WarrenSemanticObservationRootModifier(recorder: recorder))
     }
 }

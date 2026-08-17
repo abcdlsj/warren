@@ -37,18 +37,11 @@ struct WarrenDesktopTabBar: View {
     let onToggleSessionPin: (TerminalSessionID, Bool) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var hasTabOverflow = false
     @State private var pendingRenameSessionID: TerminalSessionID?
     @State private var sessionRenameTitle = ""
 
     static func tabTrackWidth(tabCount: Int) -> CGFloat {
         CGFloat(tabCount) * WarrenLayoutMetrics.tabWidth
-            + WarrenLayoutMetrics.tabAddButtonSlotWidth
-            // The add-tab affordance carries a small leading inset, so its
-            // real in-track width is the slot plus one xs step. Matching the
-            // frame cap to the measured content avoids an overflow toggle at
-            // the exact-fit boundary.
-            + WarrenSpacing.xs
     }
 
     var body: some View {
@@ -66,8 +59,7 @@ struct WarrenDesktopTabBar: View {
                     .horizontal,
                     fadeLength: WarrenLayoutMetrics.tabScrollFadeLength,
                     surface: tokens.chromeSurface,
-                    showsEdgeChevrons: hasTabOverflow,
-                    onHorizontalOverflowChange: { hasTabOverflow = $0 }
+                    showsEdgeChevrons: true
                 ) {
                     HStack(spacing: 0) {
                         ForEach(tabs) { tab in
@@ -96,50 +88,23 @@ struct WarrenDesktopTabBar: View {
                                 }
                             )
                         }
-
-                        // Superset's GroupStrip pins the add affordance outside
-                        // the scroller once tabs overflow, so the right edge
-                        // always exposes a clickable anchor. Inside the track
-                        // we keep a same-width drop target so "move to end"
-                        // still works after the button leaves the scroll area.
-                        if hasTabOverflow {
-                            Color.clear
-                                .frame(width: WarrenLayoutMetrics.tabAddButtonSlotWidth)
-                                .dropDestination(for: String.self) { tabIDs, _ in
-                                    guard let tabID = tabIDs.first else { return false }
-                                    onMoveTab(tabID, nil)
-                                    return true
-                                }
-                        } else {
-                            WarrenDesktopTabAddSlot(
-                                action: onAddTab,
-                                isEnabled: canAddTab
-                            )
-                            .dropDestination(for: String.self) { tabIDs, _ in
-                                guard let tabID = tabIDs.first else { return false }
-                                onMoveTab(tabID, nil)
-                                return true
-                            }
-                        }
                     }
                     .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
                 }
                 .frame(
-                    maxWidth: hasTabOverflow ? .infinity : Self.tabTrackWidth(tabCount: tabs.count),
+                    maxWidth: Self.tabTrackWidth(tabCount: tabs.count),
                     alignment: .leading
                 )
                 .layoutPriority(1)
 
-                if hasTabOverflow {
-                    WarrenDesktopTabAddSlot(
-                        action: onAddTab,
-                        isEnabled: canAddTab
-                    )
-                    .dropDestination(for: String.self) { tabIDs, _ in
-                        guard let tabID = tabIDs.first else { return false }
-                        onMoveTab(tabID, nil)
-                        return true
-                    }
+                WarrenDesktopTabAddSlot(
+                    action: onAddTab,
+                    isEnabled: canAddTab
+                )
+                .dropDestination(for: String.self) { tabIDs, _ in
+                    guard let tabID = tabIDs.first else { return false }
+                    onMoveTab(tabID, nil)
+                    return true
                 }
 
                 // The drag filler lives outside the scroll view, exactly like

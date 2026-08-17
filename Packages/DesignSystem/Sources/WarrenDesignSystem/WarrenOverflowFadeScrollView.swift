@@ -1,36 +1,24 @@
+import AppKit
 import SwiftUI
 
-private struct WarrenOverflowFadeMetrics: Equatable {
-    var frame: CGRect = .zero
+private struct WarrenScrollEdges: Equatable {
+    var canScrollTop = false
+    var canScrollBottom = false
+    var canScrollLeft = false
+    var canScrollRight = false
 }
 
-private struct WarrenOverflowFadeMetricsKey: PreferenceKey {
-    static let defaultValue = WarrenOverflowFadeMetrics()
-    static func reduce(value: inout WarrenOverflowFadeMetrics, nextValue: () -> WarrenOverflowFadeMetrics) {
-        value = nextValue()
-    }
-}
-
-/// A scroll view that exposes only edge-overflow booleans to its overlays.
-/// Geometry may be sampled continuously, but state changes are committed only
-/// when an edge crosses the one-point visibility boundary.
+/// A scroll view whose native coordinator reports edge visibility without
+/// feeding measured geometry back into SwiftUI layout.
 public struct WarrenOverflowFadeScrollView<Content: View>: View {
     private let axes: Axis.Set
     private let fadeLength: CGFloat
     private let surface: Color
     private let showsEdgeChevrons: Bool
-    private let onHorizontalOverflowChange: ((Bool) -> Void)?
     private let content: () -> Content
-    private let spaceName = UUID()
     private let contentID = "warren-overflow-content"
 
-    @State private var canScrollTop = false
-    @State private var canScrollBottom = false
-    @State private var canScrollLeft = false
-    @State private var canScrollRight = false
-    @State private var hasOverflowX = false
-    @State private var hasOverflowY = false
-    @State private var contentFrame = CGRect.zero
+    @State private var edges = WarrenScrollEdges()
     @Environment(\.colorScheme) private var colorScheme
 
     public init(
@@ -38,94 +26,71 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
         fadeLength: CGFloat = 24,
         surface: Color,
         showsEdgeChevrons: Bool = false,
-        onHorizontalOverflowChange: ((Bool) -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.axes = axes
         self.fadeLength = fadeLength
         self.surface = surface
         self.showsEdgeChevrons = showsEdgeChevrons
-        self.onHorizontalOverflowChange = onHorizontalOverflowChange
         self.content = content
     }
 
     public var body: some View {
-        GeometryReader { viewport in
-            ScrollViewReader { proxy in
-                ScrollView(axes, showsIndicators: false) {
-                    content()
-                        .id(contentID)
-                        .overlay {
-                            GeometryReader { contentGeometry in
-                                Color.clear.preference(
-                                    key: WarrenOverflowFadeMetricsKey.self,
-                                    value: WarrenOverflowFadeMetrics(frame: contentGeometry.frame(in: .named(spaceName)))
-                                )
-                            }
-                            .allowsHitTesting(false)
-                        }
-                }
-                .coordinateSpace(name: spaceName)
-                .onPreferenceChange(WarrenOverflowFadeMetricsKey.self) { metrics in
-                    // Preference callbacks run inside the SwiftUI update
-                    // transaction. Writing @State here publishes from within a
-                    // view update (runtime fault) and can re-enter layout
-                    // forever. Defer to the next main-actor hop and skip the
-                    // write when the frame is unchanged.
-                    let frame = metrics.frame
-                    let viewportSize = viewport.size
-                    Task { @MainActor in
-                        guard contentFrame != frame else { return }
-                        contentFrame = frame
-                        updateEdges(contentFrame: frame, viewport: viewportSize)
-                    }
-                }
-                .onChange(of: viewport.size) { _, newSize in
-                    updateEdges(contentFrame: contentFrame, viewport: newSize)
-                }
-                .overlay(alignment: .top) {
-                    if axes.contains(.vertical), canScrollTop {
-                        fade(edge: .top)
-                    }
-                }
-                .overlay(alignment: .bottom) {
-                    if axes.contains(.vertical), canScrollBottom {
-                        fade(edge: .bottom)
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollLeft {
-                        fade(edge: .leading)
-                    }
-                }
-                .overlay(alignment: .trailing) {
-                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollRight {
-                        fade(edge: .trailing)
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollLeft {
-                        chevron(edge: .leading) {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                proxy.scrollTo(contentID, anchor: .leading)
-                            }
+        ScrollViewReader { proxy in
+            ScrollView(axes, showsIndicators: false) {
+                content()
+                    .id(contentID)
+                    .background {
+                        WarrenScrollEdgeObserver { newEdges in
+                            guard edges != newEdges else { return }
+                            edges = newEdges
                         }
                     }
-                }
-                .overlay(alignment: .trailing) {
-                    if showsEdgeChevrons, axes.contains(.horizontal), canScrollRight {
-                        chevron(edge: .trailing) {
-                            withAnimation(.easeOut(duration: 0.18)) {
-                                proxy.scrollTo(contentID, anchor: .trailing)
-                            }
-                        }
+            }
+            .overlay(alignment: .top) {
+                fade(edge: .top)
+                    .opacity(axes.contains(.vertical) && edges.canScrollTop ? 1 : 0)
+            }
+            .overlay(alignment: .bottom) {
+                fade(edge: .bottom)
+                    .opacity(axes.contains(.vertical) && edges.canScrollBottom ? 1 : 0)
+            }
+            .overlay(alignment: .leading) {
+                fade(edge: .leading)
+                    .opacity(horizontalIndicatorVisible(edges.canScrollLeft) ? 1 : 0)
+            }
+            .overlay(alignment: .trailing) {
+                fade(edge: .trailing)
+                    .opacity(horizontalIndicatorVisible(edges.canScrollRight) ? 1 : 0)
+            }
+            .overlay(alignment: .leading) {
+                chevron(edge: .leading) {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(contentID, anchor: .leading)
                     }
                 }
+                .opacity(horizontalIndicatorVisible(edges.canScrollLeft) ? 1 : 0)
+                .allowsHitTesting(horizontalIndicatorVisible(edges.canScrollLeft))
+                .accessibilityHidden(!horizontalIndicatorVisible(edges.canScrollLeft))
+            }
+            .overlay(alignment: .trailing) {
+                chevron(edge: .trailing) {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(contentID, anchor: .trailing)
+                    }
+                }
+                .opacity(horizontalIndicatorVisible(edges.canScrollRight) ? 1 : 0)
+                .allowsHitTesting(horizontalIndicatorVisible(edges.canScrollRight))
+                .accessibilityHidden(!horizontalIndicatorVisible(edges.canScrollRight))
             }
         }
     }
 
     private enum Edge { case top, bottom, leading, trailing }
+
+    private func horizontalIndicatorVisible(_ canScroll: Bool) -> Bool {
+        showsEdgeChevrons && axes.contains(.horizontal) && canScroll
+    }
 
     @ViewBuilder
     private func fade(edge: Edge) -> some View {
@@ -169,27 +134,120 @@ public struct WarrenOverflowFadeScrollView<Content: View>: View {
         .accessibilityLabel(edge == .trailing ? "Scroll tabs forward" : "Scroll tabs backward")
         .help(edge == .trailing ? "More tabs" : "Earlier tabs")
     }
+}
 
-    private func updateEdges(contentFrame: CGRect, viewport: CGSize) {
+private struct WarrenScrollEdgeObserver: NSViewRepresentable {
+    let onChange: (WarrenScrollEdges) -> Void
+
+    func makeNSView(context: Context) -> WarrenScrollEdgeObserverView {
+        let view = WarrenScrollEdgeObserverView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: WarrenScrollEdgeObserverView, context: Context) {
+        nsView.onChange = onChange
+        nsView.reconcileScrollView()
+    }
+}
+
+private final class WarrenScrollEdgeObserverView: NSView {
+    var onChange: ((WarrenScrollEdges) -> Void)?
+
+    private weak var observedScrollView: NSScrollView?
+    private var observations: [NSObjectProtocol] = []
+    private var lastEdges: WarrenScrollEdges?
+    private var publicationScheduled = false
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        reconcileScrollView()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            removeObservations()
+            observedScrollView = nil
+            return
+        }
+        reconcileScrollView()
+    }
+
+    override func layout() {
+        super.layout()
+        schedulePublication()
+    }
+
+    func reconcileScrollView() {
+        let scrollView = enclosingScrollView
+        guard observedScrollView !== scrollView else {
+            schedulePublication()
+            return
+        }
+
+        removeObservations()
+        observedScrollView = scrollView
+        guard let scrollView else { return }
+
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        if let documentView = scrollView.documentView {
+            documentView.postsFrameChangedNotifications = true
+        }
+        let center = NotificationCenter.default
+        observations.append(center.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: scrollView.contentView,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.schedulePublication()
+            }
+        })
+        if let documentView = scrollView.documentView {
+            observations.append(center.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: documentView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.schedulePublication()
+                }
+            })
+        }
+        schedulePublication()
+    }
+
+    private func schedulePublication() {
+        guard !publicationScheduled else { return }
+        publicationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            publicationScheduled = false
+            publishEdges()
+        }
+    }
+
+    private func publishEdges() {
+        guard let scrollView = observedScrollView,
+              let documentView = scrollView.documentView else { return }
         let epsilon: CGFloat = 1
-        let nextOverflowX = axes.contains(.horizontal)
-            && contentFrame.width > viewport.width + epsilon
-        let nextOverflowY = axes.contains(.vertical)
-            && contentFrame.height > viewport.height + epsilon
-        let nextTop = axes.contains(.vertical) && contentFrame.minY < -epsilon
-        let nextBottom = axes.contains(.vertical) && contentFrame.maxY > viewport.height + epsilon
-        let nextLeft = axes.contains(.horizontal) && contentFrame.minX < -epsilon
-        let nextRight = axes.contains(.horizontal) && contentFrame.maxX > viewport.width + epsilon
+        let visible = documentView.visibleRect
+        let document = documentView.bounds
+        let edges = WarrenScrollEdges(
+            canScrollTop: visible.minY > document.minY + epsilon,
+            canScrollBottom: visible.maxY < document.maxY - epsilon,
+            canScrollLeft: visible.minX > document.minX + epsilon,
+            canScrollRight: visible.maxX < document.maxX - epsilon
+        )
+        guard edges != lastEdges else { return }
+        lastEdges = edges
+        onChange?(edges)
+    }
 
-        guard nextOverflowX != hasOverflowX || nextOverflowY != hasOverflowY
-                || nextTop != canScrollTop || nextBottom != canScrollBottom
-                || nextLeft != canScrollLeft || nextRight != canScrollRight else { return }
-        hasOverflowX = nextOverflowX
-        hasOverflowY = nextOverflowY
-        canScrollTop = nextTop
-        canScrollBottom = nextBottom
-        canScrollLeft = nextLeft
-        canScrollRight = nextRight
-        onHorizontalOverflowChange?(hasOverflowX)
+    private func removeObservations() {
+        let center = NotificationCenter.default
+        observations.forEach(center.removeObserver)
+        observations.removeAll()
     }
 }

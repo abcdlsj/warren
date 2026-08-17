@@ -152,14 +152,12 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
-    func testOverflowFadeScrollViewReportsHorizontalOverflow() {
-        var observed: [Bool] = []
+    func testOverflowFadeScrollViewSettlesWithHorizontalOverflow() {
         let scroll = WarrenOverflowFadeScrollView(
             .horizontal,
             fadeLength: 36,
             surface: .black,
-            showsEdgeChevrons: true,
-            onHorizontalOverflowChange: { observed.append($0) }
+            showsEdgeChevrons: true
         ) {
             HStack(spacing: 0) {
                 ForEach(0..<12, id: \.self) { _ in
@@ -175,17 +173,21 @@ final class WarrenDesktopTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         hostingView.layoutSubtreeIfNeeded()
 
-        XCTAssertEqual(observed, [true])
+        let initialFrames = descendantViews(of: hostingView, as: NSScrollView.self).map(\.frame)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(
+            descendantViews(of: hostingView, as: NSScrollView.self).map(\.frame),
+            initialFrames
+        )
     }
 
     func testOverflowFadeScrollViewRefreshesEdgesAfterViewportResize() {
-        var observed: [Bool] = []
         let scroll = WarrenOverflowFadeScrollView(
             .horizontal,
             fadeLength: 36,
             surface: .black,
-            showsEdgeChevrons: true,
-            onHorizontalOverflowChange: { observed.append($0) }
+            showsEdgeChevrons: true
         ) {
             HStack(spacing: 0) {
                 ForEach(0..<12, id: \.self) { _ in
@@ -199,19 +201,23 @@ final class WarrenDesktopTests: XCTestCase {
         hostingView.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         hostingView.layoutSubtreeIfNeeded()
-        XCTAssertEqual(observed, [true])
+        let narrowWidth = descendantViews(of: hostingView, as: NSScrollView.self).first?.frame.width
 
         hostingView.setFrameSize(NSSize(width: 2000, height: 36))
         hostingView.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         hostingView.layoutSubtreeIfNeeded()
-        XCTAssertEqual(observed, [true, false])
+        let wideWidth = descendantViews(of: hostingView, as: NSScrollView.self).first?.frame.width
+        XCTAssertNotEqual(narrowWidth, wideWidth)
 
         hostingView.setFrameSize(NSSize(width: 500, height: 36))
         hostingView.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         hostingView.layoutSubtreeIfNeeded()
-        XCTAssertEqual(observed, [true, false, true])
+        XCTAssertEqual(
+            descendantViews(of: hostingView, as: NSScrollView.self).first?.frame.width,
+            narrowWidth
+        )
     }
 
     private func descendantViews<T: NSView>(

@@ -77,20 +77,24 @@ final class WarrenDesktopSidebarDragSession {
     private(set) var isActive = false
 
     private var flagsMonitor: Any?
-    private var clients = 0
+    private var clients: [UUID: (Bool) -> Void] = [:]
 
-    func addClient() {
-        clients += 1
+    func addClient(id: UUID, onMeasurementNeededChanged: @escaping (Bool) -> Void) {
+        clients[id] = onMeasurementNeededChanged
         guard flagsMonitor == nil else { return }
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.commandHeld = event.modifierFlags.contains(.command)
+            guard let self else { return event }
+            let nextCommandHeld = event.modifierFlags.contains(.command)
+            guard commandHeld != nextCommandHeld else { return event }
+            commandHeld = nextCommandHeld
+            notifyMeasurementNeeded()
             return event
         }
     }
 
-    func removeClient() {
-        clients = max(0, clients - 1)
-        guard clients == 0, let flagsMonitor else { return }
+    func removeClient(id: UUID) {
+        clients[id] = nil
+        guard clients.isEmpty, let flagsMonitor else { return }
         NSEvent.removeMonitor(flagsMonitor)
         self.flagsMonitor = nil
         commandHeld = false
@@ -98,7 +102,14 @@ final class WarrenDesktopSidebarDragSession {
     }
 
     func setActive(_ active: Bool) {
+        guard isActive != active else { return }
         isActive = active
+        notifyMeasurementNeeded()
+    }
+
+    private func notifyMeasurementNeeded() {
+        let isNeeded = commandHeld || isActive
+        clients.values.forEach { $0(isNeeded) }
     }
 }
 
@@ -115,6 +126,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
     let onProjectDragBegan: () -> Void
     let onProjectDragEnded: () -> Void
     let onDragSourceChanged: (String?) -> Void
+    let onMeasurementNeededChanged: (Bool) -> Void
 
     func makeNSView(context: Context) -> WarrenDesktopSidebarDragOverlayView {
         let view = WarrenDesktopSidebarDragOverlayView(session: session)
@@ -124,6 +136,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         view.onProjectDragBegan = onProjectDragBegan
         view.onProjectDragEnded = onProjectDragEnded
         view.onDragSourceChanged = onDragSourceChanged
+        view.onMeasurementNeededChanged = onMeasurementNeededChanged
         return view
     }
 
@@ -134,6 +147,7 @@ struct WarrenDesktopSidebarDragOverlay: NSViewRepresentable {
         nsView.onProjectDragBegan = onProjectDragBegan
         nsView.onProjectDragEnded = onProjectDragEnded
         nsView.onDragSourceChanged = onDragSourceChanged
+        nsView.onMeasurementNeededChanged = onMeasurementNeededChanged
     }
 }
 
@@ -149,6 +163,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     var onProjectDragBegan: (() -> Void)?
     var onProjectDragEnded: (() -> Void)?
     var onDragSourceChanged: ((String?) -> Void)?
+    var onMeasurementNeededChanged: ((Bool) -> Void)?
 
     private let session: WarrenDesktopSidebarDragSession
     private var highlightRect: NSRect?
@@ -157,6 +172,7 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
     private var escapePressed = false
     private var escapeMonitor: Any?
     private var suppressClickUntil: Date?
+    private let clientID = UUID()
 
     init(session: WarrenDesktopSidebarDragSession) {
         self.session = session
@@ -175,17 +191,19 @@ final class WarrenDesktopSidebarDragOverlayView: NSView, NSDraggingSource {
         super.viewDidMoveToWindow()
         if window != nil, !attachedToWindow {
             attachedToWindow = true
-            session.addClient()
+            session.addClient(id: clientID) { [weak self] isNeeded in
+                self?.onMeasurementNeededChanged?(isNeeded)
+            }
         } else if window == nil, attachedToWindow {
             attachedToWindow = false
-            session.removeClient()
+            session.removeClient(id: clientID)
         }
     }
 
     deinit {
         if attachedToWindow {
             MainActor.assumeIsolated {
-                session.removeClient()
+                session.removeClient(id: clientID)
             }
         }
     }
