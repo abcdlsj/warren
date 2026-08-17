@@ -42,6 +42,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
     @State private var webPresented = false
     @State private var webDismissalNonce = 0
+    @State private var pendingRename: WarrenDesktopRenameRequest?
+    @State private var renameValue = ""
     @State private var pendingDeletion: WarrenDesktopDeletionRequest?
     @State private var deleteWorkspaceRemoveWorktree = false
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
@@ -146,6 +148,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     chromeMode: chromeMode,
                     onAction: dispatch,
                     onCommandPalette: { commandPalettePresented = true },
+                    onRequestRename: presentRename,
                     onRequestDeletion: presentDeletion
                 )
                 .frame(width: sidebarState.renderedWidth)
@@ -205,9 +208,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onCloseTab: { dispatch(.closeTab($0)) },
                         onCloseOtherTabs: { dispatch(.closeOtherTabs($0)) },
                         onCloseAllTabs: { dispatch(.closeAllTabs) },
-                        onRenameSession: { sessionID, title in
-                            dispatch(.renameSession(sessionID, title))
-                        },
+                        onRequestRename: presentRename,
                         onToggleSessionPin: { sessionID, pinned in
                             dispatch(.setSessionPinned(sessionID, pinned))
                         },
@@ -337,6 +338,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.toggleInspector)) { _ in
             toggleInspector()
+        }
+        .overlay {
+            renameDialog
         }
         .overlay {
             deletionDialog
@@ -507,6 +511,48 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private func refreshWebDismissal() {
         guard webPresented else { return }
         webDismissalNonce += 1
+    }
+
+    private func presentRename(_ request: WarrenDesktopRenameRequest) {
+        renameValue = request.initialValue
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            pendingRename = request
+        }
+    }
+
+    private func dismissRename() {
+        withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+            pendingRename = nil
+        }
+    }
+
+    private func confirmRename() {
+        guard let pendingRename else { return }
+        switch pendingRename {
+        case .project(let id, _):
+            dispatch(.renameProject(id, renameValue))
+        case .workspace(let id, _):
+            dispatch(.renameWorkspace(id, renameValue))
+        case .session(let id, _):
+            dispatch(.renameSession(id, renameValue))
+        }
+        dismissRename()
+    }
+
+    @ViewBuilder
+    private var renameDialog: some View {
+        if let pendingRename {
+            WarrenTextInputDialog(
+                title: pendingRename.title,
+                message: pendingRename.message,
+                fieldLabel: pendingRename.fieldLabel,
+                text: $renameValue,
+                confirmLabel: "Rename",
+                onCancel: dismissRename,
+                onConfirm: confirmRename
+            )
+            .zIndex(31)
+        }
     }
 
     private func presentDeletion(_ request: WarrenDesktopDeletionRequest) {

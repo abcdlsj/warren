@@ -34,13 +34,11 @@ struct WarrenDesktopTabBar: View {
     let onCloseTab: (String) -> Void
     let onCloseOtherTabs: (String) -> Void
     let onCloseAllTabs: () -> Void
-    let onRenameSession: (TerminalSessionID, String) -> Void
+    let onRequestRename: (WarrenDesktopRenameRequest) -> Void
     let onToggleSessionPin: (TerminalSessionID, Bool) -> Void
     let onDismissActivity: (TerminalSessionID, AgentActivityState) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var pendingRenameSessionID: TerminalSessionID?
-    @State private var sessionRenameTitle = ""
 
     static func tabTrackWidth(tabCount: Int) -> CGFloat {
         CGFloat(tabCount) * WarrenLayoutMetrics.tabWidth
@@ -79,8 +77,10 @@ struct WarrenDesktopTabBar: View {
                                 onMoveBefore: { sourceID in onMoveTab(sourceID, tab.id) },
                                 onRename: {
                                     guard let sessionID = tab.sessionID else { return }
-                                    sessionRenameTitle = tabTitles[tab.id] ?? tab.title
-                                    pendingRenameSessionID = sessionID
+                                    onRequestRename(.session(
+                                        sessionID,
+                                        title: tabTitles[tab.id] ?? tab.title
+                                    ))
                                 },
                                 onTogglePin: {
                                     guard let sessionID = tab.sessionID else { return }
@@ -142,23 +142,6 @@ struct WarrenDesktopTabBar: View {
             .frame(height: WarrenLayoutMetrics.tabBarHeight)
         }
         .frame(height: WarrenLayoutMetrics.tabBarHeight)
-        .overlay {
-            if pendingRenameSessionID != nil {
-                WarrenTextInputDialog(
-                    title: "Rename Session",
-                    message: "Custom titles are stored on the Host and shared by every client.",
-                    fieldLabel: "Session title",
-                    text: $sessionRenameTitle,
-                    confirmLabel: "Rename",
-                    onCancel: { pendingRenameSessionID = nil },
-                    onConfirm: {
-                        guard let sessionID = pendingRenameSessionID else { return }
-                        pendingRenameSessionID = nil
-                        onRenameSession(sessionID, sessionRenameTitle)
-                    }
-                )
-            }
-        }
         .overlay(alignment: .bottom) {
             WarrenDesktopChromeDivider()
         }

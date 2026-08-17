@@ -17,12 +17,9 @@ struct WarrenDesktopSidebarRows: View {
     let selection: WarrenDesktopSidebarSelection?
     let onAddProject: () -> Void
     let onAction: (WarrenDesktopAction) -> Void
+    let onRequestRename: (WarrenDesktopRenameRequest) -> Void
     let onRequestDeletion: (WarrenDesktopDeletionRequest) -> Void
 
-    @State private var pendingRename: Workspace?
-    @State private var workspaceName = ""
-    @State private var pendingRenameProject: Project?
-    @State private var projectName = ""
     @State private var dragSession = WarrenDesktopSidebarDragSession()
     /// Ephemeral presentation state; persisted expansion preferences remain untouched.
     @State private var dragAutoCollapse: WarrenSidebarDragAutoCollapse?
@@ -107,40 +104,6 @@ struct WarrenDesktopSidebarRows: View {
                 reduceMotion: reduceMotion
             )) {
                 tree.expandedProjectIDs.insert(workspace.projectID)
-            }
-        }
-        .overlay {
-            if pendingRename != nil {
-                WarrenTextInputDialog(
-                    title: "Rename Workspace",
-                    message: "The Git branch name and worktree path are unchanged.",
-                    fieldLabel: "Workspace name",
-                    text: $workspaceName,
-                    confirmLabel: "Rename",
-                    onCancel: { pendingRename = nil },
-                    onConfirm: {
-                        guard let workspace = pendingRename else { return }
-                        pendingRename = nil
-                        onAction(.renameWorkspace(workspace.id, workspaceName))
-                    }
-                )
-            }
-        }
-        .overlay {
-            if pendingRenameProject != nil {
-                WarrenTextInputDialog(
-                    title: "Rename Project",
-                    message: "Only the sidebar label changes; the repository path stays the same.",
-                    fieldLabel: "Project name",
-                    text: $projectName,
-                    confirmLabel: "Rename",
-                    onCancel: { pendingRenameProject = nil },
-                    onConfirm: {
-                        guard let project = pendingRenameProject else { return }
-                        pendingRenameProject = nil
-                        onAction(.renameProject(project.id, projectName))
-                    }
-                )
             }
         }
         .onChange(of: groups) { oldGroups, newGroups in
@@ -236,8 +199,7 @@ struct WarrenDesktopSidebarRows: View {
                     onAction(.requestNewWorkspace(group.project.id))
                 },
                 onRename: {
-                    projectName = group.project.name
-                    pendingRenameProject = group.project
+                    onRequestRename(.project(group.project.id, name: group.project.name))
                 },
                 onTogglePin: {
                     onAction(.setProjectPinned(
@@ -298,8 +260,7 @@ struct WarrenDesktopSidebarRows: View {
                 onSelect: { select(.workspace(workspace.id)) },
                 onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
                 onRename: {
-                    workspaceName = workspace.name
-                    pendingRename = workspace
+                    onRequestRename(.workspace(workspace.id, name: workspace.name))
                 },
                 onTogglePin: {
                     onAction(.setWorkspacePinned(

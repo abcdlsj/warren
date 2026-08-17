@@ -10,6 +10,7 @@ struct WarrenDesktopSidebar: View {
     let chromeMode: WarrenDesktopChromeMode
     let onAction: (WarrenDesktopAction) -> Void
     let onCommandPalette: () -> Void
+    let onRequestRename: (WarrenDesktopRenameRequest) -> Void
     let onRequestDeletion: (WarrenDesktopDeletionRequest) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -38,6 +39,7 @@ struct WarrenDesktopSidebar: View {
                         selection: selection,
                         onAddProject: { onAction(.addProject) },
                         onAction: onAction,
+                        onRequestRename: onRequestRename,
                         onRequestDeletion: onRequestDeletion
                     )
                     .padding(.vertical, WarrenSpacing.compact)

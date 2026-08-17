@@ -263,7 +263,7 @@ final class WarrenDesktopTests: XCTestCase {
             onCloseTab: { _ in },
             onCloseOtherTabs: { _ in },
             onCloseAllTabs: {},
-            onRenameSession: { _, _ in },
+            onRequestRename: { _ in },
             onToggleSessionPin: { _, _ in },
             onDismissActivity: { _, _ in }
         )
