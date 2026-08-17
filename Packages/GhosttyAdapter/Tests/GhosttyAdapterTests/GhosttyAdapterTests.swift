@@ -6,6 +6,46 @@ import GhosttyTerminal
 @testable import GhosttyAdapter
 
 final class GhosttyAdapterTests: XCTestCase {
+    func testRetentionPolicyKeepsOneActiveAndTwoMostRecentWarmSurfaces() {
+        let ids = (0..<4).map { _ in TerminalSessionID(rawValue: UUID()) }
+        var policy = TerminalSurfaceRetentionPolicy(warmLimit: 2)
+
+        XCTAssertEqual(policy.activate(ids[0]), [])
+        XCTAssertEqual(policy.activate(ids[1]), [])
+        XCTAssertEqual(policy.activate(ids[2]), [])
+        XCTAssertEqual(policy.activate(ids[3]), [ids[0]])
+
+        XCTAssertEqual(policy.activeSessionID, ids[3])
+        XCTAssertEqual(policy.warmSessionIDs, [ids[2], ids[1]])
+        XCTAssertEqual(policy.residency(of: ids[3]), .active)
+        XCTAssertEqual(policy.residency(of: ids[2]), .warm)
+        XCTAssertEqual(policy.residency(of: ids[0]), .cold)
+    }
+
+    func testRetentionPolicyPromotionDoesNotDuplicateWarmSurface() {
+        let first = TerminalSessionID(rawValue: UUID())
+        let second = TerminalSessionID(rawValue: UUID())
+        var policy = TerminalSurfaceRetentionPolicy(warmLimit: 2)
+
+        _ = policy.activate(first)
+        _ = policy.activate(second)
+        XCTAssertEqual(policy.activate(first), [])
+
+        XCTAssertEqual(policy.activeSessionID, first)
+        XCTAssertEqual(policy.warmSessionIDs, [second])
+    }
+
+    func testRetentionPolicyDeactivationRespectsZeroWarmBudget() {
+        let sessionID = TerminalSessionID(rawValue: UUID())
+        var policy = TerminalSurfaceRetentionPolicy(warmLimit: 0)
+
+        _ = policy.activate(sessionID)
+
+        XCTAssertEqual(policy.deactivate(), [sessionID])
+        XCTAssertNil(policy.activeSessionID)
+        XCTAssertTrue(policy.warmSessionIDs.isEmpty)
+    }
+
     @MainActor
     func testSemanticSnapshotPreservesANSIStyleAndUnicodeWithoutWindow() {
         let surface = GhosttySurface(

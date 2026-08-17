@@ -1,4 +1,18 @@
 import Foundation
+import CoreGraphics
+
+enum GhosttyDiagnosticsFormat {
+    static func finiteSize(_ size: CGSize) -> String {
+        "\(finitePart(size.width))x\(finitePart(size.height))"
+    }
+
+    private static func finitePart(_ value: CGFloat) -> String {
+        guard value.isFinite else { return "inf" }
+        if value > 1_000_000 { return ">1M" }
+        if value < -1_000_000 { return "<-1M" }
+        return String(Int(value))
+    }
+}
 import GhosttyTerminal
 
 /// Terminal presentation diagnostics for the workspace/tab-switch black pane.

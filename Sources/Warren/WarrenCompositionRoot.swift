@@ -49,7 +49,7 @@ struct WarrenCompositionRoot: View {
         ) { context in
             WarrenTerminalSurfaceView(
                 context: context,
-                surfaces: remoteModel.mountedSurfaces,
+                surfaceManager: remoteModel.surfaceManager,
                 maintenanceMessage: remoteModel.maintenanceMessage,
                 onFocused: { sessionID, size in
                     remoteModel.focus(sessionID: sessionID, size: size)
@@ -576,89 +576,36 @@ private struct WarrenSupersetImportView: View {
 
 private struct WarrenTerminalSurfaceView: View {
     let context: WarrenDesktopTerminalContext
-    let surfaces: [GhosttySurface]
+    let surfaceManager: TerminalSurfaceManager
     let maintenanceMessage: String?
     let onFocused: (TerminalSessionID, TerminalSize?) -> Void
     let onBlurred: (TerminalSessionID) -> Void
     @Binding var searchPresented: Bool
     @State private var searchQuery = ""
     @FocusState private var searchFieldFocused: Bool
-    @State private var focusDriver = GhosttyFocusDriver()
 
     private var activeSurface: GhosttySurface? {
-        surfaces.first { $0.id == context.tab.sessionID }
+        context.tab.sessionID.flatMap(surfaceManager.surface(for:))
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                ForEach(surfaces) { surface in
-                    let isActive = surface.id == context.tab.sessionID
-                    GhosttyManagedSurface(
-                        surface: surface,
-                        isActive: isActive,
-                        focusDriver: focusDriver,
-                        viewportSize: proxy.size,
-                        onFocused: {
-                            onFocused(
-                                surface.id,
-                                surface.state.surfaceSize.flatMap {
-                                    TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
-                                }
-                            )
-                        },
-                        onBlurred: {
-                            onBlurred(surface.id)
-                        }
-                    )
-                        // Every mounted renderer owns the same pane-sized
-                        // viewport, including hidden siblings. Otherwise
-                        // AppKit reports the hidden view's 50x17 intrinsic
-                        // grid to tmux and switching tabs visibly reflows
-                        // the agent before it expands again.
-                        .frame(
-                            width: proxy.size.width,
-                            height: proxy.size.height
-                        )
-                        // Ghostty's CAMetalLayer does not honor SwiftUI
-                        // opacity; a hidden sibling must be removed
-                        // from compositing. GhosttyWindowProbe sets the
-                        // underlying NSView.isHidden directly so the
-                        // surface stays alive across tab switches.
-                        .opacity(isActive ? 1 : 0)
-                        .allowsHitTesting(isActive)
-                        .accessibilityHidden(!isActive)
-                }
-                if activeSurface == nil {
-                    if context.tab.sessionID == nil {
-                        WarrenEmptyWorkspacePanel()
-                            .frame(
-                                width: proxy.size.width,
-                                height: proxy.size.height
-                            )
-                    } else {
-                        ConnectingPlaceholder(
-                            title: context.tab.title,
-                            updating: maintenanceMessage != nil
-                        )
-                        .frame(
-                            width: proxy.size.width,
-                            height: proxy.size.height
-                        )
-                    }
-                }
-            }
-            .frame(
-                width: proxy.size.width,
-                height: proxy.size.height
+        ZStack {
+            TerminalHostRepresentable(
+                manager: surfaceManager,
+                activeSessionID: context.tab.sessionID,
+                onFocused: onFocused,
+                onBlurred: onBlurred
             )
+            if context.tab.sessionID == nil {
+                WarrenEmptyWorkspacePanel()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             TerminalDiagnostics.log("terminal_view_appear", [
                 "workspace": context.workspace.id.rawValue.uuidString,
                 "tab": context.tab.sessionID.map(\.description) ?? "nil",
-                "mounted": String(surfaces.count),
+                "mounted": String(surfaceManager.retainedSurfaceCount),
                 "active": activeSurface != nil ? "true" : "false",
             ])
         }
@@ -701,9 +648,9 @@ private struct WarrenTerminalSurfaceView: View {
         .onChange(of: context.tab.sessionID) { _, _ in
             TerminalDiagnostics.log("terminal_tab_switch", [
                 "tab": context.tab.sessionID.map(\.description) ?? "nil",
-                "surfaces": String(surfaces.count),
+                "surfaces": String(surfaceManager.retainedSurfaceCount),
             ])
-            for surface in surfaces { surface.endSearch() }
+            surfaceManager.endAllSearches()
             searchQuery = ""
             searchPresented = false
         }
@@ -711,7 +658,7 @@ private struct WarrenTerminalSurfaceView: View {
             TerminalDiagnostics.log("workspace_switch", [
                 "workspace": context.workspace.id.rawValue.uuidString,
                 "tab": context.tab.sessionID.map(\.description) ?? "nil",
-                "mounted": String(surfaces.count),
+                "mounted": String(surfaceManager.retainedSurfaceCount),
                 "active": activeSurface != nil ? "true" : "false",
             ])
         }
@@ -720,28 +667,15 @@ private struct WarrenTerminalSurfaceView: View {
                 for: WarrenDesktopCommand.settingsDismissed
             )
         ) { _ in
-            guard let surface = activeSurface else { return }
-            focusDriver.moveFocus(
-                to: surface.state,
-                replacingCurrentResponder: true,
-                canFocus: { true },
-                onFocused: {
-                    onFocused(
-                        surface.id,
-                        surface.state.surfaceSize.flatMap {
-                            TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
-                        }
-                    )
-                }
-            )
-            surface.requestDisplayRefresh()
+            surfaceManager.requestFocusForActiveSurface()
+            if let sessionID = context.tab.sessionID {
+                surfaceManager.requestPresent(sessionID)
+            }
         }
     }
 }
 
-/// Empty workspace state rendered above the still-mounted terminal surfaces.
-/// Keeping the surfaces alive across a transient nil tab avoids recreating
-/// Ghostty views; this panel is the visual placeholder while no tab is active.
+/// Empty workspace state rendered above the stable native terminal host.
 private struct WarrenEmptyWorkspacePanel: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -790,46 +724,6 @@ private struct WarrenEmptyWorkspacePanel: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(key): \(label)")
-    }
-}
-
-/// Delays the "Connecting…" spinner so a fast attach does not flash it. The
-/// placeholder stays blank for the first 200ms; if the surface appears by
-/// then, no spinner is ever shown.
-private struct ConnectingPlaceholder: View {
-    let title: String
-    let updating: Bool
-    @State private var visible = false
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        Group {
-            if visible {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(tokens.highlight)
-                    Text(updating ? "Updating Warren…" : "Connecting \(title)…")
-                        .font(WarrenTypography.supporting)
-                        .foregroundStyle(tokens.mutedForeground)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task {
-            try? await Task.sleep(for: .milliseconds(200))
-            visible = true
-            TerminalDiagnostics.log("connecting_placeholder_shown", [
-                "title": title,
-                "updating": updating ? "true" : "false",
-            ])
-        }
-        .onDisappear {
-            TerminalDiagnostics.log("connecting_placeholder_hidden", [
-                "title": title,
-            ])
-        }
     }
 }
 

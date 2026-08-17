@@ -580,7 +580,6 @@ final class WarrenRemoteApplicationModel {
     private(set) var navigation: WarrenDesktopNavigationState {
         didSet { WarrenDesktopNavigationPersistence.save(navigation) }
     }
-    private(set) var mountedSurfaces: [GhosttySurface] = []
     private(set) var issue: Error?
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Default engine for new sessions, owned by the headless daemon.
@@ -613,8 +612,10 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
+    @ObservationIgnored let surfaceManager: TerminalSurfaceManager
 
     init() {
+        surfaceManager = TerminalSurfaceManager(warmLimit: 2)
         self.navigation = WarrenDesktopNavigationPersistence.restore()
             ?? WarrenDesktopNavigationState(selection: nil, selectedTabID: nil)
     }
@@ -722,20 +723,13 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func shutdownAllMountedSurfaces() {
-        for surface in mountedSurfaces {
-            surface.outputWriter.shutdown()
-        }
-        mountedSurfaces.removeAll()
+        surfaceManager.shutdown()
         outputAnchors.removeAll()
         suppressFramedAnchorUpdates.removeAll()
     }
 
     private func removeMountedSurface(sessionID: TerminalSessionID) {
-        mountedSurfaces.removeAll { surface in
-            guard surface.id == sessionID else { return false }
-            surface.outputWriter.shutdown()
-            return true
-        }
+        surfaceManager.remove(sessionID)
         outputAnchors.removeValue(forKey: sessionID)
         suppressFramedAnchorUpdates.remove(sessionID)
     }
@@ -843,9 +837,7 @@ final class WarrenRemoteApplicationModel {
     func updateTerminalFont(_ preference: TerminalFontPreference) {
         guard preference != terminalFont else { return }
         terminalFont = preference
-        for surface in mountedSurfaces {
-            surface.apply(font: preference)
-        }
+        surfaceManager.apply(font: preference)
     }
     func startWebFromUI() {
         controlTunnel(.start, kind: "gnar")
@@ -1172,8 +1164,8 @@ final class WarrenRemoteApplicationModel {
 
     func focus(sessionID: TerminalSessionID, size: TerminalSize?) {
         guard selectedSessionID == sessionID else { return }
-        let measuredSize = size ?? mountedSurfaces
-            .first(where: { $0.id == sessionID })?
+        let measuredSize = size ?? surfaceManager
+            .surface(for: sessionID)?
             .state.surfaceSize
             .flatMap { TerminalSize(columns: Int($0.columns), rows: Int($0.rows)) }
         guard attachedSessionID == sessionID else {
@@ -1383,7 +1375,7 @@ final class WarrenRemoteApplicationModel {
         guard !data.isEmpty,
               let targetSessionID = sessionID ?? selectedSessionID,
               targetSessionID == selectedSessionID,
-              let surface = mountedSurfaces.first(where: { $0.id == targetSessionID }) else { return }
+              surfaceManager.surface(for: targetSessionID) != nil else { return }
         let nudge = initialRefreshPending
         if nudge {
             TerminalDiagnostics.log("feed_output", [
@@ -1398,41 +1390,10 @@ final class WarrenRemoteApplicationModel {
                 "nudge": "false",
             ])
         }
-        surface.outputWriter.enqueueRaw(data)
+        surfaceManager.enqueueRawOutput(data, for: targetSessionID)
         if nudge {
-            // The attach snapshot is fed before Ghostty's display loop
-            // necessarily paints; nudge one tick so the old shell appears
-            // instead of after the first resize or keystroke. The writer
-            // parses on a background task, so wait until this first batch has
-            // actually been consumed before drawing: presenting earlier can
-            // leave a black/stale frame even though the snapshot arrived.
             initialRefreshPending = false
-            Task { @MainActor [weak surface] in
-                guard let surface else { return }
-                let target = surface.outputWriter.enqueuedSequence
-                let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-                while surface.outputWriter.renderedSequence < target,
-                      ContinuousClock.now < deadline {
-                    try? await Task.sleep(for: .milliseconds(16))
-                }
-                surface.requestDisplayRefresh()
-                // Draw the first snapshot right now when the view is mounted;
-                // if it is not, the mount polls handle it later.
-                let drew = surface.presentNow()
-                TerminalDiagnostics.log("feed_nudge", [
-                    "session": surface.id.description,
-                    "drew": drew ? "true" : "false",
-                    "viewVisible": surface.terminalViewIsPresentable
-                        ? "true" : "false",
-                ])
-                if drew, !surface.terminalViewIsPresentable {
-                    TerminalDiagnostics.log("present_stall_suspected", [
-                        "session": surface.id.description,
-                        "reason": "snapshot-drew-without-visible-view",
-                        "view": surface.terminalViewDescription,
-                    ])
-                }
-            }
+            surfaceManager.requestPresent(targetSessionID)
         }
     }
 
@@ -1507,7 +1468,7 @@ final class WarrenRemoteApplicationModel {
             )
         }
         let sessionWorkspaces = Dictionary(uniqueKeysWithValues: remoteSessions.map { ($0.1, $0.2) })
-        projection = WarrenDesktopProjection(
+        let nextProjection = WarrenDesktopProjection(
             host: host,
             projects: projects,
             workspaces: workspaces,
@@ -1516,18 +1477,20 @@ final class WarrenRemoteApplicationModel {
             sessionWorkspaceIDs: sessionWorkspaces,
             connectionState: .attached
         )
+        if projection != nextProjection {
+            projection = nextProjection
+        }
         TerminalDiagnostics.log("roster_apply", [
             "tabs": String(tabs.count),
             "selectedTab": navigation.selectedTabID ?? "nil",
-            "mounted": String(mountedSurfaces.count),
+            "mounted": String(surfaceManager.retainedSurfaceCount),
         ])
         let liveTabSessionIDs = Set(tabs.compactMap(\.sessionID))
-        for surface in mountedSurfaces where !liveTabSessionIDs.contains(surface.id) {
-            surface.outputWriter.shutdown()
-            outputAnchors.removeValue(forKey: surface.id)
-            suppressFramedAnchorUpdates.remove(surface.id)
+        for sessionID in Array(outputAnchors.keys) where !liveTabSessionIDs.contains(sessionID) {
+            outputAnchors.removeValue(forKey: sessionID)
+            suppressFramedAnchorUpdates.remove(sessionID)
         }
-        mountedSurfaces.removeAll { !liveTabSessionIDs.contains($0.id) }
+        surfaceManager.removeAll(except: liveTabSessionIDs)
         issue = nil
         let previousTabID = navigation.selectedTabID
         let nextNavigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
@@ -1544,7 +1507,6 @@ final class WarrenRemoteApplicationModel {
             focusClaimInFlight = false
             focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
-            shutdownAllMountedSurfaces()
         }
         if navigation.selectedTabID == nil {
             selectedSessionID = nil
@@ -1556,11 +1518,10 @@ final class WarrenRemoteApplicationModel {
             focusClaimInFlight = false
             focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
-            shutdownAllMountedSurfaces()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: previousTabID,
             nextTabID: navigation.selectedTabID,
-            mountedSurfaceCount: mountedSurfaces.count
+            mountedSurfaceCount: surfaceManager.retainedSurfaceCount
         ) {
             // The first roster is also the desktop's restore point. Without
             // this explicit attach, the tab bar appears populated while the
@@ -1581,7 +1542,7 @@ final class WarrenRemoteApplicationModel {
         // produce the first tmux snapshot immediately after it accepts the
         // attach request; feeding that snapshot into an already-created surface
         // prevents the initial prompt from disappearing in the network race.
-        let existingSurface = mountedSurfaces.first { $0.id == sessionID }
+        let existingSurface = surfaceManager.surface(for: sessionID)
         guard existingSurface == nil || selectedSessionID != sessionID || attachedSessionID != sessionID else {
             return
         }
@@ -1613,11 +1574,9 @@ final class WarrenRemoteApplicationModel {
                 onInput: { [weak self] data in Task { await self?.sendInput(data) } },
                 onResize: { [weak self] columns, rows in Task { @MainActor in self?.resize(columns: columns, rows: rows) } }
             )
-            mountedSurfaces.append(surface)
+            surfaceManager.insert(surface)
         }
         selectedSessionID = sessionID
-        mountedSurfaces.removeAll { $0 === surface }
-        mountedSurfaces.insert(surface, at: 0)
 
         // SwiftUI/AppKit reports the actual Ghostty grid only after the
         // surface has entered a measured pane. Waiting here makes the very
@@ -1632,7 +1591,7 @@ final class WarrenRemoteApplicationModel {
         ])
         guard generation == attachGeneration,
               selectedSessionID == sessionID,
-              mountedSurfaces.first === surface else { return }
+              surfaceManager.surface(for: sessionID) === surface else { return }
         do {
             initialRefreshPending = true
             _ = try await wire.request(
@@ -1649,7 +1608,7 @@ final class WarrenRemoteApplicationModel {
             TerminalDiagnostics.log("attach_complete", [
                 "session": sessionID.description,
             ])
-            scheduleInitialPresent(surface, generation: generation)
+            surfaceManager.requestPresent(sessionID)
             if !pendingInput.isEmpty {
                 let buffered = pendingInput
                 pendingInput.removeAll(keepingCapacity: true)
@@ -1672,69 +1631,6 @@ final class WarrenRemoteApplicationModel {
                 // close of the very tab it was connecting; reporting that
                 // would flash a daemon error during normal tab churn.
                 present(error)
-            }
-        }
-    }
-
-    /// Forces the first attach snapshot onto the screen. The AppKit view can
-    /// still be settling when the snapshot arrives (especially for a freshly
-    /// created surface), and a tick alone is a no-op until the renderer owns
-    /// a mounted view; the later inline draws cover the same path a resize
-    /// would otherwise take to reveal the frame.
-    private func scheduleInitialPresent(_ surface: GhosttySurface, generation: UInt64) {
-        TerminalDiagnostics.log("present_schedule_start", [
-            "session": surface.id.description,
-        ])
-        surface.requestDisplayRefresh()
-        _ = surface.presentNow()
-        Task { @MainActor [weak self, weak surface] in
-            guard let self, let surface else { return }
-            // A worktree switch disposes and recreates the AppKit terminal
-            // view. presentNow silently skips while the view is not mounted,
-            // so poll cheaply until a real draw succeeds, then a few delayed
-            // draws cover snapshots that arrive after the mount. Do not keep
-            // drawing at frame rate: that starves the main actor.
-            for attempt in 0..<60 {
-                guard generation == self.attachGeneration,
-                      self.attachedSessionID == surface.id else { return }
-                let drew = surface.presentNow()
-                if drew {
-                    TerminalDiagnostics.logVerbose("present_poll", [
-                        "session": surface.id.description,
-                        "attempt": String(attempt),
-                        "drew": "true",
-                    ])
-                } else {
-                    TerminalDiagnostics.log("present_poll", [
-                        "session": surface.id.description,
-                        "attempt": String(attempt),
-                        "drew": "false",
-                    ])
-                }
-                if drew {
-                    break
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            for delay in [0.1, 0.25, 0.5, 1.0, 2.0] {
-                try? await Task.sleep(for: .seconds(delay))
-                guard generation == self.attachGeneration,
-                      self.attachedSessionID == surface.id else { return }
-                surface.requestDisplayRefresh()
-                let drew = surface.presentNow()
-                if drew {
-                    TerminalDiagnostics.logVerbose("present_delayed", [
-                        "session": surface.id.description,
-                        "delay": String(delay),
-                        "drew": "true",
-                    ])
-                } else {
-                    TerminalDiagnostics.log("present_delayed", [
-                        "session": surface.id.description,
-                        "delay": String(delay),
-                        "drew": "false",
-                    ])
-                }
             }
         }
     }
