@@ -445,7 +445,8 @@ public final class TerminalSurfaceManager {
         let targetSequence = entry.surface.outputWriter.enqueuedSequence
         entry.presentationTask = Task { @MainActor [weak self, weak entry] in
             guard let self, let entry else { return }
-            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            let stallDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            var extendedWaitLogged = false
             defer {
                 if entry.presentationGeneration == presentationGeneration {
                     entry.presentationTask = nil
@@ -484,8 +485,9 @@ public final class TerminalSurfaceManager {
                     }
                 }
 
-                guard ContinuousClock.now < deadline else {
-                    TerminalDiagnostics.log("present_wait_timeout", [
+                if !extendedWaitLogged, ContinuousClock.now >= stallDeadline {
+                    extendedWaitLogged = true
+                    TerminalDiagnostics.log("present_wait_extended", [
                         "session": sessionID.description,
                         "targetEpoch": targetEpoch.map { String($0) } ?? "nil",
                         "targetSequence": String(targetSequence),
@@ -494,11 +496,12 @@ public final class TerminalSurfaceManager {
                         "surfaceReady": entry.surface.terminalSurfaceIsReady ? "true" : "false",
                         "viewPresentable": viewReady ? "true" : "false",
                     ])
-                    return
                 }
 
                 do {
-                    try await Task.sleep(for: .milliseconds(16))
+                    try await Task.sleep(
+                        for: extendedWaitLogged ? .milliseconds(250) : .milliseconds(16)
+                    )
                 } catch {
                     return
                 }
