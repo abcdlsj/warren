@@ -253,7 +253,14 @@ export default function App() {
             [sessionID]: {
               ...current,
               epoch: epoch || current.epoch,
-              events: mergeAgentEvents(sameEpoch ? current.events : [], events),
+              events: mergeAgentEvents(
+                sameEpoch ? current.events : [],
+                events,
+                // Older pages must never be truncated by the live tail cap:
+                // slicing the newest N events here removes a middle chunk of
+                // the already-loaded conversation and loses messages.
+                { cap: before === 0 },
+              ),
               activity: current.activity || "",
               historyCursor: cursor,
               historyHasMore: hasMore,
@@ -622,7 +629,14 @@ export default function App() {
 
     setConnectionStatus({ message: "Connected", online: true });
     if (state.activeSession) attachSession(state.activeSession, false, false, false);
-    else if (nextTabs.length) attachSession(nextTabs[0].id, false, false, false);
+    else if (nextTabs.length) {
+      // Chat is the primary surface on mobile/web previews: open an agent
+      // session when there is one instead of landing on a bare shell tab.
+      const preferred = nextTabs.find(tab =>
+        tab.kind === "codex" || tab.kind === "claude" || tab.agentSessionId,
+      ) || nextTabs[0];
+      attachSession(preferred.id, false, false, false);
+    }
     else if (activeTabWasRemoved) request("session.detach");
   }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, request]);
 
@@ -1597,7 +1611,14 @@ export default function App() {
                 {isAgentSession && (agentModel || selectedSession?.agentSessionId) && (
                   <span className="pane-agent-meta">
                     {agentModel && <span className="pane-agent-model">{agentModel}</span>}
-                    {selectedSession?.agentSessionId && <code className="pane-agent-session">{shortSessionID(selectedSession.agentSessionId)}</code>}
+                    {selectedSession?.agentSessionId && (
+                      <code
+                        className="pane-agent-session"
+                        title={selectedSession.agentSessionId}
+                      >
+                        {selectedSession.agentSessionId}
+                      </code>
+                    )}
                   </span>
                 )}
                 {isAgentSession && (agentViewActive ? (
@@ -1723,10 +1744,6 @@ function loadPresetCommands() {
   } catch {
     return { ...defaultPresetCommands };
   }
-}
-
-function shortSessionID(id) {
-  return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
 }
 
 function clamp(value, minimum, maximum) {
