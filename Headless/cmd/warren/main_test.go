@@ -173,6 +173,31 @@ func TestCollectAgentTypeFlagsPreservesRepeatedValues(t *testing.T) {
 	}
 }
 
+func TestValidateAgentReadArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "all and recent", args: []string{"codex", "--all", "--recent", "10"}, want: "--all cannot"},
+		{name: "full and chars", args: []string{"codex", "--full", "--chars", "10"}, want: "--full cannot"},
+		{name: "unknown flag", args: []string{"codex", "--recnet", "10"}, want: "unknown flag"},
+		{name: "missing value", args: []string{"codex", "--workspace"}, want: "requires a value"},
+		{name: "missing include value", args: []string{"codex", "--include", "--all"}, want: "requires a value"},
+		{name: "short flag", args: []string{"codex", "-v"}, want: "unknown flag"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := validateAgentReadArgs(test.args); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate(%q) = %v, want error containing %q", test.args, err, test.want)
+			}
+		})
+	}
+	if help, err := validateAgentReadArgs([]string{"-h"}); err != nil || !help {
+		t.Fatalf("validate -h = help %v, err %v; want help", help, err)
+	}
+}
+
 func TestSessionRowsKeepsOrphanSessionUsable(t *testing.T) {
 	state := api.State{
 		Sessions: []api.Session{{

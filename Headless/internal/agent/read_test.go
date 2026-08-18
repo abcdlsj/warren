@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ func TestReadTranscriptFullKeepsContentLimitDisabled(t *testing.T) {
 	long := strings.Repeat("x", 3000)
 	writeReadLines(t, path, `{"type":"user","uuid":"u1","timestamp":"2026-08-19T00:00:00Z","message":{"role":"user","content":"`+long+`"}}`)
 
-	events, err := ReadTranscript(context.Background(), "claude", path, ReadOptions{Full: true})
+	events, err := ReadTranscript(context.Background(), "claude", path, ReadOptions{Full: true, ContentLimit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,16 +74,89 @@ func TestReadTranscriptFullKeepsContentLimitDisabled(t *testing.T) {
 	}
 }
 
+func TestReadTranscriptFullKeepsContentBeyondParserSafetyLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	long := strings.Repeat("x", maxEventContent+1024)
+	writeReadLines(t, path, `{"type":"user","uuid":"u1","timestamp":"2026-08-19T00:00:00Z","message":{"role":"user","content":"`+long+`"}}`)
+
+	events, err := ReadTranscript(context.Background(), "claude", path, ReadOptions{Full: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || len(events[0].Content) != len(long) {
+		t.Fatalf("full content length = %d, want %d", len(events[0].Content), len(long))
+	}
+}
+
+func TestReadTranscriptRejectsOversizedJSONLLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	line := `{"type":"user","uuid":"u1","message":{"role":"user","content":"` + strings.Repeat("x", maxTranscriptLine) + `"}}`
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadTranscript(context.Background(), "claude", path, ReadOptions{})
+	if err == nil || !strings.Contains(err.Error(), "transcript line exceeds") {
+		t.Fatalf("oversized line error = %v", err)
+	}
+}
+
+func TestReadTranscriptRejectsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.jsonl")
+	link := filepath.Join(dir, "link.jsonl")
+	writeReadLines(t, target, `{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, err := ReadTranscript(context.Background(), "claude", link, ReadOptions{})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("symlink read error = %v", err)
+	}
+}
+
 func TestReadTranscriptRejectsInvalidOptions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.jsonl")
 	writeReadLines(t, path, `{"type":"summary","summary":"fixture"}`)
-	for _, options := range []ReadOptions{{Recent: -1}, {ContentLimit: -1}} {
+	for _, options := range []ReadOptions{{Recent: -1}, {Recent: MaxReadActivities + 1}, {ContentLimit: -1}} {
 		if _, err := ReadTranscript(context.Background(), "codex", path, options); err == nil {
 			t.Fatalf("ReadTranscript(%+v) accepted invalid options", options)
 		}
 	}
 	if _, err := ReadTranscript(context.Background(), "other", path, ReadOptions{}); err == nil {
 		t.Fatal("ReadTranscript accepted an invalid provider")
+	}
+}
+
+func TestReadTranscriptAllHasActivityLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"user","message":{"role":"user","content":"x"}}` + "\n"
+	for index := 0; index <= MaxReadActivities; index++ {
+		if _, err := file.WriteString(line); err != nil {
+			file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ReadTranscript(context.Background(), "claude", path, ReadOptions{})
+	if err == nil || !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("activity limit error = %v", err)
+	}
+}
+
+func TestReadTranscriptRejectsContextCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	writeReadLines(t, path, `{"type":"user","message":{"role":"user","content":"x"}}`)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := ReadTranscript(ctx, "claude", path, ReadOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v, want context.Canceled", err)
 	}
 }
 

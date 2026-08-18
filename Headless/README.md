@@ -92,7 +92,9 @@ the current directory (or `--workspace PATH`). The command returns the newest
 Use `--recent N` (or `--all`) to control the activity window, `--include
 TYPE,...` to select event types, `--filter TYPE,...` to omit types, and
 `--full` to retain complete text. Usage, attachment, and system-instruction
-events stay hidden unless requested through `--include`.
+events stay hidden unless requested through `--include`. An unbounded `--all`
+read is defensively capped at 100,000 matching activities; use `--recent` for
+a smaller, predictable result.
 
 For `workspace create`, `--branch` is required and `--path` is optional: omit
 `--path` and the daemon places the new worktree under

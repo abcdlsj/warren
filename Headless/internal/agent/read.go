@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/abcdlsj/warren/Headless/internal/api"
@@ -19,6 +18,9 @@ const (
 	DefaultReadRecent = 20
 	// DefaultReadContentLimit is measured in Unicode code points, not bytes.
 	DefaultReadContentLimit = 2000
+	// MaxReadActivities bounds an unbounded (--all) read. Callers that need a
+	// smaller response should set Recent explicitly.
+	MaxReadActivities = 100000
 )
 
 // ReadOptions controls how a transcript is projected for an external caller.
@@ -46,11 +48,14 @@ func ReadTranscript(ctx context.Context, provider, path string, options ReadOpti
 	if options.Recent < 0 {
 		return nil, errors.New("recent activity count cannot be negative")
 	}
+	if options.Recent > MaxReadActivities {
+		return nil, fmt.Errorf("recent activity count cannot exceed %d", MaxReadActivities)
+	}
 	if options.ContentLimit < 0 {
 		return nil, errors.New("content limit cannot be negative")
 	}
 
-	file, err := os.Open(path)
+	file, err := openRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +64,18 @@ func ReadTranscript(ctx context.Context, provider, path string, options ReadOpti
 	include := normalizedTypes(options.IncludeTypes)
 	exclude := normalizedTypes(options.ExcludeTypes)
 	contentLimit := options.ContentLimit
-	if contentLimit == 0 && !options.Full {
+	if options.Full {
+		contentLimit = 0
+	} else if contentLimit == 0 {
 		contentLimit = DefaultReadContentLimit
 	}
-	parser := newParser(provider)
+	parserLimit := maxEventContent
+	if options.Full {
+		parserLimit = 0
+	} else if contentLimit > parserLimit {
+		parserLimit = contentLimit
+	}
+	parser := newParserWithContentLimit(provider, parserLimit)
 	result := make([]api.AgentEvent, 0)
 	reader := bufio.NewReaderSize(file, 64*1024)
 	for {
@@ -72,7 +85,7 @@ func ReadTranscript(ctx context.Context, provider, path string, options ReadOpti
 		default:
 		}
 
-		line, readErr := reader.ReadBytes('\n')
+		line, readErr := readBoundedLine(reader, maxTranscriptLine)
 		if len(line) > 0 {
 			line = bytes.TrimSpace(line)
 			if len(line) > 0 {
@@ -81,6 +94,9 @@ func ReadTranscript(ctx context.Context, provider, path string, options ReadOpti
 						continue
 					}
 					event = limitReadEvent(event, contentLimit)
+					if options.Recent <= 0 && len(result) >= MaxReadActivities {
+						return nil, fmt.Errorf("transcript has more than %d matching activities; use --recent to bound the result", MaxReadActivities)
+					}
 					event.Sequence = uint64(len(result) + 1)
 					result = appendRecent(result, event, options.Recent)
 				}
