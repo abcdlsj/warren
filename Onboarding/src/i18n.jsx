@@ -162,12 +162,8 @@ const messages = {
 const I18nContext = createContext(null);
 
 function detectLocale() {
-  if (typeof window === "undefined") return "en";
-  const stored = localStorage.getItem("warren.locale");
-  if (stored === "zh" || stored === "en") return stored;
-  const path = window.location.pathname.split("/")[1];
-  if (path === "zh" || path === "en") return path;
-  return navigator.language?.toLowerCase().startsWith("zh") ? "zh" : "en";
+  // Chinese is temporarily hidden until the typeface rendering is improved.
+  return "en";
 }
 
 export function I18nProvider({ children }) {

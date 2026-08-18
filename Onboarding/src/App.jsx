@@ -39,7 +39,7 @@ function Reveal({ className = "", delay = 0, children }) {
 }
 
 function Nav() {
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   return (
     <header className="nav">
       <a className="nav-brand" href="#top">
@@ -63,22 +63,6 @@ function Nav() {
           </svg>
           <span>GitHub</span>
         </a>
-        <div className="lang" role="group" aria-label="Language">
-          <button
-            type="button"
-            className={locale === "en" ? "active" : ""}
-            onClick={() => setLocale("en")}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            className={locale === "zh" ? "active" : ""}
-            onClick={() => setLocale("zh")}
-          >
-            中文
-          </button>
-        </div>
       </div>
     </header>
   );
