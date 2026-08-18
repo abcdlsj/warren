@@ -14,13 +14,13 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 | Terminal | Chat |
 | --- | --- |
-| <img src="docs/warren-web-terminal.png" width="400" height="250" alt="Warren web terminal"> | <img src="docs/warren-web-agent.png" width="400" height="250" alt="Warren web chat"> |
+| <img src="docs/warren-web-terminal.png" width="440" height="241" alt="Warren web terminal"> | <img src="docs/warren-web-agent.png" width="440" height="241" alt="Warren web chat"> |
 
 ### Mobile
 
 | Terminal | Chat |
 | --- | --- |
-| <img src="docs/warren-mobile-terminal.png" width="400" height="250" alt="Warren mobile terminal"> | <img src="docs/warren-mobile-agent.png" width="400" height="250" alt="Warren mobile chat"> |
+| <img src="docs/warren-mobile-terminal.png" width="320" height="547" alt="Warren mobile terminal"> | <img src="docs/warren-mobile-agent.png" width="320" height="547" alt="Warren mobile chat"> |
 
 ## Highlights
 
