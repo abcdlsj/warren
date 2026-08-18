@@ -276,7 +276,7 @@ struct WarrenDesktopTabAddSlot: View {
             Button(action: action) {
                 Group {
                     if isLoading {
-                        WarrenParticleSpinner(size: 14, accessibilityLabel: "Starting session")
+                        WarrenBrailleSpinner(size: 14, accessibilityLabel: "Starting session")
                     } else {
                         Image(systemName: "plus")
                             .font(.system(size: 13, weight: .medium))

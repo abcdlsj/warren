@@ -40,4 +40,9 @@ final class WarrenDesignSystemTests: XCTestCase {
         XCTAssertLessThan(WarrenMotion.feedbackDuration, WarrenMotion.overlayDuration)
     }
 
+    func testBrailleSpinnerFrameDurationFormsAnEightStepCycle() {
+        XCTAssertEqual(WarrenMotion.spinnerFrameDuration, 0.09)
+        XCTAssertEqual(WarrenMotion.spinnerFrameDuration * 8, 0.72, accuracy: 0.0001)
+    }
+
 }

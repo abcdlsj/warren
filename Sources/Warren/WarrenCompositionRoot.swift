@@ -80,7 +80,7 @@ struct WarrenCompositionRoot: View {
                     Color.black.opacity(0.5)
                         .ignoresSafeArea()
                     VStack(spacing: WarrenSpacing.compact) {
-                        WarrenParticleSpinner(
+                        WarrenBrailleSpinner(
                             size: 22,
                             accessibilityLabel: "Reading Superset"
                         )
@@ -649,7 +649,7 @@ private struct WarrenTerminalSurfaceView: View {
         .overlay(alignment: .top) {
             if let maintenanceMessage {
                 HStack(spacing: WarrenSpacing.small) {
-                    WarrenParticleSpinner(
+                    WarrenBrailleSpinner(
                         size: 14,
                         accessibilityLabel: "Updating Warren"
                     )
@@ -725,7 +725,7 @@ private struct WarrenTerminalLoadingOverlay: View {
         Group {
             if isVisible {
                 HStack(spacing: WarrenSpacing.compact) {
-                    WarrenParticleSpinner(size: 18, accessibilityLabel: label)
+                    WarrenBrailleSpinner(size: 18, accessibilityLabel: label)
                     Text(label)
                         .font(WarrenTypography.supporting)
                 }

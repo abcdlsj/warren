@@ -15,6 +15,7 @@ public enum WarrenMotion {
     public static let stateChangeDuration: TimeInterval = 0.14
     public static let overlayDuration: TimeInterval = 0.16
     public static let activityPulseDuration: TimeInterval = 1.2
+    public static let spinnerFrameDuration: TimeInterval = 0.09
 
     public static func animation(
         _ role: WarrenMotionRole,
@@ -91,9 +92,10 @@ private struct WarrenStatusPulseRing: View {
     }
 }
 
-/// Warren's single indeterminate loading mark: square particles orbit as one
-/// compositor transform. Use it only where the user is actively waiting.
-public struct WarrenParticleSpinner: View {
+/// Warren's single indeterminate loading mark: a 2x4 braille-style dot grid
+/// with one dot lighting up and travelling clockwise around the ring.
+/// Use it only where the user is actively waiting.
+public struct WarrenBrailleSpinner: View {
     private let size: CGFloat
     private let accessibilityLabel: String
 
@@ -109,9 +111,9 @@ public struct WarrenParticleSpinner: View {
         let color = WarrenColorTokens.resolved(for: colorScheme).highlight
         Group {
             if reduceMotion {
-                WarrenParticleField(size: size, color: color)
+                WarrenBrailleField(size: size, color: color, activeDot: nil)
             } else {
-                WarrenSpinningParticleField(size: size, color: color)
+                WarrenSpinningBrailleField(size: size, color: color)
             }
         }
         .frame(width: size, height: size)
@@ -120,44 +122,55 @@ public struct WarrenParticleSpinner: View {
     }
 }
 
-private struct WarrenSpinningParticleField: View {
+private struct WarrenSpinningBrailleField: View {
     let size: CGFloat
     let color: Color
 
-    @State private var rotates = false
-
     var body: some View {
-        WarrenParticleField(size: size, color: color)
-            .rotationEffect(.degrees(rotates ? 360 : 0))
-            .onAppear {
-                withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
-                    rotates = true
-                }
-            }
+        TimelineView(.animation(minimumInterval: WarrenMotion.spinnerFrameDuration)) { context in
+            let elapsed = context.date.timeIntervalSinceReferenceDate
+            let step = Int(elapsed / WarrenMotion.spinnerFrameDuration) % WarrenBrailleField.dots.count
+            WarrenBrailleField(size: size, color: color, activeDot: step)
+        }
     }
 }
 
-private struct WarrenParticleField: View {
+private struct WarrenBrailleField: View {
     let size: CGFloat
     let color: Color
+    let activeDot: Int?
 
-    private static let positions: [CGPoint] = [
-        CGPoint(x: -1, y: -1), CGPoint(x: 0, y: -1),
-        CGPoint(x: 1, y: -1), CGPoint(x: 1, y: 0),
-        CGPoint(x: 1, y: 1), CGPoint(x: 0, y: 1),
-        CGPoint(x: -1, y: 1), CGPoint(x: -1, y: 0),
+    /// 2x4 grid in clockwise order, starting at the top-left.
+    fileprivate static let dots: [CGPoint] = [
+        CGPoint(x: 0, y: 0),
+        CGPoint(x: 1, y: 0),
+        CGPoint(x: 1, y: 1),
+        CGPoint(x: 1, y: 2),
+        CGPoint(x: 1, y: 3),
+        CGPoint(x: 0, y: 3),
+        CGPoint(x: 0, y: 2),
+        CGPoint(x: 0, y: 1),
     ]
 
     var body: some View {
-        let particleSize = max(2, size * 0.15)
-        let radius = size * 0.34
+        let dotSize = max(2, size * 0.15)
+        let gap = dotSize * 0.65
+        let restingOpacity = activeDot == nil ? 0.35 : 0.18
         ZStack {
-            ForEach(Array(Self.positions.enumerated()), id: \.offset) { index, point in
-                RoundedRectangle(cornerRadius: particleSize * 0.34)
-                    .fill(color.opacity(0.28 + Double(index) * 0.09))
-                    .frame(width: particleSize, height: particleSize)
-                    .offset(x: point.x * radius, y: point.y * radius)
+            ForEach(Array(Self.dots.enumerated()), id: \.offset) { index, point in
+                Circle()
+                    .fill(color.opacity(activeDot == index ? 1 : restingOpacity))
+                    .frame(width: dotSize, height: dotSize)
+                    .offset(
+                        x: (point.x - 0.5) * (dotSize + gap),
+                        y: (point.y - 1.5) * (dotSize + gap)
+                    )
             }
         }
+        .frame(
+            width: dotSize * 2 + gap,
+            height: dotSize * 4 + gap * 3
+        )
+        .accessibilityHidden(true)
     }
 }

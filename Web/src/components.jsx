@@ -1183,7 +1183,14 @@ export function SearchPanel({
 }
 
 export function Loading({ message }) {
-  return <span className="terminal-loading"><span className="spinner" />{message}</span>;
+  return (
+    <span className="terminal-loading">
+      <span className="braille-spinner" aria-hidden="true">
+        <i /><i /><i /><i /><i /><i /><i /><i />
+      </span>
+      {message}
+    </span>
+  );
 }
 
 function highestActivity(sessions) {

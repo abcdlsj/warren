@@ -141,7 +141,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     private func connectionLoadingState(tokens: WarrenColorTokens) -> some View {
         let presentation = WarrenDesktopConnectionPresentation(connectionState)
         return VStack(spacing: WarrenSpacing.standard) {
-            WarrenParticleSpinner(
+            WarrenBrailleSpinner(
                 size: 22,
                 accessibilityLabel: presentation.label
             )
