@@ -488,6 +488,14 @@ func agentCommand(args []string) error {
 	if args[0] != "read" {
 		return newUsageError(fmt.Sprintf("unknown agent command: %s", args[0]), agentUsageText())
 	}
+	help, err := validateAgentReadArgs(args[1:])
+	if err != nil {
+		return newUsageError(err.Error(), agentReadUsageText())
+	}
+	if help {
+		fmt.Print(agentReadUsageText())
+		return nil
+	}
 	params := parseFlags(args[1:])
 	if boolValue(params, "help") || boolValue(params, "h") {
 		fmt.Print(agentReadUsageText())
@@ -585,6 +593,73 @@ func agentCommand(args []string) error {
 		return fmt.Errorf("read %s transcript %s: %w", provider, path, err)
 	}
 	return printValue(events)
+}
+
+var agentReadValueFlags = map[string]bool{
+	"path": true, "file": true, "workspace": true,
+	"recent": true, "limit": true, "count": true,
+	"chars": true, "max-chars": true, "head": true,
+	"include": true, "types": true, "filter": true, "exclude": true,
+}
+
+var agentReadBooleanFlags = map[string]bool{
+	"all": true, "full": true, "full-content": true,
+	"no-truncate": true, "help": true,
+}
+
+// validateAgentReadArgs gives the transcript reader a strict flag schema.
+// parseFlags is intentionally permissive because the other resource commands
+// accept arbitrary daemon parameters; using it directly here would silently
+// ignore typos and malformed flag invocations.
+func validateAgentReadArgs(args []string) (bool, error) {
+	present := make(map[string]bool)
+	help := false
+	for index := 0; index < len(args); index++ {
+		item := args[index]
+		if item == "-h" {
+			help = true
+			continue
+		}
+		if !strings.HasPrefix(item, "-") {
+			continue
+		}
+		if !strings.HasPrefix(item, "--") {
+			return false, fmt.Errorf("unknown flag %q", item)
+		}
+		name, value, hasValue := splitFlag(item)
+		if agentReadBooleanFlags[name] {
+			if hasValue {
+				return false, fmt.Errorf("--%s does not take a value", name)
+			}
+			present[name] = true
+			if name == "help" {
+				help = true
+			}
+			continue
+		}
+		if !agentReadValueFlags[name] {
+			return false, fmt.Errorf("unknown flag %q", item)
+		}
+		if !hasValue {
+			if index+1 >= len(args) || args[index+1] == "-h" || strings.HasPrefix(args[index+1], "--") {
+				return false, fmt.Errorf("--%s requires a value", name)
+			}
+			index++
+		} else if value == "" {
+			return false, fmt.Errorf("--%s requires a non-empty value", name)
+		}
+		present[name] = true
+	}
+
+	recentFlag := present["recent"] || present["limit"] || present["count"]
+	if present["all"] && recentFlag {
+		return false, errors.New("--all cannot be combined with --recent, --limit, or --count")
+	}
+	contentFlag := present["chars"] || present["max-chars"] || present["head"]
+	if (present["full"] || present["full-content"] || present["no-truncate"]) && contentFlag {
+		return false, errors.New("--full cannot be combined with --chars, --max-chars, or --head")
+	}
+	return help, nil
 }
 
 func firstFlagValue(params map[string]any, keys ...string) string {
@@ -1367,8 +1442,9 @@ transcript for the current workspace (or --workspace PATH).
 
 By default, only the newest 20 useful activities are returned and text fields
 are limited to 2000 characters. --full disables text truncation; --all returns
-all matching activities. Low-value usage, attachment, and system instruction
-events are omitted unless selected explicitly with --include.
+all matching activities (up to 100000). Low-value usage, attachment, and
+system instruction events are omitted unless selected explicitly with
+--include.
 `
 }
 
