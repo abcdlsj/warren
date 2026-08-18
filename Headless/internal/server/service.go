@@ -103,6 +103,7 @@ type Service struct {
 	ProbeForeground bool
 
 	metadataCache *metadataCache
+	mergeOnce     sync.Once
 	mergeCache    *mergeStateCache
 	mergeWake     chan struct{}
 
@@ -251,12 +252,20 @@ func (s *Service) lazyInitLocked() {
 	if s.metadataCache == nil {
 		s.metadataCache = &metadataCache{}
 	}
-	if s.mergeCache == nil {
-		s.mergeCache = &mergeStateCache{}
-	}
-	if s.mergeWake == nil {
-		s.mergeWake = make(chan struct{}, 1)
-	}
+}
+
+// initMergeState initializes the merge projection fields exactly once. Every
+// reader and writer enters through it so lazy initialization can never race
+// with roster snapshots or the background merge loop.
+func (s *Service) initMergeState() {
+	s.mergeOnce.Do(func() {
+		if s.mergeCache == nil {
+			s.mergeCache = &mergeStateCache{}
+		}
+		if s.mergeWake == nil {
+			s.mergeWake = make(chan struct{}, 1)
+		}
+	})
 }
 
 // Start runs the single lifecycle watcher. One goroutine probes tmux for all
@@ -264,6 +273,7 @@ func (s *Service) lazyInitLocked() {
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
 		s.lazyInit()
+		s.initMergeState()
 		if s.AgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
 			// an unwritable config directory must not stop the daemon; the
@@ -566,11 +576,10 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	sortProjects(state.Projects)
 	sortWorkspaces(state.Workspaces)
 	sortTerminalGroups(state.TerminalGroups)
+	s.initMergeState()
+	mergeStates := s.mergeCache.snapshot()
 	for i := range state.Workspaces {
-		if s.mergeCache == nil {
-			break
-		}
-		if mergeState, ok := s.mergeCache.get(state.Workspaces[i].ID); ok {
+		if mergeState, ok := mergeStates[state.Workspaces[i].ID]; ok {
 			state.Workspaces[i].MergeState = mergeState
 		}
 	}

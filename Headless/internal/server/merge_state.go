@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,10 @@ const (
 	// mergeCommandTimeout bounds every git command so a wedged repository can
 	// never stall the background merge loop.
 	mergeCommandTimeout = 2 * time.Second
+	// mergeRefreshTimeout bounds one whole refresh pass so many workspaces or
+	// slow disks cannot leave the projection stale for minutes. Workspaces
+	// that did not get checked fall back to unknown on the next roster.
+	mergeRefreshTimeout = 15 * time.Second
 )
 
 // mergeStateCache holds the latest merge projection per workspace. It is
@@ -33,6 +38,18 @@ func (c *mergeStateCache) get(workspaceID string) (api.MergeState, bool) {
 	defer c.mu.RUnlock()
 	value, ok := c.values[workspaceID]
 	return value, ok
+}
+
+// snapshot returns an immutable copy of the projection so one roster snapshot
+// never mixes two generations of merge state.
+func (c *mergeStateCache) snapshot() map[string]api.MergeState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	next := make(map[string]api.MergeState, len(c.values))
+	for workspaceID, state := range c.values {
+		next[workspaceID] = state
+	}
+	return next
 }
 
 // replace swaps the whole projection atomically. Workspaces that are no
@@ -74,9 +91,7 @@ func (s *Service) mergeLoop(ctx context.Context) {
 // wakeMergeRefresh schedules an immediate background refresh without
 // blocking the caller when one is already pending.
 func (s *Service) wakeMergeRefresh() {
-	if s.mergeWake == nil {
-		return
-	}
+	s.initMergeState()
 	select {
 	case s.mergeWake <- struct{}{}:
 	default:
@@ -90,9 +105,9 @@ func (s *Service) refreshMergeStates(ctx context.Context) {
 	if s.Store == nil {
 		return
 	}
-	if s.mergeCache == nil {
-		s.lazyInit()
-	}
+	s.initMergeState()
+	refreshCtx, cancel := context.WithTimeout(ctx, mergeRefreshTimeout)
+	defer cancel()
 	state := s.Store.Snapshot()
 	byProject := make(map[string][]api.Workspace)
 	for _, workspace := range state.Workspaces {
@@ -112,11 +127,20 @@ func (s *Service) refreshMergeStates(ctx context.Context) {
 			// out of the projection instead of guessing.
 			continue
 		}
+		worktreeBranches, ok := worktreeBranchMap(refreshCtx, project.Path)
+		if !ok {
+			continue
+		}
 		for _, workspace := range workspaces {
 			if workspace.Branch == defaultName {
 				continue
 			}
-			merged, known := branchMergedInto(ctx, project.Path, defaultName, workspace.Branch)
+			if actual, found := worktreeBranches[worktreePathKey(workspace.Path)]; !found || actual != workspace.Branch {
+				// The stored branch no longer matches the worktree HEAD (or
+				// the worktree is gone/detached); do not trust stale state.
+				continue
+			}
+			merged, known := branchMergedInto(refreshCtx, project.Path, defaultName, workspace.Branch)
 			if !known {
 				continue
 			}
@@ -154,6 +178,45 @@ func resolveDefaultBranch(ctx context.Context, repo string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// worktreeBranchMap maps every registered worktree path to the short branch
+// name it currently has checked out. Detached worktrees and entries without a
+// branch are omitted, so callers treat them as unknown.
+func worktreeBranchMap(ctx context.Context, repo string) (map[string]string, bool) {
+	output, err := exec.CommandContext(ctx, "git", "-C", repo,
+		"worktree", "list", "--porcelain").Output()
+	if err != nil {
+		return nil, false
+	}
+	result := make(map[string]string)
+	var path string
+	for _, line := range strings.Split(string(output), "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+		case strings.HasPrefix(line, "branch "):
+			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+			if name := strings.TrimPrefix(ref, "refs/heads/"); name != ref && path != "" {
+				result[worktreePathKey(path)] = name
+			}
+		}
+	}
+	return result, true
+}
+
+// worktreePathKey normalizes a worktree path so paths reached through a
+// symlink (for example /var vs /private/var on macOS) compare equal to the
+// canonical path git reports.
+func worktreePathKey(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(absolute)
 }
 
 // branchMergedInto reports whether the branch carries no changes that are
@@ -205,7 +268,7 @@ func branchChangesIncluded(ctx context.Context, repo, target, branch string) (me
 		return false, false
 	}
 	pathsOutput, err := exec.CommandContext(ctx, "git", "-C", repo,
-		"diff", "--name-only", "-z", mergeBase, branch).Output()
+		"diff", "--name-only", "-z", "--no-renames", mergeBase, branch).Output()
 	if err != nil {
 		return false, false
 	}
@@ -218,7 +281,8 @@ func branchChangesIncluded(ctx context.Context, repo, target, branch string) (me
 	if len(paths) == 0 {
 		return true, true
 	}
-	args := append([]string{"-C", repo, "diff", "--quiet", branch, target, "--"}, paths...)
+	args := append([]string{"--literal-pathspecs", "-C", repo,
+		"diff", "--quiet", branch, target, "--"}, paths...)
 	err = exec.CommandContext(ctx, "git", args...).Run()
 	if err == nil {
 		return true, true

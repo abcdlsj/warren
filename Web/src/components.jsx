@@ -111,8 +111,11 @@ export function ActivityDot({ activity }) {
 
 function mergedBadgeTitle(tabs) {
   const count = tabs.length;
-  if (!count) return "Merged to default branch";
-  return `Merged to default branch · ${count} active`;
+  const parts = ["Merged to default branch"];
+  if (count) parts.push(`${count} active`);
+  const activity = activityLabels[highestActivity(tabs)];
+  if (activity) parts.push(activity);
+  return parts.join(" · ");
 }
 
 export function MergedBadge({ tabs = [] }) {
@@ -1187,7 +1190,7 @@ export function SearchPanel({
                     onClick={() => onChooseWorkspace(row.workspace.id)}
                   >
                     {row.workspace.mergeState === "merged"
-                      ? <MergedBadge />
+                      ? <MergedBadge tabs={catalog.tabsByWorkspace.get(row.workspace.id) || []} />
                       : <BranchIcon />}
                     <span className="search-name">{row.workspace.branch || row.workspace.name || "Workspace"}</span>
                     <span className="search-kind">Workspace</span>
