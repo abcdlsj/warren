@@ -8,19 +8,19 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 ## Screenshots
 
-<img src="docs/warren-desktop.png" width="100%" alt="Warren desktop">
+<img src="docs/warren-desktop.png" width="800" height="500" alt="Warren desktop">
 
 ### Web
 
 | Terminal | Chat |
 | --- | --- |
-| <img src="docs/warren-web-terminal.png" width="100%" alt="Warren web terminal"> | <img src="docs/warren-web-agent.png" width="100%" alt="Warren web chat"> |
+| <img src="docs/warren-web-terminal.png" width="400" height="250" alt="Warren web terminal"> | <img src="docs/warren-web-agent.png" width="400" height="250" alt="Warren web chat"> |
 
 ### Mobile
 
 | Terminal | Chat |
 | --- | --- |
-| <img src="docs/warren-mobile-terminal.png" width="100%" alt="Warren mobile terminal"> | <img src="docs/warren-mobile-agent.png" width="100%" alt="Warren mobile chat"> |
+| <img src="docs/warren-mobile-terminal.png" width="400" height="250" alt="Warren mobile terminal"> | <img src="docs/warren-mobile-agent.png" width="400" height="250" alt="Warren mobile chat"> |
 
 ## Highlights
 
