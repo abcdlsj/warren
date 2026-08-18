@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { groupAgentEvents } from "./agent.js";
+import { sessionDisplayTitle } from "./title.js";
 
 export function AgentView({
   session,
@@ -23,6 +24,7 @@ export function AgentView({
   const skipFollowRef = useRef(false);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
+  const displayTitle = sessionDisplayTitle(session) || "Agent";
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -105,7 +107,7 @@ export function AgentView({
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
-      <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
+      <div ref={listRef} className="agent-events" aria-label={`${displayTitle} conversation`}>
         {hasMore && (
           <button
             ref={loadMoreRef}
@@ -153,7 +155,7 @@ export function AgentView({
                 submit();
               }
             }}
-            placeholder={`Message ${session.title || "agent"}…`}
+            placeholder={`Message ${displayTitle}…`}
             aria-label="Message"
             rows={1}
             enterKeyHint="send"

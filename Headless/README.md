@@ -65,7 +65,7 @@ warren --endpoint my-vps project list
 warren --endpoint my-vps project move PROJECT_ID --before OTHER_PROJECT_ID
 warren --endpoint my-vps workspace create PROJECT_ID --branch release/my-feature
 warren --endpoint my-vps workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
-warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex
+warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex --title "My Agent"
 warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
 ```
@@ -87,7 +87,10 @@ For `workspace create`, `--branch` is required and `--path` is optional: omit
 `~/.warren/worktrees/<project>/<workspace>-<branch>`; pass `--path /custom/path`
 only when the worktree must live somewhere specific. `session create` starts a
 durable terminal in an existing workspace; the Desktop and Web clients see it
-as soon as the daemon broadcasts the updated roster.
+as soon as the daemon broadcasts the updated roster. Pass `--title NAME` to
+set the user-facing name shown in tabs; `session rename SESSION_ID --title NAME`
+changes it later. Without a user-set name, clients fall back to a generated
+default (kind or command), and a user-set name always takes precedence.
 
 On macOS, `mise run install` also initializes a `local` endpoint pointing at
 `http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the

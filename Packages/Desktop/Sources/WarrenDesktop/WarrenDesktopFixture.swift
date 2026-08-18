@@ -77,6 +77,13 @@ public struct WarrenDesktopSession: Identifiable, Hashable, Sendable {
     public let runtimeProcess: String
     public let workingDirectory: String
 
+    /// Single display-name rule: a user-set custom title wins, otherwise the
+    /// generated default title is shown.
+    public var displayTitle: String {
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return custom.isEmpty ? title : custom
+    }
+
     public init(
         id: TerminalSessionID,
         workspaceID: WorkspaceID? = nil,

@@ -1327,17 +1327,13 @@ func (s *Service) createSession(ctx context.Context, workspaceID, groupID, comma
 		kind = "shell"
 	}
 	customTitle := strings.TrimSpace(title)
-	if customTitle != "" {
-		title = customTitle
-	} else {
-		title = map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
-	}
-	if title == "" {
+	defaultTitle := map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
+	if defaultTitle == "" {
 		fields := strings.Fields(command)
 		if len(fields) > 0 {
-			title = fields[0]
+			defaultTitle = fields[0]
 		} else {
-			title = "Shell"
+			defaultTitle = "Shell"
 		}
 	}
 	sessionKind := runtimeKind
@@ -1373,7 +1369,7 @@ func (s *Service) createSession(ctx context.Context, workspaceID, groupID, comma
 		WorkspaceID:     workspaceID,
 		TerminalGroupID: groupID,
 		Scope:           api.SessionScopeWorkspace,
-		Title:           title,
+		Title:           defaultTitle,
 		CustomTitle:     customTitle,
 		Kind:            kind,
 		Command:         command,
