@@ -1,4 +1,8 @@
-# Warren
+<p align="center">
+  <img src="Assets/Brand/warren-app-icon.png" width="128" alt="Warren logo">
+</p>
+
+<h1 align="center">Warren</h1>
 
 Warren is a local-first development workbench organized around **Workspaces**, with durable terminal sessions at its core. Terminal sessions live on a Host — your Mac or a remote VPS — and survive client disconnects, app quits, and network changes. The macOS desktop, CLI, and responsive Web/PWA all talk to the same Host through one versioned protocol.
 
