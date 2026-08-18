@@ -214,13 +214,14 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 			Path: "/srv/warren",
 		}},
 		Workspaces: []api.Workspace{{
-			ID:        "workspace-1",
-			ProjectID: "project-1",
-			Name:      "release/feature",
-			Path:      "/srv/warren/.worktrees/feature",
-			Branch:    "release/feature",
-			Kind:      "worktree",
-			CreatedAt: now,
+			ID:         "workspace-1",
+			ProjectID:  "project-1",
+			Name:       "release/feature",
+			Path:       "/srv/warren/.worktrees/feature",
+			Branch:     "release/feature",
+			Kind:       "worktree",
+			CreatedAt:  now,
+			MergeState: api.MergeStateMerged,
 		}},
 		Sessions: []api.Session{
 			{ID: "session-1", WorkspaceID: "workspace-1", Lifecycle: "running", CreatedAt: now},
@@ -242,6 +243,21 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 	}
 	if row.Workspace.ID != "workspace-1" || row.Kind != "worktree" {
 		t.Errorf("embedded workspace lost: %+v", row.Workspace)
+	}
+	if row.MergeState != api.MergeStateMerged {
+		t.Errorf("merge state = %q, want merged", row.MergeState)
+	}
+}
+
+func TestDisplayMergeState(t *testing.T) {
+	if got := displayMergeState(api.MergeStateMerged); got != "merged" {
+		t.Errorf("displayMergeState(merged) = %q, want merged", got)
+	}
+	if got := displayMergeState(api.MergeStateUnmerged); got != "" {
+		t.Errorf("displayMergeState(unmerged) = %q, want empty", got)
+	}
+	if got := displayMergeState(""); got != "" {
+		t.Errorf("displayMergeState(unknown) = %q, want empty", got)
 	}
 }
 
