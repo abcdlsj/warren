@@ -347,21 +347,24 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     private func installStatusDot() {
         guard let button = statusItem.button else { return }
-        let size: CGFloat = 4.5
-        let dot = NSView(
-            frame: NSRect(
-                x: button.bounds.width - size - 3,
-                y: 2,
-                width: size,
-                height: size
-            )
-        )
+        let size: CGFloat = 5.5
+        let dot = NSView()
+        dot.translatesAutoresizingMaskIntoConstraints = false
         dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        let green = NSColor(srgbRed: 126 / 255, green: 198 / 255, blue: 153 / 255, alpha: 1)
+        dot.layer?.backgroundColor = green.cgColor
         dot.layer?.cornerRadius = size / 2
-        dot.autoresizingMask = [.minXMargin, .maxYMargin]
+        dot.layer?.shadowColor = green.cgColor
+        dot.layer?.shadowRadius = 2
+        dot.layer?.shadowOpacity = 0.9
         dot.isHidden = true
         button.addSubview(dot)
+        NSLayoutConstraint.activate([
+            dot.widthAnchor.constraint(equalToConstant: size),
+            dot.heightAnchor.constraint(equalToConstant: size),
+            dot.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -3),
+            dot.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -2),
+        ])
         statusDot = dot
     }
 
@@ -369,7 +372,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         guard let layer = statusDot?.layer else { return }
         if breathing {
             let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 0.35
+            pulse.fromValue = 0.25
             pulse.toValue = 1.0
             pulse.duration = statusDotPulseDuration
             pulse.autoreverses = true

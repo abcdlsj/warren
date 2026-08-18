@@ -24,15 +24,15 @@ metal brush stroke on a charcoal rounded tile.
 - `Warren.icns`: macOS app icon.
 - `menubar-black.svg` / `menubar-white.svg`: source variants of the W on a
   transparent background. The macOS menu bar uses a single heavier template
-  variant (about 1.8× stroke width, still tapered) so the W stays visible at
+  variant (about 1.5× stroke width, still tapered) so the W stays visible at
   18 pt; AppKit recolors it automatically for light and dark menu bars.
   `scripts/build-app.sh` installs `menubar-black-18.png` /
   `menubar-black-36.png` into the app bundle as `menubar-template.png` and
   `menubar-template@2x.png`.
 
-While the daemon is running, the menu bar item also shows a small green
-breathing status dot in the bottom-right corner; it is hidden in every other
-state.
+While the daemon is running, the menu bar item also shows a small breathing
+status dot (agent activity green, `#7ec699`) in the bottom-right corner; it is
+hidden in every other state.
 
 After modifying any source file, regenerate the derived assets:
 
