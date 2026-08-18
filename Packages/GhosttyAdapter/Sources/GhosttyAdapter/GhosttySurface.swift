@@ -83,6 +83,12 @@ public final class GhosttySurface: Identifiable {
         )
         let controller = TerminalController(theme: theme) { _ in }
         controller.setTerminalConfiguration(Self.makeConfiguration(font: font))
+        // Warren's desktop is intentionally dark and the terminal host is
+        // mounted through a custom AppKit container rather than
+        // TerminalSurfaceView. Apply the dark scheme here so Ghostty's own
+        // OSC 10/11 replies use Warren's configured foreground/background
+        // even before AppKit has propagated its appearance to the surface.
+        controller.setColorScheme(.dark)
         let state = TerminalViewState(controller: controller)
         state.configuration = TerminalSurfaceOptions(
             backend: .inMemory(inMemory),

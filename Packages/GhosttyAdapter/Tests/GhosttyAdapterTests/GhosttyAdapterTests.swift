@@ -217,6 +217,26 @@ final class GhosttyAdapterTests: XCTestCase {
     }
 
     @MainActor
+    func testHostManagedTerminalAnswersBackgroundColorQuery() async throws {
+        let recorder = LockedInputRecorder()
+        let (surface, _, window) = try await makeMountedTerminal(recorder: recorder)
+        defer { window.orderOut(nil) }
+
+        surface.receive(Data("\u{1b}]11;?\u{1b}\\".utf8))
+
+        let expected = Data("\u{1b}]11;rgb:1515/1111/1010\u{1b}\\".utf8)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while recorder.allBytes().isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(
+            Array(recorder.allBytes()),
+            Array(expected),
+            "the Warren Ghostty surface should answer OSC 11 from its configured background"
+        )
+    }
+
+    @MainActor
     func testArrowDownOutsideApplicationCursorModeEmitsCsi() async throws {
         let recorder = LockedInputRecorder()
         let (_, view, window) = try await makeMountedTerminal(recorder: recorder)
