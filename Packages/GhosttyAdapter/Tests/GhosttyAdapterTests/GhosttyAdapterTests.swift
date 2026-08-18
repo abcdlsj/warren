@@ -147,7 +147,7 @@ final class GhosttyAdapterTests: XCTestCase {
             onResize: { _, _ in }
         )
 
-        var shortcuts = ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q"]
+        var shortcuts = ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q", "super+f"]
         for index in 1...9 {
             shortcuts.append("super+\(index)")
             shortcuts.append("super+digit_\(index)")

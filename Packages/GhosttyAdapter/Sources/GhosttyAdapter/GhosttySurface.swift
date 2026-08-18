@@ -255,6 +255,7 @@ public final class GhosttySurface: Identifiable {
             builder.withCustom("keybind", "super+k=unbind")
             builder.withCustom("keybind", "super+b=unbind")
             builder.withCustom("keybind", "super+q=unbind")
+            builder.withCustom("keybind", "super+f=unbind")
             // ⌘1…⌘9 are Warren's tab shortcuts, but Ghostty defaults them to
             // goto_tab/last_tab. Unbind both the character and physical-key
             // forms; recent Ghostty versions keep consuming the physical form
