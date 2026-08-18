@@ -31,7 +31,21 @@ type Workspace struct {
 	Pinned    bool      `json:"pinned,omitempty"`
 	Order     int       `json:"order,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+	// MergeState is the live merge projection of the workspace branch against
+	// the project's default branch. It is overlaid on roster snapshots only
+	// and is never persisted with the workspace record.
+	MergeState MergeState `json:"mergeState,omitempty"`
 }
+
+// MergeState describes whether a worktree branch still carries changes that
+// are not present on the project's default branch. The zero value means "not
+// applicable or not yet known"; clients only render the merged state.
+type MergeState string
+
+const (
+	MergeStateMerged   MergeState = "merged"
+	MergeStateUnmerged MergeState = "unmerged"
+)
 
 // WorkspaceCreateResult reports a created workspace together with side effects
 // the caller needs to know: whether the Warren record was created and whether

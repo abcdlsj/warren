@@ -103,6 +103,9 @@ type Service struct {
 	ProbeForeground bool
 
 	metadataCache *metadataCache
+	mergeOnce     sync.Once
+	mergeCache    *mergeStateCache
+	mergeWake     chan struct{}
 
 	outputMu sync.Mutex
 	// terminalGroupLifecycleMu serializes Group deletion with Group Session
@@ -251,11 +254,26 @@ func (s *Service) lazyInitLocked() {
 	}
 }
 
+// initMergeState initializes the merge projection fields exactly once. Every
+// reader and writer enters through it so lazy initialization can never race
+// with roster snapshots or the background merge loop.
+func (s *Service) initMergeState() {
+	s.mergeOnce.Do(func() {
+		if s.mergeCache == nil {
+			s.mergeCache = &mergeStateCache{}
+		}
+		if s.mergeWake == nil {
+			s.mergeWake = make(chan struct{}, 1)
+		}
+	})
+}
+
 // Start runs the single lifecycle watcher. One goroutine probes tmux for all
 // managed sessions; it never creates a polling task per Session.
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
 		s.lazyInit()
+		s.initMergeState()
 		if s.AgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
 			// an unwritable config directory must not stop the daemon; the
@@ -265,6 +283,7 @@ func (s *Service) Start(parent context.Context) {
 		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 		s.lifecycleCancel = cancel
 		go s.lifecycleLoop(ctx)
+		go s.mergeLoop(ctx)
 		if s.ProbeForeground {
 			go s.metadataLoop(ctx)
 		}
@@ -557,6 +576,13 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	sortProjects(state.Projects)
 	sortWorkspaces(state.Workspaces)
 	sortTerminalGroups(state.TerminalGroups)
+	s.initMergeState()
+	mergeStates := s.mergeCache.snapshot()
+	for i := range state.Workspaces {
+		if mergeState, ok := mergeStates[state.Workspaces[i].ID]; ok {
+			state.Workspaces[i].MergeState = mergeState
+		}
+	}
 	sort.Slice(state.Sessions, func(i, j int) bool {
 		if state.Sessions[i].Pinned != state.Sessions[j].Pinned {
 			return state.Sessions[i].Pinned
@@ -691,6 +717,9 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		state.Workspaces = append(state.Workspaces, workspace)
 		return nil
 	})
+	if err == nil {
+		s.wakeMergeRefresh()
+	}
 	return project, err
 }
 
@@ -975,7 +1004,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 			}
 		}
 	}
-	return s.Store.Update(func(value *api.State) error {
+	err := s.Store.Update(func(value *api.State) error {
 		found := false
 		workspaceIDs := map[string]bool{}
 		for _, p := range value.Projects {
@@ -1000,6 +1029,10 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		}
 		return nil
 	})
+	if err == nil {
+		s.wakeMergeRefresh()
+	}
+	return err
 }
 
 func (s *Service) RenameProject(id, name string) error {
@@ -1133,6 +1166,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						}); err != nil {
 							return api.WorkspaceCreateResult{}, err
 						}
+						s.wakeMergeRefresh()
 						return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 					}
 					if name == "" {
@@ -1149,6 +1183,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					}); err != nil {
 						return api.WorkspaceCreateResult{}, err
 					}
+					s.wakeMergeRefresh()
 					return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 				}
 			}
@@ -1181,6 +1216,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		_, _ = exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", path).CombinedOutput()
 		return api.WorkspaceCreateResult{}, err
 	}
+	s.wakeMergeRefresh()
 	return api.WorkspaceCreateResult{Workspace: workspace, Created: true, GitWorktree: gitCreated}, nil
 }
 
@@ -1248,7 +1284,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 			return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
-	return s.Store.Update(func(value *api.State) error {
+	err := s.Store.Update(func(value *api.State) error {
 		projectID := workspace.ProjectID
 		value.Workspaces = filter(value.Workspaces, func(w api.Workspace) bool { return w.ID != id })
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return session.WorkspaceID != id })
@@ -1261,6 +1297,10 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 		return nil
 	})
+	if err == nil {
+		s.wakeMergeRefresh()
+	}
+	return err
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {

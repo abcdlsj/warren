@@ -853,7 +853,7 @@ func printValue(value any) error {
 		for _, item := range items {
 			rows = append(rows, workspaceRowCells(item))
 		}
-		printTable([]string{"ID", "PROJECT", "NAME", "BRANCH", "PATH", "KIND", "SESSIONS", "PINNED", "CREATED"}, rows...)
+		printTable([]string{"ID", "PROJECT", "NAME", "BRANCH", "MERGED", "PATH", "KIND", "SESSIONS", "PINNED", "CREATED"}, rows...)
 	case []api.TerminalGroup:
 		rows := make([][]string, 0, len(items))
 		for _, item := range items {
@@ -930,12 +930,20 @@ func workspaceRowCells(item WorkspaceRow) []string {
 		displayValue(item.ProjectName),
 		item.Name,
 		displayValue(item.Branch),
+		displayMergeState(item.MergeState),
 		item.Path,
 		item.Kind,
 		strconv.Itoa(item.Sessions),
 		displayBool(item.Pinned),
 		formatTime(item.CreatedAt),
 	}
+}
+
+func displayMergeState(value api.MergeState) string {
+	if value == api.MergeStateMerged {
+		return "merged"
+	}
+	return ""
 }
 
 func terminalGroupRowCells(item api.TerminalGroup) []string {

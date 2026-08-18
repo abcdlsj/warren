@@ -51,6 +51,16 @@ test("catalog keeps agent binding fields on sessions", () => {
   assert.equal(session.activity, "working");
 });
 
+test("catalog keeps merge state on workspaces", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    state: {
+      projects: [{ id: "project" }],
+      workspaces: [{ id: "workspace", project: "project", mergeState: "merged" }],
+    },
+  }));
+  assert.equal(catalog.workspaces[0].mergeState, "merged");
+});
+
 test("roster carries live process and directory over launch command", () => {
   const catalog = buildCatalog(rosterFromMessage({
     state: {
