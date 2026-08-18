@@ -8,3 +8,5 @@ xcuserdata/
 Web/node_modules/
 Warren.app/
 Frameworks/
+__pycache__/
+*.pyc

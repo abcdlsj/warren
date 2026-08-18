@@ -60,12 +60,36 @@ cp -R \
     "$staging_path/Contents/Resources/WarrenDesktop_WarrenDesktop.bundle"
 cp -R "$repository_root/Web/dist/." "$staging_path/Contents/Resources/"
 
+# warren-headless links libghostty-vt.dylib through an rpath that Go writes
+# pointing at the local module cache (~/go/pkg/mod/...). Strip that
+# machine-specific rpath and bundle the dylib inside the app so the release
+# runs on other Macs.
+ghostline_dir="$(
+    cd "$repository_root"
+    go list -m -f '{{.Dir}}' github.com/abcdlsj/ghostline
+)"
+mkdir -p "$staging_path/Contents/Frameworks"
+install -m 755 \
+    "$ghostline_dir/third_party/lib/libghostty-vt.dylib" \
+    "$staging_path/Contents/Frameworks/libghostty-vt.dylib"
+
+headless_binary="$staging_path/Contents/MacOS/warren-headless"
+while IFS= read -r old_rpath; do
+    [[ -n "$old_rpath" ]] || continue
+    install_name_tool -delete_rpath "$old_rpath" "$headless_binary"
+done < <(
+    otool -l "$headless_binary" |
+        awk '/LC_RPATH/{rpath=1} rpath && /path /{print $2; rpath=0}'
+)
+install_name_tool -add_rpath @executable_path/../Frameworks "$headless_binary"
+
 build_variant="build"
 if [[ "$configuration" == "release" ]]; then
     build_variant="release"
 fi
 printf '%s\n' "$build_variant" > "$staging_path/Contents/Resources/build-variant.txt"
 
+codesign --force --sign - "$staging_path/Contents/Frameworks/libghostty-vt.dylib"
 codesign --force --sign - "$staging_path"
 rm -rf "$app_path"
 mv "$staging_path" "$app_path"
