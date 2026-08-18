@@ -68,6 +68,8 @@ warren --endpoint my-vps workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
 warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex --title "My Agent"
 warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
+warren agent read codex --recent 10 --include user,assistant
+warren agent read claude /path/to/session.jsonl --full
 ```
 
 All commands support `--json`. `worktree` is an alias for `workspace`; help
@@ -81,6 +83,16 @@ machine-readable JSON output. `workspace create` reports `created` and
 `gitWorktree` in its result, so scripts know whether a Git worktree was really
 created and where it landed. `session list` shows running sessions by default;
 pass `--all` to include ended sessions, or `--ended` to list only ended ones.
+
+`warren agent read codex|claude` parses a provider transcript into the same
+normalized activity objects used by Warren's agent view. A transcript path may
+be supplied explicitly; when omitted, Warren finds the newest transcript for
+the current directory (or `--workspace PATH`). The command returns the newest
+20 useful activities by default and limits text fields to 2,000 characters.
+Use `--recent N` (or `--all`) to control the activity window, `--include
+TYPE,...` to select event types, `--filter TYPE,...` to omit types, and
+`--full` to retain complete text. Usage, attachment, and system-instruction
+events stay hidden unless requested through `--include`.
 
 For `workspace create`, `--branch` is required and `--path` is optional: omit
 `--path` and the daemon places the new worktree under
