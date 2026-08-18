@@ -42,6 +42,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 | `Headless/` | Go headless daemon (`warren-headless`) and CLI (`warren`) |
 | `RelayService/` | Go Relay control plane |
 | `Web/` | React + Vite Web/PWA client |
+| `Onboarding/` | Cloudflare Worker onboarding site (React + Vite + Ghostty WASM) |
 | `Assets/Brand/` | App icon, menubar templates, and brand assets |
 | `docs/` | Architecture and screenshot assets |
 
@@ -61,6 +62,10 @@ Build and run the macOS app:
 mise install
 mise run dev
 ```
+
+The app bundle includes the `warren` CLI. On its first launch Warren installs
+it to `~/.local/bin` and adds that directory to the active shell profile when
+needed. Use `Tools > Install CLI` to reinstall it manually.
 
 Build the headless daemon and CLI:
 

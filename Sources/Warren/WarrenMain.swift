@@ -68,7 +68,20 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         launchDaemonMenuBar()
         presentMainWindowIfNeeded()
         NSApp.mainMenu = Self.buildMainMenu(target: self)
+        installCLIIfNeeded()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func installCLIIfNeeded() {
+        do {
+            guard let result = try WarrenCLIInstaller.installIfNeeded() else { return }
+            NSLog("Installed Warren CLI at %@", result.executableURL.path)
+        } catch {
+            // Keep launch non-blocking. The Tools > Install CLI action remains
+            // available when a read-only home or a restricted shell profile
+            // prevents automatic installation.
+            NSLog("Unable to install Warren CLI automatically: %@", error.localizedDescription)
+        }
     }
 
     private func makeMainWindow() -> NSWindow {
@@ -242,6 +255,42 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         NotificationCenter.default.post(name: WebCommand.copySecureURL, object: nil)
     }
 
+    @objc private func installCLI(_ sender: NSMenuItem) {
+        do {
+            let result = try WarrenCLIInstaller.install()
+            let pathMessage: String
+            if let profileURL = result.pathProfileURL {
+                pathMessage = "Added \(result.installDirectory.path) to \(profileURL.path). Open a new terminal for the PATH change to take effect."
+            } else {
+                pathMessage = "\(result.installDirectory.path) is already on your PATH."
+            }
+            showAlert(
+                title: "CLI Installed",
+                message: "The Warren CLI is ready at \(result.executableURL.path).\n\n\(pathMessage)",
+                style: .informational
+            )
+        } catch {
+            showAlert(
+                title: "Unable to Install CLI",
+                message: error.localizedDescription,
+                style: .warning
+            )
+        }
+    }
+
+    private func showAlert(
+        title: String,
+        message: String,
+        style: NSAlert.Style
+    ) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = style
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     private static func buildMainMenu(target: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
 
@@ -388,6 +437,17 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         )
         copySecureURL.target = target
         webMenuItem.submenu = webMenu
+
+        let toolsMenuItem = NSMenuItem()
+        mainMenu.addItem(toolsMenuItem)
+        let toolsMenu = NSMenu(title: "Tools")
+        let installCLI = toolsMenu.addItem(
+            withTitle: "Install CLI",
+            action: #selector(WarrenAppDelegate.installCLI(_:)),
+            keyEquivalent: ""
+        )
+        installCLI.target = target
+        toolsMenuItem.submenu = toolsMenu
         return mainMenu
     }
 }
