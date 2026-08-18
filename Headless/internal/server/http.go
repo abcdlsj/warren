@@ -61,7 +61,7 @@ type rosterMessage struct {
 }
 
 func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPServer {
-	return &HTTPServer{
+	server := &HTTPServer{
 		Service: service,
 		Token:   token,
 		Logger:  logger,
@@ -74,6 +74,10 @@ func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPSer
 			},
 		},
 	}
+	if service != nil {
+		service.ClientsActive = func() bool { return server.peerCount() > 0 }
+	}
+	return server
 }
 
 // sameOrigin allows the Web UI served from any host/IP to open the WebSocket
