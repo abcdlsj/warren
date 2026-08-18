@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd)"
-version="0.1.0"
+version="0.1.1"
 
 bash "$repository_root/scripts/build-app.sh" release
 
