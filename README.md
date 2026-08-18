@@ -42,6 +42,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 | `Headless/` | Go headless daemon (`warren-headless`) and CLI (`warren`) |
 | `RelayService/` | Go Relay control plane |
 | `Web/` | React + Vite Web/PWA client |
+| `Onboarding/` | Cloudflare Worker onboarding site (React + Vite + Ghostty WASM) |
 | `Assets/Brand/` | App icon, menubar templates, and brand assets |
 | `docs/` | Architecture and screenshot assets |
 

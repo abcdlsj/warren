@@ -1,0 +1,33 @@
+{
+  "name": "warren-onboarding",
+  "version": "0.1.0",
+  "description": "Warren onboarding site, served from a Cloudflare Worker.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "allowScripts": {
+    "esbuild": true,
+    "workerd": true,
+    "fsevents": true
+  },
+  "dependencies": {
+    "@fontsource/zcool-xiaowei": "^5.3.0",
+    "ghostty-web": "^0.4.0",
+    "misans": "^4.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1",
+    "wrangler": "^4.123.0"
+  }
+}
