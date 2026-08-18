@@ -104,6 +104,7 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
     private var latestRenderedSequence: UInt64 = 0
     private var rawEpoch: UInt64 = 1
     private var rawSequence: UInt64 = 0
+    private var shutdownCompletion: (@MainActor @Sendable () -> Void)?
 
     init(
         inMemory: InMemoryTerminalSession,
@@ -189,13 +190,26 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
     /// The in-flight drain may still be inside Ghostty's host-managed write
     /// path; it exits once the main runloop pumps again. A synchronous wait
     /// here would hold the main thread and re-create the exact deadlock this
-    /// writer avoids, so shutdown only cancels and clears.
-    public func shutdown() {
+    /// writer avoids, so shutdown only cancels and clears. `completion` runs
+    /// on the main actor after the drain has fully exited, which lets owners
+    /// release the terminal view and surface without racing an in-flight
+    /// Ghostty write.
+    public func shutdown(
+        completion: (@MainActor @Sendable () -> Void)? = nil
+    ) {
+        let hadTask: Bool
         lock.lock()
+        hadTask = feedTask != nil
         feedTask?.cancel()
         feedTask = nil
         buffer = Buffer()
+        if let completion {
+            shutdownCompletion = completion
+        }
         lock.unlock()
+        if !hadTask {
+            notifyShutdownCompletion()
+        }
     }
 
     private func startFeedIfNeeded() {
@@ -213,30 +227,48 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
     }
 
     private func drain() async {
+        defer { finishDrain() }
+        var heldSlice: Slice?
         while !Task.isCancelled {
-            let slice: Slice? = lock.withLock {
-                buffer.take(maxBytes: budgetBytes)
+            if heldSlice == nil {
+                heldSlice = lock.withLock {
+                    buffer.take(maxBytes: budgetBytes)
+                }
             }
-            guard let slice else {
+            guard let slice = heldSlice else {
                 if exitIfDrained() { return }
+                continue
+            }
+
+            // The surface may not be attached yet (or may be mid-attach while
+            // pre-surface bytes flush). Keep the slice instead of consuming
+            // more of the buffer, so the pre-surface prompt is never reordered
+            // behind later live output.
+            guard inMemory.isSurfaceReady else {
+                try? await Task.sleep(for: yield)
                 continue
             }
 
             // Ghostty's host-managed write path can block until the main
             // runloop services the surface. Never hold the writer lock across
             // this call: the main thread enqueues the next slice and would
-            // deadlock against a drain blocked inside Ghostty. Take under the
-            // lock, write outside it. The ANSI observer and the in-memory
-            // session each guard their own state, so concurrent access is safe.
+            // deadlock against a drain blocked inside Ghostty. The in-memory
+            // session also never holds its own lock across Ghostty, so a
+            // teardown on the main thread cannot wait behind this call.
             let isCurrentEpoch = lock.withLock { buffer.epoch == slice.epoch }
             guard isCurrentEpoch else {
                 // A reanchor reset the stream while this slice was in flight;
                 // it is stale and must not be rendered.
+                heldSlice = nil
                 continue
             }
 
             ansiObserver.receive(slice.payload)
-            inMemory.receive(slice.payload)
+            guard inMemory.receive(slice.payload) else {
+                try? await Task.sleep(for: yield)
+                continue
+            }
+            heldSlice = nil
 
             lock.withLock {
                 latestRenderedEpoch = slice.epoch
@@ -253,7 +285,33 @@ public final class WarrenGhosttyOutputWriter: @unchecked Sendable {
                 return
             }
         }
-        lock.withLock { feedTask = nil }
+    }
+
+    /// Runs the shutdown completion once the drain task has fully returned.
+    private func finishDrain() {
+        let completion: (@MainActor @Sendable () -> Void)?
+        lock.lock()
+        feedTask = nil
+        completion = shutdownCompletion
+        shutdownCompletion = nil
+        lock.unlock()
+        guard let completion else { return }
+        Task { @MainActor in
+            completion()
+        }
+    }
+
+    /// Runs the shutdown completion when there was no drain task to wait for.
+    private func notifyShutdownCompletion() {
+        let completion: (@MainActor @Sendable () -> Void)?
+        lock.lock()
+        completion = shutdownCompletion
+        shutdownCompletion = nil
+        lock.unlock()
+        guard let completion else { return }
+        Task { @MainActor in
+            completion()
+        }
     }
 
     /// Atomically decides whether this drain can exit. `feedTask` is cleared

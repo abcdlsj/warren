@@ -12,6 +12,30 @@ final class WarrenRemoteModelTests: XCTestCase {
     }
 
     @MainActor
+    func testConnectIsIdempotentForTheSameEndpoint() {
+        let model = WarrenRemoteApplicationModel()
+        let endpoint = WarrenRemoteEndpointConfiguration(
+            name: "Test",
+            url: "http://127.0.0.1:9",
+            token: "token",
+            ssh: nil
+        )
+
+        model.connect(endpoint)
+        XCTAssertTrue(model.isConnected(to: endpoint))
+
+        // A root `.task` restart on full-screen transitions calls connect
+        // again; this must not tear down the healthy connection.
+        model.connect(endpoint)
+        XCTAssertTrue(model.isConnected(to: endpoint))
+
+        model.disconnect()
+        XCTAssertFalse(model.isConnected(to: endpoint))
+        model.disconnect()
+        XCTAssertFalse(model.isConnected(to: endpoint))
+    }
+
+    @MainActor
     func testEqualProjectionDoesNotPublishAgain() {
         let model = WarrenRemoteApplicationModel()
         let initial = model.projection

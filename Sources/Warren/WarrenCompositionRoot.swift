@@ -269,10 +269,12 @@ struct WarrenCompositionRoot: View {
             remoteModel.connect(endpoint)
             return
         }
+        let localEndpoint = WarrenRemoteEndpointConfiguration.localDaemon()
+        guard !remoteModel.isConnected(to: localEndpoint) else { return }
         remoteModel.disconnect()
         Task { @MainActor in
             for _ in 0..<30 {
-                let endpoint = WarrenRemoteEndpointConfiguration.localDaemon()
+                let endpoint = localEndpoint
                 if !endpoint.token.isEmpty, await isLocalDaemonReady(endpoint) {
                     remoteModel.connect(endpoint)
                     return

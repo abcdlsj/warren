@@ -226,6 +226,32 @@ Impact: surface creation/first-frame sync is delayed by at most one runloop
 Verified: the 11:09 freeze was the SwiftUI loop (root cause #2/#3 family), not
 this deadlock, after the 11:08 install included this fix.
 
+### 6. Disconnect teardown blocked behind an in-flight output drain (2026-08-19)
+
+The latest reproduction started with double-clicking the top chrome to enter
+full screen. The full-screen transition restarts the SwiftUI root `.task`,
+which called `connectSelectedEndpoint()` again; the unconditional
+`disconnect()` then ran `TerminalSurfaceManager.shutdown()` while the
+background `WarrenGhosttyOutputWriter` was inside
+`InMemoryTerminalSession.receive`, holding the session lock and blocked in
+`ghostty_surface_write_buffer`. The main thread blocked in
+`TerminalSurfaceCoordinator.deinit -> clearSurface` waiting for that same
+lock.
+
+Fix:
+
+- `connect` / `connectSelectedEndpoint` are idempotent for an already healthy
+  endpoint, so a root `.task` restart no longer tears down the live
+  connection.
+- `TerminalSurfaceManager.dispose` parks the entry in `pendingDisposals` and
+  releases the native view only after `outputWriter.shutdown(completion:)`
+  reports that the drain has exited.
+- `InMemoryTerminalSession` snapshots the surface under its lock and calls
+  `ghostty_surface_*` outside it, with `surfaceReady` gating writes so
+  pre-surface bytes still precede live output.
+
+Commit: see `docs/problems/2026-08-19-fullscreen-teardown-deadlock.md`.
+
 ## Open issue: the publish source behind root causes #2/#3 is not fully pinned
 
 Even with all known `@Published` writes deferred and all `onPreferenceChange`
