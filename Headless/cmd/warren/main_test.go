@@ -157,6 +157,22 @@ func TestParseFlagsBooleanEqualsStillWorks(t *testing.T) {
 	}
 }
 
+func TestCollectAgentTypeFlagsPreservesRepeatedValues(t *testing.T) {
+	values := collectAgentTypeFlags([]string{
+		"codex",
+		"--include", "user,assistant",
+		"--include=tool_call",
+		"--filter", "usage",
+	}, "include")
+	if got, want := strings.Join(values, ","), "user,assistant,tool_call"; got != want {
+		t.Fatalf("include values = %q, want %q", got, want)
+	}
+	filters := collectAgentTypeFlags([]string{"--filter", "usage", "--exclude=attachment"}, "filter", "exclude")
+	if got, want := strings.Join(filters, ","), "usage,attachment"; got != want {
+		t.Fatalf("filter values = %q, want %q", got, want)
+	}
+}
+
 func TestSessionRowsKeepsOrphanSessionUsable(t *testing.T) {
 	state := api.State{
 		Sessions: []api.Session{{
