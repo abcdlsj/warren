@@ -114,7 +114,7 @@ type Service struct {
 	peers                    map[string]map[*wsPeer]struct{}
 	focusedPeers             map[string]*wsPeer
 	runtimeSizes             map[string]ghostline.Size
-	broadcastLocks           map[string]*sync.Mutex
+	broadcastLocks           map[string]*sessionLock
 	agentsMu                 sync.Mutex
 	agents                   map[string]*agentSession
 	agentEpoch               uint64
@@ -131,6 +131,7 @@ type outputSession struct {
 	ring              *output.Ring
 	watcher           *ghostline.SpoolWatcher
 	responder         *ghostline.QueryResponder
+	prepareLock       *sessionLock
 	persistedSequence uint64
 	reanchorRequired  bool
 }
@@ -237,7 +238,7 @@ func (s *Service) lazyInitLocked() {
 		s.runtimeSizes = map[string]ghostline.Size{}
 	}
 	if s.broadcastLocks == nil {
-		s.broadcastLocks = map[string]*sync.Mutex{}
+		s.broadcastLocks = map[string]*sessionLock{}
 	}
 	if s.agents == nil {
 		s.agents = map[string]*agentSession{}
@@ -1570,7 +1571,14 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapterFor(session)
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, runtimeKind: s.runtimeKindFor(session), ring: ring, responder: s.newQueryResponder()}
+		outputSession := &outputSession{
+			sessionID:   session.ID,
+			runtimeName: session.Runtime,
+			runtimeKind: s.runtimeKindFor(session),
+			ring:        ring,
+			responder:   s.newQueryResponder(),
+			prepareLock: newSessionLock(),
+		}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -1594,6 +1602,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 		runtimeName:       session.Runtime,
 		runtimeKind:       s.runtimeKindFor(session),
 		responder:         s.newQueryResponder(),
+		prepareLock:       newSessionLock(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}
@@ -2304,7 +2313,13 @@ func (s *Service) broadcastFrame(frame output.Frame) {
 		return
 	}
 	lock := s.broadcastLock(frame.SessionID)
-	lock.Lock()
+	if !lock.TryLock() {
+		// Never let a spool watcher block behind an attach or focus operation.
+		// The ring already retains this frame; force attached peers to reconnect
+		// and recover from a fresh snapshot instead of wedging the watcher.
+		s.forceSessionReanchor(frame.SessionID)
+		return
+	}
 	defer lock.Unlock()
 	s.outputMu.Lock()
 	peers := make([]*wsPeer, 0, len(s.peers[frame.SessionID]))
@@ -2319,16 +2334,39 @@ func (s *Service) broadcastFrame(frame output.Frame) {
 	}
 }
 
-func (s *Service) broadcastLock(sessionID string) *sync.Mutex {
+func (s *Service) broadcastLock(sessionID string) *sessionLock {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
 	s.lazyInitLocked()
 	lock := s.broadcastLocks[sessionID]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = newSessionLock()
 		s.broadcastLocks[sessionID] = lock
 	}
 	return lock
+}
+
+// forceSessionReanchor drops slow or stale peers when output cannot acquire
+// the session broadcast lock. The ring remains authoritative, so reconnecting
+// peers receive a fresh snapshot and do not lose terminal state.
+func (s *Service) forceSessionReanchor(sessionID string) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	peers := make([]*wsPeer, 0, len(s.peers[sessionID]))
+	for peer := range s.peers[sessionID] {
+		peers = append(peers, peer)
+	}
+	s.outputMu.Unlock()
+	if outputSession == nil || len(peers) == 0 {
+		return
+	}
+	outputSession.mu.Lock()
+	outputSession.reanchorRequired = true
+	outputSession.mu.Unlock()
+	for _, peer := range peers {
+		peer.close()
+	}
 }
 
 // attachOutput prepares a peer's subscription under the session broadcast
@@ -2349,19 +2387,63 @@ func (s *Service) attachOutput(ctx context.Context, peer *wsPeer, session api.Se
 // broadcast lock. A paused watcher cannot read or broadcast, so a reanchor
 // snapshot is an atomic point in the byte stream: bytes at or below the
 // snapshot are represented exactly once.
-func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sync.Mutex, func(), error) {
-	outputSession, err := s.ensureOutput(ctx, session)
+func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sessionLock, func(), error) {
+	// The desktop client has a shorter request timeout than the daemon's
+	// command timeout. Bound the entire preparation phase independently so a
+	// stalled adoption, watcher, or lock cannot keep a WebSocket command
+	// handler occupied forever.
+	prepareContext, cancelPrepare := context.WithTimeout(ctx, s.commandTimeout())
+	defer cancelPrepare()
+
+	outputSession, err := s.ensureOutput(prepareContext, session)
 	if err != nil {
 		return nil, nil, err
 	}
-	resume := func() {}
+	s.outputMu.Lock()
+	if outputSession.prepareLock == nil {
+		outputSession.prepareLock = newSessionLock()
+	}
+	prepareLock := outputSession.prepareLock
+	s.outputMu.Unlock()
+
+	if err := prepareLock.LockContext(prepareContext); err != nil {
+		return nil, nil, fmt.Errorf("lock attach preparation: %w", err)
+	}
+
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			if outputSession.watcher != nil {
+				outputSession.watcher.Resume()
+			}
+			prepareLock.Unlock()
+		})
+	}
 	if outputSession.watcher != nil {
-		outputSession.watcher.Pause()
-		resume = outputSession.watcher.Resume
+		paused := make(chan struct{})
+		go func() {
+			outputSession.watcher.Pause()
+			close(paused)
+		}()
+		select {
+		case <-paused:
+		case <-prepareContext.Done():
+			// Pause has no cancellation-aware API in the current Ghostline
+			// release. Finish it in the background and immediately resume the
+			// watcher once it is safe, while unblocking this request now.
+			go func() {
+				<-paused
+				release()
+			}()
+			return nil, nil, fmt.Errorf("pause output watcher: %w", prepareContext.Err())
+		}
 	}
 	lock := s.broadcastLock(session.ID)
-	lock.Lock()
-	return lock, resume, nil
+	if err := lock.LockContext(prepareContext); err != nil {
+		release()
+		return nil, nil, fmt.Errorf("lock session output: %w", err)
+	}
+	return lock, release, nil
 }
 
 func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session api.Session, anchor *output.Anchor) error {
