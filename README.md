@@ -63,6 +63,10 @@ mise install
 mise run dev
 ```
 
+The app bundle includes the `warren` CLI. On its first launch Warren installs
+it to `~/.local/bin` and adds that directory to the active shell profile when
+needed. Use `Tools > Install CLI` to reinstall it manually.
+
 Build the headless daemon and CLI:
 
 ```sh
