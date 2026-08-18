@@ -852,6 +852,23 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testSessionDisplayTitlePrefersCustomTitle() {
+        let session = WarrenDesktopSession(
+            id: TerminalSessionID(),
+            workspaceID: WorkspaceID(),
+            title: "Shell",
+            customTitle: "My Agent"
+        )
+        XCTAssertEqual(session.displayTitle, "My Agent")
+
+        let defaultSession = WarrenDesktopSession(
+            id: TerminalSessionID(),
+            workspaceID: WorkspaceID(),
+            title: "Codex"
+        )
+        XCTAssertEqual(defaultSession.displayTitle, "Codex")
+    }
+
     func testProjectionKeepsPinnedProjectsWorkspacesAndSessionsFirst() {
         let host = WarrenDomain.Host(name: "Pinned Host")
         let pinnedProject = Project(

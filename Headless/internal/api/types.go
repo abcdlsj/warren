@@ -63,8 +63,12 @@ type Session struct {
 	TerminalGroupID string `json:"terminalGroup,omitempty"`
 	// Scope is explicit for new clients and derived from the ownership fields
 	// for legacy records that predate Terminal Groups.
-	Scope       string `json:"scope,omitempty"`
-	Title       string `json:"title"`
+	Scope string `json:"scope,omitempty"`
+	// Title is the generated default label (kind or command name) fixed at
+	// session creation; it never changes after a user renames the session.
+	Title string `json:"title"`
+	// CustomTitle is the user-set display name. When non-empty it takes
+	// precedence over Title in every client that renders a session name.
 	CustomTitle string `json:"customTitle,omitempty"`
 	Kind        string `json:"kind"`
 	Command     string `json:"command,omitempty"`

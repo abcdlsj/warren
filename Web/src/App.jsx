@@ -15,7 +15,7 @@ import {
   restoreNavigationPosition,
 } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
-import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
+import { defaultTitleTemplate, renderTerminalTitle, sessionDisplayTitle, titlePlaceholders } from "./title.js";
 import {
   attachTerminalMessage,
   fitTerminalToHost,
@@ -1291,7 +1291,7 @@ export default function App() {
   }, [request]);
 
   const renameSession = useCallback(session => {
-    const current = session.customTitle || session.title || "";
+    const current = sessionDisplayTitle(session);
     const value = window.prompt("Rename session", current);
     if (value?.trim()) {
       request("session.rename", { id: session.id, title: value.trim() });
@@ -1331,7 +1331,7 @@ export default function App() {
   }, [renameWorkspace, showContextMenu, toggleWorkspacePin]);
 
   const deleteSession = useCallback(session => {
-    const label = session.title || session.id;
+    const label = sessionDisplayTitle(session) || session.id;
     if (!window.confirm(`Delete session "${label}"? This kills its terminal process.`)) return;
     request("session.delete", { id: session.id }, () => {
       // If the deleted session owns the visible terminal, clear it right away
