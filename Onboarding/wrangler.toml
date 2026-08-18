@@ -2,13 +2,12 @@ name = "warren-onboarding"
 main = "src/worker.js"
 compatibility_date = "2026-08-18"
 
+routes = [
+  { pattern = "warrenai.xyz/*", zone_name = "warrenai.xyz" }
+]
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "404-page"
 run_worker_first = true
-
-# Once the zone is ready, point the custom domain here:
-# routes = [
-#   { pattern = "wareenai.xyz", custom_domain = true }
-# ]

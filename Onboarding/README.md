@@ -33,7 +33,7 @@ npm run preview    # wrangler dev at http://localhost:8787
 npm run deploy
 ```
 
-The worker name is `warren-onboarding`. Once `wareenai.xyz` is ready on
+The worker name is `warren-onboarding`. Once `warrenai.xyz` is ready on
 Cloudflare, uncomment the `routes` block in `wrangler.toml` and deploy again.
 
 ## Notes

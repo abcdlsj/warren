@@ -77,7 +77,7 @@ const messages = {
     "footer.line": "Sessions belong to the host.",
     "footer.servedBy": "Served by a Cloudflare Worker",
     "footer.source": "Source",
-    "footer.domain": "wareenai.xyz",
+    "footer.domain": "warrenai.xyz",
   },
   zh: {
     "nav.overview": "概览",
@@ -155,7 +155,7 @@ const messages = {
     "footer.line": "会话属于 Host。",
     "footer.servedBy": "由 Cloudflare Worker 托管",
     "footer.source": "源码",
-    "footer.domain": "wareenai.xyz",
+    "footer.domain": "warrenai.xyz",
   },
 };
 
