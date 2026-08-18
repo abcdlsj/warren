@@ -1,14 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc" shape-rendering="crispEdges">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc">
   <title id="title">Warren app icon, compact</title>
-  <desc id="desc">A compact warm white pixel W with an amber cursor on a charcoal tile.</desc>
-
-  <!-- Native 32 px tile. Large-icon facets are omitted to keep the edge quiet. -->
-  <path fill="#0f0d0c" d="M6 2h20v1h2v1h1v2h1v20h-1v2h-1v1h-2v1H6v-1H4v-1H3v-2H2V6h1V4h1V3h2z"/>
-  <path fill="#1c1918" d="M6 2h20v1h2v1h1v2h1v19h-1v2h-1v1h-2v1H6v-1H4v-1H3v-2H2V6h1V4h1V3h2z"/>
-
-  <!-- One-pixel depth remains at 32 px; the inset highlights do not. -->
-  <path fill="#0f0d0c" d="M5 8h4v5h1v4h1v4h2v-2h1v-3h4v3h1v2h2v-4h1v-4h1V8h4v6h-1v4h-1v4h-1v3h-4v-2h-1v-2h-1v-2h-4v2h-1v2h-1v2H8v-3H7v-4H6v-4H5z" transform="translate(0 1)"/>
-  <path fill="#eae8e6" d="M5 8h4v5h1v4h1v4h2v-2h1v-3h4v3h1v2h2v-4h1v-4h1V8h4v6h-1v4h-1v4h-1v3h-4v-2h-1v-2h-1v-2h-4v2h-1v2h-1v2H8v-3H7v-4H6v-4H5z"/>
-
-  <path fill="#f59e0b" d="M14 10h4v3h-4z"/>
+  <desc id="desc">A compact slanted straight-line W on a charcoal rounded tile.</desc>
+  <rect x="0" y="0" width="32" height="32" rx="6" fill="#121110"/>
+  <rect x="1" y="1" width="30" height="30" rx="5" fill="#1c1918"/>
+  <polygon points="21.0,25.5 27.6,7.3 24.6,6.4 20.0,25.1" fill="#8a8376"/>
+  <polygon points="21.9,25.0 17.1,8.7 16.1,8.9 19.1,25.6" fill="#d8d2c3"/>
+  <polygon points="16.2,8.5 5.3,24.6 7.7,26.1 17.1,9.1" fill="#d8d2c3"/>
+  <polygon points="8.1,25.4 8.4,6.9 7.3,6.8 4.9,25.2" fill="#8a8376"/>
 </svg>

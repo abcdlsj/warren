@@ -2,36 +2,52 @@
 
 ## Core Concept
 
-The logo combines the letter `W`, a rabbit-warren burrow, and a terminal cursor in one pixel mark.
+The icon is a slanted `W` built from four straight line segments, drawn like a
+metal brush stroke on a charcoal rounded tile.
 
-- The two raised strokes read as rabbit ears and form the opening and closing strokes of the `W`.
-- The forked shape below suggests connected burrows, echoing the name Warren and how Workspaces are organized.
-- The amber square is both a light inside the burrow and a terminal cursor.
+- Each stroke has a pronounced width taper: the left edge runs thin to thick,
+  the inner strokes thin toward the center valley, and the right edge runs
+  thick to thin.
+- The two inner strokes carry the bright silver highlight; the outer strokes
+  stay in the darker metal tone, keeping a selective metallic feel.
+- The mark is optically centered with a barely perceptible shift to the right.
 
-## Responsive Source Files
+## Source Files
 
-- `warren-app-icon.svg`: 1024 × 1024 master source used at 64 px and above.
-- `warren-app-icon-32.svg`: native 32 × 32 compact version. Keeps one depth layer and removes inner light/shadow faces.
-- `warren-app-icon-16.svg`: native 16 × 16 miniature version. Keeps only the base plate, the `W`, and the cursor.
+- `warren-app-icon.svg`: 1024 × 1024 master source with metallic gradients,
+  used at 64 px and above.
+- `warren-app-icon-32.svg`: native 32 × 32 version with flat silver tones for
+  crisp small rendering.
+- `warren-app-icon-16.svg`: native 16 × 16 micro version with flat silver
+  tones.
 - `warren-app-icon.png`: 1024 × 1024 preview and general bitmap.
 - `Warren.icns`: macOS app icon.
+- `menubar-black.svg` / `menubar-white.svg`: pure black / pure white W on a
+  transparent background for macOS menu bar template use.
 
-Do not scale the master SVG down to 16 px directly. The master artwork uses a 32 px construction grid, so scaling to 16 px produces half-pixel edges. After modifying any source file, run:
+After modifying any source file, regenerate the derived assets:
 
 ```sh
 mise run brand:assets
 mise run web:build
 ```
 
-The first command generates the macOS iconset, ICNS, Web favicons, and PWA PNGs; the second builds `Web/public/` into `Web/dist/`. Derived files must not be edited by hand.
+The first command generates the macOS iconset, ICNS, Web favicons, and PWA
+PNGs; the second builds `Web/public/` into `Web/dist/`. Derived files must not
+be edited by hand.
 
 ## Colors
 
 | Use | Value |
 | --- | --- |
-| Main background | `#1c1918` |
-| Deep shadow | `#0f0d0c` |
-| Main mark | `#eae8e6` |
-| Cursor | `#f59e0b` |
+| Tile rim | `#121110` |
+| Tile background | `#1c1918` |
+| Mark shadow | `#0d0c0b` |
+| Dark metal | `#8a8376` / `#c4bdb0` / `#6b655c` |
+| Bright metal | `#7b756a` / `#c7c0b2` / `#f2eee5` / `#fbf9f3` / `#b8b1a4` / `#5c574f` |
+| Flat light (32/16 px) | `#d8d2c3` |
+| Flat dark (32/16 px) | `#8a8376` |
 
-Do not add gradients, rounded strokes, or anti-aliased strokes. The artwork must stay aligned to the 32 px construction grid so it remains crisp at small sizes.
+The artwork is pure straight-line geometry, so it stays crisp at any size;
+gradients are only used in the master source and replaced by flat tones in
+the compact and micro sources.

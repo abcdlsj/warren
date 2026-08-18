@@ -30,7 +30,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 | `Headless/` | Go headless daemon (`warren-headless`) and CLI (`warren`) |
 | `RelayService/` | Go Relay control plane |
 | `Web/` | React + Vite Web/PWA client |
-| `Assets/Brand/` | App icon and brand assets |
+| `Assets/Brand/` | App icon, menubar templates, and brand assets |
 | `docs/` | Architecture and screenshot assets |
 
 ## Getting Started
@@ -86,6 +86,12 @@ mise run relay:dev
 | `mise run relay:stop` | Stop the local Relay without quitting Warren or terminal sessions |
 | `mise run brand:assets` | Regenerate macOS and Web brand assets |
 | `mise run package` | Build a release app and package a zip |
+
+## Brand
+
+The icon is a slanted straight-line `W` with silver metallic highlights on a
+charcoal rounded tile. Source files, colors, and regeneration steps live in
+[Assets/Brand/README.md](Assets/Brand/README.md).
 
 ## Documentation
 
