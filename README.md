@@ -6,9 +6,17 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 ![Warren desktop](docs/warren-desktop.png)
 
-![Warren web](docs/warren-web.png)
+### Web
 
-![Warren mobile](docs/warren-mobile.png)
+| Terminal | Agent |
+| --- | --- |
+| ![Warren web terminal](docs/warren-web-terminal.png) | ![Warren web agent](docs/warren-web-agent.png) |
+
+### Mobile
+
+| Terminal | Agent |
+| --- | --- |
+| ![Warren mobile terminal](docs/warren-mobile-terminal.png) | ![Warren mobile agent](docs/warren-mobile-agent.png) |
 
 ## Highlights
 
