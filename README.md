@@ -4,7 +4,7 @@ Warren is a local-first development workbench organized around **Workspaces**, w
 
 ## Screenshots
 
-![Warren desktop](docs/warren-screenshot.png)
+![Warren desktop](docs/warren-desktop.png)
 
 ![Warren web](docs/warren-web.png)
 
