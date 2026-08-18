@@ -914,10 +914,13 @@ final class WarrenRemoteApplicationModel {
                 // indication before the terminal attach indication begins so
                 // one user action never displays two spinners at once.
                 self.finishCreatingSession(in: workspaceID)
-                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
-                    selection: .workspace(workspaceID),
-                    selectedTabID: Self.tabID(sessionID)
-                ))
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(sessionID)),
+                        in: self.projection
+                    )
+                )
                 await self.attachSelectedSession()
             } catch {
                 self?.present(error)
@@ -947,10 +950,13 @@ final class WarrenRemoteApplicationModel {
                 guard let self,
                       self.selectedTerminalGroupID == terminalGroupID else { return }
                 self.finishCreatingSession(in: terminalGroupID)
-                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
-                    selection: .terminalGroup(terminalGroupID),
-                    selectedTabID: Self.tabID(sessionID)
-                ))
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(sessionID)),
+                        in: self.projection
+                    )
+                )
                 await self.attachSelectedSession()
             } catch {
                 self?.present(error)
@@ -1937,23 +1943,19 @@ final class WarrenRemoteApplicationModel {
 
     private func selectSession(_ id: TerminalSessionID) {
         guard let session = projection.sessions.first(where: { $0.id == id }) else { return }
-        let selection: WarrenDesktopSidebarSelection
-        if let workspaceID = session.workspaceID {
-            selection = .workspace(workspaceID)
-        } else if let groupID = session.terminalGroupID {
-            selection = .terminalGroup(groupID)
-        } else {
-            return
-        }
+        guard session.workspaceID != nil || session.terminalGroupID != nil else { return }
         TerminalDiagnostics.log("select_session", [
             "session": id.description,
             "workspace": session.workspaceID?.description ?? "nil",
             "terminalGroup": session.terminalGroupID?.description ?? "nil",
         ])
-        publishNavigationIfChanged(WarrenDesktopNavigationState(
-            selection: selection,
-            selectedTabID: Self.tabID(id)
-        ))
+        publishNavigationIfChanged(
+            WarrenDesktopNavigationReducer.reduce(
+                navigation,
+                action: .openSession(id),
+                in: projection
+            )
+        )
         Task { await attachSelectedSession() }
     }
 

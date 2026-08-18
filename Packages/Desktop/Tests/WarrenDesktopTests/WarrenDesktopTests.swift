@@ -602,7 +602,10 @@ final class WarrenDesktopTests: XCTestCase {
         let groupID = TerminalGroupID()
         let state = WarrenDesktopNavigationState(
             selection: .terminalGroup(groupID),
-            selectedTabID: "group-tab"
+            selectedTabID: "group-tab",
+            memory: WarrenDesktopNavigationMemory(
+                tabByTerminalGroupID: [groupID.description: "group-tab"]
+            )
         )
 
         WarrenDesktopNavigationPersistence.save(state, to: defaults)
@@ -1014,6 +1017,79 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
+    func testSelectingWorkspaceRestoresItsLastTab() {
+        let fixture = WarrenDesktopFixture.preview
+        let firstWorkspaceID = fixture.groups[0].workspaces[0].id
+        let reviewWorkspaceID = fixture.groups[1].workspaces[0].id
+        let alternateTab = ClientTab(
+            id: "tab-alt",
+            title: "Alternate",
+            kind: .shell
+        )
+        let projection = WarrenDesktopProjection(
+            host: fixture.host,
+            groups: fixture.groups,
+            sessions: fixture.sessions,
+            tabs: fixture.tabs + [alternateTab],
+            sessionWorkspaceIDs: fixture.projection.sessionWorkspaceIDs,
+            tabWorkspaceIDs: [alternateTab.id: firstWorkspaceID]
+        )
+
+        let selectedAlternate = WarrenDesktopNavigationReducer.reduce(
+            .init(),
+            action: .selectTab(alternateTab.id),
+            in: projection
+        )
+        let selectedReview = WarrenDesktopNavigationReducer.reduce(
+            selectedAlternate,
+            action: .selectWorkspace(reviewWorkspaceID),
+            in: projection
+        )
+        let restored = WarrenDesktopNavigationReducer.reduce(
+            selectedReview,
+            action: .selectWorkspace(firstWorkspaceID),
+            in: projection
+        )
+
+        XCTAssertEqual(selectedReview.selectedTabID, "tab-review")
+        XCTAssertEqual(restored.selection, .workspace(firstWorkspaceID))
+        XCTAssertEqual(restored.selectedTabID, alternateTab.id)
+    }
+
+    func testSelectingProjectRestoresItsLastWorkspaceAndTab() {
+        let fixture = WarrenDesktopFixture.preview
+        let projectID = fixture.groups[0].project.id
+        let firstWorkspaceID = fixture.groups[0].workspaces[0].id
+        let secondWorkspaceID = fixture.groups[0].workspaces[1].id
+        let featureTab = ClientTab(
+            id: "tab-feature",
+            title: "Feature",
+            kind: .shell
+        )
+        let projection = WarrenDesktopProjection(
+            host: fixture.host,
+            groups: fixture.groups,
+            sessions: fixture.sessions,
+            tabs: fixture.tabs + [featureTab],
+            sessionWorkspaceIDs: fixture.projection.sessionWorkspaceIDs,
+            tabWorkspaceIDs: [featureTab.id: secondWorkspaceID]
+        )
+
+        let selectedFeature = WarrenDesktopNavigationReducer.reduce(
+            .init(selection: .workspace(firstWorkspaceID), selectedTabID: "tab-main"),
+            action: .selectTab(featureTab.id),
+            in: projection
+        )
+        let restored = WarrenDesktopNavigationReducer.reduce(
+            selectedFeature,
+            action: .selectProject(projectID),
+            in: projection
+        )
+
+        XCTAssertEqual(restored.selection, .workspace(secondWorkspaceID))
+        XCTAssertEqual(restored.selectedTabID, featureTab.id)
+    }
+
     func testRestoringSettingsPositionReturnsToThePreviousWorkspaceAndTab() {
         let fixture = WarrenDesktopFixture.preview
         let previous = WarrenDesktopNavigationState(
@@ -1031,7 +1107,8 @@ final class WarrenDesktopTests: XCTestCase {
             in: fixture.projection
         )
 
-        XCTAssertEqual(restored, previous)
+        XCTAssertEqual(restored.selection, previous.selection)
+        XCTAssertEqual(restored.selectedTabID, previous.selectedTabID)
     }
 
     func testRestoringSettingsPositionReconcilesADeletedTabWithoutLeavingItsWorkspace() {
@@ -1189,7 +1266,16 @@ final class WarrenDesktopTests: XCTestCase {
         let fixture = WarrenDesktopFixture.preview
         let state = WarrenDesktopNavigationState(
             selection: .workspace(fixture.groups[0].workspaces[0].id),
-            selectedTabID: "tab-main"
+            selectedTabID: "tab-main",
+            memory: WarrenDesktopNavigationMemory(
+                workspaceByProjectID: [
+                    fixture.groups[0].project.id.description:
+                        fixture.groups[0].workspaces[0].id.description,
+                ],
+                tabByWorkspaceID: [
+                    fixture.groups[0].workspaces[0].id.description: "tab-main",
+                ]
+            )
         )
 
         WarrenDesktopNavigationPersistence.save(state, to: defaults)
@@ -1238,6 +1324,25 @@ final class WarrenDesktopTests: XCTestCase {
         )
 
         XCTAssertNil(WarrenDesktopNavigationPersistence.restore(from: defaults))
+    }
+
+    func testNavigationPersistenceRetainsMemoryWithoutForegroundSelection() throws {
+        let suiteName = "WarrenDesktopTests.navigation.memory-only.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let state = WarrenDesktopNavigationState(
+            memory: WarrenDesktopNavigationMemory(
+                workspaceByProjectID: ["project": "workspace"],
+                tabByWorkspaceID: ["workspace": "tab"]
+            )
+        )
+
+        WarrenDesktopNavigationPersistence.save(state, to: defaults)
+
+        XCTAssertEqual(
+            WarrenDesktopNavigationPersistence.restore(from: defaults),
+            state
+        )
     }
 
     func testSidebarTreePersistenceIsPerScopeAndRoundTrips() throws {
