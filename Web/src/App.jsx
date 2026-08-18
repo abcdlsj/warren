@@ -11,8 +11,12 @@ import { buildCatalog, moveInCatalog, rosterFromMessage, workspaceTabs } from ".
 import { WarrenConnection } from "./connection.js";
 import {
   captureNavigationPosition,
+  createNavigationMemory,
+  rememberNavigation,
+  resolveProjectWorkspace,
   resolveRestoredWorkspace,
   restoreNavigationPosition,
+  resolveWorkspaceSession,
 } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import { defaultTitleTemplate, renderTerminalTitle, titlePlaceholders } from "./title.js";
@@ -46,6 +50,7 @@ import { enableTerminalTouchScroll } from "./touch.js";
 const storageKeys = {
   activeWorkspace: "warren.activeWorkspace",
   activeSession: "warren.activeSession",
+  navigationMemory: "warren.navigationMemory",
   expandedProjects: "warren.expandedProjects",
   fontFamily: "warren.terminalFontFamily",
   fontSize: "warren.terminalFontSize",
@@ -116,6 +121,7 @@ export default function App() {
   const [catalog, setCatalog] = useState(() => buildCatalog());
   const [activeWorkspace, setActiveWorkspace] = useState(() => localStorage.getItem(storageKeys.activeWorkspace));
   const [activeSession, setActiveSession] = useState(() => localStorage.getItem(storageKeys.activeSession));
+  const [navigationMemory, setNavigationMemory] = useState(() => loadNavigationMemory());
   const [attachedSession, setAttachedSession] = useState(null);
   const [expandedProjects, setExpandedProjects] = useState(() => loadSet(storageKeys.expandedProjects));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem(storageKeys.fontFamily) || defaultFontFamily);
@@ -219,6 +225,7 @@ export default function App() {
     activeWorkspace: selectedWorkspaceID,
     activeSession,
     attachedSession,
+    navigationMemory,
   };
 
   const request = useCallback((method, params = {}, onResult = null, onError = null) => {
@@ -473,9 +480,24 @@ export default function App() {
     });
   }, [focusTerminal, requestSessionFocus]);
 
+  const recordNavigation = useCallback((catalogValue, workspaceID, sessionID = null) => {
+    const state = appStateRef.current;
+    const next = rememberNavigation(
+      state.navigationMemory,
+      catalogValue,
+      workspaceID,
+      sessionID,
+    );
+    if (sameNavigationMemory(state.navigationMemory, next)) return;
+    state.navigationMemory = next;
+    setNavigationMemory(next);
+  }, []);
+
   const attachSession = useCallback((sessionID, force = false, autoFocus = true, explicit = true) => {
     if (!sessionID) return;
     const state = appStateRef.current;
+    const workspaceID = state.catalog.sessions.get(sessionID)?.workspace;
+    if (workspaceID) recordNavigation(state.catalog, workspaceID, sessionID);
     autoFocusOnAttachRef.current = autoFocus;
     if (!force && sessionID === state.attachedSession) {
       // Roster broadcasts re-enter this branch too, but the session is
@@ -520,12 +542,18 @@ export default function App() {
       // does not focus the textarea, so the soft keyboard stays closed.
       if (isCoarsePointer()) requestSessionFocus(true);
     });
-  }, [clearTerminalSearch, markAttachReady, refreshTerminal, request, requestSessionFocus]);
+  }, [clearTerminalSearch, markAttachReady, recordNavigation, refreshTerminal, request, requestSessionFocus]);
 
   const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
     const wasAttached = Boolean(state.activeSession || state.attachedSession);
-    const nextTabs = workspaceTabs(state.catalog, workspaceID);
+    const sessionID = resolveWorkspaceSession(
+      state.catalog,
+      workspaceID,
+      state.navigationMemory,
+      preferredSessionID,
+    );
+    recordNavigation(state.catalog, workspaceID, sessionID);
     state.activeWorkspace = workspaceID;
     state.activeSession = null;
     state.attachedSession = null;
@@ -541,10 +569,9 @@ export default function App() {
     reanchorRequiredRef.current = false;
     setDrawerOpen(false);
 
-    if (preferredSessionID) attachSession(preferredSessionID, true);
-    else if (nextTabs.length) attachSession(nextTabs[0].id, true);
+    if (sessionID) attachSession(sessionID, true);
     else if (wasAttached) request("session.detach");
-  }, [attachSession, clearTerminalSearch, request]);
+  }, [attachSession, clearTerminalSearch, recordNavigation, request]);
 
   const createSession = useCallback(kind => {
     const workspaceID = appStateRef.current.activeWorkspace || selectedWorkspaceID;
@@ -590,6 +617,9 @@ export default function App() {
     const nextCatalog = buildCatalog(rosterFromMessage(message));
     const state = appStateRef.current;
     const nextWorkspaceID = resolveRestoredWorkspace(nextCatalog, state.activeWorkspace, state.activeSession);
+    const nextSessionID = nextWorkspaceID
+      ? resolveWorkspaceSession(nextCatalog, nextWorkspaceID, state.navigationMemory, state.activeSession)
+      : null;
     const nextTabs = nextWorkspaceID ? workspaceTabs(nextCatalog, nextWorkspaceID) : [];
     const activeTabWasRemoved = state.activeSession && !nextTabs.some(tab => tab.id === state.activeSession);
 
@@ -621,10 +651,12 @@ export default function App() {
     }
 
     setConnectionStatus({ message: "Connected", online: true });
-    if (state.activeSession) attachSession(state.activeSession, false, false, false);
-    else if (nextTabs.length) attachSession(nextTabs[0].id, false, false, false);
+    if (nextSessionID) {
+      recordNavigation(nextCatalog, nextWorkspaceID, nextSessionID);
+      attachSession(nextSessionID, false, false, false);
+    }
     else if (activeTabWasRemoved) request("session.detach");
-  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, request]);
+  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, recordNavigation, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
@@ -1221,6 +1253,10 @@ export default function App() {
   }, [activeSession]);
 
   useEffect(() => {
+    localStorage.setItem(storageKeys.navigationMemory, JSON.stringify(navigationMemory));
+  }, [navigationMemory]);
+
+  useEffect(() => {
     localStorage.setItem(storageKeys.expandedProjects, JSON.stringify([...expandedProjects]));
   }, [expandedProjects]);
 
@@ -1471,9 +1507,13 @@ export default function App() {
   }, [chooseWorkspace, closeSearch]);
 
   const chooseSearchProject = useCallback(projectID => {
-    const workspace = catalog.workspacesByProject.get(projectID)?.[0];
-    if (workspace) chooseSearchWorkspace(workspace.id);
-  }, [catalog.workspacesByProject, chooseSearchWorkspace]);
+    const workspaceID = resolveProjectWorkspace(
+      catalog,
+      projectID,
+      appStateRef.current.navigationMemory,
+    );
+    if (workspaceID) chooseSearchWorkspace(workspaceID);
+  }, [catalog, chooseSearchWorkspace]);
 
   const updateFontFamily = useCallback(value => {
     setFontFamily(value.trim() || defaultFontFamily);
@@ -1703,6 +1743,27 @@ function loadSet(key) {
   } catch {
     return new Set();
   }
+}
+
+function loadNavigationMemory() {
+  try {
+    return createNavigationMemory(
+      JSON.parse(localStorage.getItem(storageKeys.navigationMemory) || "{}"),
+    );
+  } catch {
+    return createNavigationMemory();
+  }
+}
+
+function sameNavigationMemory(left, right) {
+  const compare = (leftMap, rightMap) => {
+    const leftKeys = Object.keys(leftMap || {});
+    const rightKeys = Object.keys(rightMap || {});
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every(key => leftMap[key] === rightMap[key]);
+  };
+  return compare(left?.workspaceByProjectID, right?.workspaceByProjectID)
+    && compare(left?.sessionByWorkspaceID, right?.sessionByWorkspaceID);
 }
 
 function useMediaQuery(query) {
