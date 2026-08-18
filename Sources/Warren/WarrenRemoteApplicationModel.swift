@@ -692,6 +692,13 @@ final class WarrenRemoteApplicationModel {
             self.outputAnchors.removeValue(forKey: sessionID)
             self.suppressFramedAnchorUpdates.remove(sessionID)
         }
+        guard endpointConfiguration != configuration || eventTask == nil else {
+            // The root view's `.task` can restart on window transitions such
+            // as entering full screen. Tearing down and recreating an already
+            // healthy connection is both wasteful and the trigger for the
+            // terminal teardown deadlock, so keep the live connection instead.
+            return
+        }
         disconnect()
         restorePersistedTabOrders()
         endpointConfiguration = configuration
@@ -721,6 +728,10 @@ final class WarrenRemoteApplicationModel {
     }
 
     func disconnect() {
+        guard eventTask != nil || endpointConfiguration != nil || wire != nil
+            || surfaceManager.retainedSurfaceCount > 0 else {
+            return
+        }
         eventTask?.cancel()
         eventTask = nil
         endpointConfiguration = nil
@@ -737,6 +748,10 @@ final class WarrenRemoteApplicationModel {
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
         publishProjectionIfChanged(projection.withConnectionState(.disconnected))
+    }
+
+    func isConnected(to configuration: WarrenRemoteEndpointConfiguration) -> Bool {
+        endpointConfiguration == configuration && eventTask != nil
     }
 
     /// Keeps the endpoint alive across daemon restarts and transient network

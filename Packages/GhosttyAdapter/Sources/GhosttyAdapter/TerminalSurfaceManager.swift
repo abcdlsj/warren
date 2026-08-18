@@ -147,6 +147,11 @@ public final class TerminalSurfaceManager {
     private var staleCommandCancellationCount: UInt64 = 0
     private var surfaceCreationCount: UInt64 = 0
     private var surfaceDisposalCount: UInt64 = 0
+    /// Surfaces whose background output drain is still in flight. Releasing
+    /// them immediately would deallocate the terminal view on the main thread
+    /// while the drain holds the in-memory session lock, recreating the
+    /// teardown deadlock. They are released after the drain exits.
+    private var pendingDisposals: [TerminalSessionID: Entry] = [:]
     private var hiddenRenderAttemptCount: UInt64 = 0
     private var windowObservers: [NSObjectProtocol] = []
     private var onFocused: (TerminalSessionID, TerminalSize?) -> Void = { _, _ in }
@@ -167,6 +172,8 @@ public final class TerminalSurfaceManager {
     }
 
     public var retainedSurfaceCount: Int { entries.count }
+
+    public var pendingDisposalCount: Int { pendingDisposals.count }
 
     public func surface(for sessionID: TerminalSessionID) -> GhosttySurface? {
         entries[sessionID]?.surface
@@ -424,9 +431,19 @@ public final class TerminalSurfaceManager {
         entry.view.isHidden = true
         entry.view.removeFromSuperview()
         entry.surface.mountedTerminalView = nil
-        entry.surface.outputWriter.shutdown()
+        entry.surface.outputWriter.shutdown { [weak self, weak entry] in
+            guard let self, let entry else { return }
+            self.releasePendingDisposal(entry)
+        }
+        pendingDisposals[sessionID] = entry
         surfaceDisposalCount &+= 1
         onSurfaceDisposed?(sessionID)
+    }
+
+    private func releasePendingDisposal(_ entry: Entry) {
+        let sessionID = entry.surface.id
+        guard pendingDisposals[sessionID] === entry else { return }
+        pendingDisposals.removeValue(forKey: sessionID)
     }
 
     private func focus(_ sessionID: TerminalSessionID, generation: UInt64) {

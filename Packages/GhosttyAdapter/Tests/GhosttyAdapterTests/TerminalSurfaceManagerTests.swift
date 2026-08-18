@@ -163,6 +163,47 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertEqual(snapshot.hiddenRenderAttemptCount, 0)
     }
 
+    func testShutdownDefersNativeViewReleaseUntilOutputDrainExits() async throws {
+        _ = NSApplication.shared
+        let manager = TerminalSurfaceManager(warmLimit: 2)
+        let surface = makeSurface()
+        manager.insert(surface)
+
+        let host = TerminalHostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer {
+            window.orderOut(nil as Any?)
+        }
+
+        submit(surface.id, to: manager, host: host)
+        try await waitUntil {
+            surface.state.surface != nil && surface.terminalViewIsPresentable
+        }
+
+        // Keep a drain in flight while the manager is asked to tear down.
+        surface.outputWriter.enqueueRaw(makeLines(start: 0, count: 1000))
+        manager.shutdown()
+
+        // The entry must leave the live roster immediately, but its native
+        // view/surface release has to wait for the background writer to exit.
+        XCTAssertEqual(manager.retainedSurfaceCount, 0)
+        XCTAssertEqual(manager.snapshot().surfaceDisposalCount, 1)
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while manager.pendingDisposalCount > 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        XCTAssertEqual(manager.pendingDisposalCount, 0)
+    }
+
     func testReattachPreservesPinnedViewport() async throws {
         _ = NSApplication.shared
         let manager = TerminalSurfaceManager(warmLimit: 2)
