@@ -1,7 +1,7 @@
 import WarrenDomain
 
-/// Client-local rule for hiding an agent activity dot after the user drags it
-/// out of the window.
+/// Client-local rule for hiding an agent activity dot after the user dismisses
+/// it (for example from the tab's right-click menu).
 ///
 /// The dismissal covers only the activity state that was visible when the dot
 /// was dismissed. A later activity change makes the dot visible again, so a
