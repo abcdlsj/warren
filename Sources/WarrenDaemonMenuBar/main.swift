@@ -39,8 +39,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let image = warrenBrandImage() {
-            image.size = NSSize(width: 18, height: 18)
+        if let image = warrenMenuBarImage() {
             statusItem.button?.image = image
             statusItem.button?.imageScaling = .scaleProportionallyDown
             statusItem.button?.imagePosition = .imageOnly
@@ -307,21 +306,38 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         return entries.joined(separator: ":")
     }
 
-    private func warrenBrandImage() -> NSImage? {
+    private func warrenMenuBarImage() -> NSImage? {
         let environment = ProcessInfo.processInfo.environment
-        var candidates: [URL] = []
-        if let configured = environment["WARREN_BRAND_ICON_PATH"], !configured.isEmpty {
-            candidates.append(URL(fileURLWithPath: configured))
+        var baseCandidates: [URL] = []
+        var retinaCandidates: [URL] = []
+        if let configured = environment["WARREN_MENUBAR_ICON_PATH"], !configured.isEmpty {
+            baseCandidates.append(URL(fileURLWithPath: configured))
         }
-        if let bundled = Bundle.main.url(forResource: "Warren", withExtension: "icns") {
-            candidates.append(bundled)
+        if let bundled = Bundle.main.url(forResource: "menubar-template", withExtension: "png") {
+            baseCandidates.append(bundled)
+        }
+        if let bundled2x = Bundle.main.url(forResource: "menubar-template@2x", withExtension: "png") {
+            retinaCandidates.append(bundled2x)
         }
         let executableDirectory = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
-        candidates.append(executableDirectory.appendingPathComponent("../Resources/Warren.icns").standardizedFileURL)
-        candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Assets/Brand/Warren.icns"))
-        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
-            if let image = NSImage(contentsOf: candidate) { return image }
+        baseCandidates.append(executableDirectory.appendingPathComponent("../Resources/menubar-template.png").standardizedFileURL)
+        retinaCandidates.append(executableDirectory.appendingPathComponent("../Resources/menubar-template@2x.png").standardizedFileURL)
+        baseCandidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Assets/Brand/menubar-black-18.png"))
+        retinaCandidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Assets/Brand/menubar-black-36.png"))
+        for candidate in baseCandidates where FileManager.default.fileExists(atPath: candidate.path) {
+            let image = NSImage(size: NSSize(width: 18, height: 18))
+            if let rep = NSImageRep(contentsOf: candidate) {
+                image.addRepresentation(rep)
+            }
+            for retina in retinaCandidates where FileManager.default.fileExists(atPath: retina.path) {
+                if let rep = NSImageRep(contentsOf: retina) {
+                    image.addRepresentation(rep)
+                }
+            }
+            image.isTemplate = true
+            return image
         }
         return nil
     }

@@ -22,8 +22,12 @@ metal brush stroke on a charcoal rounded tile.
   tones.
 - `warren-app-icon.png`: 1024 × 1024 preview and general bitmap.
 - `Warren.icns`: macOS app icon.
-- `menubar-black.svg` / `menubar-white.svg`: pure black / pure white W on a
-  transparent background for macOS menu bar template use.
+- `menubar-black.svg` / `menubar-white.svg`: source variants of the W on a
+  transparent background. The macOS menu bar uses a single template image
+  (`menubar-black-18.png` / `menubar-black-36.png`), which AppKit recolors
+  automatically for light and dark menu bars; `scripts/build-app.sh` installs
+  them into the app bundle as `menubar-template.png` and
+  `menubar-template@2x.png`.
 
 After modifying any source file, regenerate the derived assets:
 
