@@ -773,6 +773,16 @@ func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
 	return rows
 }
 
+// effectiveSessionTitle is the single display-name rule used everywhere a
+// session name is rendered: a user-set CustomTitle wins, otherwise the
+// generated default Title is shown.
+func effectiveSessionTitle(session api.Session) string {
+	if title := strings.TrimSpace(session.CustomTitle); title != "" {
+		return title
+	}
+	return session.Title
+}
+
 // ProjectRow adds roster-derived context (workspace count) to a project while
 // keeping the original JSON fields intact.
 type ProjectRow struct {
@@ -945,7 +955,7 @@ func sessionRowCells(item SessionRow) []string {
 		displayValue(item.WorkspaceName),
 		displayValue(item.TerminalGroupName),
 		displayValue(item.Branch),
-		item.Title,
+		effectiveSessionTitle(item.Session),
 		item.Kind,
 		displayValue(item.Command),
 		item.Lifecycle,
@@ -997,7 +1007,7 @@ func sessionPairs(value api.Session) [][2]string {
 		{"SCOPE", value.ScopeKind()},
 		{"WORKSPACE", value.WorkspaceID},
 		{"TERMINAL GROUP", value.TerminalGroupID},
-		{"TITLE", value.Title},
+		{"TITLE", effectiveSessionTitle(value)},
 		{"KIND", value.Kind},
 		{"COMMAND", displayValue(value.Command)},
 		{"RUNTIME", value.Runtime},
