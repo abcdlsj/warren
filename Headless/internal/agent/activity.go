@@ -68,6 +68,14 @@ func (t *ActivityTracker) TurnComplete() {
 	t.set(api.AgentActivityReady)
 }
 
+// TurnFailed marks a turn that ended with an error. The agent failed and
+// waits for the next instruction.
+func (t *ActivityTracker) TurnFailed() {
+	t.pendingTools = 0
+	t.pendingSince = time.Time{}
+	t.set(api.AgentActivityFailed)
+}
+
 // TurnAborted marks a turn the user interrupted. The agent stops and waits
 // for input.
 func (t *ActivityTracker) TurnAborted() {

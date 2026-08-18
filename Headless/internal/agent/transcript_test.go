@@ -421,6 +421,89 @@ func TestClaudeApiErrorBecomesErrorEvent(t *testing.T) {
 	}
 }
 
+func TestClaudeUserInterruptBecomesWaitingForInput(t *testing.T) {
+	parser := newParser("claude")
+	events := parser.parse([]byte(`{"type":"user","uuid":"u1","timestamp":"2026-08-16T10:00:00Z","isSidechain":false,"message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}`))
+	if len(events) != 1 || events[0].Type != "system" {
+		t.Fatalf("interrupt event = %#v", events)
+	}
+	if got := parser.Activity(); got != api.AgentActivityWaitingForInput {
+		t.Fatalf("activity after Claude interrupt = %q, want waitingForInput", got)
+	}
+}
+
+func TestCodexTaskCompleteErrorBecomesErrorEvent(t *testing.T) {
+	parser := newParser("codex")
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}`))
+	events := parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:01Z","type":"event_msg","payload":{"type":"task_complete","error":{"message":"unexpected status 403 Forbidden: quota exceeded","codex_error_info":"other"}}}`))
+	if len(events) != 1 || events[0].Type != "error" ||
+		events[0].Error != "unexpected status 403 Forbidden: quota exceeded" {
+		t.Fatalf("error event = %#v", events)
+	}
+	if got := parser.Activity(); got != api.AgentActivityFailed {
+		t.Fatalf("activity after 403 task_complete = %q, want failed", got)
+	}
+}
+
+func TestCodexLegacyEventMsgErrorStaysFailedAfterTaskComplete(t *testing.T) {
+	parser := newParser("codex")
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}`))
+	events := parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:01Z","type":"event_msg","payload":{"type":"error","message":"unexpected status 502 Bad Gateway: nginx","codex_error_info":"other"}}`))
+	if len(events) != 1 || events[0].Type != "error" {
+		t.Fatalf("legacy error event = %#v", events)
+	}
+	if got := parser.Activity(); got != api.AgentActivityFailed {
+		t.Fatalf("activity after legacy error = %q, want failed", got)
+	}
+
+	events = parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:02Z","type":"event_msg","payload":{"type":"task_complete"}}`))
+	if len(events) != 0 {
+		t.Fatalf("task_complete after error emitted %#v, want none", events)
+	}
+	if got := parser.Activity(); got != api.AgentActivityFailed {
+		t.Fatalf("activity after legacy task_complete = %q, want failed", got)
+	}
+}
+
+func TestCodexNon200ErrorsAllFail(t *testing.T) {
+	for _, message := range []string{
+		"unexpected status 401 Unauthorized: no auth available",
+		"unexpected status 403 Forbidden: insufficient balance",
+		"unexpected status 404 Not Found: missing route",
+		"unexpected status 413 Payload Too Large: request too big",
+		"exceeded retry limit, last status: 429 Too Many Requests",
+		"unexpected status 502 Bad Gateway: nginx",
+		"unexpected status 503 Service Unavailable: backend down",
+		"stream disconnected before completion: stream closed before response.completed",
+	} {
+		parser := newParser("codex")
+		parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}`))
+		events := parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:01Z","type":"event_msg","payload":{"type":"task_complete","error":{"message":"` + message + `","codex_error_info":"other"}}}`))
+		if len(events) != 1 || events[0].Error != message {
+			t.Fatalf("error event for %q = %#v", message, events)
+		}
+		if got := parser.Activity(); got != api.AgentActivityFailed {
+			t.Fatalf("activity for %q = %q, want failed", message, got)
+		}
+	}
+}
+
+func TestCodexTurnAbortedAfterErrorIsWaitingForInput(t *testing.T) {
+	parser := newParser("codex")
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:00Z","type":"event_msg","payload":{"type":"task_started"}}`))
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:01Z","type":"event_msg","payload":{"type":"task_complete","error":{"message":"unexpected status 403 Forbidden: quota exceeded","codex_error_info":"other"}}}`))
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:02Z","type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}`))
+	if got := parser.Activity(); got != api.AgentActivityWaitingForInput {
+		t.Fatalf("activity after Esc = %q, want waitingForInput", got)
+	}
+
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:03Z","type":"event_msg","payload":{"type":"task_started"}}`))
+	parser.parse([]byte(`{"timestamp":"2026-08-16T10:00:04Z","type":"event_msg","payload":{"type":"task_complete"}}`))
+	if got := parser.Activity(); got != api.AgentActivityReady {
+		t.Fatalf("activity after next clean turn = %q, want ready", got)
+	}
+}
+
 func TestCodexApplyPatchExtractsFiles(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout-patch.jsonl")
 	arguments := `{\"patch\":\"*** Add File: src/a.go\\n+package a\\n*** Update File: src/b.go\\n- old\\n+ new\"}`

@@ -399,6 +399,7 @@ type parser struct {
 	tracker         ActivityTracker
 	codexModel      string
 	codexCallTool   map[string]string
+	codexTurnFailed bool
 	lastUserContent string
 	// Older Codex rollouts write each turn twice: once as response_item and
 	// once as a streaming event_msg. These fields deduplicate the twin
@@ -473,6 +474,7 @@ type codexPayload struct {
 	Summary json.RawMessage `json:"summary"`
 	Text    string          `json:"text"`
 	Message string          `json:"message"`
+	Error   json.RawMessage `json:"error"`
 	Status  string          `json:"status"`
 	Item    struct {
 		Type    string          `json:"type"`
@@ -656,7 +658,19 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			return []api.AgentEvent{event}
 		case "turn_aborted":
 			p.tracker.TurnAborted()
+			p.codexTurnFailed = false
 			return nil
+		case "error":
+			message := codexErrorMessage(payload)
+			if message == "" {
+				return nil
+			}
+			p.tracker.TurnFailed()
+			p.codexTurnFailed = true
+			event.Type = "error"
+			event.Content = truncate(message, maxEventContent)
+			event.Error = event.Content
+			return []api.AgentEvent{event}
 		case "agent_message":
 			content := firstNonEmpty(payload.Message, contentString(payload.Content), payload.Text)
 			if content == "" {
@@ -685,9 +699,23 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			p.lastEventType = "reasoning"
 			return []api.AgentEvent{event}
 		case "task_started":
+			p.codexTurnFailed = false
 			p.tracker.TurnStarted()
 			return nil
 		case "task_complete":
+			if p.codexTurnFailed {
+				p.codexTurnFailed = false
+				p.tracker.TurnFailed()
+				return nil
+			}
+			if message := codexErrorMessage(payload); message != "" {
+				p.codexTurnFailed = true
+				p.tracker.TurnFailed()
+				event.Type = "error"
+				event.Content = truncate(message, maxEventContent)
+				event.Error = event.Content
+				return []api.AgentEvent{event}
+			}
 			p.tracker.TurnComplete()
 			return nil
 		case "thread_settings_applied":
@@ -710,6 +738,34 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 	default:
 		return nil
 	}
+}
+
+// codexErrorMessage extracts the human-readable error from either a legacy
+// event_msg error (message/text) or a task_complete error envelope.
+func codexErrorMessage(payload codexPayload) string {
+	if payload.Message != "" {
+		return payload.Message
+	}
+	if payload.Text != "" {
+		return payload.Text
+	}
+	if content := contentString(payload.Content); content != "" {
+		return content
+	}
+	if len(payload.Error) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(payload.Error, &text) == nil && text != "" {
+		return text
+	}
+	var wrapper struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(payload.Error, &wrapper) == nil && wrapper.Message != "" {
+		return wrapper.Message
+	}
+	return string(payload.Error)
 }
 
 // codexFallbackContent extracts whatever human-readable text an unrecognized
@@ -991,6 +1047,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			return nil
 		}
 		if strings.HasPrefix(strings.TrimSpace(content), "[Request interrupted") {
+			p.tracker.TurnAborted()
 			return []api.AgentEvent{{
 				Provider:  "claude",
 				ID:        record.UUID,

@@ -62,6 +62,23 @@ func TestActivityTrackerNoticesStalledTool(t *testing.T) {
 	}
 }
 
+func TestActivityTrackerTurnFailedResetsPendingTools(t *testing.T) {
+	tracker := NewActivityTracker()
+	started := time.Now()
+
+	tracker.Observe(api.AgentEvent{Type: "user"})
+	tracker.Observe(api.AgentEvent{Type: "tool_call", Timestamp: started})
+	tracker.TurnFailed()
+	if got := tracker.Activity(); got != api.AgentActivityFailed {
+		t.Fatalf("after turn failed = %q, want failed", got)
+	}
+
+	tracker.Tick(started.Add(time.Hour))
+	if got := tracker.Activity(); got != api.AgentActivityFailed {
+		t.Fatalf("failed turn moved to %q, want failed", got)
+	}
+}
+
 func TestActivityTrackerIgnoresSidechains(t *testing.T) {
 	tracker := NewActivityTracker()
 
