@@ -105,6 +105,25 @@ func TestSessionCreateRejectsWorkspaceAndGroupTogether(t *testing.T) {
 	}
 }
 
+func TestEffectiveSessionTitlePrefersCustomTitle(t *testing.T) {
+	session := api.Session{Title: "Shell", CustomTitle: "My Shell"}
+	if got := effectiveSessionTitle(session); got != "My Shell" {
+		t.Fatalf("effective title with custom = %q, want My Shell", got)
+	}
+	session.CustomTitle = "   "
+	if got := effectiveSessionTitle(session); got != "Shell" {
+		t.Fatalf("effective title with blank custom = %q, want Shell", got)
+	}
+
+	rows := sessionRows(api.State{Sessions: []api.Session{{
+		ID: "session-1", Title: "Shell", CustomTitle: "My Shell",
+		Kind: "shell", Lifecycle: "running",
+	}}}, false, false)
+	if got := sessionRowCells(rows[0])[5]; got != "My Shell" {
+		t.Fatalf("session list title cell = %q, want My Shell", got)
+	}
+}
+
 func TestParseFlagsBareBooleanDoesNotConsumePositional(t *testing.T) {
 	params := parseFlags([]string{"session-1", "--raw", "hello world"})
 	if !boolValue(params, "raw") {

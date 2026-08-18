@@ -27,7 +27,7 @@ const kindLabels = {
 export function renderTerminalTitle(template, session = {}, workspace = {}, host = {}) {
   const directory = session.directory || workspace.path || "";
   const values = {
-    session: session.customTitle || session.title || "Session",
+    session: sessionDisplayTitle(session) || "Session",
     command: session.process || session.kind || "shell",
     directory,
     directoryName: directoryName(directory),
@@ -48,6 +48,15 @@ export function renderTerminalTitle(template, session = {}, workspace = {}, host
 }
 
 /**
+ * Single display-name rule shared by non-tab surfaces: a user-set
+ * CustomTitle wins, otherwise the generated default Title is shown.
+ */
+export function sessionDisplayTitle(session = {}) {
+  const customTitle = String(session.customTitle || "").trim();
+  return customTitle || String(session.title || "").trim();
+}
+
+/**
  * Tab title matching Superset's GroupStrip: interactive shells read as their
  * directory, while a real process is shown as "command — directory".
  */
@@ -59,7 +68,7 @@ export function terminalTabTitle(session = {}, workspace = {}) {
   const command = process && !shellProcessNames.has(process)
     ? process
     : (session.kind && session.kind !== "shell" ? kindLabels[session.kind] || session.kind : "");
-  if (!dirName) return session.title || command || "Shell";
+  if (!dirName) return sessionDisplayTitle(session) || command || "Shell";
   return command ? `${command} — ${dirName}` : dirName;
 }
 

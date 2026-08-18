@@ -218,6 +218,35 @@ func TestCreateSessionInjectsShellBindEnvironment(t *testing.T) {
 	}
 }
 
+func TestCreateSessionSeparatesDefaultAndCustomTitle(t *testing.T) {
+	state := newStateWithSession(t, "session-title", "runtime-title")
+	service := &Service{Store: state, Runtime: newMemoryRuntime(t)}
+	workspace := state.Snapshot().Workspaces[0]
+
+	session, err := service.CreateSession(context.Background(), workspace.ID, "", "shell", "My Shell", "")
+	if err != nil {
+		t.Fatalf("CreateSession with title: %v", err)
+	}
+	if session.Title != "Shell" || session.CustomTitle != "My Shell" {
+		t.Fatalf("custom title semantics = %q/%q, want Shell/My Shell", session.Title, session.CustomTitle)
+	}
+	if err := service.RenameSession(session.ID, "Renamed Shell"); err != nil {
+		t.Fatalf("RenameSession: %v", err)
+	}
+	renamed, ok := service.Session(session.ID)
+	if !ok || renamed.Title != "Shell" || renamed.CustomTitle != "Renamed Shell" {
+		t.Fatalf("renamed title semantics = %q/%q, want Shell/Renamed Shell", renamed.Title, renamed.CustomTitle)
+	}
+
+	defaultSession, err := service.CreateSession(context.Background(), workspace.ID, "", "codex", "", "")
+	if err != nil {
+		t.Fatalf("CreateSession without title: %v", err)
+	}
+	if defaultSession.Title != "Codex" || defaultSession.CustomTitle != "" {
+		t.Fatalf("default title semantics = %q/%q, want Codex/empty", defaultSession.Title, defaultSession.CustomTitle)
+	}
+}
+
 type envRecordingRuntime struct {
 	*memoryRuntime
 	mu   sync.Mutex
