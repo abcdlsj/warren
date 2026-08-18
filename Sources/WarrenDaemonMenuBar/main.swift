@@ -357,6 +357,8 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         dot.layer?.shadowColor = green.cgColor
         dot.layer?.shadowRadius = 2
         dot.layer?.shadowOpacity = 0.9
+        dot.layer?.borderWidth = 1
+        dot.layer?.borderColor = NSColor(srgbRed: 28 / 255, green: 25 / 255, blue: 24 / 255, alpha: 1).cgColor
         dot.isHidden = true
         button.addSubview(dot)
         NSLayoutConstraint.activate([

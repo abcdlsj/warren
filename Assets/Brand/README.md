@@ -32,7 +32,8 @@ metal brush stroke on a charcoal rounded tile.
 
 While the daemon is running, the menu bar item also shows a small breathing
 status dot (agent activity green, `#7ec699`) in the bottom-right corner; it is
-hidden in every other state.
+outlined by a thin charcoal ring for contrast and hidden in every other
+state.
 
 After modifying any source file, regenerate the derived assets:
 
