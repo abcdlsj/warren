@@ -30,6 +30,10 @@ metal brush stroke on a charcoal rounded tile.
   `menubar-black-36.png` into the app bundle as `menubar-template.png` and
   `menubar-template@2x.png`.
 
+While the daemon is running, the menu bar item also shows a small green
+breathing status dot in the bottom-right corner; it is hidden in every other
+state.
+
 After modifying any source file, regenerate the derived assets:
 
 ```sh

@@ -27,6 +27,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private let healthURL = URL(string: "http://127.0.0.1:8789/healthz")!
     private let stateURL = URL(string: "http://127.0.0.1:8789/v1/state")!
     private var statusItem: NSStatusItem!
+    private var statusDot: NSView?
     private var daemonProcess: Process?
     private var pollTask: Task<Void, Never>?
     private var autoStartDisabled = false
@@ -36,6 +37,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
     private var state: DaemonState = .checking {
         didSet { updateStatusItem() }
     }
+    private let statusDotPulseDuration: CFTimeInterval = 1.4
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -46,6 +48,7 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         } else {
             statusItem.button?.title = "W"
         }
+        installStatusDot()
         statusItem.button?.toolTip = "Warren headless daemon"
         statusItem.menu = makeMenu()
         updateStatusItem()
@@ -342,6 +345,42 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
         return nil
     }
 
+    private func installStatusDot() {
+        guard let button = statusItem.button else { return }
+        let size: CGFloat = 4.5
+        let dot = NSView(
+            frame: NSRect(
+                x: button.bounds.width - size - 3,
+                y: 2,
+                width: size,
+                height: size
+            )
+        )
+        dot.wantsLayer = true
+        dot.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        dot.layer?.cornerRadius = size / 2
+        dot.autoresizingMask = [.minXMargin, .maxYMargin]
+        dot.isHidden = true
+        button.addSubview(dot)
+        statusDot = dot
+    }
+
+    private func setStatusDotBreathing(_ breathing: Bool) {
+        guard let layer = statusDot?.layer else { return }
+        if breathing {
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 0.35
+            pulse.toValue = 1.0
+            pulse.duration = statusDotPulseDuration
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            layer.add(pulse, forKey: "statusDotPulse")
+        } else {
+            layer.removeAnimation(forKey: "statusDotPulse")
+        }
+        statusDot?.isHidden = !breathing
+    }
+
     private func updateStatusItem() {
         guard let button = statusItem?.button else { return }
         switch state {
@@ -355,6 +394,14 @@ private final class WarrenDaemonMenuBarDelegate: NSObject, NSApplicationDelegate
             button.title = " Warren !"
         }
         if button.image != nil { button.title = "" }
+        let daemonRunning: Bool
+        switch state {
+        case .running:
+            daemonRunning = true
+        default:
+            daemonRunning = false
+        }
+        setStatusDotBreathing(daemonRunning)
         var toolTip = switch state {
         case .checking: "Warren headless: Checking"
         case .running: "Warren headless: Running"
