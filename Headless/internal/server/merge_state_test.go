@@ -75,6 +75,7 @@ func newMergeTestService(t *testing.T, project api.Project, workspaces []api.Wor
 
 func mergeStateOf(t *testing.T, service *Service, workspaceID string) (api.MergeState, bool) {
 	t.Helper()
+	service.initMergeState()
 	return service.mergeCache.get(workspaceID)
 }
 
@@ -315,7 +316,9 @@ func TestRosterOverlaysMergeCacheWithoutGit(t *testing.T) {
 		{ID: "ws-cached", ProjectID: "project-1", Branch: "feature/x", Kind: "worktree", Path: "/missing/worktree"},
 	})
 	service.initMergeState()
-	service.mergeCache.replace(map[string]api.MergeState{"ws-cached": api.MergeStateMerged})
+	service.mergeCache.replace(map[string]mergeCacheEntry{
+		"ws-cached": {state: api.MergeStateMerged},
+	})
 
 	roster, _ := service.RosterVersion(context.Background())
 	if len(roster.Workspaces) != 1 || roster.Workspaces[0].MergeState != api.MergeStateMerged {
@@ -342,4 +345,51 @@ func TestMergeStateConcurrentInitIsRaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestMaybeRefreshMergeHonorsClientsActive(t *testing.T) {
+	t.Parallel()
+	repo := newGitRepo(t, "main")
+	repo.run("checkout", "--quiet", "-b", "feature/merged")
+	if err := os.WriteFile(filepath.Join(repo.path, "feature.txt"), []byte("merged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo.run("add", "feature.txt")
+	repo.run("commit", "--quiet", "-m", "feature work")
+	repo.run("checkout", "--quiet", "main")
+	repo.run("merge", "--quiet", "--no-ff", "feature/merged", "-m", "merge feature/merged")
+	mergedPath := addWorktree(t, repo, "feature/merged")
+
+	project := api.Project{ID: "project-1", Name: "repo", Path: repo.path}
+	service, _ := newMergeTestService(t, project, []api.Workspace{
+		{ID: "ws-merged", ProjectID: "project-1", Branch: "feature/merged", Kind: "worktree", Path: mergedPath},
+	})
+	service.ClientsActive = func() bool { return false }
+	service.maybeRefreshMerge(context.Background())
+	if _, ok := mergeStateOf(t, service, "ws-merged"); ok {
+		t.Fatal("refresh must not run while no client is connected")
+	}
+
+	service.ClientsActive = func() bool { return true }
+	service.maybeRefreshMerge(context.Background())
+	if state, ok := mergeStateOf(t, service, "ws-merged"); !ok || state != api.MergeStateMerged {
+		t.Errorf("workspace state = %q/%v, want merged after client connects", state, ok)
+	}
+}
+
+func TestRosterVersionWakesMergeRefreshWhenStale(t *testing.T) {
+	t.Parallel()
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state}
+	service.initMergeState()
+
+	_, _ = service.RosterVersion(context.Background())
+	select {
+	case <-service.mergeWake:
+	default:
+		t.Fatal("stale roster must schedule a merge refresh")
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abcdlsj/ghostline"
@@ -101,11 +102,17 @@ type Service struct {
 	// adapters that support it. Disabled by default so roster snapshots stay
 	// cheap; clients fall back to launch command and workspace path.
 	ProbeForeground bool
+	// ClientsActive reports whether any client can observe roster snapshots.
+	// The merge projection only refreshes while clients are connected; nil
+	// means "always active" for tests and embedders.
+	ClientsActive func() bool
 
-	metadataCache *metadataCache
-	mergeOnce     sync.Once
-	mergeCache    *mergeStateCache
-	mergeWake     chan struct{}
+	metadataCache    *metadataCache
+	mergeOnce        sync.Once
+	mergeCache       *mergeStateCache
+	mergeWake        chan struct{}
+	mergeDirty       atomic.Bool
+	mergeLastRefresh atomic.Int64
 
 	outputMu sync.Mutex
 	// terminalGroupLifecycleMu serializes Group deletion with Group Session
@@ -583,6 +590,9 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 			state.Workspaces[i].MergeState = mergeState
 		}
 	}
+	if s.mergeDirty.Load() || time.Since(time.Unix(0, s.mergeLastRefresh.Load())) > mergeRefreshInterval {
+		s.wakeMergeRefresh()
+	}
 	sort.Slice(state.Sessions, func(i, j int) bool {
 		if state.Sessions[i].Pinned != state.Sessions[j].Pinned {
 			return state.Sessions[i].Pinned
@@ -718,7 +728,7 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		return nil
 	})
 	if err == nil {
-		s.wakeMergeRefresh()
+		s.invalidateMerge()
 	}
 	return project, err
 }
@@ -1030,7 +1040,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		return nil
 	})
 	if err == nil {
-		s.wakeMergeRefresh()
+		s.invalidateMerge()
 	}
 	return err
 }
@@ -1166,7 +1176,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						}); err != nil {
 							return api.WorkspaceCreateResult{}, err
 						}
-						s.wakeMergeRefresh()
+						s.invalidateMerge()
 						return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 					}
 					if name == "" {
@@ -1183,7 +1193,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					}); err != nil {
 						return api.WorkspaceCreateResult{}, err
 					}
-					s.wakeMergeRefresh()
+					s.invalidateMerge()
 					return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 				}
 			}
@@ -1216,7 +1226,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		_, _ = exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", path).CombinedOutput()
 		return api.WorkspaceCreateResult{}, err
 	}
-	s.wakeMergeRefresh()
+	s.invalidateMerge()
 	return api.WorkspaceCreateResult{Workspace: workspace, Created: true, GitWorktree: gitCreated}, nil
 }
 
@@ -1298,7 +1308,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		return nil
 	})
 	if err == nil {
-		s.wakeMergeRefresh()
+		s.invalidateMerge()
 	}
 	return err
 }
