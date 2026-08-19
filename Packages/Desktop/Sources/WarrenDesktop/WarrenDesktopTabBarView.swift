@@ -23,7 +23,6 @@ struct WarrenDesktopTabBar: View {
     let isInspectorVisible: Bool
     let onToggleSidebar: () -> Void
     let onToggleInspector: () -> Void
-    let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWeb: () -> Void
     let onOpenInExternalIDE: (WarrenDesktopExternalIDEOption) -> Void
@@ -145,7 +144,6 @@ struct WarrenDesktopTabBar: View {
                         externalIDEOptions: externalIDEOptions,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
-                        onCommandPalette: onCommandPalette,
                         onSettings: onSettings,
                         onWeb: onWeb,
                         onOpenInExternalIDE: onOpenInExternalIDE,
@@ -191,6 +189,16 @@ private struct WarrenDesktopCollapsedWorkspaceLeading: View {
     }
 }
 
+/// The trailing controls are ordered from workspace actions to global preferences.
+/// Add new controls here so their placement remains explicit and reviewable.
+enum WarrenDesktopWorkspaceTabTrailingControl: CaseIterable, Hashable {
+    case externalIDE
+    case endpoint
+    case web
+    case inspector
+    case settings
+}
+
 private struct WarrenDesktopWorkspaceTabTrailing: View {
     let connectionState: WarrenDesktopConnectionState
     let endpointOptions: [WarrenDesktopEndpointOption]
@@ -199,7 +207,6 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let externalIDEOptions: [WarrenDesktopExternalIDEOption]?
     let hasInspector: Bool
     let isInspectorVisible: Bool
-    let onCommandPalette: () -> Void
     let onSettings: () -> Void
     let onWeb: () -> Void
     let onOpenInExternalIDE: (WarrenDesktopExternalIDEOption) -> Void
@@ -211,24 +218,37 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack(spacing: WarrenSpacing.xs) {
+            ForEach(WarrenDesktopWorkspaceTabTrailingControl.allCases, id: \.self) {
+                trailingControl($0, tokens: tokens)
+            }
+        }
+        .padding(.horizontal, WarrenSpacing.xs)
+        .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace actions")
+    }
+
+    @ViewBuilder
+    private func trailingControl(
+        _ control: WarrenDesktopWorkspaceTabTrailingControl,
+        tokens: WarrenColorTokens
+    ) -> some View {
+        switch control {
+        case .externalIDE:
             if let externalIDEOptions, !externalIDEOptions.isEmpty {
                 WarrenDesktopExternalIDEMenu(
                     options: externalIDEOptions,
                     onOpen: onOpenInExternalIDE
                 )
             }
-            WarrenDesktopChromeButton(
-                systemImage: "gearshape",
-                label: "Settings",
-                hint: "Open Warren settings",
-                action: onSettings
-            )
+        case .endpoint:
             WarrenDesktopEndpointControl(
                 connectionState: connectionState,
                 endpoints: endpointOptions,
                 selectedID: selectedEndpointID,
                 onSelect: onSelectEndpoint
             )
+        case .web:
             WarrenDesktopChromeButton(
                 systemImage: "globe",
                 label: "Web",
@@ -240,23 +260,21 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                     ? tokens.info
                     : (webStatus.isRunning ? tokens.success : nil)
             )
-            WarrenDesktopChromeButton(
-                systemImage: "magnifyingglass",
-                label: "Command palette",
-                hint: "Open the command palette (⌘K)",
-                action: onCommandPalette
-            )
+        case .inspector:
             if hasInspector {
                 WarrenDesktopInspectorButton(
                     isVisible: isInspectorVisible,
                     action: onToggleInspector
                 )
             }
+        case .settings:
+            WarrenDesktopChromeButton(
+                systemImage: "gearshape",
+                label: "Settings",
+                hint: "Open Warren settings",
+                action: onSettings
+            )
         }
-        .padding(.horizontal, WarrenSpacing.xs)
-        .frame(minHeight: WarrenLayoutMetrics.tabBarHeight)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Workspace actions")
     }
 }
 

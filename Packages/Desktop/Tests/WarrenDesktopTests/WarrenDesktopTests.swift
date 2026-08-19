@@ -22,6 +22,13 @@ final class WarrenDesktopTests: XCTestCase {
 
     }
 
+    func testWorkspaceTabTrailingControlsHaveStableOrder() {
+        XCTAssertEqual(
+            WarrenDesktopWorkspaceTabTrailingControl.allCases,
+            [.externalIDE, .endpoint, .web, .inspector, .settings]
+        )
+    }
+
     func testRootWorkspaceIsNotClassifiedAsWorktreeForDeletion() {
         let host = Host(name: "Local")
         let project = Project(hostID: host.id, name: "Warren", rootPath: "/Users/me/warren")
@@ -529,7 +536,6 @@ final class WarrenDesktopTests: XCTestCase {
             isInspectorVisible: false,
             onToggleSidebar: {},
             onToggleInspector: {},
-            onCommandPalette: {},
             onSettings: {},
             onWeb: {},
             onOpenInExternalIDE: { _ in },

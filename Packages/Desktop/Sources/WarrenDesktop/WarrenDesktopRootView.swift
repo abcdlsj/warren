@@ -226,7 +226,6 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         isInspectorVisible: inspectorVisible,
                         onToggleSidebar: toggleSidebar,
                         onToggleInspector: toggleInspector,
-                        onCommandPalette: { setCommandPalettePresented(true) },
                         onSettings: {
                             setCommandPalettePresented(false)
                             navigationBeforeSettings = navigation
