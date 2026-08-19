@@ -17,6 +17,8 @@ struct WarrenCompositionRoot: View {
     @State private var worktreeImportCandidates: [WarrenDesktopWorktreeCandidate] = []
     @State private var worktreeImportLoading = false
     @State private var terminalSearchPresented = false
+    @State private var availableUpdate: WarrenRelease?
+    @State private var isInstallingUpdate = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -110,6 +112,18 @@ struct WarrenCompositionRoot: View {
                 .transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            if availableUpdate != nil || isInstallingUpdate {
+                WarrenUpdateBanner(
+                    release: availableUpdate,
+                    isInstalling: isInstallingUpdate
+                )
+                .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.compact)
+                .padding(.horizontal, WarrenSpacing.medium)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(30)
+            }
+        }
         .fileImporter(
             isPresented: $isProjectImporterPresented,
             allowedContentTypes: [.folder],
@@ -179,6 +193,26 @@ struct WarrenCompositionRoot: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: WebCommand.copySecureURL)) { _ in
             remoteModel.copySecureWebURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.available)) { note in
+            guard let release = note.userInfo?[WarrenUpdateNotification.keyRelease] as? WarrenRelease else {
+                return
+            }
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                availableUpdate = release
+                isInstallingUpdate = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.installing)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                isInstallingUpdate = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.dismiss)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                availableUpdate = nil
+                isInstallingUpdate = false
+            }
         }
         .task {
             presetOrder = WarrenDesktopSessionPreset.normalizedOrderRawValue(presetOrder)

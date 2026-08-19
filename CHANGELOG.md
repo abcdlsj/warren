@@ -4,6 +4,7 @@ All notable changes to Warren are documented here.
 
 ## [Unreleased]
 
+- Check GitHub Releases in the background and offer a prominent in-app Warren update banner with one-click download and installation.
 - Add release notes here before the next version is published.
 
 ## [0.4.0] - 2026-08-19

@@ -67,6 +67,11 @@ The app bundle includes the `warren` CLI. On its first launch Warren installs
 it to `~/.local/bin` and adds that directory to the active shell profile when
 needed. Use `Tools > Install CLI` to reinstall it manually.
 
+Warren checks GitHub Releases in the background at launch, no more than once
+per day. When a newer
+macOS app is available, a banner below the workspace tabs offers to download
+and install it; the Warren application menu always performs a fresh check.
+
 Build the headless daemon and CLI:
 
 ```sh
