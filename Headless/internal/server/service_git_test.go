@@ -126,3 +126,40 @@ func TestGitCheckoutCreateBranch(t *testing.T) {
 		t.Fatalf("stored branch = %q, want feature/x", state.Workspaces[0].Branch)
 	}
 }
+
+func TestGitCheckoutLocalSlashBranchKeepsFullName(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	gitForServiceTest(t, repository, "branch", "feature/x")
+
+	if _, err := service.GitCheckout(context.Background(), workspaceID, "feature/x", false); err != nil {
+		t.Fatal(err)
+	}
+	state := service.Store.Snapshot()
+	if state.Workspaces[0].Branch != "feature/x" {
+		t.Fatalf("stored branch = %q, want feature/x", state.Workspaces[0].Branch)
+	}
+}
+
+func TestGitCheckoutRemoteBranchStoresLocalName(t *testing.T) {
+	upstream := newRepositoryForServiceTest(t)
+	gitForServiceTest(t, upstream, "checkout", "-q", "-b", "dev")
+	if err := os.WriteFile(filepath.Join(upstream, "dev.txt"), []byte("d\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForServiceTest(t, upstream, "add", "-A")
+	gitForServiceTest(t, upstream, "commit", "-m", "dev")
+	gitForServiceTest(t, upstream, "checkout", "-q", "main")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitForServiceTest(t, filepath.Dir(upstream), "clone", "-q", upstream, clone)
+	service, workspaceID := gitPanelService(t, clone)
+
+	if _, err := service.GitCheckout(context.Background(), workspaceID, "origin/dev", false); err != nil {
+		t.Fatal(err)
+	}
+	state := service.Store.Snapshot()
+	if state.Workspaces[0].Branch != "dev" {
+		t.Fatalf("stored branch = %q, want dev", state.Workspaces[0].Branch)
+	}
+}
