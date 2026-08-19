@@ -108,12 +108,20 @@ export default {
     const isFileRequest = url.pathname !== "/" && url.pathname.match(/\.[a-zA-Z0-9]+$/);
     const target = isFileRequest
       ? request
-      : new Request(new URL("/" + url.search, url), request);
+      : (() => {
+          // Keep the document fresh after an asset deployment; hashed files remain cacheable.
+          const assetUrl = new URL("/" + url.search, url);
+          assetUrl.searchParams.set("__warren_document_nonce", Date.now().toString(36));
+          return new Request(assetUrl, request);
+        })();
     const response = await env.ASSETS.fetch(target);
 
     const headers = new Headers(response.headers);
     for (const [key, value] of Object.entries(securityHeaders)) {
       headers.set(key, value);
+    }
+    if (!isFileRequest) {
+      headers.set("Cache-Control", "no-store");
     }
 
     return new Response(response.body, {
