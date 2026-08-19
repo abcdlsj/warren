@@ -11,22 +11,33 @@ function DiffCounts({ added, deleted }) {
   );
 }
 
-function ChangeRow({ change }) {
+function changeKey(change, commit = "") {
+  return commit ? `${commit}:${change.path}` : `${change.staged ? "s" : "u"}:${change.path}`;
+}
+
+function ChangeRow({ change, commit = "", selected, onSelect }) {
   return (
-    <li className="git-change">
-      <span className={`git-status git-status-${change.status}`} title={statusLabel(change.status)}>
-        {statusSymbol(change.status)}
-      </span>
-      <span className="git-change-path">
-        {change.path}
-        {change.renameFrom && <span className="git-rename-from"> ← {change.renameFrom}</span>}
-      </span>
-      <DiffCounts added={change.added} deleted={change.deleted} />
+    <li>
+      <button
+        type="button"
+        className={`git-change${selected ? " selected" : ""}`}
+        aria-pressed={selected}
+        onClick={() => onSelect(change, commit)}
+      >
+        <span className={`git-status git-status-${change.status}`} title={statusLabel(change.status)}>
+          {statusSymbol(change.status)}
+        </span>
+        <span className="git-change-path">
+          {change.path}
+          {change.renameFrom && <span className="git-rename-from"> ← {change.renameFrom}</span>}
+        </span>
+        <DiffCounts added={change.added} deleted={change.deleted} />
+      </button>
     </li>
   );
 }
 
-function ChangeSection({ title, changes }) {
+function ChangeSection({ title, changes, selectedKey, onSelect }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
   return (
@@ -37,7 +48,12 @@ function ChangeSection({ title, changes }) {
       </h3>
       <ul className="git-change-list">
         {changes.map((change, index) => (
-          <ChangeRow key={`${change.path}-${change.status}-${change.staged}-${index}`} change={change} />
+          <ChangeRow
+            key={`${change.path}-${change.status}-${change.staged}-${index}`}
+            change={change}
+            selected={selectedKey === changeKey(change)}
+            onSelect={onSelect}
+          />
         ))}
       </ul>
     </section>
@@ -54,6 +70,7 @@ export function GitPanel({
   onPull,
   onPush,
   onCheckout,
+  onDiff,
   onClose,
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
@@ -62,6 +79,8 @@ export function GitPanel({
   const [newBranch, setNewBranch] = useState("");
   const [createMode, setCreateMode] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
+  const [selected, setSelected] = useState(null);
+  const [diff, setDiff] = useState({ loading: false, text: "", error: "" });
   const busy = Boolean(action) || loading;
 
   useEffect(() => {
@@ -69,6 +88,27 @@ export function GitPanel({
       setBranch(data.branch);
     }
   }, [branchTouched, data]);
+
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    setDiff({ loading: true, text: "", error: "" });
+    const params = { path: selected.path, staged: selected.staged };
+    if (selected.commit) params.commit = selected.commit;
+    onDiff(params, result => {
+      if (!cancelled) setDiff({ loading: false, text: result?.diff || "", error: "" });
+    }, diffError => {
+      if (!cancelled) setDiff({ loading: false, text: "", error: diffError });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, onDiff]);
+
+  const selectChange = (change, commit = "") => {
+    const key = changeKey(change, commit);
+    setSelected(previous => (previous?.key === key ? null : { key, path: change.path, staged: change.staged, commit }));
+  };
 
   const toggleCommit = hash => {
     setExpanded(previous => {
@@ -124,8 +164,8 @@ export function GitPanel({
           </div>
         </section>
 
-        <ChangeSection title="Staged" changes={data?.staged || []} />
-        <ChangeSection title="Changes" changes={data?.unstaged || []} />
+        <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selected?.key} onSelect={selectChange} />
+        <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selected?.key} onSelect={selectChange} />
 
         <section className="git-section">
           <h3 className="git-section-title">Checkout</h3>
@@ -135,9 +175,9 @@ export function GitPanel({
               aria-label="Branch"
               value={branch}
               onChange={event => {
-              setBranch(event.target.value);
-              setBranchTouched(true);
-            }}
+                setBranch(event.target.value);
+                setBranchTouched(true);
+              }}
               disabled={createMode || !data?.branches.local.length && !data?.branches.remote.length}
             >
               <option value="">Choose a branch…</option>
@@ -188,7 +228,13 @@ export function GitPanel({
                 {expanded.has(commit.hash) && (
                   <ul className="git-change-list">
                     {commit.files.map((file, index) => (
-                      <ChangeRow key={`${commit.hash}-${file.path}-${index}`} change={file} />
+                      <ChangeRow
+                        key={`${commit.hash}-${file.path}-${index}`}
+                        change={file}
+                        commit={commit.hash}
+                        selected={selected?.key === changeKey(file, commit.hash)}
+                        onSelect={selectChange}
+                      />
                     ))}
                   </ul>
                 )}
@@ -197,6 +243,26 @@ export function GitPanel({
           </ul>
         </section>
       </div>
+
+      {selected && (
+        <div className="git-diff-pane">
+          <header className="git-diff-pane-header">
+            <span className="git-diff-pane-path" title={selected.path}>{selected.path}</span>
+            <button type="button" className="chrome-button" aria-label="Close diff" onClick={() => setSelected(null)}>
+              ✕
+            </button>
+          </header>
+          {diff.loading ? (
+            <p className="git-empty">Loading diff…</p>
+          ) : diff.error ? (
+            <p className="git-error">{diff.error}</p>
+          ) : diff.text ? (
+            <pre className="git-diff-view">{diff.text}</pre>
+          ) : (
+            <p className="git-empty">No changes to show.</p>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

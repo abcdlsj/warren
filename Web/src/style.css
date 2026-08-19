@@ -3274,12 +3274,27 @@ button:disabled {
 }
 
 .git-change {
+  width: 100%;
   display: flex;
   align-items: baseline;
   gap: var(--space-md);
-  padding: var(--space-xxs) 0;
+  padding: var(--space-xxs) var(--space-sm);
   font-size: var(--text-sm);
   min-width: 0;
+  text-align: start;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.git-change:hover {
+  background: var(--fill-hover);
+}
+
+.git-change.selected {
+  background: var(--fill-selected);
 }
 
 .git-status {
@@ -3411,4 +3426,48 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs);
+}
+
+.git-diff-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 45%;
+  border-top: 1px solid var(--color-border-separator);
+}
+
+.git-diff-pane-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.git-diff-pane-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  color: var(--color-text-primary);
+}
+
+.git-diff-pane .git-empty,
+.git-diff-pane .git-error {
+  margin: 0 var(--space-md) var(--space-md);
+}
+
+.git-diff-view {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 var(--space-md) var(--space-md);
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--color-text-primary);
 }
