@@ -46,3 +46,45 @@ func TestParseLog(t *testing.T) {
 		t.Fatalf("second commit = %#v", commits[1])
 	}
 }
+
+func TestParseLogNumstat(t *testing.T) {
+	output := "COMMIT\x00abc123\x00\x00\n3\t0\ta.txt\x002\t1\tb.txt\x00" +
+		"COMMIT\x00def456\x00\x00\n1\t0\tnew.txt\x00"
+	got := parseLogNumstat(output)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got["abc123"]["a.txt"] != (LineCount{Added: 3}) {
+		t.Errorf("abc123 a.txt = %+v, want {3 0}", got["abc123"]["a.txt"])
+	}
+	if got["abc123"]["b.txt"] != (LineCount{Added: 2, Deleted: 1}) {
+		t.Errorf("abc123 b.txt = %+v, want {2 1}", got["abc123"]["b.txt"])
+	}
+	if got["def456"]["new.txt"] != (LineCount{Added: 1}) {
+		t.Errorf("def456 new.txt = %+v, want {1 0}", got["def456"]["new.txt"])
+	}
+}
+
+func TestMergeLogCounts(t *testing.T) {
+	commits := []Commit{
+		{Hash: "abc123", Files: []FileChange{
+			{Path: "a.txt", Status: "M"},
+			{Path: "new.txt", Status: "A", RenameFrom: "old.txt"},
+		}},
+	}
+	counts := map[string]map[string]LineCount{
+		"abc123": {
+			"a.txt":   {Added: 3},
+			"new.txt": {Added: 5},
+			"old.txt": {Deleted: 2},
+		},
+	}
+	mergeLogCounts(commits, counts)
+	files := commits[0].Files
+	if files[0].Added != 3 || files[0].Deleted != 0 {
+		t.Errorf("a.txt = %+v, want {3 0}", files[0])
+	}
+	if files[1].Added != 5 || files[1].Deleted != 2 {
+		t.Errorf("new.txt = %+v, want {5 2} (old deletions merged)", files[1])
+	}
+}

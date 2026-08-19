@@ -12,6 +12,8 @@ type Change struct {
 	Status     string
 	Staged     bool
 	RenameFrom string
+	Added      int
+	Deleted    int
 }
 
 // Status summarizes one workspace working tree.
@@ -24,13 +26,33 @@ type Status struct {
 	Changes  []Change
 }
 
-// StatusFor reports the working-tree status of the git repository at dir.
+// StatusFor reports the working-tree status of the git repository at dir,
+// including added/deleted line counts for staged and unstaged changes.
 func StatusFor(ctx context.Context, dir string) (Status, error) {
 	output, err := run(ctx, dir, "-c", "core.quotepath=false", "status", "--porcelain=v2", "-z", "--branch", "--show-stash")
 	if err != nil {
 		return Status{}, err
 	}
-	return parseStatus(output), nil
+	status := parseStatus(output)
+	staged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "--cached", "--numstat", "-z")
+	if err != nil {
+		return Status{}, err
+	}
+	unstaged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "--numstat", "-z")
+	if err != nil {
+		return Status{}, err
+	}
+	stagedCounts := parseNumstat(staged)
+	unstagedCounts := parseNumstat(unstaged)
+	for i := range status.Changes {
+		change := &status.Changes[i]
+		counts := unstagedCounts
+		if change.Staged {
+			counts = stagedCounts
+		}
+		applyCounts(change, counts)
+	}
+	return status, nil
 }
 
 // parseStatus reads porcelain v2 output. With -z the entire stream is
