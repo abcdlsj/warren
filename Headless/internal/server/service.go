@@ -1279,27 +1279,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		_ = s.removeWorkspaceRuntime(ctx, state, id)
 	}
 	if workspace.Kind == "worktree" && options.RemoveWorktree {
-		var project api.Project
-		for _, value := range state.Projects {
-			if value.ID == workspace.ProjectID {
-				project = value
-			}
-		}
-		// External shells (Codex, Claude, ...) keep their cwd inside the
-		// worktree. Terminate them before the git remove so deleting the
-		// directory cannot strand their exec sessions on a removed cwd.
-		if _, err := terminateProcessesUnder(workspace.Path); err != nil {
-			return fmt.Errorf("terminate worktree processes: %w", err)
-		}
-		if _, err := os.Stat(workspace.Path); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("stat worktree path: %w", err)
-			}
-			// The worktree was already removed outside Warren. Converge on
-			// state cleanup instead of failing on git's "not a worktree".
-		} else if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
-			return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(output)), err)
-		}
+		s.removeWorktreeDirectory(*workspace, state.Projects)
 	}
 	err := s.Store.Update(func(value *api.State) error {
 		projectID := workspace.ProjectID
@@ -1318,6 +1298,55 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		s.invalidateMerge()
 	}
 	return err
+}
+
+// removeWorktreeDirectory is best-effort physical cleanup of a worktree-backed
+// workspace. Removing the Warren workspace record must never depend on git
+// succeeding: a stale registration, an already-removed directory, or a busy
+// file must not leave the workspace stuck in state. Every failure is logged and
+// the operation proceeds; a leftover directory (and possibly its git
+// registration) is left on disk and would only be re-imported by an explicit
+// `project add`.
+func (s *Service) removeWorktreeDirectory(workspace api.Workspace, projects []api.Project) {
+	var project api.Project
+	for _, value := range projects {
+		if value.ID == workspace.ProjectID {
+			project = value
+			break
+		}
+	}
+	// External shells (Codex, Claude, ...) keep their cwd inside the worktree.
+	// Terminate them before the git remove so deleting the directory cannot
+	// strand their exec sessions on a removed cwd.
+	if _, err := terminateProcessesUnder(workspace.Path); err != nil {
+		s.logWarn("terminate worktree processes during workspace removal", "workspace", workspace.ID, "error", err)
+	}
+	if _, err := os.Stat(workspace.Path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			s.logWarn("stat worktree path during workspace removal", "workspace", workspace.ID, "error", err)
+		}
+		// The worktree was already removed outside Warren. Converge on state
+		// cleanup instead of failing on git's "not a worktree".
+		return
+	}
+	if project.Path == "" {
+		// The owning project was itself removed, so its git metadata is gone
+		// with it. Leave the directory and let state cleanup proceed.
+		return
+	}
+	if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
+		// "not a working tree", a stale registration, or a busy file: leave the
+		// directory on disk rather than failing the deletion the user asked for.
+		s.logWarn("git worktree remove during workspace removal", "workspace", workspace.ID, "output", strings.TrimSpace(string(output)), "error", err)
+	}
+}
+
+func (s *Service) logWarn(message string, keyValues ...any) {
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn(message, keyValues...)
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
