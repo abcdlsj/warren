@@ -646,6 +646,8 @@ final class WarrenRemoteApplicationModel {
     private(set) var maintenanceMessage: String?
     private(set) var creatingSessionWorkspaceIDs: Set<WorkspaceID> = []
     private(set) var creatingSessionTerminalGroupIDs: Set<TerminalGroupID> = []
+    private(set) var deletingProjectIDs: Set<ProjectID> = []
+    private(set) var deletingWorkspaceIDs: Set<WorkspaceID> = []
     private(set) var attachingSessionID: TerminalSessionID?
 
     @ObservationIgnored private var wire: WarrenRemoteWire?
@@ -751,6 +753,7 @@ final class WarrenRemoteApplicationModel {
         dismissedActivityBySessionID.removeAll()
         creatingSessionWorkspaceIDs.removeAll()
         creatingSessionTerminalGroupIDs.removeAll()
+        clearDeletionState()
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
         publishProjectionIfChanged(projection.withConnectionState(.disconnected))
@@ -790,6 +793,15 @@ final class WarrenRemoteApplicationModel {
                 if attempt == 0, maintenanceMessage == nil {
                     present(error)
                 }
+            }
+            // Invalidate request tasks before closing the old wire. Otherwise
+            // a late cancellation can report an error against a new
+            // connection, and a deletion that cannot be observed anymore can
+            // leave its local spinner pending forever.
+            let wasCurrentWire = self.wire === wire
+            if wasCurrentWire {
+                self.wire = nil
+                clearDeletionState()
             }
             await wire.close()
             guard !Task.isCancelled else { return }
@@ -1186,9 +1198,15 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func refreshRoster(using wire: WarrenRemoteWire) async throws {
+    private func refreshRoster(
+        using wire: WarrenRemoteWire,
+        requireCurrent: Bool = false
+    ) async throws {
         let data = try await wire.request("roster")
         let roster = try JSONDecoder().decode(RemoteRoster.self, from: data)
+        if requireCurrent {
+            guard self.wire === wire else { return }
+        }
         currentRoster = roster
         apply(roster)
     }
@@ -1268,13 +1286,9 @@ final class WarrenRemoteApplicationModel {
         case .renameWorkspace(let id, let name):
             request("workspace.rename", params: ["id": id.description, "name": name])
         case .deleteProject(let id):
-            request("project.remove", params: ["id": id.description, "force": "true"])
+            deleteProject(id)
         case .deleteWorkspace(let id, let removeLocalWorktree):
-            request("workspace.remove", params: [
-                "id": id.description,
-                "force": "true",
-                "remove_worktree": String(removeLocalWorktree),
-            ])
+            deleteWorkspace(id, removeLocalWorktree: removeLocalWorktree)
         case .renameSession(let id, let title):
             request("session.rename", params: ["id": id.description, "title": title])
         case .setProjectPinned(let id, let pinned):
@@ -1308,10 +1322,20 @@ final class WarrenRemoteApplicationModel {
             dismissedActivityBySessionID[id] = expectedActivity
             publishProjectionIfChanged(projection.withSessionActivity(nil, for: id))
         case .moveProject(let projectID, let before):
+            guard !deletingProjectIDs.contains(projectID),
+                  let group = projection.groups.first(where: { $0.project.id == projectID }),
+                  !group.workspaces.contains(where: { deletingWorkspaceIDs.contains($0.id) })
+            else { return }
             var params = ["id": projectID.description]
             if let before { params["before"] = before.description }
             request("project.move", params: params)
         case .moveWorkspace(let workspaceID, let before):
+            guard let workspace = projection.workspace(id: workspaceID),
+                  let group = projection.groups.first(where: { $0.project.id == workspace.projectID }),
+                  !deletingProjectIDs.contains(workspace.projectID),
+                  !deletingWorkspaceIDs.contains(workspaceID),
+                  !group.workspaces.contains(where: { deletingWorkspaceIDs.contains($0.id) })
+            else { return }
             var params = ["id": workspaceID.description]
             if let before { params["before"] = before.description }
             request("workspace.move", params: params)
@@ -1492,6 +1516,56 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
+    private func deleteProject(_ id: ProjectID) {
+        guard let wire,
+              let group = projection.groups.first(where: { $0.project.id == id }),
+              !group.workspaces.contains(where: { deletingWorkspaceIDs.contains($0.id) }),
+              deletingProjectIDs.insert(id).inserted else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("project.remove", params: [
+                    "id": id.description,
+                    "force": "true",
+                ])
+            } catch {
+                guard let self, self.wire === wire else { return }
+                self.deletingProjectIDs.remove(id)
+                self.present(error)
+                return
+            }
+            // The roster normally arrives through the daemon's change stream;
+            // this refresh closes the gap when the request response wins the
+            // race with that stream.
+            guard let self, self.wire === wire else { return }
+            try? await self.refreshRoster(using: wire, requireCurrent: true)
+        }
+    }
+
+    private func deleteWorkspace(_ id: WorkspaceID, removeLocalWorktree: Bool) {
+        guard let wire,
+              let workspace = projection.workspace(id: id),
+              !deletingProjectIDs.contains(workspace.projectID),
+              deletingWorkspaceIDs.insert(id).inserted else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("workspace.remove", params: [
+                    "id": id.description,
+                    "force": "true",
+                    "remove_worktree": String(removeLocalWorktree),
+                ])
+            } catch {
+                guard let self, self.wire === wire else { return }
+                self.deletingWorkspaceIDs.remove(id)
+                self.present(error)
+                return
+            }
+            // Keep the row busy until the authoritative roster no longer
+            // contains the workspace, even after the request is acknowledged.
+            guard let self, self.wire === wire else { return }
+            try? await self.refreshRoster(using: wire, requireCurrent: true)
+        }
+    }
+
     private func closeSession(_ id: TerminalSessionID) {
         detachSessionBeingClosed(id)
         request("session.delete", params: ["id": id.description]) { [weak self] error in
@@ -1577,6 +1651,11 @@ final class WarrenRemoteApplicationModel {
         try? await refreshRoster(using: wire)
     }
 
+    private func clearDeletionState() {
+        deletingProjectIDs.removeAll()
+        deletingWorkspaceIDs.removeAll()
+    }
+
     nonisolated static func isSessionAlreadyClosed(
         _ error: Error,
         sessionID: TerminalSessionID
@@ -1585,6 +1664,13 @@ final class WarrenRemoteApplicationModel {
         return nsError.domain == "WarrenRemote"
             && nsError.code == 1
             && nsError.localizedDescription == "session not found: \(sessionID)"
+    }
+
+    nonisolated static func reconcileDeletionIDs<T: Hashable>(
+        _ pending: Set<T>,
+        against live: Set<T>
+    ) -> Set<T> {
+        pending.intersection(live)
     }
 
     private func consume(_ event: RemoteWireEvent) async {
@@ -1716,6 +1802,16 @@ final class WarrenRemoteApplicationModel {
                 mergeState: value.mergeState.flatMap(WorkspaceMergeState.init(rawValue:))
             )
         }
+        let liveProjectIDs = Set(projects.map(\.id))
+        let liveWorkspaceIDs = Set(workspaces.map(\.id))
+        deletingProjectIDs = Self.reconcileDeletionIDs(
+            deletingProjectIDs,
+            against: liveProjectIDs
+        )
+        deletingWorkspaceIDs = Self.reconcileDeletionIDs(
+            deletingWorkspaceIDs,
+            against: liveWorkspaceIDs
+        )
         let terminalGroups = roster.terminalGroups.enumerated().compactMap { index, value -> WarrenDomain.TerminalGroup? in
             guard let id = TerminalGroupID(uuidString: value.id) else { return nil }
             return WarrenDomain.TerminalGroup(

@@ -250,6 +250,16 @@ final class WarrenRemoteModelTests: XCTestCase {
         ))
     }
 
+    func testDeletionStateRetainsOnlyResourcesStillInTheRoster() {
+        XCTAssertEqual(
+            WarrenRemoteApplicationModel.reconcileDeletionIDs(
+                ["project-a", "project-b"],
+                against: ["project-b", "project-c"]
+            ),
+            ["project-b"]
+        )
+    }
+
     func testActivityDismissalHidesOnlyTheDismissedState() {
         XCTAssertEqual(
             WarrenActivityDismissal.presentedActivity(

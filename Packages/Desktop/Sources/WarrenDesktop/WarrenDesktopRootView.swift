@@ -20,6 +20,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let webStatus: WarrenDesktopWebStatus
     public let creatingSessionWorkspaceIDs: Set<WorkspaceID>
     public let creatingSessionTerminalGroupIDs: Set<TerminalGroupID>
+    public let deletingProjectIDs: Set<ProjectID>
+    public let deletingWorkspaceIDs: Set<WorkspaceID>
 
     private let endpointOptions: [WarrenDesktopEndpointOption]
     private let selectedEndpointID: String
@@ -83,6 +85,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         webStatus: WarrenDesktopWebStatus = .init(),
         creatingSessionWorkspaceIDs: Set<WorkspaceID> = [],
         creatingSessionTerminalGroupIDs: Set<TerminalGroupID> = [],
+        deletingProjectIDs: Set<ProjectID> = [],
+        deletingWorkspaceIDs: Set<WorkspaceID> = [],
         endpointOptions: [WarrenDesktopEndpointOption] = [
             .init(id: "local", label: "Local", isLocal: true),
         ],
@@ -105,6 +109,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.webStatus = webStatus
         self.creatingSessionWorkspaceIDs = creatingSessionWorkspaceIDs
         self.creatingSessionTerminalGroupIDs = creatingSessionTerminalGroupIDs
+        self.deletingProjectIDs = deletingProjectIDs
+        self.deletingWorkspaceIDs = deletingWorkspaceIDs
         self.endpointOptions = endpointOptions
         self.selectedEndpointID = selectedEndpointID
         self.onSelectEndpoint = onSelectEndpoint
@@ -174,6 +180,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     sidebarTree: $sidebarTree,
                     selection: navigation.selection,
                     chromeMode: chromeMode,
+                    deletingProjectIDs: deletingProjectIDs,
+                    deletingWorkspaceIDs: deletingWorkspaceIDs,
                     onAction: dispatch,
                     onCommandPalette: { commandPalettePresented = true },
                     onRequestRename: presentRename,

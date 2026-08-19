@@ -17,6 +17,8 @@ struct WarrenDesktopSidebarRows: View {
     @Binding var tree: WarrenDesktopSidebarTreeState
     let isCollapsed: Bool
     let selection: WarrenDesktopSidebarSelection?
+    let deletingProjectIDs: Set<ProjectID>
+    let deletingWorkspaceIDs: Set<WorkspaceID>
     let onAddProject: () -> Void
     let onRequestTerminalGroupCreate: () -> Void
     let onRequestTerminalGroupEdit: (TerminalGroup) -> Void
@@ -76,9 +78,10 @@ struct WarrenDesktopSidebarRows: View {
         }
         .coordinateSpace(name: WarrenSidebarRowsDragCoordinateSpace.name)
         .overlayPreferenceValue(WarrenSidebarRowDragFramesKey.self) { frames in
+            let availableFrames = frames.filter { !isDragDisabled($0.value.info) }
             WarrenDesktopSidebarDragOverlay(
                 session: dragSession,
-                rows: isDragMeasurementEnabled ? frames : [:],
+                rows: isDragMeasurementEnabled ? availableFrames : [:],
                 onDropProject: { payload, beforeProjectID in
                     dropProject(payload, before: beforeProjectID)
                 },
@@ -244,6 +247,10 @@ struct WarrenDesktopSidebarRows: View {
     private func projectRow(
         for group: WarrenDesktopProjectGroup
     ) -> some View {
+        let isDeleting = deletingProjectIDs.contains(group.project.id)
+        let hasDeletingWorkspace = group.workspaces.contains {
+            deletingWorkspaceIDs.contains($0.id)
+        }
         ZStack {
             WarrenDesktopProjectRow(
                 project: group.project,
@@ -252,6 +259,8 @@ struct WarrenDesktopSidebarRows: View {
                 isSelected: selection == .project(group.project.id),
                 isExpanded: isProjectExpanded(group.project.id),
                 isPinned: group.project.pinned,
+                isDeleting: isDeleting,
+                isInteractionDisabled: isDeleting || hasDeletingWorkspace,
                 onSelect: { select(.project(group.project.id)) },
                 onToggleExpansion: { toggleProject(group.project.id) },
                 onAddWorkspace: {
@@ -308,6 +317,8 @@ struct WarrenDesktopSidebarRows: View {
         _ workspace: Workspace,
         in group: WarrenDesktopProjectGroup
     ) -> some View {
+        let isProjectDeleting = deletingProjectIDs.contains(group.project.id)
+        let isDeleting = deletingWorkspaceIDs.contains(workspace.id)
         ZStack {
             WarrenDesktopWorkspaceRow(
                 workspace: workspace,
@@ -316,6 +327,8 @@ struct WarrenDesktopSidebarRows: View {
                 isCollapsed: isCollapsed,
                 isSelected: selection == .workspace(workspace.id),
                 isPinned: workspace.pinned,
+                isDeleting: isDeleting,
+                isInteractionDisabled: isProjectDeleting || isDeleting,
                 onSelect: { select(.workspace(workspace.id)) },
                 onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
                 onRename: {
@@ -393,6 +406,9 @@ struct WarrenDesktopSidebarRows: View {
                 payload.dropFirst(WarrenSidebarDragPayload.projectPrefix.count)
               ))
         else { return false }
+        guard !isProjectDeletionPending(sourceID),
+              projectID.map({ !isProjectDeletionPending($0) }) ?? true
+        else { return false }
         if projectID == sourceID {
             return false
         }
@@ -413,6 +429,9 @@ struct WarrenDesktopSidebarRows: View {
                 .flatMap(\.workspaces)
                 .first(where: { $0.id == sourceID })
         else { return false }
+        guard !isWorkspaceDeletionPending(source.id, projectID: source.projectID),
+              !hasDeletingWorkspace(in: source.projectID)
+        else { return false }
         if workspaceID == sourceID {
             return false
         }
@@ -423,11 +442,39 @@ struct WarrenDesktopSidebarRows: View {
             guard let target = groups
                 .flatMap(\.workspaces)
                 .first(where: { $0.id == workspaceID }),
-                  target.projectID == source.projectID
+                  target.projectID == source.projectID,
+                  !isWorkspaceDeletionPending(target.id, projectID: target.projectID)
             else { return false }
         }
         onAction(.moveWorkspace(sourceID, before: workspaceID))
         return true
+    }
+
+    private func isDragDisabled(_ info: WarrenSidebarRowDragInfo) -> Bool {
+        switch info.kind {
+        case .project(let projectID):
+            return isProjectDeletionPending(projectID)
+        case .workspace(let workspaceID, let projectID):
+            return isWorkspaceDeletionPending(workspaceID, projectID: projectID)
+                || hasDeletingWorkspace(in: projectID)
+        }
+    }
+
+    private func isProjectDeletionPending(_ projectID: ProjectID) -> Bool {
+        deletingProjectIDs.contains(projectID) || hasDeletingWorkspace(in: projectID)
+    }
+
+    private func isWorkspaceDeletionPending(
+        _ workspaceID: WorkspaceID,
+        projectID: ProjectID
+    ) -> Bool {
+        deletingProjectIDs.contains(projectID) || deletingWorkspaceIDs.contains(workspaceID)
+    }
+
+    private func hasDeletingWorkspace(in projectID: ProjectID) -> Bool {
+        groups.first(where: { $0.project.id == projectID })?.workspaces.contains {
+            deletingWorkspaceIDs.contains($0.id)
+        } == true
     }
 
 }

@@ -14,6 +14,8 @@ struct WarrenDesktopProjectRow: View {
     let isSelected: Bool
     let isExpanded: Bool
     let isPinned: Bool
+    let isDeleting: Bool
+    let isInteractionDisabled: Bool
     let onSelect: () -> Void
     let onToggleExpansion: () -> Void
     let onAddWorkspace: () -> Void
@@ -39,32 +41,43 @@ struct WarrenDesktopProjectRow: View {
     private var collapsedRow: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         return Button(action: onSelect) {
-            projectAvatar(tokens: tokens)
-                .frame(width: 24, height: 24)
+            ZStack(alignment: .bottomTrailing) {
+                projectAvatar(tokens: tokens)
+                    .frame(width: 24, height: 24)
+                if isDeleting {
+                    WarrenBrailleSpinner(size: 12, accessibilityLabel: "Deleting project")
+                        .background(tokens.sidebarSurface, in: Circle())
+                        .offset(x: 5, y: 5)
+                }
+            }
         }
         .buttonStyle(.plain)
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+        .disabled(isInteractionDisabled)
         .frame(width: 32, height: 32)
         .contentShape(.rect)
         .foregroundStyle(tokens.mutedForeground)
+        .opacity(isInteractionDisabled ? 0.62 : 1)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .accessibilityLabel("Project \(project.name)")
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityValue(projectAccessibilityValue())
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .warrenSemanticElement(
             id: "project.\(project.id.description)",
             role: .button,
             label: "Project \(project.name)",
-            value: isSelected ? "Selected" : "Not selected",
+            value: projectAccessibilityValue(),
             isSelected: isSelected,
-            action: onSelect
+            action: { if !isInteractionDisabled { onSelect() } }
         )
         .focused($isFocused)
         .contextMenu {
-            Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
-            Button("Rename Project", action: onRename)
-            Divider()
-            Button("Delete Project…", role: .destructive, action: onDelete)
+            if !isInteractionDisabled {
+                Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
+                Button("Rename Project", action: onRename)
+                Divider()
+                Button("Delete Project…", role: .destructive, action: onDelete)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
@@ -86,6 +99,10 @@ struct WarrenDesktopProjectRow: View {
                         .font(WarrenTypography.navigationItem)
                         .lineLimit(1)
                         .truncationMode(.tail)
+
+                    if isDeleting {
+                        deletionStatus(tokens: tokens)
+                    }
 
                     Text("(\(workspaceCount))")
                         .font(WarrenTypography.navigationMeta)
@@ -110,18 +127,19 @@ struct WarrenDesktopProjectRow: View {
                 .contentShape(.rect)
             }
             .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+            .disabled(isInteractionDisabled)
             .focused($isFocused)
             .foregroundStyle(tokens.projectText)
             .accessibilityLabel("Project \(project.name)")
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityValue(projectAccessibilityValue(isExpanded: isExpanded))
             .accessibilityAddTraits(isSelected ? .isSelected : [])
             .warrenSemanticElement(
                 id: "project.\(project.id.description)",
                 role: .button,
                 label: "Project \(project.name)",
-                value: isExpanded ? "Expanded" : "Collapsed",
+                value: projectAccessibilityValue(isExpanded: isExpanded),
                 isSelected: isSelected,
-                action: onToggleExpansion
+                action: { if !isInteractionDisabled { onToggleExpansion() } }
             )
 
             HStack(spacing: WarrenSpacing.xxs) {
@@ -132,6 +150,7 @@ struct WarrenDesktopProjectRow: View {
                         .accessibilityHidden(true)
                 }
                 .buttonStyle(WarrenChromeButtonStyle(isFocused: isAddFocused))
+                .disabled(isInteractionDisabled)
                 .frame(width: compactActionSize, height: compactActionSize)
                 .contentShape(.rect)
                 .opacity(isHovered || isAddFocused ? 1 : 0)
@@ -142,7 +161,7 @@ struct WarrenDesktopProjectRow: View {
                     id: "project.\(project.id.description).new-workspace",
                     role: .button,
                     label: "New workspace in \(project.name)",
-                    action: onAddWorkspace
+                    action: { if !isInteractionDisabled { onAddWorkspace() } }
                 )
             }
             .padding(.trailing, WarrenSpacing.xs)
@@ -156,6 +175,7 @@ struct WarrenDesktopProjectRow: View {
                     .accessibilityHidden(true)
             }
             .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
+            .disabled(isInteractionDisabled)
             .frame(width: WarrenLayoutMetrics.sidebarRowIconSlotSize,
                    height: WarrenLayoutMetrics.sidebarRowIconSlotSize)
             .contentShape(.rect)
@@ -167,12 +187,13 @@ struct WarrenDesktopProjectRow: View {
                 id: "project.\(project.id.description).toggle",
                 role: .button,
                 label: isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)",
-                action: onToggleExpansion
+                action: { if !isInteractionDisabled { onToggleExpansion() } }
             )
         }
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
+        .opacity(isInteractionDisabled ? 0.62 : 1)
         .background(tokens.interactionBackground(for: .resolve(
-            disabled: false,
+            disabled: isInteractionDisabled,
             pressed: false,
             selected: isSelected,
             focused: isFocused,
@@ -182,10 +203,12 @@ struct WarrenDesktopProjectRow: View {
         .contentShape(.rect)
         .onHover { isHovered = $0 }
         .contextMenu {
-            Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
-            Button("Rename Project", action: onRename)
-            Divider()
-            Button("Delete Project…", role: .destructive, action: onDelete)
+            if !isInteractionDisabled {
+                Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
+                Button("Rename Project", action: onRename)
+                Divider()
+                Button("Delete Project…", role: .destructive, action: onDelete)
+            }
         }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
@@ -206,5 +229,33 @@ struct WarrenDesktopProjectRow: View {
                     .stroke(tokens.border.opacity(0.55), lineWidth: WarrenSpacing.hairline)
             }
             .accessibilityHidden(true)
+    }
+
+    private func deletionStatus(tokens: WarrenColorTokens) -> some View {
+        HStack(spacing: WarrenSpacing.xs) {
+            WarrenBrailleSpinner(size: 14, accessibilityLabel: "Deleting project")
+                .accessibilityHidden(true)
+            Text("Deleting…")
+                .font(WarrenTypography.navigationMeta)
+                .foregroundStyle(tokens.mutedForeground)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityHidden(true)
+    }
+
+    private func projectAccessibilityValue(isExpanded: Bool? = nil) -> String {
+        var values: [String] = []
+        if let isExpanded {
+            values.append(isExpanded ? "Expanded" : "Collapsed")
+        }
+        if isSelected { values.append("Selected") }
+        if isDeleting {
+            values.append("Deleting")
+        } else if isInteractionDisabled {
+            values.append("Unavailable")
+        }
+        return values.joined(separator: " · ")
     }
 }
