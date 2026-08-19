@@ -230,6 +230,9 @@ type State struct {
 	Workspaces     []Workspace     `json:"workspaces"`
 	TerminalGroups []TerminalGroup `json:"terminalGroups"`
 	Sessions       []Session       `json:"sessions"`
+	// WorktreeOwnershipMigrated records that legacy workspace ownership has
+	// been reconciled against the configured Warren worktree root.
+	WorktreeOwnershipMigrated bool `json:"worktreeOwnershipMigrated,omitempty"`
 }
 
 type Envelope struct {

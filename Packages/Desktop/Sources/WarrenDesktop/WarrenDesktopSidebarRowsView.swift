@@ -606,8 +606,12 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    private var isWorktree: Bool {
+        workspaceIsWorktree(workspace, project: project)
+    }
+
     private var canRemoveWorktree: Bool {
-        workspace.managedWorktree && !workspace.worktreeLocked
+        isWorktree && workspace.managedWorktree && !workspace.worktreeLocked
     }
 
     var body: some View {
@@ -629,12 +633,12 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
                     .foregroundStyle(tokens.foreground)
                     .tint(tokens.highlight)
                     .help("Leave unchecked to keep the Git worktree and branch on disk.")
-            } else if workspace.worktreeLocked {
+            } else if isWorktree && workspace.worktreeLocked {
                 Text("This Git worktree is locked and will be kept on disk.")
                     .font(WarrenTypography.supporting)
                     .foregroundStyle(tokens.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if project != nil {
+            } else if isWorktree && project != nil {
                 Text("This checkout is managed outside Warren and will be kept on disk.")
                     .font(WarrenTypography.supporting)
                     .foregroundStyle(tokens.mutedForeground)
@@ -655,6 +659,14 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
         .frame(width: 380)
         .onExitCommand(perform: onCancel)
     }
+}
+
+func workspaceIsWorktree(_ workspace: Workspace, project: Project?) -> Bool {
+    guard let project else { return true }
+    return URL(fileURLWithPath: workspace.path)
+        .standardizedFileURL.path
+        != URL(fileURLWithPath: project.rootPath)
+            .standardizedFileURL.path
 }
 
 struct WarrenDesktopDeleteProjectConfirmation: View {

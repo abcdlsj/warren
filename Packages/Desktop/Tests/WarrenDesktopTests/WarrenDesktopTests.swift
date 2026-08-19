@@ -22,6 +22,20 @@ final class WarrenDesktopTests: XCTestCase {
 
     }
 
+    func testRootWorkspaceIsNotClassifiedAsWorktreeForDeletion() {
+        let host = Host(name: "Local")
+        let project = Project(hostID: host.id, name: "Warren", rootPath: "/Users/me/warren")
+        let root = Workspace(projectID: project.id, name: "main", path: project.rootPath)
+        let worktree = Workspace(
+            projectID: project.id,
+            name: "feature",
+            path: "/Users/me/warren-feature"
+        )
+
+        XCTAssertFalse(workspaceIsWorktree(root, project: project))
+        XCTAssertTrue(workspaceIsWorktree(worktree, project: project))
+    }
+
     func testExternalIDECatalogHasStableOrderAndBundleIdentifiers() {
         XCTAssertEqual(
             WarrenDesktopExternalIDE.supported.map(\.id),

@@ -54,6 +54,9 @@ const (
 	// first reconcile instead of being reaped minutes after being marked
 	// ended. Five minutes of grace is a safe trade-off for orphan cleanup.
 	orphanReapGrace = 5 * time.Minute
+	// defaultWorktreeRoot is also the compatibility fallback used when an
+	// embedded Service does not provide an explicit worktree root.
+	defaultWorktreeRoot = "~/.warren/worktrees"
 )
 
 type Service struct {
@@ -280,6 +283,7 @@ func (s *Service) initMergeState() {
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
 		s.lazyInit()
+		s.migrateLegacyWorktreeOwnership()
 		s.initMergeState()
 		if s.AgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
@@ -295,6 +299,65 @@ func (s *Service) Start(parent context.Context) {
 			go s.metadataLoop(ctx)
 		}
 	})
+}
+
+// migrateLegacyWorktreeOwnership upgrades workspace records written before
+// ManagedWorktree was persisted. Only paths below Warren's configured
+// worktree root are adopted; imported checkouts elsewhere remain user-owned.
+// The marker makes the migration idempotent and prevents a later restart from
+// reclassifying a newly imported checkout that happens to live below that
+// root.
+func (s *Service) migrateLegacyWorktreeOwnership() {
+	if s.Store == nil {
+		return
+	}
+	state := s.Store.Snapshot()
+	if state.WorktreeOwnershipMigrated {
+		return
+	}
+	root := strings.TrimSpace(s.WorktreeRoot)
+	if root == "" {
+		root = defaultWorktreeRoot
+	}
+	root = resolvePath(expandHome(root))
+	if root == "" || root == "." {
+		return
+	}
+
+	legacyCandidates := make(map[string]struct{})
+	for _, workspace := range state.Workspaces {
+		if workspace.Kind == "worktree" && !workspace.ManagedWorktree &&
+			!samePath(root, workspace.Path) && pathWithin(root, workspace.Path) {
+			legacyCandidates[workspace.ID] = struct{}{}
+		}
+	}
+	migrated := 0
+	err := s.Store.Update(func(value *api.State) error {
+		if value.WorktreeOwnershipMigrated {
+			return nil
+		}
+		for index := range value.Workspaces {
+			workspace := &value.Workspaces[index]
+			if _, ok := legacyCandidates[workspace.ID]; !ok {
+				continue
+			}
+			workspace.ManagedWorktree = true
+			migrated++
+		}
+		value.WorktreeOwnershipMigrated = true
+		return nil
+	})
+	if err != nil {
+		s.logWarn("migrate legacy worktree ownership", "error", err)
+		return
+	}
+	if migrated > 0 {
+		logger := s.Logger
+		if logger == nil {
+			logger = slog.Default()
+		}
+		logger.Info("migrated legacy Warren worktree ownership", "count", migrated, "root", root)
+	}
 }
 
 func (s *Service) Shutdown() {
@@ -536,6 +599,7 @@ func (s *Service) Roster(ctx context.Context) api.State {
 }
 
 func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
+	s.migrateLegacyWorktreeOwnership()
 	state, revision := s.Store.SnapshotVersion()
 	changed := false
 	now := time.Now().UTC()
