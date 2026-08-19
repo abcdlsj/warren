@@ -161,7 +161,7 @@ enum WarrenUpdateNotification {
 @MainActor
 final class WarrenUpdater {
     static let latestReleaseURL = URL(string: "https://api.github.com/repos/abcdlsj/warren/releases/latest")!
-    static let checkInterval: TimeInterval = 24 * 60 * 60
+    static let checkInterval: TimeInterval = 3 * 60 * 60
     static let maximumArchiveSize: Int64 = 512 * 1024 * 1024
     static let lastCheckDateKey = "Warren.Updater.lastCheckDate"
 

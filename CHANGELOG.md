@@ -4,13 +4,13 @@ All notable changes to Warren are documented here.
 
 ## [Unreleased]
 
-- Check GitHub Releases in the background and offer a prominent in-app Warren update banner with one-click download and installation.
 - Add release notes here before the next version is published.
 
 ## [0.5.0] - 2026-08-20
 
 ### Added
 
+- Check GitHub Releases for updates every three hours in the background and offer one-click download and installation from the in-app update banner or Warren menu.
 - Show project and workspace deletion progress directly in the desktop sidebar, disabling affected controls until the daemon confirms removal.
 
 ### Changed

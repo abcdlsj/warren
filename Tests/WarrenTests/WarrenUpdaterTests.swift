@@ -55,12 +55,12 @@ final class WarrenUpdaterTests: XCTestCase {
     }
 
     @MainActor
-    func testAutomaticCheckCadenceUsesLastSuccessfulCheckDate() {
+    func testAutomaticCheckCadenceUsesThreeHourIntervalAfterSuccessfulCheck() {
         let defaults = UserDefaults(suiteName: #function)!
         defaults.removePersistentDomain(forName: #function)
         defer { defaults.removePersistentDomain(forName: #function) }
 
-        let now = Date(timeIntervalSince1970: 10_000)
+        var now = Date(timeIntervalSince1970: 10_000)
         let updater = WarrenUpdater(
             currentVersion: WarrenVersion("0.4.0"),
             userDefaults: defaults,
@@ -68,8 +68,13 @@ final class WarrenUpdaterTests: XCTestCase {
             cacheDirectory: URL(fileURLWithPath: NSTemporaryDirectory())
         )
 
+        XCTAssertEqual(WarrenUpdater.checkInterval, 3 * 60 * 60)
         XCTAssertTrue(updater.shouldCheckAutomatically)
         defaults.set(now, forKey: WarrenUpdater.lastCheckDateKey)
         XCTAssertFalse(updater.shouldCheckAutomatically)
+        now.addTimeInterval(WarrenUpdater.checkInterval - 1)
+        XCTAssertFalse(updater.shouldCheckAutomatically)
+        now.addTimeInterval(1)
+        XCTAssertTrue(updater.shouldCheckAutomatically)
     }
 }
