@@ -64,6 +64,9 @@ func TestTerminalGroupAliasAndSessionCreateParams(t *testing.T) {
 	if !knownResourceAction("terminal-group", "home") {
 		t.Fatal("terminal-group home action is not registered")
 	}
+	if !knownResourceAction("session", "move") {
+		t.Fatal("session move action is not registered")
+	}
 	params := normalizedParams(parseFlags([]string{"--group", "group-1", "--kind", "shell"}), "session", "create")
 	if params["group"] != "group-1" {
 		t.Fatalf("normalized group = %#v", params["group"])
@@ -102,6 +105,52 @@ func TestSessionCreateRejectsWorkspaceAndGroupTogether(t *testing.T) {
 	}
 	if usageErr.message != "workspace and --group are mutually exclusive" {
 		t.Fatalf("message = %q", usageErr.message)
+	}
+}
+
+func TestSessionMoveValidatesTargetFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing target",
+			args: []string{"session", "move", "session-1"},
+			want: "missing --workspace WORKSPACE_ID or --group GROUP_ID",
+		},
+		{
+			name: "conflicting targets",
+			args: []string{"session", "move", "session-1", "--workspace", "workspace-1", "--group", "group-1"},
+			want: "--workspace and --group are mutually exclusive",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(test.args)
+			var usageErr *usageError
+			if !errors.As(err, &usageErr) {
+				t.Fatalf("error = %v, want *usageError", err)
+			}
+			if usageErr.message != test.want {
+				t.Fatalf("message = %q, want %q", usageErr.message, test.want)
+			}
+		})
+	}
+}
+
+func TestSessionMoveNormalizesParams(t *testing.T) {
+	params := normalizedParams(parseFlags([]string{
+		"session-1", "--workspace", "workspace-1",
+	}), "session", "move")
+	if params["id"] != "session-1" || params["workspace"] != "workspace-1" {
+		t.Fatalf("normalized params = %#v", params)
+	}
+	groupParams := normalizedParams(parseFlags([]string{
+		"session-1", "--group", "group-1",
+	}), "session", "move")
+	if groupParams["id"] != "session-1" || groupParams["group"] != "group-1" {
+		t.Fatalf("normalized group params = %#v", groupParams)
 	}
 }
 

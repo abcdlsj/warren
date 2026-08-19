@@ -757,6 +757,32 @@ public enum WarrenDesktopSidebarSelection: Hashable, Sendable {
     case terminalGroup(TerminalGroupID)
 }
 
+/// The Host context a Session can be moved into. Workspace and Terminal Group
+/// remain mutually exclusive destinations, matching the daemon protocol.
+public enum WarrenDesktopSessionMoveDestination: Hashable, Sendable {
+    case workspace(WorkspaceID)
+    case terminalGroup(TerminalGroupID)
+}
+
+/// A selectable destination shown in the tab context menu. `id` is stable for
+/// SwiftUI identity and is derived from the destination ID, never from the
+/// display title.
+public struct WarrenDesktopSessionMoveTarget: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let title: String
+    public let destination: WarrenDesktopSessionMoveDestination
+
+    public init(
+        id: String,
+        title: String,
+        destination: WarrenDesktopSessionMoveDestination
+    ) {
+        self.id = id
+        self.title = title
+        self.destination = destination
+    }
+}
+
 /// User intent emitted by the desktop shell. The composition root translates
 /// these intents into Host, ClientLayoutStore, or renderer operations.
 public enum WarrenDesktopAction: Hashable, Sendable {
@@ -781,6 +807,7 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case deleteSession(TerminalSessionID)
     case selectTab(String)
     case moveTab(String, before: String?)
+    case moveSession(TerminalSessionID, to: WarrenDesktopSessionMoveDestination)
     case requestNewSession(WorkspaceID)
     case launchSession(WorkspaceID, TerminalSessionLaunchRequest)
     case requestNewTerminalGroupSession(TerminalGroupID)

@@ -216,7 +216,7 @@ var resourceActions = map[string]map[string]bool{
 	},
 	"session": {
 		"list": true, "create": true, "add": true, "remove": true, "delete": true,
-		"kill": true, "rename": true, "pin": true, "send": true, "read": true,
+		"kill": true, "rename": true, "pin": true, "move": true, "send": true, "read": true,
 		"attach": true,
 	},
 }
@@ -237,7 +237,7 @@ func requiredPositionals(resource, action string) []string {
 		return []string{"WORKSPACE_ID"}
 	case "terminal-group.remove", "terminal-group.delete", "terminal-group.rename", "terminal-group.home", "terminal-group.move":
 		return []string{"GROUP_ID"}
-	case "session.remove", "session.delete", "session.kill", "session.rename", "session.pin",
+	case "session.remove", "session.delete", "session.kill", "session.rename", "session.pin", "session.move",
 		"session.send", "session.read", "session.attach":
 		return []string{"SESSION_ID"}
 	}
@@ -327,6 +327,16 @@ func resourceCommand(args []string) error {
 		(len(positionals(params)) > 0 || stringValue(params, "workspace") != "") &&
 		stringValue(params, "group") != "" {
 		return newUsageError("workspace and --group are mutually exclusive", actionUsageText(commandName, action))
+	}
+	if resource == "session" && action == "move" {
+		workspaceID := stringValue(params, "workspace")
+		groupID := stringValue(params, "group")
+		if workspaceID != "" && groupID != "" {
+			return newUsageError("--workspace and --group are mutually exclusive", actionUsageText(commandName, action))
+		}
+		if workspaceID == "" && groupID == "" {
+			return newUsageError("missing --workspace WORKSPACE_ID or --group GROUP_ID", actionUsageText(commandName, action))
+		}
 	}
 	if label := missingRequiredFlag(resource, action, params); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
@@ -421,6 +431,9 @@ func resourceCommand(args []string) error {
 	case "session.pin":
 		method = "session.pin"
 		result = &map[string]any{}
+	case "session.move":
+		method = "session.move"
+		result = &api.Session{}
 	case "session.send":
 		id := positional(params, 0, "session id")
 		text := strings.Join(positionals(params)[1:], " ")
@@ -1396,7 +1409,7 @@ Commands:
   project list|add|remove|rename|pin|move
   workspace list|create|remove|rename|pin|move  (alias: worktree)
   terminal-group list|create|remove|rename|home|move  (alias: group)
-  session list|create|delete|rename|pin|send|read|attach
+  session list|create|delete|rename|pin|move|send|read|attach
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
 
@@ -1426,6 +1439,8 @@ Examples:
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session create --group GROUP_ID
   warren session create
+  warren session move SESSION_ID --workspace WORKSPACE_ID
+  warren session move SESSION_ID --group GROUP_ID
   warren session attach SESSION_ID
 `
 }
@@ -1501,6 +1516,8 @@ func resourceUsageText(commandName string) string {
   warren session remove SESSION_ID [--force]
   warren session rename SESSION_ID --title TITLE
   warren session pin SESSION_ID --pinned BOOL
+  warren session move SESSION_ID --workspace WORKSPACE_ID
+  warren session move SESSION_ID --group GROUP_ID
   warren session send SESSION_ID [TEXT...]
   warren session read SESSION_ID [--timeout DURATION] [--contains TEXT]
   warren session attach SESSION_ID
@@ -1555,6 +1572,8 @@ func actionUsageText(commandName, action string) string {
 		return fmt.Sprintf("Usage:\n  warren %s rename SESSION_ID --title TITLE\n", name)
 	case "session.pin":
 		return fmt.Sprintf("Usage:\n  warren %s pin SESSION_ID --pinned BOOL\n", name)
+	case "session.move":
+		return fmt.Sprintf("Usage:\n  warren %s move SESSION_ID --workspace WORKSPACE_ID\n  warren %s move SESSION_ID --group GROUP_ID\n", name, name)
 	case "session.send":
 		return fmt.Sprintf("Usage:\n  warren %s send SESSION_ID [TEXT...]\n", name)
 	case "session.read":

@@ -327,6 +327,33 @@ func TestEnsureAgentDerivesClaudePathFromSessionID(t *testing.T) {
 	entry.watcher.Close()
 }
 
+func TestBoundTranscriptKeepsPersistedPathAfterContextMove(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("WARREN_DATA_DIR", directory)
+	transcriptPath := filepath.Join(directory, "rollout-moved.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(
+		`{"timestamp":"2026-08-16T10:00:00Z","type":"session_meta","payload":{"id":"uuid-moved","cwd":"`+directory+`"}}`+"\n",
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.Open(filepath.Join(directory, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state}
+	session := api.Session{
+		ID: "session-moved", Kind: "claude", AgentSessionID: "uuid-moved",
+		TranscriptPath: transcriptPath, Runtime: "runtime-moved", Lifecycle: "running",
+		CreatedAt: time.Now().UTC(),
+	}
+	// The session now lives in a Terminal Group whose home is a different
+	// directory. The persisted transcript is the only path that still points
+	// at the CLI's original rollout, so it must win over cwd-based discovery.
+	if got := service.boundTranscript(session, filepath.Join(directory, "group-home")); got != transcriptPath {
+		t.Fatalf("bound transcript = %q, want %q", got, transcriptPath)
+	}
+}
+
 func TestEnsureAgentDoesNotStealAnotherSessionsTranscript(t *testing.T) {
 	directory := t.TempDir()
 	transcriptPath := filepath.Join(directory, "rollout-shared.jsonl")

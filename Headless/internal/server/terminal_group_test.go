@@ -73,6 +73,119 @@ func TestTerminalGroupSessionUsesConfiguredHome(t *testing.T) {
 	}
 }
 
+func TestMoveSessionBetweenWorkspaceAndTerminalGroup(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceDir := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	groupHome := filepath.Join(t.TempDir(), "group-home")
+	if err := os.MkdirAll(groupHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	workspace := api.Workspace{
+		ID:        "workspace-1",
+		ProjectID: "project-1",
+		Name:      "main",
+		Path:      workspaceDir,
+		Kind:      "root",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Workspaces = append(value.Workspaces, workspace)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	group := state.Snapshot().TerminalGroups[0]
+	if err := state.Update(func(value *api.State) error {
+		for index := range value.TerminalGroups {
+			if value.TerminalGroups[index].ID == group.ID {
+				value.TerminalGroups[index].Home = groupHome
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := newMemoryRuntime(t)
+	service := &Service{Store: state, Runtime: runtime}
+
+	session, err := service.CreateGroupSession(context.Background(), group.ID, "", "shell", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := service.MoveSession(context.Background(), session.ID, workspace.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.WorkspaceID != workspace.ID || moved.TerminalGroupID != "" {
+		t.Fatalf("moved to workspace scope = %#v", moved)
+	}
+	if moved.ScopeKind() != api.SessionScopeWorkspace {
+		t.Fatalf("moved scope kind = %q", moved.ScopeKind())
+	}
+	persisted := state.Snapshot().Sessions[0]
+	if persisted.WorkspaceID != workspace.ID || persisted.TerminalGroupID != "" {
+		t.Fatalf("persisted workspace scope = %#v", persisted)
+	}
+	if !runtime.Exists(context.Background(), session.Runtime) {
+		t.Fatal("move killed the runtime")
+	}
+
+	back, err := service.MoveSession(context.Background(), session.ID, "", group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.WorkspaceID != "" || back.TerminalGroupID != group.ID {
+		t.Fatalf("moved back to group scope = %#v", back)
+	}
+	if back.ScopeKind() != api.SessionScopeTerminalGroup {
+		t.Fatalf("moved back scope kind = %q", back.ScopeKind())
+	}
+	if !runtime.Exists(context.Background(), session.Runtime) {
+		t.Fatal("second move killed the runtime")
+	}
+}
+
+func TestMoveSessionValidatesScopeAndTarget(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: newMemoryRuntime(t)}
+	group := state.Snapshot().TerminalGroups[0]
+	session, err := service.CreateGroupSession(context.Background(), group.ID, "", "shell", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		sessionID   string
+		workspaceID string
+		groupID     string
+		want        string
+	}{
+		{name: "missing target", sessionID: session.ID, want: "workspace or terminal group is required"},
+		{name: "missing session", sessionID: "missing", workspaceID: "workspace-1", want: "session not found: missing"},
+		{name: "missing workspace", sessionID: session.ID, workspaceID: "workspace-1", want: "workspace not found: workspace-1"},
+		{name: "missing group", sessionID: session.ID, groupID: "missing", want: "terminal group not found: missing"},
+		{name: "conflicting targets", sessionID: session.ID, workspaceID: "workspace-1", groupID: group.ID, want: "workspace and terminal group are mutually exclusive"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := service.MoveSession(context.Background(), test.sessionID, test.workspaceID, test.groupID)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("MoveSession error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestTerminalGroupDeletionRequiresForceAndRecreatesInbox(t *testing.T) {
 	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
 	if err != nil {
@@ -138,6 +251,68 @@ func TestTerminalGroupWebSocketProtocol(t *testing.T) {
 	roster := requestResult[api.State](t, connection, "roster", nil)
 	if len(roster.TerminalGroups) != 2 {
 		t.Fatalf("roster groups = %#v", roster.TerminalGroups)
+	}
+}
+
+func TestSessionMoveWebSocketProtocol(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := api.Workspace{
+		ID:        "workspace-1",
+		ProjectID: "project-1",
+		Name:      "main",
+		Path:      t.TempDir(),
+		Kind:      "root",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := state.Update(func(value *api.State) error {
+		value.Workspaces = append(value.Workspaces, workspace)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: newMemoryRuntime(t)}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	group := state.Snapshot().TerminalGroups[0]
+	session := requestResult[api.Session](t, connection, "session.create", map[string]any{
+		"group": group.ID,
+		"kind":  "shell",
+	})
+	if session.TerminalGroupID != group.ID {
+		t.Fatalf("created group session = %#v", session)
+	}
+
+	moved := requestResult[api.Session](t, connection, "session.move", map[string]any{
+		"id":        session.ID,
+		"workspace": workspace.ID,
+	})
+	if moved.WorkspaceID != workspace.ID || moved.TerminalGroupID != "" {
+		t.Fatalf("moved session = %#v", moved)
+	}
+	roster := requestResult[api.State](t, connection, "roster", nil)
+	var persisted api.Session
+	for _, candidate := range roster.Sessions {
+		if candidate.ID == session.ID {
+			persisted = candidate
+			break
+		}
+	}
+	if persisted.WorkspaceID != workspace.ID || persisted.TerminalGroupID != "" {
+		t.Fatalf("roster workspace scope = %#v", persisted)
+	}
+
+	back := requestResult[api.Session](t, connection, "session.move", map[string]any{
+		"id":    session.ID,
+		"group": group.ID,
+	})
+	if back.WorkspaceID != "" || back.TerminalGroupID != group.ID {
+		t.Fatalf("moved back session = %#v", back)
 	}
 }
 

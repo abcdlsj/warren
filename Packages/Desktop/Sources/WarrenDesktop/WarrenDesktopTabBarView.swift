@@ -28,6 +28,8 @@ struct WarrenDesktopTabBar: View {
     let onSelectEndpoint: (String) -> Void
     let onSelectTab: (String) -> Void
     let onMoveTab: (String, String?) -> Void
+    let sessionMoveTargets: [WarrenDesktopSessionMoveTarget]
+    let onMoveSession: (TerminalSessionID, WarrenDesktopSessionMoveDestination) -> Void
     let canAddTab: Bool
     let isAddingTab: Bool
     let onAddTab: () -> Void
@@ -93,6 +95,10 @@ struct WarrenDesktopTabBar: View {
                                     guard let sessionID = tab.sessionID,
                                           let activity else { return }
                                     onDismissActivity(sessionID, activity)
+                                },
+                                sessionMoveTargets: sessionMoveTargets,
+                                onMoveSession: { sessionID, destination in
+                                    onMoveSession(sessionID, destination)
                                 }
                             )
                         }
