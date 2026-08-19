@@ -185,6 +185,7 @@ Session sharing is added incrementally through Principals, Share Grants, Capabil
 The daemon owns all Git execution. Workspace-scoped typed intents:
 
 - `git.panel` { workspace } -> GitPanel (branch, upstream, ahead/behind, remote, changes, commits, branches)
+- `git.diff` { workspace, path, staged, commit } -> GitDiff (full file content and unified diff at the selected version)
 - `git.checkout` { workspace, branch, create } -> GitCommandResult
 - `git.pull` { workspace } -> GitCommandResult
 - `git.push` { workspace } -> GitCommandResult

@@ -305,5 +305,6 @@ type GitCommandResult struct {
 }
 
 type GitDiff struct {
-	Diff string `json:"diff"`
+	Diff    string `json:"diff"`
+	Content string `json:"content"`
 }
