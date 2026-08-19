@@ -39,6 +39,7 @@ import {
 } from "./terminal.js";
 import { mergeAgentEvents } from "./agent.js";
 import { AgentView } from "./agent.jsx";
+import { FileDiffView } from "./filediff.jsx";
 import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
@@ -311,8 +312,24 @@ export default function App() {
     }
   }, [request, loadGitPanel]);
 
-  const requestGitDiff = useCallback((params, onResult, onError) => {
-    return request("git.diff", { workspace: selectedWorkspaceID, ...params }, onResult, onError);
+  const [fileView, setFileView] = useState(null);
+  const [fileDiff, setFileDiff] = useState({ loading: false, diff: "", content: "", error: "" });
+  const fileViewKeyRef = useRef(null);
+
+  const openFileView = useCallback((change, commit = "") => {
+    const key = commit ? `${commit}:${change.path}` : `${change.staged ? "s" : "u"}:${change.path}`;
+    fileViewKeyRef.current = key;
+    setFileView({ key, path: change.path, staged: change.staged, commit });
+    setFileDiff({ loading: true, diff: "", content: "", error: "" });
+    const params = { path: change.path, staged: change.staged };
+    if (commit) params.commit = commit;
+    request("git.diff", { workspace: selectedWorkspaceID, ...params }, result => {
+      if (fileViewKeyRef.current !== key) return;
+      setFileDiff({ loading: false, diff: result?.diff || "", content: result?.content || "", error: "" });
+    }, diffError => {
+      if (fileViewKeyRef.current !== key) return;
+      setFileDiff({ loading: false, diff: "", content: "", error: diffError });
+    });
   }, [request, selectedWorkspaceID]);
 
   useEffect(() => {
@@ -1406,6 +1423,10 @@ export default function App() {
   }, [activeSession]);
 
   useEffect(() => {
+    setFileView(null);
+  }, [activeSession, selectedWorkspaceID, gitOpen]);
+
+  useEffect(() => {
     localStorage.setItem(storageKeys.navigationMemory, JSON.stringify(navigationMemory));
   }, [navigationMemory]);
 
@@ -1913,11 +1934,25 @@ export default function App() {
             className="terminal-shell"
             aria-label="Terminal"
             onPointerDown={event => {
-              if (event.pointerType === "mouse") focusTerminal();
+              if (event.pointerType === "mouse" && !fileView) focusTerminal();
             }}
-            onClick={focusTerminal}
+            onClick={event => {
+              if (!fileView) focusTerminal();
+            }}
           >
-            <div id="terminal" ref={terminalHostRef} hidden={agentViewActive} />
+            <div id="terminal" ref={terminalHostRef} hidden={agentViewActive || Boolean(fileView)} />
+            {fileView && (
+              <FileDiffView
+                path={fileView.path}
+                staged={fileView.staged}
+                commit={fileView.commit}
+                loading={fileDiff.loading}
+                diff={fileDiff.diff}
+                content={fileDiff.content}
+                error={fileDiff.error}
+                onClose={() => setFileView(null)}
+              />
+            )}
             {agentViewActive && (
               <AgentView
                 session={selectedSession}
@@ -1943,6 +1978,7 @@ export default function App() {
               onPrevious={() => stepTerminalSearch("previous")}
               onClose={closeTerminalSearch}
             />
+            {!fileView && (
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}
               activeSession={activeSession}
@@ -1952,6 +1988,7 @@ export default function App() {
               override={emptyOverride}
               onNewSession={() => createSession("shell")}
             />
+            )}
           </section>
           {!agentViewActive && <MobileKeys onInput={sendInput} />}
         </main>
@@ -1966,7 +2003,7 @@ export default function App() {
             onPull={() => runGitAction("git.pull", { workspace: selectedWorkspaceID })}
             onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
-            onDiff={requestGitDiff}
+            onOpenFile={openFileView}
             onClose={() => setGitOpen(false)}
           />
         )}
