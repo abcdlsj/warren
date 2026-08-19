@@ -19,6 +19,7 @@ import (
 	"github.com/abcdlsj/ghostline"
 	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
+	"github.com/abcdlsj/warren/Headless/internal/git"
 	"github.com/abcdlsj/warren/Headless/internal/output"
 	"github.com/abcdlsj/warren/Headless/internal/runtime"
 	"github.com/abcdlsj/warren/Headless/internal/settings"
@@ -1740,6 +1741,146 @@ func (s *Service) logWarn(message string, keyValues ...any) {
 		logger = slog.Default()
 	}
 	logger.Warn(message, keyValues...)
+}
+
+func findWorkspace(state api.State, id string) (api.Workspace, error) {
+	for _, workspace := range state.Workspaces {
+		if workspace.ID == id {
+			return workspace, nil
+		}
+	}
+	return api.Workspace{}, fmt.Errorf("workspace not found: %s", id)
+}
+
+func (s *Service) GitPanel(ctx context.Context, workspaceID string) (api.GitPanel, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitPanel{}, err
+	}
+	status, err := git.StatusFor(ctx, workspace.Path)
+	if err != nil {
+		return api.GitPanel{}, err
+	}
+	commits, err := git.Log(ctx, workspace.Path, 20)
+	if err != nil {
+		return api.GitPanel{}, err
+	}
+	branches, err := git.Branches(ctx, workspace.Path)
+	if err != nil {
+		return api.GitPanel{}, err
+	}
+	remote, _ := git.RemoteURL(ctx, workspace.Path)
+	panel := api.GitPanel{
+		WorkspaceID: workspaceID,
+		Branch:      status.Branch,
+		Upstream:    status.Upstream,
+		Ahead:       status.Ahead,
+		Behind:      status.Behind,
+		Remote:      remote,
+		Changes:     apiGitChanges(status.Changes),
+		Commits:     apiGitCommits(commits),
+		Branches:    apiGitBranches(branches),
+	}
+	return panel, nil
+}
+
+func (s *Service) GitCheckout(ctx context.Context, workspaceID, branch string, create bool) (api.GitCommandResult, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	if err := git.Checkout(ctx, workspace.Path, branch, create); err != nil {
+		return api.GitCommandResult{}, err
+	}
+	storedBranch := branch
+	if !create {
+		if index := strings.LastIndex(storedBranch, "/"); index >= 0 {
+			storedBranch = storedBranch[index+1:]
+		}
+	}
+	if err := s.Store.Update(func(value *api.State) error {
+		for i := range value.Workspaces {
+			if value.Workspaces[i].ID == workspaceID {
+				value.Workspaces[i].Branch = storedBranch
+			}
+		}
+		return nil
+	}); err != nil {
+		return api.GitCommandResult{}, err
+	}
+	return api.GitCommandResult{Message: "Checked out " + storedBranch}, nil
+}
+
+func (s *Service) GitPull(ctx context.Context, workspaceID string) (api.GitCommandResult, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	output, err := git.Pull(ctx, workspace.Path)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
+}
+
+func (s *Service) GitPush(ctx context.Context, workspaceID string) (api.GitCommandResult, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	output, err := git.Push(ctx, workspace.Path)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
+}
+
+func apiGitChanges(changes []git.Change) []api.GitChange {
+	result := make([]api.GitChange, 0, len(changes))
+	for _, change := range changes {
+		result = append(result, api.GitChange{
+			Path:       change.Path,
+			Status:     change.Status,
+			Staged:     change.Staged,
+			RenameFrom: change.RenameFrom,
+		})
+	}
+	return result
+}
+
+func apiGitCommits(commits []git.Commit) []api.GitCommit {
+	result := make([]api.GitCommit, 0, len(commits))
+	for _, commit := range commits {
+		files := make([]api.GitChange, 0, len(commit.Files))
+		for _, file := range commit.Files {
+			files = append(files, api.GitChange{
+				Path:       file.Path,
+				Status:     file.Status,
+				RenameFrom: file.RenameFrom,
+			})
+		}
+		result = append(result, api.GitCommit{
+			Hash:    commit.Hash,
+			Short:   commit.Short,
+			Subject: commit.Subject,
+			Author:  commit.Author,
+			Email:   commit.Email,
+			Time:    commit.Time,
+			Files:   files,
+		})
+	}
+	return result
+}
+
+func apiGitBranches(list git.BranchList) []api.GitBranch {
+	result := make([]api.GitBranch, 0, len(list.Local)+len(list.Remote))
+	for _, name := range list.Local {
+		result = append(result, api.GitBranch{Name: name})
+	}
+	for _, name := range list.Remote {
+		result = append(result, api.GitBranch{Name: name, Remote: true})
+	}
+	return result
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
