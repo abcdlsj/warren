@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/client"
 	"github.com/abcdlsj/warren/Headless/internal/config"
@@ -84,6 +86,8 @@ func run(arguments []string) error {
 		return endpointCommand(args[1:])
 	case "ssh":
 		return sshCommand(args[1:])
+	case "agent":
+		return agentCommand(args[1:])
 	case "project", "workspace", "worktree", "terminal-group", "group", "session":
 		return resourceCommand(args)
 	case "headless":
@@ -476,6 +480,231 @@ func sessionRead(ctx context.Context, c *client.Client, params map[string]any, f
 	return err
 }
 
+func agentCommand(args []string) error {
+	if len(args) == 0 || isHelpArgument(args[0]) {
+		fmt.Print(agentUsageText())
+		return nil
+	}
+	if args[0] != "read" {
+		return newUsageError(fmt.Sprintf("unknown agent command: %s", args[0]), agentUsageText())
+	}
+	help, err := validateAgentReadArgs(args[1:])
+	if err != nil {
+		return newUsageError(err.Error(), agentReadUsageText())
+	}
+	if help {
+		fmt.Print(agentReadUsageText())
+		return nil
+	}
+	params := parseFlags(args[1:])
+	if boolValue(params, "help") || boolValue(params, "h") {
+		fmt.Print(agentReadUsageText())
+		return nil
+	}
+	positions := positionals(params)
+	if len(positions) == 0 {
+		return newUsageError("missing PROVIDER", agentReadUsageText())
+	}
+	if len(positions) > 2 {
+		return newUsageError("agent read accepts at most one transcript path", agentReadUsageText())
+	}
+	provider := strings.ToLower(strings.TrimSpace(positions[0]))
+	if provider != "codex" && provider != "claude" {
+		return newUsageError("PROVIDER must be codex or claude", agentReadUsageText())
+	}
+	path := stringValue(params, "path")
+	if path == "" {
+		path = stringValue(params, "file")
+	}
+	if len(positions) == 2 {
+		if path != "" {
+			return newUsageError("transcript path was provided twice", agentReadUsageText())
+		}
+		path = positions[1]
+	}
+
+	recent := agent.DefaultReadRecent
+	if boolValue(params, "all") {
+		recent = 0
+	}
+	if value := firstFlagValue(params, "recent", "limit", "count"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			return newUsageError("--recent must be a non-negative integer", agentReadUsageText())
+		}
+		recent = parsed
+	}
+	contentLimit := agent.DefaultReadContentLimit
+	if value := firstFlagValue(params, "chars", "max-chars", "head"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 {
+			return newUsageError("--chars must be a non-negative integer", agentReadUsageText())
+		}
+		contentLimit = parsed
+	}
+	full := boolValue(params, "full") || boolValue(params, "full-content") || boolValue(params, "no-truncate")
+	if full {
+		contentLimit = 0
+	}
+	include := collectAgentTypeFlags(args[1:], "include", "types")
+	exclude := collectAgentTypeFlags(args[1:], "filter", "exclude")
+	// `collectAgentTypeFlags` preserves repeated flags. The map parser above is
+	// still used for the common single-flag case and for validation.
+	if len(include) == 0 {
+		include = splitTypeFlag(firstFlagValue(params, "include", "types"))
+	}
+	if len(exclude) == 0 {
+		exclude = append(splitTypeFlag(stringValue(params, "filter")), splitTypeFlag(stringValue(params, "exclude"))...)
+	}
+
+	if path == "" {
+		workspace := stringValue(params, "workspace")
+		if workspace == "" {
+			var err error
+			workspace, err = os.Getwd()
+			if err != nil {
+				return fmt.Errorf("resolve current workspace: %w", err)
+			}
+		}
+		var err error
+		path, err = (agent.DefaultFinder{}).Find(context.Background(), provider, workspace, time.Time{})
+		if err != nil {
+			return err
+		}
+		if path == "" {
+			return fmt.Errorf("no %s transcript found for workspace %s; pass a JSONL path", provider, workspace)
+		}
+	} else {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return fmt.Errorf("resolve transcript path: %w", err)
+		}
+		path = absolute
+	}
+
+	events, err := agent.ReadTranscript(context.Background(), provider, path, agent.ReadOptions{
+		Recent:       recent,
+		ContentLimit: contentLimit,
+		Full:         full,
+		IncludeTypes: include,
+		ExcludeTypes: exclude,
+	})
+	if err != nil {
+		return fmt.Errorf("read %s transcript %s: %w", provider, path, err)
+	}
+	return printValue(events)
+}
+
+var agentReadValueFlags = map[string]bool{
+	"path": true, "file": true, "workspace": true,
+	"recent": true, "limit": true, "count": true,
+	"chars": true, "max-chars": true, "head": true,
+	"include": true, "types": true, "filter": true, "exclude": true,
+}
+
+var agentReadBooleanFlags = map[string]bool{
+	"all": true, "full": true, "full-content": true,
+	"no-truncate": true, "help": true,
+}
+
+// validateAgentReadArgs gives the transcript reader a strict flag schema.
+// parseFlags is intentionally permissive because the other resource commands
+// accept arbitrary daemon parameters; using it directly here would silently
+// ignore typos and malformed flag invocations.
+func validateAgentReadArgs(args []string) (bool, error) {
+	present := make(map[string]bool)
+	help := false
+	for index := 0; index < len(args); index++ {
+		item := args[index]
+		if item == "-h" {
+			help = true
+			continue
+		}
+		if !strings.HasPrefix(item, "-") {
+			continue
+		}
+		if !strings.HasPrefix(item, "--") {
+			return false, fmt.Errorf("unknown flag %q", item)
+		}
+		name, value, hasValue := splitFlag(item)
+		if agentReadBooleanFlags[name] {
+			if hasValue {
+				return false, fmt.Errorf("--%s does not take a value", name)
+			}
+			present[name] = true
+			if name == "help" {
+				help = true
+			}
+			continue
+		}
+		if !agentReadValueFlags[name] {
+			return false, fmt.Errorf("unknown flag %q", item)
+		}
+		if !hasValue {
+			if index+1 >= len(args) || args[index+1] == "-h" || strings.HasPrefix(args[index+1], "--") {
+				return false, fmt.Errorf("--%s requires a value", name)
+			}
+			index++
+		} else if value == "" {
+			return false, fmt.Errorf("--%s requires a non-empty value", name)
+		}
+		present[name] = true
+	}
+
+	recentFlag := present["recent"] || present["limit"] || present["count"]
+	if present["all"] && recentFlag {
+		return false, errors.New("--all cannot be combined with --recent, --limit, or --count")
+	}
+	contentFlag := present["chars"] || present["max-chars"] || present["head"]
+	if (present["full"] || present["full-content"] || present["no-truncate"]) && contentFlag {
+		return false, errors.New("--full cannot be combined with --chars, --max-chars, or --head")
+	}
+	return help, nil
+}
+
+func firstFlagValue(params map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringValue(params, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func splitTypeFlag(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return strings.Split(value, ",")
+}
+
+func collectAgentTypeFlags(args []string, names ...string) []string {
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		wanted[name] = true
+	}
+	var values []string
+	for index := 0; index < len(args); index++ {
+		item := args[index]
+		if !strings.HasPrefix(item, "--") {
+			continue
+		}
+		key := strings.TrimPrefix(item, "--")
+		if split := strings.SplitN(key, "=", 2); len(split) == 2 {
+			if wanted[split[0]] {
+				values = append(values, split[1])
+			}
+			continue
+		}
+		if !wanted[key] || index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
+			continue
+		}
+		values = append(values, args[index+1])
+		index++
+	}
+	return values
+}
+
 func endpointCommand(args []string) error {
 	settings, err := config.Load(configPath)
 	if err != nil {
@@ -645,8 +874,11 @@ var bareBooleanFlags = map[string]bool{
 	"all":           true,
 	"ended":         true,
 	"force":         true,
+	"full":          true,
+	"full-content":  true,
 	"help":          true,
 	"keep-worktree": true,
+	"no-truncate":   true,
 	"raw":           true,
 	"use":           true,
 }
@@ -1159,6 +1391,7 @@ Usage:
   warren [--endpoint NAME | --server URL --token TOKEN] [--json] <command>
 
 Commands:
+  agent read codex|claude [SESSION_FILE]
   endpoint list|add|use|remove|current
   project list|add|remove|rename|pin|move
   workspace list|create|remove|rename|pin|move  (alias: worktree)
@@ -1176,6 +1409,8 @@ Global flags:
 Run 'warren <command> --help' for command-specific help.
 
 Examples:
+  warren agent read codex --recent 10 --include user,assistant
+  warren agent read claude ~/.claude/projects/-work-demo/session.jsonl --full
   warren endpoint add vps --url http://127.0.0.1:8789 --token TOKEN --use
   warren project add /srv/my-repo
   warren project move PROJECT_ID --before OTHER_PROJECT_ID
@@ -1192,6 +1427,32 @@ Examples:
   warren session create --group GROUP_ID
   warren session create
   warren session attach SESSION_ID
+`
+}
+
+func agentUsageText() string {
+	return `Usage:
+  warren agent read codex|claude [SESSION_FILE] [FLAGS]
+
+Run 'warren agent read --help' for read options.
+`
+}
+
+func agentReadUsageText() string {
+	return `Usage:
+  warren agent read PROVIDER [SESSION_FILE]
+      [--workspace PATH] [--recent N | --all]
+      [--include TYPE,...] [--filter TYPE,...]
+      [--chars N | --full]
+
+PROVIDER is codex or claude. Without SESSION_FILE, Warren finds the newest
+transcript for the current workspace (or --workspace PATH).
+
+By default, only the newest 20 useful activities are returned and text fields
+are limited to 2000 characters. --full disables text truncation; --all returns
+all matching activities (up to 100000). Low-value usage, attachment, and
+system instruction events are omitted unless selected explicitly with
+--include.
 `
 }
 

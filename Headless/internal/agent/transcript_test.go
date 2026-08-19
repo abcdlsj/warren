@@ -282,6 +282,48 @@ func TestFinderPicksNewestMatchingCodex(t *testing.T) {
 	}
 }
 
+func TestFinderMatchesCodexTranscriptEvenWhenFileIsLarge(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sessions")
+	path := filepath.Join(root, "2026", "08", "19", "rollout-large.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first := `{"timestamp":"2026-08-19T10:00:00Z","type":"session_meta","payload":{"id":"large","cwd":"/work/warren"}}` + "\n"
+	data := append([]byte(first), []byte(strings.Repeat("x", 2*1024*1024))...)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	found, err := (DefaultFinder{CodexRoot: root}).Find(context.Background(), "codex", "/work/warren", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != path {
+		t.Fatalf("finder picked %q, want %q", found, path)
+	}
+}
+
+func TestFinderSkipsSymlinkTranscripts(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sessions")
+	outside := filepath.Join(t.TempDir(), "rollout-outside.jsonl")
+	if err := os.WriteFile(outside, []byte(`{"timestamp":"2026-08-19T10:00:00Z","type":"session_meta","payload":{"cwd":"/work/warren"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "rollout-link.jsonl")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	found, err := (DefaultFinder{CodexRoot: root}).Find(context.Background(), "codex", "/work/warren", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found != "" {
+		t.Fatalf("finder adopted symlink transcript %q", found)
+	}
+}
+
 func TestFinderIgnoresTranscriptsBeforeSessionStart(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "sessions")
 	path := filepath.Join(root, "2026", "08", "16", "rollout-old.jsonl")
