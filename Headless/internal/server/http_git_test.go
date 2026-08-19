@@ -140,4 +140,7 @@ func TestGitDiffOverWebSocket(t *testing.T) {
 	if _, ok := result["diff"]; !ok {
 		t.Fatalf("result = %#v, want diff field", result)
 	}
+	if _, ok := result["content"]; !ok {
+		t.Fatalf("result = %#v, want content field", result)
+	}
 }

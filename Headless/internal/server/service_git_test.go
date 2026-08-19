@@ -195,6 +195,9 @@ func TestGitDiffReturnsWorkingTreeDiff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if diff.Content != "b\n" {
+		t.Fatalf("content = %q, want working tree content", diff.Content)
+	}
 	if !strings.Contains(diff.Diff, "-a\n") || !strings.Contains(diff.Diff, "+b\n") {
 		t.Fatalf("diff = %q, want a -> b change", diff.Diff)
 	}
