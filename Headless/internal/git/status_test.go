@@ -53,3 +53,46 @@ func TestParseStatusDetachedAndClean(t *testing.T) {
 		t.Fatalf("changes = %#v, want none", status.Changes)
 	}
 }
+
+func TestParseStatusUnmerged(t *testing.T) {
+	status := parseStatus("u UU N... 100644 100644 100644 100644 100644 <h> <h> conflicted.txt\x00")
+	want := []Change{{Path: "conflicted.txt", Status: "UU"}}
+	if len(status.Changes) != len(want) {
+		t.Fatalf("changes = %#v, want %#v", status.Changes, want)
+	}
+	for i := range want {
+		if status.Changes[i] != want[i] {
+			t.Fatalf("changes[%d] = %#v, want %#v", i, status.Changes[i], want[i])
+		}
+	}
+}
+
+func TestParseStatusStagedAndUnstagedSamePath(t *testing.T) {
+	status := parseStatus("1 MM N... 100644 100644 100644 61780798228d17af2d34fce4cfbdf35556832472 b89df23defe5ae95cfb2ff7408d90afd689b8c43 same.txt\x00")
+	want := []Change{
+		{Path: "same.txt", Status: "M", Staged: true},
+		{Path: "same.txt", Status: "M", Staged: false},
+	}
+	if len(status.Changes) != len(want) {
+		t.Fatalf("changes = %#v, want %#v", status.Changes, want)
+	}
+	for i := range want {
+		if status.Changes[i] != want[i] {
+			t.Fatalf("changes[%d] = %#v, want %#v", i, status.Changes[i], want[i])
+		}
+	}
+}
+
+func TestParseStatusZeroAheadBehind(t *testing.T) {
+	status := parseStatus("# branch.oid abc\x00# branch.head main\x00# branch.ab +0 -0\x00")
+	if status.Ahead != 0 || status.Behind != 0 {
+		t.Fatalf("ahead/behind = %d/%d, want 0/0", status.Ahead, status.Behind)
+	}
+}
+
+func TestParseStatusNoUpstream(t *testing.T) {
+	status := parseStatus("# branch.oid abc\x00# branch.head main\x00# branch.ab +1 -1\x00")
+	if status.Upstream != "" {
+		t.Fatalf("upstream = %q, want empty", status.Upstream)
+	}
+}
