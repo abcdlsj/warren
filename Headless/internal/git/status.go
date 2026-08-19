@@ -34,11 +34,11 @@ func StatusFor(ctx context.Context, dir string) (Status, error) {
 		return Status{}, err
 	}
 	status := parseStatus(output)
-	staged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "--cached", "--numstat", "-z")
+	staged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "-M", "--cached", "--numstat", "-z")
 	if err != nil {
 		return Status{}, err
 	}
-	unstaged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "--numstat", "-z")
+	unstaged, err := run(ctx, dir, "-c", "core.quotepath=false", "diff", "-M", "--numstat", "-z")
 	if err != nil {
 		return Status{}, err
 	}
