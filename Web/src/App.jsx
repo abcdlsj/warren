@@ -279,6 +279,7 @@ export default function App() {
     setGitLoading(true);
     setGitError("");
     setGitAction("");
+    setGitPanel(null);
     const sent = request("git.panel", { workspace: workspaceID }, result => {
       if (appStateRef.current.activeWorkspace !== workspaceID) return;
       setGitPanel(result);
@@ -317,7 +318,8 @@ export default function App() {
   const fileViewKeyRef = useRef(null);
 
   const openFileView = useCallback((change, commit = "") => {
-    const key = commit ? `${commit}:${change.path}` : `${change.staged ? "s" : "u"}:${change.path}`;
+    const workspaceID = selectedWorkspaceID;
+    const key = commit ? `${workspaceID}:${commit}:${change.path}` : `${workspaceID}:${change.staged ? "s" : "u"}:${change.path}`;
     fileViewKeyRef.current = key;
     setFileView({ key, path: change.path, staged: change.staged, commit });
     setFileDiff({ loading: true, diff: "", content: "", error: "" });
@@ -1996,6 +1998,7 @@ export default function App() {
         </main>
         {!isMobile && gitOpen && (
           <GitPanel
+            key={selectedWorkspaceID}
             workspaceName={selectedWorkspace?.name}
             panel={gitPanel}
             loading={gitLoading}
