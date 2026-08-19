@@ -80,6 +80,21 @@ func TestTerminalGroupAliasAndSessionCreateParams(t *testing.T) {
 	}
 }
 
+func TestProjectAddNormalizesAutomaticWorktreeImportFlag(t *testing.T) {
+	params := normalizedParams(parseFlags([]string{
+		"/srv/repository", "--auto-import-worktrees",
+	}), "project", "add")
+	if params["path"] != "/srv/repository" {
+		t.Fatalf("project path = %#v", params["path"])
+	}
+	if !boolValue(params, "autoImportGitWorktrees") {
+		t.Fatalf("automatic import flag = %#v, want true", params["autoImportGitWorktrees"])
+	}
+	if _, ok := params["auto-import-worktrees"]; ok {
+		t.Fatalf("kebab-case flag leaked into request: %#v", params)
+	}
+}
+
 func TestSessionRowsJoinsTerminalGroup(t *testing.T) {
 	state := api.State{
 		TerminalGroups: []api.TerminalGroup{{ID: "group-1", Name: "Inbox", Home: "/home/test"}},

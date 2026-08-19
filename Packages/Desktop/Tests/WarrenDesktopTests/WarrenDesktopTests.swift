@@ -1063,6 +1063,54 @@ final class WarrenDesktopTests: XCTestCase {
         ))
     }
 
+    func testAutomaticAIPolicyIsOptInAndWinsOnDoubleClick() {
+        let fixture = WarrenDesktopFixture.preview
+        let project = fixture.groups[0].project.id
+        let emptyWorkspaceID = fixture.groups[0].workspaces[1].id
+
+        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            for: .selectWorkspace(emptyWorkspaceID),
+            in: fixture.projection,
+            creatingWorkspaceIDs: [],
+            autoOpenShell: false,
+            autoStartAI: false
+        ))
+        XCTAssertEqual(
+            WarrenDesktopAutomaticSessionPolicy.workspaceID(
+                for: .selectWorkspace(emptyWorkspaceID),
+                in: fixture.projection,
+                creatingWorkspaceIDs: [],
+                autoOpenShell: false,
+                autoStartAI: true
+            ),
+            emptyWorkspaceID
+        )
+        XCTAssertEqual(
+            WarrenDesktopAutomaticSessionPolicy.workspaceID(
+                for: .selectProject(project),
+                in: WarrenDesktopProjection(
+                    host: fixture.projection.host,
+                    projects: [fixture.groups[0].project],
+                    workspaces: [fixture.groups[0].workspaces[1]]
+                ),
+                creatingWorkspaceIDs: [],
+                autoOpenShell: false,
+                autoStartAI: true
+            ),
+            emptyWorkspaceID
+        )
+        XCTAssertEqual(
+            WarrenDesktopAutomaticSessionPolicy.workspaceID(
+                for: .openWorkspace(emptyWorkspaceID),
+                in: fixture.projection,
+                creatingWorkspaceIDs: [],
+                autoOpenShell: true,
+                autoStartAI: true
+            ),
+            emptyWorkspaceID
+        )
+    }
+
     func testPresetOrderMovesWithinBounds() {
         let order = "shell,claude,codex"
 

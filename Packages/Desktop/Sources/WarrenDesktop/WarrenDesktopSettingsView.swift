@@ -11,10 +11,10 @@ struct WarrenDesktopSettingsView: View {
     let onBack: () -> Void
     let defaultRuntime: String?
     let onSetRuntime: (String) -> Void
-    let importGitWorktrees: Bool
-    let onSetImportGitWorktrees: (Bool) -> Void
     let autoOpenShell: Bool
     let onSetAutoOpenShell: (Bool) -> Void
+    let autoStartAI: Bool
+    let onSetAutoStartAI: (Bool) -> Void
 
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var titleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
@@ -63,7 +63,7 @@ struct WarrenDesktopSettingsView: View {
             case .terminalTitle: "Build a title from live Session metadata."
             case .terminalRuntime: "Engine that owns new sessions on the headless daemon."
             case .presets: "Commands launched by the Shell, Claude and Codex buttons."
-            case .workspaces: "How projects and Git worktrees appear in the sidebar."
+            case .workspaces: "How projects import worktrees and enter sessions."
             case .externalIDEs: "IDEs the workspace menu can open worktrees in."
             case .webSharing: "Publish the Web UI to the public internet."
             }
@@ -75,7 +75,7 @@ struct WarrenDesktopSettingsView: View {
             case .terminalTitle: [rawValue, detail, "title", "template", "placeholder", "preview"]
             case .terminalRuntime: [rawValue, detail, "ghostline", "tmux", "runtime", "engine", "session", "headless"]
             case .presets: [rawValue, detail, "preset", "command", "launch", "shell", "claude", "codex", "agent"]
-            case .workspaces: [rawValue, detail, "workspace", "project", "git", "worktree", "import", "checkout"]
+            case .workspaces: [rawValue, detail, "workspace", "project", "git", "worktree", "import", "checkout", "shell", "AI", "Claude", "Codex"]
             case .externalIDEs: [rawValue, detail, "ide", "editor", "vscode", "goland", "android", "custom", "path", "open"]
             case .webSharing: [rawValue, detail, "gnar", "share", "public", "tunnel", "internet"]
             }
@@ -494,12 +494,6 @@ struct WarrenDesktopSettingsView: View {
 
     private func workspacesSection(tokens: WarrenColorTokens) -> some View {
         settingsSection("Workspaces", section: .workspaces, tokens: tokens) {
-            Toggle("Import all Git worktrees", isOn: Binding(
-                get: { importGitWorktrees },
-                set: { onSetImportGitWorktrees($0) }
-            ))
-            .toggleStyle(.switch)
-            .accessibilityIdentifier("settings.workspaces.import-git-worktrees")
             Toggle("Open a Shell when opening an empty workspace", isOn: Binding(
                 get: { autoOpenShell },
                 set: { onSetAutoOpenShell($0) }
@@ -507,18 +501,35 @@ struct WarrenDesktopSettingsView: View {
             .toggleStyle(.switch)
             .accessibilityIdentifier("settings.workspaces.auto-open-shell")
             Text(
-                "When adding a project, import every Git worktree as a "
-                    + "workspace. Turn this off to add only the main checkout; "
-                    + "existing workspaces are never removed."
+                "Double-clicking an empty workspace is the explicit open action. "
+                    + "When this is enabled, it creates one Shell. If automatic "
+                    + "AI startup is also enabled, the AI rule wins and no second "
+                    + "Shell is created. Explicit New Session and preset buttons "
+                    + "always create the requested session."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
+            Toggle("Start the first AI when entering an empty workspace", isOn: Binding(
+                get: { autoStartAI },
+                set: { onSetAutoStartAI($0) }
+            ))
+            .toggleStyle(.switch)
+            .accessibilityIdentifier("settings.workspaces.auto-start-ai")
+            Text(
+                "Selecting a workspace, selecting a project, or using the Command "
+                    + "Palette starts the first AI in Launch commands order. This "
+                    + "does not run during navigation restore. If both options are "
+                    + "enabled, this AI startup takes precedence over the Shell "
+                    + "option on a double-click, preventing duplicate sessions."
             )
             .font(WarrenTypography.supporting)
             .foregroundStyle(tokens.mutedForeground)
             .fixedSize(horizontal: false, vertical: true)
             Text(
-                "When enabled, opening an empty workspace (for example by "
-                    + "double-clicking it) creates one Shell. "
-                    + "Existing sessions are reused, and explicit New Session "
-                    + "or preset actions always remain available."
+                "Git worktree import is configured per project. Use a project's "
+                    + "context menu to enable automatic import (no confirmation) "
+                    + "or choose Import Existing Worktrees… for a one-time selection."
             )
             .font(WarrenTypography.supporting)
             .foregroundStyle(tokens.mutedForeground)

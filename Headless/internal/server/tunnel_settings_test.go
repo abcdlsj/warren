@@ -46,33 +46,33 @@ func TestUpdateTunnelEnabledRejectsUnknownKind(t *testing.T) {
 	}
 }
 
-func TestSetImportGitWorktreesIsOptInAndPersists(t *testing.T) {
+func TestSetAutoStartAIIsOptInAndPersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	service := &Service{SettingsPath: path}
-	if service.Settings.ImportGitWorktrees {
-		t.Fatal("worktree import must default to disabled")
+	if service.Settings.AutoStartAI {
+		t.Fatal("auto-start AI must default to disabled")
 	}
 
-	if err := service.SetImportGitWorktrees(true); err != nil {
-		t.Fatalf("enable worktree import: %v", err)
+	if err := service.SetAutoStartAI(true); err != nil {
+		t.Fatalf("enable auto-start AI: %v", err)
 	}
 	loaded, err := settings.Load(path)
 	if err != nil {
 		t.Fatalf("load enabled settings: %v", err)
 	}
-	if !loaded.ImportGitWorktrees {
-		t.Fatal("enabled worktree import was not persisted")
+	if !loaded.AutoStartAI {
+		t.Fatal("enabled autoStartAI was not persisted")
 	}
 
-	if err := service.SetImportGitWorktrees(false); err != nil {
-		t.Fatalf("disable worktree import: %v", err)
+	if err := service.SetAutoStartAI(false); err != nil {
+		t.Fatalf("disable auto-start AI: %v", err)
 	}
 	loaded, err = settings.Load(path)
 	if err != nil {
 		t.Fatalf("load disabled settings: %v", err)
 	}
-	if loaded.ImportGitWorktrees {
-		t.Fatal("disabled worktree import remained enabled")
+	if loaded.AutoStartAI {
+		t.Fatal("disabled autoStartAI remained enabled")
 	}
 }
 
@@ -133,13 +133,13 @@ func TestHTTPSettingsExposeWorkspaceDefaults(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&initial); err != nil {
 		t.Fatalf("decode initial settings: %v", err)
 	}
-	if initial["importGitWorktrees"] != false || initial["autoOpenShell"] != false {
+	if initial["autoOpenShell"] != false || initial["autoStartAI"] != false {
 		t.Fatalf("initial workspace defaults = %#v", initial)
 	}
 
 	body, err := json.Marshal(map[string]bool{
-		"importGitWorktrees": true,
-		"autoOpenShell":      true,
+		"autoOpenShell": true,
+		"autoStartAI":   true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,14 +162,14 @@ func TestHTTPSettingsExposeWorkspaceDefaults(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&updated); err != nil {
 		t.Fatalf("decode updated settings: %v", err)
 	}
-	if updated["importGitWorktrees"] != true || updated["autoOpenShell"] != true {
+	if updated["autoStartAI"] != true || updated["autoOpenShell"] != true {
 		t.Fatalf("updated workspace defaults = %#v", updated)
 	}
 	loaded, err := settings.Load(path)
 	if err != nil {
 		t.Fatalf("load persisted settings: %v", err)
 	}
-	if !loaded.ImportGitWorktrees || !loaded.AutoOpenShell {
+	if !loaded.AutoStartAI || !loaded.AutoOpenShell {
 		t.Fatalf("persisted workspace defaults = %#v", loaded)
 	}
 }

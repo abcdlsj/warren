@@ -265,19 +265,19 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 	switch request.Method {
 	case http.MethodGet:
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"defaultRuntime":     s.Service.DefaultRuntime,
-			"runtimeEnv":         s.Service.Settings.RuntimeEnv,
-			"gnarEdge":           s.Service.Settings.GnarEdge,
-			"importGitWorktrees": s.Service.Settings.ImportGitWorktrees,
-			"autoOpenShell":      s.Service.Settings.AutoOpenShell,
+			"defaultRuntime": s.Service.DefaultRuntime,
+			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
+			"gnarEdge":       s.Service.Settings.GnarEdge,
+			"autoOpenShell":  s.Service.Settings.AutoOpenShell,
+			"autoStartAI":    s.Service.Settings.AutoStartAI,
 		})
 	case http.MethodPut:
 		var body struct {
-			DefaultRuntime     string            `json:"defaultRuntime"`
-			RuntimeEnv         map[string]string `json:"runtimeEnv"`
-			GnarEdge           *string           `json:"gnarEdge"`
-			ImportGitWorktrees *bool             `json:"importGitWorktrees"`
-			AutoOpenShell      *bool             `json:"autoOpenShell"`
+			DefaultRuntime string            `json:"defaultRuntime"`
+			RuntimeEnv     map[string]string `json:"runtimeEnv"`
+			GnarEdge       *string           `json:"gnarEdge"`
+			AutoOpenShell  *bool             `json:"autoOpenShell"`
+			AutoStartAI    *bool             `json:"autoStartAI"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
 			http.Error(writer, "invalid settings", http.StatusBadRequest)
@@ -295,14 +295,14 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if body.ImportGitWorktrees != nil {
-			if err := s.Service.SetImportGitWorktrees(*body.ImportGitWorktrees); err != nil {
+		if body.AutoOpenShell != nil {
+			if err := s.Service.SetAutoOpenShell(*body.AutoOpenShell); err != nil {
 				http.Error(writer, err.Error(), http.StatusBadRequest)
 				return
 			}
 		}
-		if body.AutoOpenShell != nil {
-			if err := s.Service.SetAutoOpenShell(*body.AutoOpenShell); err != nil {
+		if body.AutoStartAI != nil {
+			if err := s.Service.SetAutoStartAI(*body.AutoStartAI); err != nil {
 				http.Error(writer, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -311,11 +311,11 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 			s.Tunnels.SetGnarEdge(s.Service.Settings.GnarEdge)
 		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"defaultRuntime":     s.Service.DefaultRuntime,
-			"runtimeEnv":         s.Service.Settings.RuntimeEnv,
-			"gnarEdge":           s.Service.Settings.GnarEdge,
-			"importGitWorktrees": s.Service.Settings.ImportGitWorktrees,
-			"autoOpenShell":      s.Service.Settings.AutoOpenShell,
+			"defaultRuntime": s.Service.DefaultRuntime,
+			"runtimeEnv":     s.Service.Settings.RuntimeEnv,
+			"gnarEdge":       s.Service.Settings.GnarEdge,
+			"autoOpenShell":  s.Service.Settings.AutoOpenShell,
+			"autoStartAI":    s.Service.Settings.AutoStartAI,
 		})
 	default:
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
@@ -753,11 +753,11 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		return p.writeResult(command.ID, p.server.Service.agentHistoryPage(sessionID, before, limit))
 	case "settings.get":
 		return p.writeResult(command.ID, map[string]any{
-			"defaultRuntime":     p.server.Service.DefaultRuntime,
-			"runtimeEnv":         p.server.Service.Settings.RuntimeEnv,
-			"gnarEdge":           p.server.Service.Settings.GnarEdge,
-			"importGitWorktrees": p.server.Service.Settings.ImportGitWorktrees,
-			"autoOpenShell":      p.server.Service.Settings.AutoOpenShell,
+			"defaultRuntime": p.server.Service.DefaultRuntime,
+			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
+			"gnarEdge":       p.server.Service.Settings.GnarEdge,
+			"autoOpenShell":  p.server.Service.Settings.AutoOpenShell,
+			"autoStartAI":    p.server.Service.Settings.AutoStartAI,
 		})
 	case "settings.put":
 		runtimeEnv := stringMapParam(params, "runtimeEnv")
@@ -771,13 +771,13 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if err := p.server.Service.UpdateSettings(stringParam(params, "defaultRuntime"), runtimeEnv, gnarEdge); err != nil {
 			return err
 		}
-		if _, specified := params["importGitWorktrees"]; specified {
-			if err := p.server.Service.SetImportGitWorktrees(boolParam(params, "importGitWorktrees")); err != nil {
+		if _, specified := params["autoOpenShell"]; specified {
+			if err := p.server.Service.SetAutoOpenShell(boolParam(params, "autoOpenShell")); err != nil {
 				return err
 			}
 		}
-		if _, specified := params["autoOpenShell"]; specified {
-			if err := p.server.Service.SetAutoOpenShell(boolParam(params, "autoOpenShell")); err != nil {
+		if _, specified := params["autoStartAI"]; specified {
+			if err := p.server.Service.SetAutoStartAI(boolParam(params, "autoStartAI")); err != nil {
 				return err
 			}
 		}
@@ -785,14 +785,42 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			p.server.Tunnels.SetGnarEdge(p.server.Service.Settings.GnarEdge)
 		}
 		return p.writeResult(command.ID, map[string]any{
-			"defaultRuntime":     p.server.Service.DefaultRuntime,
-			"runtimeEnv":         p.server.Service.Settings.RuntimeEnv,
-			"gnarEdge":           p.server.Service.Settings.GnarEdge,
-			"importGitWorktrees": p.server.Service.Settings.ImportGitWorktrees,
-			"autoOpenShell":      p.server.Service.Settings.AutoOpenShell,
+			"defaultRuntime": p.server.Service.DefaultRuntime,
+			"runtimeEnv":     p.server.Service.Settings.RuntimeEnv,
+			"gnarEdge":       p.server.Service.Settings.GnarEdge,
+			"autoOpenShell":  p.server.Service.Settings.AutoOpenShell,
+			"autoStartAI":    p.server.Service.Settings.AutoStartAI,
 		})
 	case "project.add":
-		value, err := p.server.Service.AddProject(stringParam(params, "path"), stringParam(params, "name"))
+		value, err := p.server.Service.AddProjectWithOptions(
+			stringParam(params, "path"),
+			stringParam(params, "name"),
+			boolParam(params, "autoImportGitWorktrees"),
+		)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
+	case "project.worktrees":
+		value, err := p.server.Service.ListProjectWorktrees(stringParam(params, "project"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
+	case "project.worktrees.import":
+		value, err := p.server.Service.ImportProjectWorktrees(
+			stringParam(params, "project"),
+			stringSliceParam(params, "paths"),
+		)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, map[string]any{"workspaces": value})
+	case "project.autoImportGitWorktrees":
+		value, err := p.server.Service.SetProjectAutoImportGitWorktrees(
+			stringParam(params, "project"),
+			boolParam(params, "enabled"),
+		)
 		if err != nil {
 			return err
 		}
@@ -1159,6 +1187,31 @@ func stringMapParam(values map[string]any, key string) map[string]string {
 		result[entryKey] = value
 	}
 	return result
+}
+
+func stringSliceParam(values map[string]any, key string) []string {
+	raw, ok := values[key]
+	if !ok {
+		return nil
+	}
+	switch value := raw.(type) {
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, entry := range value {
+			if item, ok := entry.(string); ok {
+				result = append(result, item)
+			}
+		}
+		return result
+	case []string:
+		return append([]string(nil), value...)
+	case string:
+		var result []string
+		if json.Unmarshal([]byte(value), &result) == nil {
+			return result
+		}
+	}
+	return nil
 }
 
 func boolParam(values map[string]any, key string) bool {

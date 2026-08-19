@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  automaticSessionKind,
   loadSessionPresetOrder,
   moveSessionPreset,
   normalizeSessionPresetOrder,
@@ -9,6 +10,32 @@ import {
   reserveWorkspaceSession,
   shouldAttachCreatedSession,
 } from "./session.js";
+
+test("automatic AI entry is opt-in, empty-only and follows preset order", () => {
+  assert.equal(automaticSessionKind({ tabs: [], pending: false, explicit: true }), null);
+  assert.equal(
+    automaticSessionKind({
+      tabs: [],
+      pending: false,
+      explicit: true,
+      autoStartAI: true,
+      presets: orderedSessionPresets(["shell", "codex", "claude"]),
+    }),
+    "codex",
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [], pending: true, explicit: true, autoStartAI: true }),
+    null,
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [{ id: "existing" }], pending: false, explicit: true, autoStartAI: true }),
+    null,
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [], pending: false, explicit: false, autoStartAI: true }),
+    null,
+  );
+});
 
 test("persisted preset order is normalized", () => {
   assert.deepEqual(

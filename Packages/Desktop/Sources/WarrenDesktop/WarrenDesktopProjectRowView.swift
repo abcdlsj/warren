@@ -17,6 +17,8 @@ struct WarrenDesktopProjectRow: View {
     let onSelect: () -> Void
     let onToggleExpansion: () -> Void
     let onAddWorkspace: () -> Void
+    let onImportWorktrees: () -> Void
+    let onToggleAutoImportWorktrees: () -> Void
     let onRename: () -> Void
     let onTogglePin: () -> Void
     let onDelete: () -> Void
@@ -63,6 +65,13 @@ struct WarrenDesktopProjectRow: View {
         .contextMenu {
             Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
             Button("Rename Project", action: onRename)
+            Button("Import Existing Worktrees…", action: onImportWorktrees)
+            Button(
+                project.autoImportGitWorktrees
+                    ? "Disable Automatic Worktree Import"
+                    : "Enable Automatic Worktree Import (No Confirmation)",
+                action: onToggleAutoImportWorktrees
+            )
             Divider()
             Button("Delete Project…", role: .destructive, action: onDelete)
         }
@@ -184,6 +193,13 @@ struct WarrenDesktopProjectRow: View {
         .contextMenu {
             Button(isPinned ? "Unpin Project" : "Pin Project", action: onTogglePin)
             Button("Rename Project", action: onRename)
+            Button("Import Existing Worktrees…", action: onImportWorktrees)
+            Button(
+                project.autoImportGitWorktrees
+                    ? "Disable Automatic Worktree Import"
+                    : "Enable Automatic Worktree Import (No Confirmation)",
+                action: onToggleAutoImportWorktrees
+            )
             Divider()
             Button("Delete Project…", role: .destructive, action: onDelete)
         }

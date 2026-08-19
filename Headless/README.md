@@ -61,6 +61,7 @@ The loopback HTTP endpoint `127.0.0.1:8789` keeps serving Desktop and CLI client
 ```sh
 warren endpoint list
 warren --endpoint my-vps project add /srv/git/my-project
+warren --endpoint my-vps project add /srv/git/my-project --auto-import-worktrees
 warren --endpoint my-vps project list
 warren --endpoint my-vps project move PROJECT_ID --before OTHER_PROJECT_ID
 warren --endpoint my-vps workspace create PROJECT_ID --branch release/my-feature
@@ -85,6 +86,12 @@ machine-readable JSON output. `workspace create` reports `created` and
 `gitWorktree` in its result, so scripts know whether a Git worktree was really
 created and where it landed. `session list` shows running sessions by default;
 pass `--all` to include ended sessions, or `--ended` to list only ended ones.
+
+`project add --auto-import-worktrees` stores automatic Git worktree import on
+that Project and imports every currently existing external checkout without a
+confirmation prompt. The Web and Desktop project context menus also expose
+this toggle. Their **Import Existing Worktrees…** action opens a one-time
+multi-select list; already registered worktrees remain visible but disabled.
 
 `warren agent read codex|claude` parses a provider transcript into the same
 normalized activity objects used by Warren's agent view. A transcript path may
@@ -125,7 +132,7 @@ Tunnel lifetimes are bound to the daemon: every running adapter is stopped on sh
 
 Daemon events (start/stop with build version, tunnel start, restore, and errors) are appended to `~/.warren/headless.log` with `0600` permissions and rotate at 5 MiB; point `--log-file` or `WARREN_LOG_FILE` elsewhere or set it empty to disable file logging.
 
-The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / gnar; all require Bearer token authentication. The gnar edge is configured through `gnarEdge` in `~/.warren/settings.json` (or `WARREN_GNAR_EDGE`) and can be read or updated with `GET/PUT /v1/settings` or the `settings.get` / `settings.put` WebSocket methods. The same settings API exposes `importGitWorktrees` (default `false`) and `autoOpenShell` (default `false`) so project import and empty-workspace Shell creation are opt-in.
+The Web UI and `/v1/ws` share port 8789; the local browser uses `http://127.0.0.1:8789/#t=<token>` and LAN devices use `https://<host-LAN-IP>:8788/#t=<token>` after trusting the local CA (see "LAN HTTPS"). Tunnel management is handled by the daemon itself: `GET /v1/tunnels` queries status, while `POST /v1/tunnels/start` and `POST /v1/tunnels/stop` control cloudflared / tailscale / gnar; all require Bearer token authentication. The gnar edge is configured through `gnarEdge` in `~/.warren/settings.json` (or `WARREN_GNAR_EDGE`) and can be read or updated with `GET/PUT /v1/settings` or the `settings.get` / `settings.put` WebSocket methods. Empty-workspace entry defaults are host settings: `autoOpenShell` and `autoStartAI` both default to `false`. Git worktree import is project-scoped: `Project.autoImportGitWorktrees` is opt-in, and `project.worktrees` plus `project.worktrees.import` expose the one-time selector path; `project.autoImportGitWorktrees` enables immediate, non-interactive import of all currently existing external worktrees for that project.
 
 Operators can announce a planned restart with `POST /v1/maintenance` (Bearer
 token required). The daemon broadcasts a `{"t":"maintenance","state":"starting","message":...}`

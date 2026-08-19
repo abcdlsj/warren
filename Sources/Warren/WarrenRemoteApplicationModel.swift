@@ -69,7 +69,16 @@ struct RemoteRoster: Decodable, Sendable {
         let id: String
         let name: String
         let path: String
+        let autoImportGitWorktrees: Bool?
         let pinned: Bool?
+    }
+    struct WorktreeCandidate: Decodable, Sendable {
+        let path: String
+        let name: String
+        let branch: String?
+        let locked: Bool?
+        let imported: Bool
+        let workspace: String?
     }
     struct Workspace: Decodable, Sendable {
         let id: String
@@ -639,10 +648,10 @@ final class WarrenRemoteApplicationModel {
     private(set) var webStatus = WarrenDesktopWebStatus()
     /// Default engine for new sessions, owned by the headless daemon.
     private(set) var defaultRuntime: String?
-    /// Whether adding a project imports every Git worktree as a workspace.
-    private(set) var importGitWorktrees = false
     /// Whether opening an empty workspace creates a default Shell session.
     private(set) var autoOpenShell = false
+    /// Whether entering an empty workspace starts the first AI preset.
+    private(set) var autoStartAI = false
     @ObservationIgnored private var settingsLoaded = false
     /// Set while the daemon has announced an operator-initiated maintenance
     /// window (for example an app install that restarts the daemon). Clients
@@ -713,8 +722,8 @@ final class WarrenRemoteApplicationModel {
         endpointConfiguration = configuration
         settingsLoaded = false
         defaultRuntime = nil
-        importGitWorktrees = false
         autoOpenShell = false
+        autoStartAI = false
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
            let url = URL(string: "http://127.0.0.1:8789/#t=\(configuration.token)") {
@@ -873,16 +882,15 @@ final class WarrenRemoteApplicationModel {
             do {
                 let data = try await wire.request("settings.get")
                 guard let self,
-                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let result = object["result"] as? [String: Any] else { return }
+                      let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
                 if let kind = result["defaultRuntime"] as? String {
                     self.defaultRuntime = kind
                 }
-                if let enabled = result["importGitWorktrees"] as? Bool {
-                    self.importGitWorktrees = enabled
-                }
                 if let enabled = result["autoOpenShell"] as? Bool {
                     self.autoOpenShell = enabled
+                }
+                if let enabled = result["autoStartAI"] as? Bool {
+                    self.autoStartAI = enabled
                 }
             } catch {
                 // Settings are not critical; the picker keeps its default.
@@ -902,18 +910,6 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    func setImportGitWorktrees(_ enabled: Bool) {
-        guard let wire else { return }
-        Task { @MainActor [weak self] in
-            do {
-                _ = try await wire.request("settings.put", params: ["importGitWorktrees": enabled ? "true" : "false"])
-                self?.importGitWorktrees = enabled
-            } catch {
-                self?.present(error)
-            }
-        }
-    }
-
     func setAutoOpenShell(_ enabled: Bool) {
         guard let wire else { return }
         Task { @MainActor [weak self] in
@@ -924,6 +920,66 @@ final class WarrenRemoteApplicationModel {
                 self?.present(error)
             }
         }
+    }
+
+    func setAutoStartAI(_ enabled: Bool) {
+        guard let wire else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("settings.put", params: ["autoStartAI": enabled ? "true" : "false"])
+                self?.autoStartAI = enabled
+            } catch {
+                self?.present(error)
+            }
+        }
+    }
+
+    func setProjectAutoImportGitWorktrees(_ projectID: ProjectID, enabled: Bool) {
+        request("project.autoImportGitWorktrees", params: [
+            "project": projectID.description,
+            "enabled": enabled ? "true" : "false",
+        ])
+    }
+
+    func listProjectWorktrees(_ projectID: ProjectID) async throws -> [WarrenDesktopWorktreeCandidate] {
+        guard let wire else { throw URLError(.notConnectedToInternet) }
+        let data = try await wire.request("project.worktrees", params: ["project": projectID.description])
+        let values = try JSONDecoder().decode([RemoteRoster.WorktreeCandidate].self, from: data)
+        return values.compactMap { value in
+            guard let workspaceID = value.workspace.flatMap(WorkspaceID.init(uuidString:)) else {
+                return WarrenDesktopWorktreeCandidate(
+                    path: value.path,
+                    name: value.name,
+                    branch: value.branch,
+                    locked: value.locked ?? false,
+                    imported: value.imported,
+                    workspaceID: nil
+                )
+            }
+            return WarrenDesktopWorktreeCandidate(
+                path: value.path,
+                name: value.name,
+                branch: value.branch,
+                locked: value.locked ?? false,
+                imported: value.imported,
+                workspaceID: workspaceID
+            )
+        }
+    }
+
+    func importProjectWorktrees(_ projectID: ProjectID, paths: [String]) async throws {
+        guard let wire else { throw URLError(.notConnectedToInternet) }
+        let data = try JSONSerialization.data(withJSONObject: paths, options: [])
+        guard let encoded = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: "WarrenRemote", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "Unable to encode worktree selection.",
+            ])
+        }
+        _ = try await wire.request("project.worktrees.import", params: [
+            "project": projectID.description,
+            "paths": encoded,
+        ])
+        try await refreshRoster(using: wire)
     }
 
     func createSession(workspaceID: WorkspaceID, request launch: TerminalSessionLaunchRequest) {
@@ -1347,7 +1403,8 @@ final class WarrenRemoteApplicationModel {
             moveTab(tabID, before: before)
         case .moveSession(let id, let destination):
             moveSession(id, to: destination)
-        case .importSuperset, .requestNewWorkspace, .requestNewSession,
+        case .importSuperset, .requestNewWorkspace, .requestProjectWorktreeImport,
+             .setProjectAutoImportGitWorktrees, .requestNewSession,
              .toggleInspector, .toggleSidebar:
             break
         }
@@ -1724,6 +1781,7 @@ final class WarrenRemoteApplicationModel {
                 hostID: hostID,
                 name: value.name,
                 rootPath: value.path,
+                autoImportGitWorktrees: value.autoImportGitWorktrees ?? false,
                 pinned: value.pinned ?? false
             )
         }

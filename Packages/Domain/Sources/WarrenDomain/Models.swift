@@ -15,6 +15,9 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
     public let hostID: HostID
     public var name: String
     public var rootPath: String
+    /// Whether this project automatically imports every existing Git
+    /// worktree. The policy belongs to the project, not the Host.
+    public var autoImportGitWorktrees: Bool
     public var pinned: Bool
     /// Host-owned sidebar order. Zero is the legacy fallback (creation order).
     public var order: Int
@@ -24,6 +27,7 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
         hostID: HostID,
         name: String,
         rootPath: String,
+        autoImportGitWorktrees: Bool = false,
         pinned: Bool = false,
         order: Int = 0
     ) {
@@ -31,6 +35,7 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
         self.hostID = hostID
         self.name = name
         self.rootPath = rootPath
+        self.autoImportGitWorktrees = autoImportGitWorktrees
         self.pinned = pinned
         self.order = order
     }
@@ -40,6 +45,7 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
         case hostID
         case name
         case rootPath
+        case autoImportGitWorktrees
         case pinned
         case order
     }
@@ -50,6 +56,7 @@ public struct Project: Identifiable, Codable, Hashable, Sendable {
         hostID = try container.decode(HostID.self, forKey: .hostID)
         name = try container.decode(String.self, forKey: .name)
         rootPath = try container.decode(String.self, forKey: .rootPath)
+        autoImportGitWorktrees = try container.decodeIfPresent(Bool.self, forKey: .autoImportGitWorktrees) ?? false
         pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }

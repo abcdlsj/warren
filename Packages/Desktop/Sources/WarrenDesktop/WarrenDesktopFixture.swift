@@ -19,6 +19,36 @@ public struct WarrenDesktopProjectGroup: Identifiable, Hashable, Sendable {
     }
 }
 
+/// An existing Git worktree shown by the project import picker. The candidate
+/// remains visible after import so the UI can render it disabled and explain
+/// that the operation is one-time.
+public struct WarrenDesktopWorktreeCandidate: Identifiable, Hashable, Sendable {
+    public let path: String
+    public let name: String
+    public let branch: String?
+    public let locked: Bool
+    public let imported: Bool
+    public let workspaceID: WorkspaceID?
+
+    public var id: String { path }
+
+    public init(
+        path: String,
+        name: String,
+        branch: String? = nil,
+        locked: Bool = false,
+        imported: Bool = false,
+        workspaceID: WorkspaceID? = nil
+    ) {
+        self.path = path
+        self.name = name
+        self.branch = branch
+        self.locked = locked
+        self.imported = imported
+        self.workspaceID = workspaceID
+    }
+}
+
 /// A Host-owned terminal group and its derived desktop session metrics.
 public struct WarrenDesktopTerminalGroup: Identifiable, Hashable, Sendable {
     public let group: TerminalGroup
@@ -789,6 +819,8 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case addProject
     case importSuperset
     case requestNewWorkspace(ProjectID)
+    case requestProjectWorktreeImport(ProjectID)
+    case setProjectAutoImportGitWorktrees(ProjectID, Bool)
     case renameProject(ProjectID, String)
     case renameWorkspace(WorkspaceID, String)
     case deleteProject(ProjectID)

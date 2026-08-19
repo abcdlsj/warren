@@ -257,6 +257,15 @@ struct WarrenDesktopSidebarRows: View {
                 onAddWorkspace: {
                     onAction(.requestNewWorkspace(group.project.id))
                 },
+                onImportWorktrees: {
+                    onAction(.requestProjectWorktreeImport(group.project.id))
+                },
+                onToggleAutoImportWorktrees: {
+                    onAction(.setProjectAutoImportGitWorktrees(
+                        group.project.id,
+                        !group.project.autoImportGitWorktrees
+                    ))
+                },
                 onRename: {
                     onRequestRename(.project(group.project.id, name: group.project.name))
                 },
