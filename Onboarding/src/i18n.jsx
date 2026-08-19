@@ -86,6 +86,114 @@ const messages = {
     "changelog.viewRelease": "View release",
     "changelog.entries": [
       {
+        version: "0.5.0",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren can update itself.",
+        summary:
+          "Warren makes new releases easier to adopt while keeping deletion flows and terminal layout predictable.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Check GitHub Releases every three hours and offer one-click download and installation from the in-app update banner or Warren menu.",
+              "Show project and workspace deletion progress directly in the desktop sidebar.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Preserve legacy Warren-managed worktree ownership during startup migration while leaving external checkouts user-owned.",
+              "Keep desktop workspace actions in an explicit, stable order.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Reconcile pending project and workspace deletions across roster refreshes and reconnects without leaving stale loading indicators.",
+              "Flush the AppKit layout before creating a terminal surface so the initial shell cursor and viewport use the final pane geometry.",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.4.0",
+        dateISO: "2026-08-19",
+        date: "August 19, 2026",
+        title: "Worktrees fit the workflow.",
+        summary:
+          "Projects, worktrees, and empty workspaces become easier to configure across Warren's clients.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Add project-scoped controls for importing existing Git worktrees, including one-time selection and automatic import from Desktop, Web, and CLI.",
+              "Show merged worktrees in the macOS sidebar and keep their terminal groups accessible.",
+              "Configure empty-workspace defaults for opening a shell and starting an AI session.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Keep imported worktrees protected from destructive workspace operations.",
+              "Present the terminal-group editor from the desktop window for predictable modal behavior.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Make workspace removal resilient when Git worktree cleanup fails.",
+              "Correct tmux session listing when separators appear in session names.",
+              "Preserve workspace initializer argument order during worktree-backed workspace creation.",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.3.1",
+        dateISO: "2026-08-19",
+        date: "August 19, 2026",
+        title: "First launch connects cleanly.",
+        summary: "The local daemon now becomes available reliably on a clean first launch.",
+        sections: [
+          {
+            title: "Fixed",
+            items: [
+              "Re-read the local daemon token on every connection attempt so first-run startup can connect after the daemon writes it.",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.3.0",
+        dateISO: "2026-08-19",
+        date: "August 19, 2026",
+        title: "Worktrees become first-class.",
+        summary:
+          "Warren adds worktree-aware projects, smarter session defaults, and a more capable workspace sidebar.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Import project Git worktrees behind a configurable project setting.",
+              "Start a default AI session for new workspaces on macOS and the web.",
+              "Configure the order of session presets.",
+              "Open worktrees in external IDEs with installed IDE detection and custom IDE entries.",
+              "Drag projects to reorder the sidebar directly on the web.",
+              "Add an onboarding changelog page.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Make the worktree import setting toggleable in settings.",
+              "Avoid restoring sessions during web restoration.",
+              "Reject invalid Git worktree records.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.2.0",
         dateISO: "2026-08-19",
         date: "August 19, 2026",
@@ -248,6 +356,111 @@ const messages = {
       "Warren 在公开构建。这里记录每次改变、每个版本，以及接下来要去的地方。",
     "changelog.viewRelease": "查看 Release",
     "changelog.entries": [
+      {
+        version: "0.5.0",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 现在会自己更新了。",
+        summary: "这一版让新版本更容易获取，也让删除流程和终端布局更稳定。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "每三小时后台检查 GitHub Releases，并可从应用内更新提示或 Warren 菜单一键下载、安装。",
+              "在桌面端侧栏直接显示 Project 和 Workspace 的删除进度。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "启动迁移时保留旧版本 Warren 管理的 worktree 归属，同时把外部 checkout 留给用户管理。",
+              "让桌面端 Workspace 操作保持明确、稳定的顺序。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "在 roster 刷新和重连后协调等待中的 Project、Workspace 删除，避免加载状态残留。",
+              "创建终端 surface 前先刷新 AppKit 布局，让首次 shell 光标和 viewport 使用最终 pane 尺寸。",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.4.0",
+        dateISO: "2026-08-19",
+        date: "2026 年 8 月 19 日",
+        title: "Worktree 真正融入工作流。",
+        summary: "Project、worktree 和空 Workspace 在各端都更容易配置。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "增加 Project 级别的已有 Git worktree 导入控制，支持一次性选择，也支持从 Desktop、Web、CLI 自动导入。",
+              "在 macOS 侧栏显示已经合并的 worktree，并保留它们的 Terminal Group。",
+              "配置空 Workspace 是否自动打开 Shell 和启动 AI Session。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "保护导入的 worktree，避免 Workspace 操作误删它们。",
+              "让 Terminal Group 编辑器从桌面窗口呈现，交互更可预期。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "Git worktree 清理失败时，Workspace 删除仍能继续。",
+              "修复 tmux 在 session 名称包含分隔符时的列表解析。",
+              "保留基于 worktree 创建 Workspace 时的 initializer 参数顺序。",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.3.1",
+        dateISO: "2026-08-19",
+        date: "2026 年 8 月 19 日",
+        title: "第一次启动也能顺利连接。",
+        summary: "全新机器第一次启动时，本地 daemon 现在可以可靠连接。",
+        sections: [
+          {
+            title: "修复",
+            items: [
+              "每次连接都重新读取本地 daemon token，确保 daemon 首次启动写入 token 后可以正常连接。",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.3.0",
+        dateISO: "2026-08-19",
+        date: "2026 年 8 月 19 日",
+        title: "Worktree 成为一等公民。",
+        summary: "Warren 增加 worktree 感知的 Project、更聪明的 Session 默认值和更完整的 Workspace 侧栏。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "支持通过 Project 设置导入 Git worktree。",
+              "macOS 和 Web 新建 Workspace 时支持启动默认 AI Session。",
+              "支持配置 Session preset 顺序。",
+              "支持在外部 IDE 中打开 worktree，并检测已安装 IDE、配置自定义 IDE。",
+              "支持在 Web 端直接拖拽调整 Project 侧栏顺序。",
+              "增加 Onboarding changelog 页面。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "让 worktree 导入设置可以在设置页切换。",
+              "避免 Web 恢复时恢复 Session。",
+              "拒绝无效的 Git worktree 记录。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.2.0",
         dateISO: "2026-08-19",
