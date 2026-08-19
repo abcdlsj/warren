@@ -41,6 +41,7 @@ function DiffSurface({ children }) {
 }
 
 export function FileDiffView({ path, staged, commit, loading, diff, content, error, onClose }) {
+  const [viewTab, setViewTab] = useState("diff");
   const [diffStyle, setDiffStyle] = useState("unified");
   const options = useMemo(() => diffOptions(diffStyle), [diffStyle]);
 
@@ -53,22 +54,6 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
           {commit && <code className="file-diff-commit">{commit}</code>}
         </div>
         <div className="file-diff-actions">
-          <div className="file-diff-style-toggle" role="group" aria-label="Diff layout">
-            <button
-              type="button"
-              className={diffStyle === "unified" ? "file-diff-style-button active" : "file-diff-style-button"}
-              onClick={() => setDiffStyle("unified")}
-            >
-              Unified
-            </button>
-            <button
-              type="button"
-              className={diffStyle === "split" ? "file-diff-style-button active" : "file-diff-style-button"}
-              onClick={() => setDiffStyle("split")}
-            >
-              Split
-            </button>
-          </div>
           <button type="button" className="chrome-button" aria-label="Close file diff" onClick={onClose}>
             ✕
           </button>
@@ -80,19 +65,54 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
         <p className="git-error file-diff-empty">{error}</p>
       ) : (
         <DiffSurface>
+          <div className="file-diff-tabs" role="tablist" aria-label="File diff view">
+            <button
+              type="button"
+              className={viewTab === "diff" ? "file-diff-tab active" : "file-diff-tab"}
+              aria-selected={viewTab === "diff"}
+              role="tab"
+              onClick={() => setViewTab("diff")}
+            >
+              Diff
+            </button>
+            <button
+              type="button"
+              className={viewTab === "file" ? "file-diff-tab active" : "file-diff-tab"}
+              aria-selected={viewTab === "file"}
+              role="tab"
+              onClick={() => setViewTab("file")}
+            >
+              File
+            </button>
+          </div>
           <div className="file-diff-body">
-            <section className="file-diff-pane">
-              <h3 className="file-diff-pane-title">File</h3>
+            {viewTab === "diff" ? (
+              <>
+                <div className="file-diff-style-toggle" role="group" aria-label="Diff layout">
+                  <button
+                    type="button"
+                    className={diffStyle === "split" ? "file-diff-style-button active" : "file-diff-style-button"}
+                    onClick={() => setDiffStyle("split")}
+                  >
+                    Highlight
+                  </button>
+                  <button
+                    type="button"
+                    className={diffStyle === "unified" ? "file-diff-style-button active" : "file-diff-style-button"}
+                    onClick={() => setDiffStyle("unified")}
+                  >
+                    Unified
+                  </button>
+                </div>
+                <Virtualizer className="file-diff-pane-scroll">
+                  <PatchDiff patch={diff} options={options} />
+                </Virtualizer>
+              </>
+            ) : (
               <Virtualizer className="file-diff-pane-scroll">
                 <File file={{ name: path, contents: content }} options={fileOptions} />
               </Virtualizer>
-            </section>
-            <section className="file-diff-pane">
-              <h3 className="file-diff-pane-title">Diff</h3>
-              <Virtualizer className="file-diff-pane-scroll">
-                <PatchDiff patch={diff} options={options} />
-              </Virtualizer>
-            </section>
+            )}
           </div>
         </DiffSurface>
       )}
