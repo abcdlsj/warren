@@ -303,3 +303,7 @@ type GitBranch struct {
 type GitCommandResult struct {
 	Message string `json:"message"`
 }
+
+type GitDiff struct {
+	Diff string `json:"diff"`
+}

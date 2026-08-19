@@ -1120,6 +1120,12 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, panel)
+	case "git.diff":
+		diff, err := p.server.Service.GitDiff(ctx, stringParam(params, "workspace"), stringParam(params, "path"), boolParam(params, "staged"), stringParam(params, "commit"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, diff)
 	case "git.checkout":
 		result, err := p.server.Service.GitCheckout(ctx, stringParam(params, "workspace"), stringParam(params, "branch"), boolParam(params, "create"))
 		if err != nil {
