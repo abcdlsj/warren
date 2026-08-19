@@ -319,6 +319,8 @@ type GitChange struct {
 	Status     string `json:"status"`
 	Staged     bool   `json:"staged,omitempty"`
 	RenameFrom string `json:"renameFrom,omitempty"`
+	Added      int    `json:"added,omitempty"`
+	Deleted    int    `json:"deleted,omitempty"`
 }
 
 type GitCommit struct {

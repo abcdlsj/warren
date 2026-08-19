@@ -1842,6 +1842,8 @@ func apiGitChanges(changes []git.Change) []api.GitChange {
 			Status:     change.Status,
 			Staged:     change.Staged,
 			RenameFrom: change.RenameFrom,
+			Added:      change.Added,
+			Deleted:    change.Deleted,
 		})
 	}
 	return result
@@ -1856,6 +1858,8 @@ func apiGitCommits(commits []git.Commit) []api.GitCommit {
 				Path:       file.Path,
 				Status:     file.Status,
 				RenameFrom: file.RenameFrom,
+				Added:      file.Added,
+				Deleted:    file.Deleted,
 			})
 		}
 		result = append(result, api.GitCommit{
