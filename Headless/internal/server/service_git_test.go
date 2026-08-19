@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,5 +182,20 @@ func TestGitCheckoutCreateOnEmptyRepo(t *testing.T) {
 	state := service.Store.Snapshot()
 	if state.Workspaces[0].Branch != "feature/x" {
 		t.Fatalf("stored branch = %q, want feature/x", state.Workspaces[0].Branch)
+	}
+}
+
+func TestGitDiffReturnsWorkingTreeDiff(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	if err := os.WriteFile(filepath.Join(repository, "a.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := service.GitDiff(context.Background(), workspaceID, "a.txt", false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(diff.Diff, "-a\n") || !strings.Contains(diff.Diff, "+b\n") {
+		t.Fatalf("diff = %q, want a -> b change", diff.Diff)
 	}
 }

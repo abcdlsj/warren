@@ -99,3 +99,45 @@ func TestGitCheckoutErrorOverWebSocket(t *testing.T) {
 		t.Fatal("expected an error message")
 	}
 }
+
+func TestGitDiffOverWebSocket(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	server := httptest.NewServer(NewHTTPServer(service, "secret", slog.Default()).Handler())
+	defer server.Close()
+
+	endpoint := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/ws"
+	connection, _, err := websocket.DefaultDialer.Dial(endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.WriteJSON(api.Envelope{Type: "auth", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	var welcome map[string]any
+	if err := connection.ReadJSON(&welcome); err != nil {
+		t.Fatal(err)
+	}
+	if welcome["t"] != "welcome" {
+		t.Fatalf("unexpected welcome: %#v", welcome)
+	}
+
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: "git-3", Method: "git.diff",
+		Params: map[string]any{"workspace": workspaceID, "path": "a.txt"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response := readGitResponse(t, connection, "git-3")
+	if !response.OK {
+		t.Fatalf("git.diff failed: %v", response.Error)
+	}
+	result, ok := response.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result = %#v, want object", response.Result)
+	}
+	if _, ok := result["diff"]; !ok {
+		t.Fatalf("result = %#v, want diff field", result)
+	}
+}

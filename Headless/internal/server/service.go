@@ -1784,6 +1784,20 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string) (api.GitPane
 	return panel, nil
 }
 
+// GitDiff returns the unified diff of one path in a workspace, either in the
+// working tree (staged selects the index) or for a specific commit.
+func (s *Service) GitDiff(ctx context.Context, workspaceID, path string, staged bool, commit string) (api.GitDiff, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitDiff{}, err
+	}
+	diff, err := git.Diff(ctx, workspace.Path, path, staged, commit)
+	if err != nil {
+		return api.GitDiff{}, err
+	}
+	return api.GitDiff{Diff: diff}, nil
+}
+
 func (s *Service) GitCheckout(ctx context.Context, workspaceID, branch string, create bool) (api.GitCommandResult, error) {
 	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
 	if err != nil {
