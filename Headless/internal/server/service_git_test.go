@@ -163,3 +163,23 @@ func TestGitCheckoutRemoteBranchStoresLocalName(t *testing.T) {
 		t.Fatalf("stored branch = %q, want dev", state.Workspaces[0].Branch)
 	}
 }
+
+func TestGitCheckoutCreateOnEmptyRepo(t *testing.T) {
+	directory := t.TempDir()
+	repository := filepath.Join(directory, "repository")
+	if err := os.MkdirAll(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitForServiceTest(t, repository, "init", "--quiet", "-b", "main")
+	gitForServiceTest(t, repository, "config", "user.email", "test@example.com")
+	gitForServiceTest(t, repository, "config", "user.name", "Test")
+	service, workspaceID := gitPanelService(t, repository)
+
+	if _, err := service.GitCheckout(context.Background(), workspaceID, "feature/x", true); err != nil {
+		t.Fatal(err)
+	}
+	state := service.Store.Snapshot()
+	if state.Workspaces[0].Branch != "feature/x" {
+		t.Fatalf("stored branch = %q, want feature/x", state.Workspaces[0].Branch)
+	}
+}

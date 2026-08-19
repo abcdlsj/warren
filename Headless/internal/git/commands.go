@@ -6,7 +6,11 @@ import (
 )
 
 // CurrentBranch returns the checked-out branch name, or "HEAD" when detached.
+// symbolic-ref works even on an unborn HEAD (a repository without commits).
 func CurrentBranch(ctx context.Context, dir string) (string, error) {
+	if output, err := run(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+		return strings.TrimSpace(output), nil
+	}
 	output, err := run(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
@@ -24,7 +28,7 @@ func Checkout(ctx context.Context, dir, branch string, create bool) error {
 		// "--" keeps a branch named like a flag (e.g. "-f") from being
 		// parsed as a git option, which could silently discard local changes.
 		args = append(args, "--", branch)
-	} else if index := strings.Index(branch, "/"); index > 0 {
+	} else if index := strings.Index(branch, "/"); index > 0 && remoteBranchExists(ctx, dir, branch) {
 		// Remote-tracking name (origin/feature/x): create a local branch that
 		// tracks it, unless the local short name already exists.
 		short := branch[index+1:]
@@ -43,6 +47,11 @@ func Checkout(ctx context.Context, dir, branch string, create bool) error {
 
 func localBranchExists(ctx context.Context, dir, branch string) bool {
 	_, err := run(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+func remoteBranchExists(ctx context.Context, dir, branch string) bool {
+	_, err := run(ctx, dir, "rev-parse", "--verify", "--quiet", "refs/remotes/"+branch)
 	return err == nil
 }
 
