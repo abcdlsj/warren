@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeGitPanel, statusLabel, relativeTime } from "./git.js";
+import { normalizeGitPanel, statusLabel, relativeTime, diffSummary } from "./git.js";
 
 test("normalizeGitPanel groups staged and unstaged changes", () => {
   const panel = normalizeGitPanel({
@@ -53,4 +53,31 @@ test("relativeTime formats past timestamps", () => {
   assert.equal(relativeTime(new Date(Date.now() + 5 * minute).toISOString()), "just now");
   assert.equal(relativeTime(""), "");
   assert.equal(relativeTime("not-a-date"), "");
+});
+
+test("diffSummary totals added and deleted lines", () => {
+  assert.deepEqual(diffSummary([
+    { path: "a.txt", added: 3, deleted: 1 },
+    { path: "b.txt", added: 2, deleted: 0 },
+    { path: "c.txt", added: 0, deleted: 5 },
+  ]), { added: 5, deleted: 6 });
+});
+
+test("diffSummary ignores missing or zero counts", () => {
+  assert.deepEqual(diffSummary([
+    { path: "untracked.txt" },
+    { path: "bin.dat", added: 0, deleted: 0 },
+  ]), { added: 0, deleted: 0 });
+  assert.deepEqual(diffSummary(null), { added: 0, deleted: 0 });
+  assert.deepEqual(diffSummary([]), { added: 0, deleted: 0 });
+});
+
+test("normalizeGitPanel passes line counts through", () => {
+  const panel = normalizeGitPanel({
+    changes: [{ path: "a.txt", status: "M", staged: true, added: 3, deleted: 1 }],
+    commits: [{ hash: "abc", files: [{ path: "x", status: "A", added: 4 }] }],
+  });
+  assert.equal(panel.staged[0].added, 3);
+  assert.equal(panel.staged[0].deleted, 1);
+  assert.equal(panel.commits[0].files[0].added, 4);
 });
