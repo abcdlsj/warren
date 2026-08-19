@@ -1298,6 +1298,8 @@ final class WarrenRemoteApplicationModel {
             request("terminal-group.move", params: params)
         case .moveTab(let tabID, let before):
             moveTab(tabID, before: before)
+        case .moveSession(let id, let destination):
+            moveSession(id, to: destination)
         case .importSuperset, .requestNewWorkspace, .requestNewSession,
              .toggleInspector, .toggleSidebar:
             break
@@ -1479,6 +1481,42 @@ final class WarrenRemoteApplicationModel {
                 Task { await self.refreshRosterIfConnected() }
             } else {
                 self.present(error)
+            }
+        }
+    }
+
+    private func moveSession(
+        _ id: TerminalSessionID,
+        to destination: WarrenDesktopSessionMoveDestination
+    ) {
+        guard let wire else { return }
+        let wasSelected = navigation.selectedTabID == Self.tabID(id)
+        var params = ["id": id.description]
+        switch destination {
+        case .workspace(let workspaceID):
+            params["workspace"] = workspaceID.description
+        case .terminalGroup(let groupID):
+            params["group"] = groupID.description
+        }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("session.move", params: params)
+                guard let self else { return }
+                try await self.refreshRoster(using: wire)
+                guard wasSelected else { return }
+                // The roster has already moved the tab into the destination
+                // context; selecting the same tab now transfers navigation
+                // (sidebar selection and active tab) with the UI.
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(id)),
+                        in: self.projection
+                    )
+                )
+                await self.attachSelectedSession()
+            } catch {
+                self?.present(error)
             }
         }
     }

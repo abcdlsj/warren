@@ -1544,6 +1544,83 @@ func (s *Service) Session(id string) (api.Session, bool) {
 	return api.Session{}, false
 }
 
+// MoveSession changes the Host scope of a Session between a Workspace and a
+// Terminal Group. The runtime, working directory, output history, and Session
+// ID are all preserved: moving only re-parents the durable record so clients
+// render the tab under the destination context.
+func (s *Service) MoveSession(ctx context.Context, id, workspaceID, groupID string) (api.Session, error) {
+	if workspaceID == "" && groupID == "" {
+		return api.Session{}, errors.New("workspace or terminal group is required")
+	}
+	if workspaceID != "" && groupID != "" {
+		return api.Session{}, errors.New("workspace and terminal group are mutually exclusive")
+	}
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
+
+	state := s.Store.Snapshot()
+	var session *api.Session
+	for index := range state.Sessions {
+		if state.Sessions[index].ID == id {
+			session = &state.Sessions[index]
+			break
+		}
+	}
+	if session == nil {
+		return api.Session{}, fmt.Errorf("session not found: %s", id)
+	}
+	if workspaceID != "" {
+		found := false
+		for _, workspace := range state.Workspaces {
+			if workspace.ID == workspaceID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return api.Session{}, fmt.Errorf("workspace not found: %s", workspaceID)
+		}
+	} else {
+		found := false
+		for _, group := range state.TerminalGroups {
+			if group.ID == groupID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return api.Session{}, fmt.Errorf("terminal group not found: %s", groupID)
+		}
+	}
+	if session.WorkspaceID == workspaceID && session.TerminalGroupID == groupID {
+		return *session, nil
+	}
+
+	moved := *session
+	moved.WorkspaceID = workspaceID
+	moved.TerminalGroupID = groupID
+	moved.Scope = api.SessionScopeWorkspace
+	if groupID != "" {
+		moved.Scope = api.SessionScopeTerminalGroup
+	}
+	err := s.Store.Update(func(value *api.State) error {
+		for index := range value.Sessions {
+			if value.Sessions[index].ID != id {
+				continue
+			}
+			value.Sessions[index].WorkspaceID = workspaceID
+			value.Sessions[index].TerminalGroupID = groupID
+			value.Sessions[index].Scope = moved.Scope
+			return nil
+		}
+		return fmt.Errorf("session not found: %s", id)
+	})
+	if err != nil {
+		return api.Session{}, err
+	}
+	return moved, nil
+}
+
 func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, workspaceID string) error {
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == workspaceID {
@@ -1905,18 +1982,25 @@ func (s *Service) transcriptTakenByOther(transcriptPath, sessionID string) bool 
 // boundTranscript prefers the deterministic per-session binding (Claude's
 // injected session ID and the Codex hook's report) over cwd+mtime scanning.
 func (s *Service) boundTranscript(session api.Session, workspacePath string) string {
+	binding, err := agent.ReadBinding(agent.BindPath(session.ID))
+	if err == nil && binding != nil && binding.Provider == session.Kind {
+		if info, statErr := os.Stat(binding.TranscriptPath); statErr == nil && !info.IsDir() {
+			return binding.TranscriptPath
+		}
+	}
+	// A Session moved between a Workspace and a Terminal Group keeps its old
+	// transcript: the persisted path outlives cwd-based discovery and is the
+	// only anchor that still points at the CLI's rollout after the move.
+	if session.TranscriptPath != "" {
+		if info, err := os.Stat(session.TranscriptPath); err == nil && !info.IsDir() {
+			return session.TranscriptPath
+		}
+	}
 	if session.Kind == "claude" && session.AgentSessionID != "" {
 		path := agent.ClaudeTranscriptPath(agent.ClaudeProjectsRoot(), workspacePath, session.AgentSessionID)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			return path
 		}
-	}
-	binding, err := agent.ReadBinding(agent.BindPath(session.ID))
-	if err != nil || binding == nil || binding.Provider != session.Kind {
-		return ""
-	}
-	if info, err := os.Stat(binding.TranscriptPath); err == nil && !info.IsDir() {
-		return binding.TranscriptPath
 	}
 	return ""
 }

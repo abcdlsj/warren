@@ -186,7 +186,7 @@ public enum WarrenDesktopNavigationReducer {
              .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
              .dismissActivity,
-             .moveTab, .moveProject, .moveWorkspace,
+             .moveTab, .moveSession, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,
              .requestNewTerminalGroupSession, .launchTerminalGroupSession,
              .createTerminalGroup, .renameTerminalGroup, .setTerminalGroupHome,

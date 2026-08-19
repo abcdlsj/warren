@@ -18,6 +18,8 @@ struct WarrenDesktopTabItem: View {
     let onRename: () -> Void
     let onTogglePin: () -> Void
     let onDismissActivity: () -> Void
+    let sessionMoveTargets: [WarrenDesktopSessionMoveTarget]
+    let onMoveSession: (TerminalSessionID, WarrenDesktopSessionMoveDestination) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -29,6 +31,20 @@ struct WarrenDesktopTabItem: View {
 
     private var exposesClose: Bool {
         tab.sessionID != nil && (isHovered || isCloseFocused || forceHover)
+    }
+
+    private var workspaceMoveTargets: [WarrenDesktopSessionMoveTarget] {
+        sessionMoveTargets.filter { target in
+            if case .workspace = target.destination { return true }
+            return false
+        }
+    }
+
+    private var terminalGroupMoveTargets: [WarrenDesktopSessionMoveTarget] {
+        sessionMoveTargets.filter { target in
+            if case .terminalGroup = target.destination { return true }
+            return false
+        }
     }
 
     var body: some View {
@@ -170,6 +186,30 @@ struct WarrenDesktopTabItem: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             if tab.sessionID != nil {
+                if !sessionMoveTargets.isEmpty {
+                    Menu("Move Session To") {
+                        if !workspaceMoveTargets.isEmpty {
+                            Menu("Workspace") {
+                                ForEach(workspaceMoveTargets) { target in
+                                    Button(target.title) {
+                                        guard let sessionID = tab.sessionID else { return }
+                                        onMoveSession(sessionID, target.destination)
+                                    }
+                                }
+                            }
+                        }
+                        if !terminalGroupMoveTargets.isEmpty {
+                            Menu("Terminal Group") {
+                                ForEach(terminalGroupMoveTargets) { target in
+                                    Button(target.title) {
+                                        guard let sessionID = tab.sessionID else { return }
+                                        onMoveSession(sessionID, target.destination)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Button(isPinned ? "Unpin Session" : "Pin Session", action: onTogglePin)
                 if activity != nil {
                     Button("Dismiss Activity", action: onDismissActivity)

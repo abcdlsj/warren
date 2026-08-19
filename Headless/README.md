@@ -66,6 +66,8 @@ warren --endpoint my-vps project move PROJECT_ID --before OTHER_PROJECT_ID
 warren --endpoint my-vps workspace create PROJECT_ID --branch release/my-feature
 warren --endpoint my-vps workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
 warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex --title "My Agent"
+warren --endpoint my-vps session move SESSION_ID --group GROUP_ID
+warren --endpoint my-vps session move SESSION_ID --workspace WORKSPACE_ID
 warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
 warren agent read codex --recent 10 --include user,assistant
@@ -105,6 +107,10 @@ as soon as the daemon broadcasts the updated roster. Pass `--title NAME` to
 set the user-facing name shown in tabs; `session rename SESSION_ID --title NAME`
 changes it later. Without a user-set name, clients fall back to a generated
 default (kind or command), and a user-set name always takes precedence.
+`session move SESSION_ID --workspace WORKSPACE_ID` moves a standalone Terminal
+Group session into a Workspace; `session move SESSION_ID --group GROUP_ID`
+moves it back. The running process, cwd, output history, and Session ID are
+preserved, so the tab simply appears under the destination context.
 
 On macOS, `mise run install` also initializes a `local` endpoint pointing at
 `http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the

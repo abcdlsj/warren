@@ -257,6 +257,8 @@ final class WarrenDesktopTests: XCTestCase {
             onSelectEndpoint: { _ in },
             onSelectTab: { _ in },
             onMoveTab: { _, _ in },
+            sessionMoveTargets: [],
+            onMoveSession: { _, _ in },
             canAddTab: true,
             isAddingTab: false,
             onAddTab: {},
@@ -633,6 +635,7 @@ final class WarrenDesktopTests: XCTestCase {
         actions(.selectWorkspace(workspaceID))
         actions(.openSession(sessionID))
         actions(.deleteSession(sessionID))
+        actions(.moveSession(sessionID, to: .workspace(workspaceID)))
         actions(.requestNewSession(workspaceID))
         actions(.launchSession(workspaceID, .claude))
         actions(.selectTab("tab-main"))
@@ -654,6 +657,7 @@ final class WarrenDesktopTests: XCTestCase {
                 .selectWorkspace(workspaceID),
                 .openSession(sessionID),
                 .deleteSession(sessionID),
+                .moveSession(sessionID, to: .workspace(workspaceID)),
                 .requestNewSession(workspaceID),
                 .launchSession(workspaceID, .claude),
                 .selectTab("tab-main"),
@@ -1415,6 +1419,16 @@ final class WarrenDesktopTests: XCTestCase {
                 ),
                 initial
             )
+            if let workspaceID = projection.groups.first?.workspaces.first?.id {
+                XCTAssertEqual(
+                    WarrenDesktopNavigationReducer.reduce(
+                        initial,
+                        action: .moveSession(sessionID, to: .workspace(workspaceID)),
+                        in: projection
+                    ),
+                    initial
+                )
+            }
         }
     }
 }

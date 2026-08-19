@@ -904,6 +904,21 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
+	case "session.move":
+		id := stringParam(params, "id")
+		if id == "" {
+			return errors.New("session parameter required")
+		}
+		workspaceID := stringParam(params, "workspace")
+		groupID := stringParam(params, "group")
+		if workspaceID != "" && groupID != "" {
+			return errors.New("workspace and terminal group are mutually exclusive")
+		}
+		value, err := p.server.Service.MoveSession(ctx, id, workspaceID, groupID)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
 	case "session.attach":
 		id := stringParam(params, "id")
 		session, ok := p.server.Service.Session(id)
