@@ -93,8 +93,10 @@ func TestLogAndBranchesAndCheckout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commits) != 2 {
-		t.Fatalf("commits = %d, want 2", len(commits))
+	// The init commit is reachable from main, so history is scoped to
+	// commits unique to the current branch.
+	if len(commits) != 1 {
+		t.Fatalf("commits = %d, want 1", len(commits))
 	}
 	if commits[0].Subject != "dev commit" || len(commits[0].Files) != 1 ||
 		commits[0].Files[0] != (FileChange{Path: "dev.txt", Status: "A", Added: 1}) {
@@ -135,6 +137,35 @@ func TestLogAndBranchesAndCheckout(t *testing.T) {
 	}
 	if status.Branch != "feature/new" {
 		t.Fatalf("branch after create = %q, want feature/new", status.Branch)
+	}
+}
+
+func TestLogScopesToCurrentBranch(t *testing.T) {
+	dir := newRepository(t)
+	gitForTest(t, dir, "checkout", "-q", "-b", "feature/x")
+	if err := os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, dir, "add", "-A")
+	gitForTest(t, dir, "commit", "-m", "feature commit")
+
+	commits, err := Log(context.Background(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 1 || commits[0].Subject != "feature commit" {
+		t.Fatalf("commits = %#v, want only the feature commit", commits)
+	}
+
+	if err := Checkout(context.Background(), dir, "main", false); err != nil {
+		t.Fatal(err)
+	}
+	commits, err = Log(context.Background(), dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commits) != 0 {
+		t.Fatalf("main commits = %#v, want none reachable from other branches", commits)
 	}
 }
 

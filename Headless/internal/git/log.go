@@ -30,9 +30,11 @@ type Commit struct {
 }
 
 func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
-	output, err := run(ctx, dir, "-c", "core.quotepath=false", "log",
-		"-M", "--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00",
-		"-n", strconv.Itoa(limit))
+	args, err := logArgs(ctx, dir, limit)
+	if err != nil {
+		return nil, err
+	}
+	output, err := run(ctx, dir, append(append([]string{}, args...), "--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00")...)
 	if err != nil {
 		// A repository with no commits yet fails git log; the panel should
 		// show an empty history instead of an error.
@@ -46,14 +48,57 @@ func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
 	if len(commits) == 0 {
 		return commits, nil
 	}
-	stats, err := run(ctx, dir, "-c", "core.quotepath=false", "log",
-		"-M", "--numstat", "-z", "--format=COMMIT%x00%H%x00",
-		"-n", strconv.Itoa(limit))
+	stats, err := run(ctx, dir, append(append([]string{}, args...), "--numstat", "-z", "--format=COMMIT%x00%H%x00")...)
 	if err != nil {
 		return nil, err
 	}
 	mergeLogCounts(commits, parseLogNumstat(stats))
 	return commits, nil
+}
+
+// logArgs builds the git log arguments scoped to the current branch: commits
+// reachable from any other local or remote branch are excluded so the history
+// shows only changes unique to the current branch. A detached HEAD falls back
+// to the full history.
+func logArgs(ctx context.Context, dir string, limit int) ([]string, error) {
+	args := []string{"-c", "core.quotepath=false", "log", "-M", "-n", strconv.Itoa(limit)}
+	branch, err := CurrentBranch(ctx, dir)
+	if err != nil || branch == "HEAD" {
+		return args, nil
+	}
+	tips, err := otherBranchTips(ctx, dir, branch)
+	if err != nil {
+		return nil, err
+	}
+	if len(tips) > 0 {
+		// HEAD must be explicit: an implicit HEAD would be negated by --not.
+		args = append(args, "HEAD", "--not")
+		args = append(args, tips...)
+	}
+	return args, nil
+}
+
+// otherBranchTips lists every local and remote branch tip except the current
+// branch, matching refs/remotes/<remote>/<name> against the branch name.
+func otherBranchTips(ctx context.Context, dir, branch string) ([]string, error) {
+	output, err := run(ctx, dir, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes")
+	if err != nil {
+		return nil, err
+	}
+	var tips []string
+	for _, ref := range strings.Split(output, "\n") {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || ref == "refs/heads/"+branch {
+			continue
+		}
+		if short, ok := strings.CutPrefix(ref, "refs/remotes/"); ok {
+			if _, name, found := strings.Cut(short, "/"); found && name == branch {
+				continue
+			}
+		}
+		tips = append(tips, ref)
+	}
+	return tips, nil
 }
 
 // parseLog reads git log --name-status output. Each commit is a
