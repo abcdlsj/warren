@@ -8,6 +8,8 @@ struct WarrenDesktopSidebar: View {
     @Binding var sidebarTree: WarrenDesktopSidebarTreeState
     let selection: WarrenDesktopSidebarSelection?
     let chromeMode: WarrenDesktopChromeMode
+    let deletingProjectIDs: Set<ProjectID>
+    let deletingWorkspaceIDs: Set<WorkspaceID>
     let onAction: (WarrenDesktopAction) -> Void
     let onCommandPalette: () -> Void
     let onRequestRename: (WarrenDesktopRenameRequest) -> Void
@@ -45,6 +47,9 @@ struct WarrenDesktopSidebar: View {
                         tree: $sidebarTree,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,
+                        deletingProjectIDs: deletingProjectIDs,
+                        deletingWorkspaceIDs: deletingWorkspaceIDs,
+                        isInteractionDisabled: !projection.isConnected,
                         onAddProject: { onAction(.addProject) },
                         onRequestTerminalGroupCreate: onRequestTerminalGroupCreate,
                         onRequestTerminalGroupEdit: onRequestTerminalGroupEdit,

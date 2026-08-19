@@ -18,6 +18,7 @@ struct WarrenDesktopTerminalGroupRow: View {
     let group: WarrenDesktopTerminalGroup
     let isCollapsed: Bool
     let isSelected: Bool
+    let isInteractionDisabled: Bool
     let onSelect: () -> Void
     let onRename: () -> Void
     let onSetHome: () -> Void
@@ -50,6 +51,7 @@ struct WarrenDesktopTerminalGroupRow: View {
             .frame(width: 24, height: 24)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+        .disabled(isInteractionDisabled)
         .focused($isFocused)
         .frame(width: 32, height: 32)
         .foregroundStyle(tokens.mutedForeground)
@@ -64,10 +66,13 @@ struct WarrenDesktopTerminalGroupRow: View {
             role: .button,
             label: "Terminal group \(group.group.name)",
             value: isSelected ? "Selected" : "Not selected",
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
             action: onSelect
         )
-        .contextMenu { contextMenu }
+        .contextMenu {
+            if !isInteractionDisabled { contextMenu }
+        }
     }
 
     private var expandedRow: some View {
@@ -109,6 +114,7 @@ struct WarrenDesktopTerminalGroupRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+        .disabled(isInteractionDisabled)
         .focused($isFocused)
         .foregroundStyle(tokens.projectText)
         .accessibilityLabel("Terminal group \(group.group.name)")
@@ -121,12 +127,13 @@ struct WarrenDesktopTerminalGroupRow: View {
             role: .button,
             label: "Terminal group \(group.group.name)",
             value: isSelected ? "Selected" : "Not selected",
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
             action: onSelect
         )
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
         .background(tokens.interactionBackground(for: .resolve(
-            disabled: false,
+            disabled: isInteractionDisabled,
             pressed: false,
             selected: isSelected,
             focused: isFocused,
@@ -135,7 +142,9 @@ struct WarrenDesktopTerminalGroupRow: View {
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
         .onHover { isHovered = $0 }
-        .contextMenu { contextMenu }
+        .contextMenu {
+            if !isInteractionDisabled { contextMenu }
+        }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
     }

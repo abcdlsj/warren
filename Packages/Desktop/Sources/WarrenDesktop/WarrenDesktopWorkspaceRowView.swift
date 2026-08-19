@@ -13,6 +13,8 @@ struct WarrenDesktopWorkspaceRow: View {
     let isCollapsed: Bool
     let isSelected: Bool
     let isPinned: Bool
+    let isDeleting: Bool
+    let isInteractionDisabled: Bool
     let onSelect: () -> Void
     let onDoubleClick: () -> Void
     let onRename: () -> Void
@@ -39,12 +41,19 @@ struct WarrenDesktopWorkspaceRow: View {
                     WarrenDesktopActivityIndicator(activity: activity)
                         .offset(x: 5, y: -3)
                 }
+                if isDeleting {
+                    WarrenBrailleSpinner(size: 12, accessibilityLabel: "Deleting workspace")
+                        .background(tokens.sidebarSurface, in: Circle())
+                        .offset(x: 5, y: 5)
+                }
             }
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+        .disabled(isInteractionDisabled)
         .frame(width: 32, height: 32)
         .contentShape(.rect)
         .foregroundStyle(tokens.mutedForeground)
+        .opacity(isInteractionDisabled ? 0.62 : 1)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(workspaceAccessibilityValue)
@@ -54,16 +63,21 @@ struct WarrenDesktopWorkspaceRow: View {
             role: .button,
             label: "Workspace \(workspace.name)",
             value: workspaceAccessibilityValue,
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
-            action: onSelect
+            action: { if !isInteractionDisabled { onSelect() } }
         )
         .focused($isFocused)
-        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            if !isInteractionDisabled { onDoubleClick() }
+        })
         .contextMenu {
-            Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
-            Button("Rename Workspace", action: onRename)
-            Divider()
-            Button("Delete Workspace…", role: .destructive, action: onDelete)
+            if !isInteractionDisabled {
+                Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
+                Button("Rename Workspace", action: onRename)
+                Divider()
+                Button("Delete Workspace…", role: .destructive, action: onDelete)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, WarrenSpacing.compact)
@@ -87,6 +101,10 @@ struct WarrenDesktopWorkspaceRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                if isDeleting {
+                    deletionStatus(tokens: tokens)
+                }
+
                 if let activity {
                     WarrenDesktopActivityIndicator(activity: activity)
                 }
@@ -105,8 +123,11 @@ struct WarrenDesktopWorkspaceRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(WarrenInteractiveRowStyle(isSelected: isSelected, isFocused: isFocused))
+        .disabled(isInteractionDisabled)
         .focused($isFocused)
-        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleClick))
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+            if !isInteractionDisabled { onDoubleClick() }
+        })
         .accessibilityLabel("Workspace \(workspace.name)")
         .accessibilityValue(workspaceAccessibilityValue)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -115,8 +136,9 @@ struct WarrenDesktopWorkspaceRow: View {
             role: .button,
             label: "Workspace \(workspace.name)",
             value: workspaceAccessibilityValue,
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
-            action: onSelect
+            action: { if !isInteractionDisabled { onSelect() } }
         )
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
         .padding(.leading, WarrenSpacing.compact + WarrenSpacing.xs)
@@ -124,10 +146,12 @@ struct WarrenDesktopWorkspaceRow: View {
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .contentShape(.rect)
         .contextMenu {
-            Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
-            Button("Rename Workspace", action: onRename)
-            Divider()
-            Button("Delete Workspace…", role: .destructive, action: onDelete)
+            if !isInteractionDisabled {
+                Button(isPinned ? "Unpin Workspace" : "Pin Workspace", action: onTogglePin)
+                Button("Rename Workspace", action: onRename)
+                Divider()
+                Button("Delete Workspace…", role: .destructive, action: onDelete)
+            }
         }
         .padding(.horizontal, WarrenSpacing.compact)
         .accessibilityElement(children: .contain)
@@ -142,8 +166,27 @@ struct WarrenDesktopWorkspaceRow: View {
         if workspace.branch != nil, let mergeState = workspace.mergeState {
             values.append(mergeState.accessibilityLabel)
         }
+        if isDeleting {
+            values.append("Deleting")
+        } else if isInteractionDisabled {
+            values.append("Unavailable")
+        }
         values.append(isSelected ? "Selected" : "Not selected")
         return values.joined(separator: " · ")
+    }
+
+    private func deletionStatus(tokens: WarrenColorTokens) -> some View {
+        HStack(spacing: WarrenSpacing.xs) {
+            WarrenBrailleSpinner(size: 14, accessibilityLabel: "Deleting workspace")
+                .accessibilityHidden(true)
+            Text("Deleting…")
+                .font(WarrenTypography.navigationMeta)
+                .foregroundStyle(tokens.mutedForeground)
+                .lineLimit(1)
+                .accessibilityHidden(true)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityHidden(true)
     }
 
     /// Superset renders local worktrees as a plain dot; the main workspace gets

@@ -55,6 +55,8 @@ struct WarrenCompositionRoot: View {
             webStatus: remoteModel.webStatus,
             creatingSessionWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
             creatingSessionTerminalGroupIDs: remoteModel.creatingSessionTerminalGroupIDs,
+            deletingProjectIDs: remoteModel.deletingProjectIDs,
+            deletingWorkspaceIDs: remoteModel.deletingWorkspaceIDs,
             endpointOptions: endpointOptions,
             selectedEndpointID: selectedEndpointID,
             onSelectEndpoint: selectEndpoint,
