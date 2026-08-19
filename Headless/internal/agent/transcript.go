@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -24,8 +25,11 @@ import (
 const (
 	maxEventContent = 256 * 1024
 	maxInitialRead  = 32 * 1024 * 1024
-	watchInterval   = 500 * time.Millisecond
-	maxHistory      = 2000
+	// maxTranscriptLine prevents a malformed or unexpectedly large JSONL
+	// record from causing an unbounded allocation while it is read.
+	maxTranscriptLine = 16 * 1024 * 1024
+	watchInterval     = 500 * time.Millisecond
+	maxHistory        = 2000
 )
 
 // Finder locates the transcript file for a running Codex or Claude session.
@@ -89,7 +93,7 @@ type fileCandidate struct {
 }
 
 func findNewest(ctx context.Context, root string, after time.Time, matches func(string) bool) (string, error) {
-	info, err := os.Stat(root)
+	info, err := os.Lstat(root)
 	if err != nil || !info.IsDir() {
 		return "", nil
 	}
@@ -101,6 +105,11 @@ func findNewest(ctx context.Context, root string, after time.Time, matches func(
 		if entry.IsDir() {
 			return nil
 		}
+		// Never inspect or open links and special files while walking a
+		// transcript root. A FIFO, for example, would block the finder.
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -108,6 +117,9 @@ func findNewest(ctx context.Context, root string, after time.Time, matches func(
 		}
 		fileInfo, err := entry.Info()
 		if err != nil {
+			return nil
+		}
+		if !fileInfo.Mode().IsRegular() || fileInfo.Mode()&fs.ModeSymlink != 0 {
 			return nil
 		}
 		// A session may only adopt transcripts written after it started.
@@ -153,7 +165,7 @@ func codexMetaCwd(path string) string {
 }
 
 func claudeTranscriptMatchesCwd(path, workspacePath string) bool {
-	file, err := os.Open(path)
+	file, err := openRegularFile(path)
 	if err != nil {
 		return false
 	}
@@ -174,24 +186,64 @@ func claudeTranscriptMatchesCwd(path, workspacePath string) bool {
 }
 
 func readFirstLine(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
+	if limit <= 0 {
+		return nil, fmt.Errorf("first-line limit must be positive")
+	}
+	file, err := openRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() > limit {
-		return nil, io.ErrUnexpectedEOF
-	}
 	reader := bufio.NewReader(file)
-	line, err := reader.ReadBytes('\n')
+	line, err := readBoundedLine(reader, int(limit))
 	if err != nil && len(line) == 0 {
 		return nil, err
 	}
 	return bytes.TrimSpace(line), nil
+}
+
+// readBoundedLine reads one complete JSONL line while enforcing a byte cap.
+// The cap applies to the line, not to the file: large transcripts remain
+// discoverable as long as their metadata line is small.
+func readBoundedLine(reader *bufio.Reader, limit int) ([]byte, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("line limit must be positive")
+	}
+	var line []byte
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(line)+len(part) > limit {
+			return nil, fmt.Errorf("transcript line exceeds %d bytes", limit)
+		}
+		line = append(line, part...)
+		if err == nil {
+			return line, nil
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err == io.EOF {
+			if len(line) == 0 {
+				return nil, io.EOF
+			}
+			return line, io.EOF
+		}
+		return line, err
+	}
+}
+
+func openRegularFile(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refusing symlink transcript %q", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("transcript %q is not a regular file", path)
+	}
+	return os.Open(path)
 }
 
 func samePath(left, right string) bool {
@@ -340,7 +392,7 @@ func (w *Watcher) append(events []api.AgentEvent) {
 // normalized events plus the next byte offset. A trailing partial line is
 // left for the next poll so no event is split across reads.
 func readNew(path string, offset int64, parser *parser) ([]api.AgentEvent, int64, error) {
-	file, err := os.Open(path)
+	file, err := openRegularFile(path)
 	if err != nil {
 		return nil, offset, err
 	}
@@ -384,6 +436,9 @@ func readNew(path string, offset int64, parser *parser) ([]api.AgentEvent, int64
 		if !bytes.HasSuffix(line, []byte("\n")) {
 			break
 		}
+		if len(line) > maxTranscriptLine {
+			return nil, baseOffset + consumed, fmt.Errorf("transcript line exceeds %d bytes", maxTranscriptLine)
+		}
 		consumed += int64(len(line))
 		trimmed := bytes.TrimSpace(line[:len(line)-1])
 		if len(trimmed) == 0 {
@@ -395,7 +450,10 @@ func readNew(path string, offset int64, parser *parser) ([]api.AgentEvent, int64
 }
 
 type parser struct {
-	provider        string
+	provider string
+	// contentLimit controls parser-level clipping. The live watcher keeps the
+	// historical safety cap; transcript --full reads set it to zero.
+	contentLimit    int
 	tracker         ActivityTracker
 	codexModel      string
 	codexCallTool   map[string]string
@@ -410,11 +468,24 @@ type parser struct {
 }
 
 func newParser(provider string) *parser {
+	return newParserWithContentLimit(provider, maxEventContent)
+}
+
+func newParserWithContentLimit(provider string, contentLimit int) *parser {
 	return &parser{
 		provider:      provider,
+		contentLimit:  contentLimit,
 		tracker:       *NewActivityTracker(),
 		codexCallTool: map[string]string{},
 	}
+}
+
+func (p *parser) content(value json.RawMessage) string {
+	return contentStringLimit(value, p.contentLimit)
+}
+
+func (p *parser) clip(value string) string {
+	return truncate(value, p.contentLimit)
 }
 
 func (p *parser) parse(line []byte) []api.AgentEvent {
@@ -516,7 +587,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		var payload codexPayload
 		if json.Unmarshal(record.Payload, &payload) != nil {
 			event.Type = "unknown"
-			event.Content = truncate(string(record.Payload), maxEventContent)
+			event.Content = p.clip(string(record.Payload))
 			return []api.AgentEvent{event}
 		}
 		switch payload.Type {
@@ -531,7 +602,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				event.Type = "assistant"
 				event.Model = p.codexModel
 			}
-			event.Content = contentString(payload.Content)
+			event.Content = p.content(payload.Content)
 			if event.Content == "" {
 				return nil
 			}
@@ -556,7 +627,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		case "reasoning":
 			event.ID = payload.ID
 			event.Type = "reasoning"
-			event.Content = codexReasoningContent(payload)
+			event.Content = codexReasoningContent(payload, p.contentLimit)
 			if event.Content == "" {
 				return nil
 			}
@@ -575,7 +646,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				event.ToolName = "shell"
 			}
 			if payload.Arguments != "" {
-				event.ToolInput = parseArguments(payload.Arguments)
+				event.ToolInput = parseArguments(payload.Arguments, p.contentLimit)
 			} else if payload.Action.Command != "" {
 				event.ToolInput = map[string]any{"command": payload.Action.Command}
 			}
@@ -590,7 +661,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			event.Type = "tool_output"
 			event.CallID = payload.CallID
 			event.ToolName = p.codexCallTool[event.CallID]
-			event.Output, event.ToolStatus, event.Error = codexOutputDetails(payload.Output)
+			event.Output, event.ToolStatus, event.Error = codexOutputDetails(payload.Output, p.contentLimit)
 			if event.Output == "" {
 				return nil
 			}
@@ -621,7 +692,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			}
 			event.CallID = payload.CallID
 			event.ToolStatus = normalizeToolStatus(payload.Status)
-			event.ToolInput = codexCustomToolInput(payload.Input, event.ToolName)
+			event.ToolInput = codexCustomToolInput(payload.Input, event.ToolName, p.contentLimit)
 			event.Files = codexFilesFromRaw(payload.Input, event.ToolName)
 			if event.CallID != "" {
 				p.codexCallTool[event.CallID] = event.ToolName
@@ -631,7 +702,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 		default:
 			event.Type = "unknown"
 			event.ID = payload.ID
-			event.Content = codexFallbackContent(payload, record.Payload)
+			event.Content = codexFallbackContent(payload, record.Payload, p.contentLimit)
 			return []api.AgentEvent{event}
 		}
 	case "event_msg":
@@ -661,18 +732,18 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			p.codexTurnFailed = false
 			return nil
 		case "error":
-			message := codexErrorMessage(payload)
+			message := codexErrorMessage(payload, p.contentLimit)
 			if message == "" {
 				return nil
 			}
 			p.tracker.TurnFailed()
 			p.codexTurnFailed = true
 			event.Type = "error"
-			event.Content = truncate(message, maxEventContent)
+			event.Content = p.clip(message)
 			event.Error = event.Content
 			return []api.AgentEvent{event}
 		case "agent_message":
-			content := firstNonEmpty(payload.Message, contentString(payload.Content), payload.Text)
+			content := p.clip(firstNonEmpty(payload.Message, p.content(payload.Content), payload.Text))
 			if content == "" {
 				return nil
 			}
@@ -682,11 +753,11 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			p.lastAssistantContent = content
 			event.Type = "assistant"
 			event.Model = p.codexModel
-			event.Content = truncate(content, maxEventContent)
+			event.Content = content
 			p.lastEventType = "assistant"
 			return []api.AgentEvent{event}
 		case "agent_reasoning":
-			content := firstNonEmpty(payload.Text, contentString(payload.Summary), contentString(payload.Content))
+			content := p.clip(firstNonEmpty(payload.Text, p.content(payload.Summary), p.content(payload.Content)))
 			if content == "" {
 				return nil
 			}
@@ -695,7 +766,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			}
 			p.lastReasoningContent = content
 			event.Type = "reasoning"
-			event.Content = truncate(content, maxEventContent)
+			event.Content = content
 			p.lastEventType = "reasoning"
 			return []api.AgentEvent{event}
 		case "task_started":
@@ -708,11 +779,11 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 				p.tracker.TurnFailed()
 				return nil
 			}
-			if message := codexErrorMessage(payload); message != "" {
+			if message := codexErrorMessage(payload, p.contentLimit); message != "" {
 				p.codexTurnFailed = true
 				p.tracker.TurnFailed()
 				event.Type = "error"
-				event.Content = truncate(message, maxEventContent)
+				event.Content = p.clip(message)
 				event.Error = event.Content
 				return []api.AgentEvent{event}
 			}
@@ -723,7 +794,7 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 			return nil
 		default:
 			if payload.Type == "user_message" {
-				content := contentString(payload.Content)
+				content := p.content(payload.Content)
 				if content == "" || content == p.lastUserContent {
 					return nil
 				}
@@ -742,14 +813,14 @@ func (p *parser) parseCodex(line []byte) []api.AgentEvent {
 
 // codexErrorMessage extracts the human-readable error from either a legacy
 // event_msg error (message/text) or a task_complete error envelope.
-func codexErrorMessage(payload codexPayload) string {
+func codexErrorMessage(payload codexPayload, limit int) string {
 	if payload.Message != "" {
 		return payload.Message
 	}
 	if payload.Text != "" {
 		return payload.Text
 	}
-	if content := contentString(payload.Content); content != "" {
+	if content := contentStringLimit(payload.Content, limit); content != "" {
 		return content
 	}
 	if len(payload.Error) == 0 {
@@ -757,31 +828,31 @@ func codexErrorMessage(payload codexPayload) string {
 	}
 	var text string
 	if json.Unmarshal(payload.Error, &text) == nil && text != "" {
-		return text
+		return truncate(text, limit)
 	}
 	var wrapper struct {
 		Message string `json:"message"`
 	}
 	if json.Unmarshal(payload.Error, &wrapper) == nil && wrapper.Message != "" {
-		return wrapper.Message
+		return truncate(wrapper.Message, limit)
 	}
-	return string(payload.Error)
+	return truncate(string(payload.Error), limit)
 }
 
 // codexFallbackContent extracts whatever human-readable text an unrecognized
 // response item carries instead of dumping the raw JSON envelope.
-func codexFallbackContent(payload codexPayload, raw json.RawMessage) string {
+func codexFallbackContent(payload codexPayload, raw json.RawMessage, limit int) string {
 	for _, candidate := range []string{
 		payload.Message,
 		payload.Text,
-		contentString(payload.Content),
-		contentString(payload.Summary),
+		contentStringLimit(payload.Content, limit),
+		contentStringLimit(payload.Summary, limit),
 	} {
 		if candidate != "" {
-			return truncate(candidate, maxEventContent)
+			return truncate(candidate, limit)
 		}
 	}
-	return truncate(string(raw), maxEventContent)
+	return truncate(string(raw), limit)
 }
 
 func normalizeToolStatus(status string) string {
@@ -808,40 +879,40 @@ func isSystemInjectedUserContext(content string) bool {
 		strings.Contains(content, "<permissions instructions>")
 }
 
-func codexReasoningContent(payload codexPayload) string {
-	if value := contentString(payload.Summary); value != "" {
+func codexReasoningContent(payload codexPayload, limit int) string {
+	if value := contentStringLimit(payload.Summary, limit); value != "" {
 		return value
 	}
-	if value := contentString(payload.Content); value != "" {
+	if value := contentStringLimit(payload.Content, limit); value != "" {
 		return value
 	}
-	return truncate(payload.Text, maxEventContent)
+	return truncate(payload.Text, limit)
 }
 
-func codexOutputString(value json.RawMessage) string {
+func codexOutputString(value json.RawMessage, limit int) string {
 	var text string
 	if json.Unmarshal(value, &text) == nil {
-		return truncate(text, maxEventContent)
+		return truncate(text, limit)
 	}
-	if value := contentString(value); value != "" {
+	if value := contentStringLimit(value, limit); value != "" {
 		return value
 	}
-	return truncate(string(value), maxEventContent)
+	return truncate(string(value), limit)
 }
 
-func codexOutputDetails(value json.RawMessage) (output, status, errorMessage string) {
+func codexOutputDetails(value json.RawMessage, limit int) (output, status, errorMessage string) {
 	var text string
 	if json.Unmarshal(value, &text) == nil {
 		// Modern Codex wraps structured tool results in a JSON string. Try
 		// that envelope first, then fall back to plain stdout.
-		output, status, errorMessage = codexOutputDetails([]byte(text))
+		output, status, errorMessage = codexOutputDetails([]byte(text), limit)
 		if status != "" || errorMessage != "" {
 			return output, status, errorMessage
 		}
 		if output != "" {
-			return truncate(text, maxEventContent), "success", ""
+			return truncate(text, limit), "success", ""
 		}
-		return truncate(text, maxEventContent), "success", ""
+		return truncate(text, limit), "success", ""
 	}
 	var wrapper struct {
 		Output   string `json:"output"`
@@ -853,9 +924,9 @@ func codexOutputDetails(value json.RawMessage) (output, status, errorMessage str
 		} `json:"metadata"`
 	}
 	if json.Unmarshal(value, &wrapper) == nil {
-		output = truncate(wrapper.Output, maxEventContent)
+		output = truncate(wrapper.Output, limit)
 		if output == "" {
-			output = contentString(value)
+			output = contentStringLimit(value, limit)
 		}
 		switch {
 		case wrapper.Error != "":
@@ -869,17 +940,17 @@ func codexOutputDetails(value json.RawMessage) (output, status, errorMessage str
 		default:
 			status = "success"
 		}
-		return output, status, errorMessage
+		return output, status, truncate(errorMessage, limit)
 	}
-	return contentString(value), "success", ""
+	return contentStringLimit(value, limit), "success", ""
 }
 
-func parseArguments(value string) any {
+func parseArguments(value string, limit int) any {
 	var parsed map[string]any
 	if json.Unmarshal([]byte(value), &parsed) == nil {
 		return parsed
 	}
-	return map[string]any{"raw": truncate(value, 64*1024)}
+	return map[string]any{"raw": truncate(value, rawToolInputLimit(limit))}
 }
 
 func codexFiles(arguments, toolName string) []string {
@@ -900,20 +971,27 @@ func codexFiles(arguments, toolName string) []string {
 
 // codexCustomToolInput turns a custom_tool_call input into the same shape the
 // regular function_call path produces, so the UI can render both uniformly.
-func codexCustomToolInput(value json.RawMessage, toolName string) any {
+func codexCustomToolInput(value json.RawMessage, toolName string, limit int) any {
 	var parsed any
 	if json.Unmarshal(value, &parsed) != nil {
-		return map[string]any{"raw": truncate(string(value), 64*1024)}
+		return map[string]any{"raw": truncate(string(value), rawToolInputLimit(limit))}
 	}
 	switch input := parsed.(type) {
 	case string:
 		if toolName == "apply_patch" {
-			return map[string]any{"patch": truncate(input, 64*1024)}
+			return map[string]any{"patch": truncate(input, rawToolInputLimit(limit))}
 		}
-		return map[string]any{"raw": truncate(input, 64*1024)}
+		return map[string]any{"raw": truncate(input, rawToolInputLimit(limit))}
 	default:
 		return input
 	}
+}
+
+func rawToolInputLimit(contentLimit int) int {
+	if contentLimit == 0 {
+		return 0
+	}
+	return 64 * 1024
 }
 
 func codexFilesFromRaw(value json.RawMessage, toolName string) []string {
@@ -1016,7 +1094,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				if block.Type != "tool_result" {
 					continue
 				}
-				output := contentString(block.Content)
+				output := p.content(block.Content)
 				event := api.AgentEvent{
 					Provider:  "claude",
 					ID:        record.UUID,
@@ -1042,7 +1120,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				return events
 			}
 		}
-		content := contentString(record.Message.Content)
+		content := p.content(record.Message.Content)
 		if content == "" {
 			return nil
 		}
@@ -1052,7 +1130,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:  "claude",
 				ID:        record.UUID,
 				Type:      "system",
-				Content:   truncate(content, maxEventContent),
+				Content:   p.clip(content),
 				Timestamp: timestamp,
 			}}
 		}
@@ -1061,7 +1139,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:  "claude",
 				ID:        record.UUID,
 				Type:      "system",
-				Content:   truncate(content, maxEventContent),
+				Content:   p.clip(content),
 				Timestamp: timestamp,
 			}}
 		}
@@ -1070,7 +1148,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:  "claude",
 				ID:        record.UUID,
 				Type:      "system",
-				Content:   truncate(content, maxEventContent),
+				Content:   p.clip(content),
 				Timestamp: timestamp,
 			}}
 		}
@@ -1078,14 +1156,14 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			Provider:  "claude",
 			ID:        record.UUID,
 			Type:      "user",
-			Content:   truncate(content, maxEventContent),
+			Content:   p.clip(content),
 			Sidechain: record.IsSidechain,
 			Timestamp: timestamp,
 		}}
 	case "assistant":
 		var blocks []claudeBlock
 		if json.Unmarshal(record.Message.Content, &blocks) != nil {
-			content := contentString(record.Message.Content)
+			content := p.content(record.Message.Content)
 			if content == "" {
 				return nil
 			}
@@ -1093,7 +1171,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:   "claude",
 				ID:         record.UUID,
 				Type:       "assistant",
-				Content:    truncate(content, maxEventContent),
+				Content:    p.clip(content),
 				Model:      record.Message.Model,
 				StopReason: record.Message.StopReason,
 				Usage:      parseUsage(record.Message.Usage),
@@ -1115,15 +1193,15 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			switch block.Type {
 			case "text":
 				event.Type = "assistant"
-				event.Content = truncate(block.Text, maxEventContent)
+				event.Content = p.clip(block.Text)
 			case "thinking", "redacted_thinking":
 				event.Type = "reasoning"
-				event.Content = truncate(firstNonEmpty(block.Thinking, "…"), maxEventContent)
+				event.Content = p.clip(firstNonEmpty(block.Thinking, "…"))
 			case "tool_use":
 				event.Type = "tool_call"
 				event.ToolName = block.Name
 				event.CallID = block.ID
-				event.ToolInput = rawToAny(block.Input)
+				event.ToolInput = rawToAny(block.Input, p.contentLimit)
 				if input, ok := event.ToolInput.(map[string]any); ok {
 					if path, ok := input["file_path"].(string); ok && path != "" {
 						event.Files = []string{path}
@@ -1131,10 +1209,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				}
 			default:
 				event.Type = "unknown"
-				event.Content = truncate(
-					firstNonEmpty(block.Text, block.Thinking, contentString(block.Content), string(record.Message.Content)),
-					maxEventContent,
-				)
+				event.Content = p.clip(firstNonEmpty(block.Text, block.Thinking, p.content(block.Content), string(record.Message.Content)))
 			}
 			if event.Content != "" || event.ToolName != "" {
 				events = append(events, event)
@@ -1142,7 +1217,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 		}
 		return events
 	case "system":
-		content := contentString(record.Content)
+		content := p.content(record.Content)
 		if content == "" {
 			return nil
 		}
@@ -1151,8 +1226,8 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:  "claude",
 				ID:        record.UUID,
 				Type:      "error",
-				Content:   truncate(content, maxEventContent),
-				Error:     truncate(content, maxEventContent),
+				Content:   p.clip(content),
+				Error:     p.clip(content),
 				Timestamp: timestamp,
 			}}
 		}
@@ -1160,7 +1235,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			Provider:   "claude",
 			ID:         record.UUID,
 			Type:       "system",
-			Content:    truncate(content, maxEventContent),
+			Content:    p.clip(content),
 			DurationMs: record.DurationMs,
 			Timestamp:  timestamp,
 		}}
@@ -1181,8 +1256,11 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Content:   "Hook: " + label,
 				Timestamp: timestamp,
 			}
-			if output := contentString(record.Attachment.Content); output != "" {
-				event.Content += " · " + truncate(output, 240)
+			if output := p.content(record.Attachment.Content); output != "" {
+				if p.contentLimit > 0 {
+					output = truncate(output, 240)
+				}
+				event.Content += " · " + output
 			}
 			return []api.AgentEvent{event}
 		}
@@ -1191,7 +1269,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 				Provider:  "claude",
 				ID:        record.UUID,
 				Type:      "system_instructions",
-				Content:   truncate(contentString(record.Attachment.Content), maxEventContent),
+				Content:   p.content(record.Attachment.Content),
 				Timestamp: timestamp,
 			}}
 		}
@@ -1199,7 +1277,7 @@ func (p *parser) parseClaude(line []byte) []api.AgentEvent {
 			Provider:  "claude",
 			ID:        record.UUID,
 			Type:      "attachment",
-			Content:   truncate(firstNonEmpty(contentString(record.Attachment.Content), contentString(record.Content)), maxEventContent),
+			Content:   p.clip(firstNonEmpty(p.content(record.Attachment.Content), p.content(record.Content))),
 			Timestamp: timestamp,
 		}}
 	default:
@@ -1242,9 +1320,13 @@ func parseUsage(raw json.RawMessage) *api.AgentUsage {
 // contentString turns either a plain string or an array of text blocks into a
 // single string, matching how both CLI transcripts represent message bodies.
 func contentString(value json.RawMessage) string {
+	return contentStringLimit(value, maxEventContent)
+}
+
+func contentStringLimit(value json.RawMessage, limit int) string {
 	var text string
 	if json.Unmarshal(value, &text) == nil {
-		return truncate(text, maxEventContent)
+		return truncate(text, limit)
 	}
 	var blocks []struct {
 		Type    string          `json:"type"`
@@ -1260,20 +1342,20 @@ func contentString(value json.RawMessage) string {
 			case block.Type == "image":
 				parts = append(parts, "[image]")
 			case len(block.Content) > 0:
-				parts = append(parts, contentString(block.Content))
+				parts = append(parts, contentStringLimit(block.Content, limit))
 			}
 		}
-		return truncate(strings.Join(parts, "\n"), maxEventContent)
+		return truncate(strings.Join(parts, "\n"), limit)
 	}
-	return truncate(string(value), maxEventContent)
+	return truncate(string(value), limit)
 }
 
-func rawToAny(value json.RawMessage) any {
+func rawToAny(value json.RawMessage, contentLimit int) any {
 	var parsed any
 	if json.Unmarshal(value, &parsed) == nil {
 		return parsed
 	}
-	return map[string]any{"raw": truncate(string(value), 64*1024)}
+	return map[string]any{"raw": truncate(string(value), rawToolInputLimit(contentLimit))}
 }
 
 func parseTimestamp(value string) time.Time {
