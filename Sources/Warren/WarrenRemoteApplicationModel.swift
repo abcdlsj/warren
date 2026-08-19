@@ -1795,9 +1795,9 @@ final class WarrenRemoteApplicationModel {
                 path: value.path,
                 branch: value.branch,
                 pinned: value.pinned ?? false,
+                mergeState: value.mergeState.flatMap(WorkspaceMergeState.init(rawValue:)),
                 managedWorktree: value.managedWorktree ?? false,
-                worktreeLocked: value.worktreeLocked ?? false,
-                mergeState: value.mergeState.flatMap(WorkspaceMergeState.init(rawValue:))
+                worktreeLocked: value.worktreeLocked ?? false
             )
         }
         let terminalGroups = roster.terminalGroups.enumerated().compactMap { index, value -> WarrenDomain.TerminalGroup? in
