@@ -65,9 +65,13 @@ warren --endpoint my-vps project list
 warren --endpoint my-vps project move PROJECT_ID --before OTHER_PROJECT_ID
 warren --endpoint my-vps workspace create PROJECT_ID --branch release/my-feature
 warren --endpoint my-vps workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
-warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex
+warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex --title "My Agent"
+warren --endpoint my-vps session move SESSION_ID --group GROUP_ID
+warren --endpoint my-vps session move SESSION_ID --workspace WORKSPACE_ID
 warren --endpoint my-vps session list
 warren --endpoint my-vps session attach SESSION_ID
+warren agent read codex --recent 10 --include user,assistant
+warren agent read claude /path/to/session.jsonl --full
 ```
 
 All commands support `--json`. `worktree` is an alias for `workspace`; help
@@ -82,12 +86,31 @@ machine-readable JSON output. `workspace create` reports `created` and
 created and where it landed. `session list` shows running sessions by default;
 pass `--all` to include ended sessions, or `--ended` to list only ended ones.
 
+`warren agent read codex|claude` parses a provider transcript into the same
+normalized activity objects used by Warren's agent view. A transcript path may
+be supplied explicitly; when omitted, Warren finds the newest transcript for
+the current directory (or `--workspace PATH`). The command returns the newest
+20 useful activities by default and limits text fields to 2,000 characters.
+Use `--recent N` (or `--all`) to control the activity window, `--include
+TYPE,...` to select event types, `--filter TYPE,...` to omit types, and
+`--full` to retain complete text. Usage, attachment, and system-instruction
+events stay hidden unless requested through `--include`. An unbounded `--all`
+read is defensively capped at 100,000 matching activities; use `--recent` for
+a smaller, predictable result.
+
 For `workspace create`, `--branch` is required and `--path` is optional: omit
 `--path` and the daemon places the new worktree under
 `~/.warren/worktrees/<project>/<workspace>-<branch>`; pass `--path /custom/path`
 only when the worktree must live somewhere specific. `session create` starts a
 durable terminal in an existing workspace; the Desktop and Web clients see it
-as soon as the daemon broadcasts the updated roster.
+as soon as the daemon broadcasts the updated roster. Pass `--title NAME` to
+set the user-facing name shown in tabs; `session rename SESSION_ID --title NAME`
+changes it later. Without a user-set name, clients fall back to a generated
+default (kind or command), and a user-set name always takes precedence.
+`session move SESSION_ID --workspace WORKSPACE_ID` moves a standalone Terminal
+Group session into a Workspace; `session move SESSION_ID --group GROUP_ID`
+moves it back. The running process, cwd, output history, and Session ID are
+preserved, so the tab simply appears under the destination context.
 
 On macOS, `mise run install` also initializes a `local` endpoint pointing at
 `http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the

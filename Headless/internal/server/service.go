@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/abcdlsj/ghostline"
@@ -101,8 +102,17 @@ type Service struct {
 	// adapters that support it. Disabled by default so roster snapshots stay
 	// cheap; clients fall back to launch command and workspace path.
 	ProbeForeground bool
+	// ClientsActive reports whether any client can observe roster snapshots.
+	// The merge projection only refreshes while clients are connected; nil
+	// means "always active" for tests and embedders.
+	ClientsActive func() bool
 
-	metadataCache *metadataCache
+	metadataCache    *metadataCache
+	mergeOnce        sync.Once
+	mergeCache       *mergeStateCache
+	mergeWake        chan struct{}
+	mergeDirty       atomic.Bool
+	mergeLastRefresh atomic.Int64
 
 	outputMu sync.Mutex
 	// terminalGroupLifecycleMu serializes Group deletion with Group Session
@@ -114,7 +124,7 @@ type Service struct {
 	peers                    map[string]map[*wsPeer]struct{}
 	focusedPeers             map[string]*wsPeer
 	runtimeSizes             map[string]ghostline.Size
-	broadcastLocks           map[string]*sync.Mutex
+	broadcastLocks           map[string]*sessionLock
 	agentsMu                 sync.Mutex
 	agents                   map[string]*agentSession
 	agentEpoch               uint64
@@ -131,6 +141,7 @@ type outputSession struct {
 	ring              *output.Ring
 	watcher           *ghostline.SpoolWatcher
 	responder         *ghostline.QueryResponder
+	prepareLock       *sessionLock
 	persistedSequence uint64
 	reanchorRequired  bool
 }
@@ -237,7 +248,7 @@ func (s *Service) lazyInitLocked() {
 		s.runtimeSizes = map[string]ghostline.Size{}
 	}
 	if s.broadcastLocks == nil {
-		s.broadcastLocks = map[string]*sync.Mutex{}
+		s.broadcastLocks = map[string]*sessionLock{}
 	}
 	if s.agents == nil {
 		s.agents = map[string]*agentSession{}
@@ -250,11 +261,26 @@ func (s *Service) lazyInitLocked() {
 	}
 }
 
+// initMergeState initializes the merge projection fields exactly once. Every
+// reader and writer enters through it so lazy initialization can never race
+// with roster snapshots or the background merge loop.
+func (s *Service) initMergeState() {
+	s.mergeOnce.Do(func() {
+		if s.mergeCache == nil {
+			s.mergeCache = &mergeStateCache{}
+		}
+		if s.mergeWake == nil {
+			s.mergeWake = make(chan struct{}, 1)
+		}
+	})
+}
+
 // Start runs the single lifecycle watcher. One goroutine probes tmux for all
 // managed sessions; it never creates a polling task per Session.
 func (s *Service) Start(parent context.Context) {
 	s.lifecycleOnce.Do(func() {
 		s.lazyInit()
+		s.initMergeState()
 		if s.AgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
 			// an unwritable config directory must not stop the daemon; the
@@ -264,6 +290,7 @@ func (s *Service) Start(parent context.Context) {
 		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 		s.lifecycleCancel = cancel
 		go s.lifecycleLoop(ctx)
+		go s.mergeLoop(ctx)
 		if s.ProbeForeground {
 			go s.metadataLoop(ctx)
 		}
@@ -556,6 +583,16 @@ func (s *Service) RosterVersion(ctx context.Context) (api.State, uint64) {
 	sortProjects(state.Projects)
 	sortWorkspaces(state.Workspaces)
 	sortTerminalGroups(state.TerminalGroups)
+	s.initMergeState()
+	mergeStates := s.mergeCache.snapshot()
+	for i := range state.Workspaces {
+		if mergeState, ok := mergeStates[state.Workspaces[i].ID]; ok {
+			state.Workspaces[i].MergeState = mergeState
+		}
+	}
+	if s.mergeDirty.Load() || time.Since(time.Unix(0, s.mergeLastRefresh.Load())) > mergeRefreshInterval {
+		s.wakeMergeRefresh()
+	}
 	sort.Slice(state.Sessions, func(i, j int) bool {
 		if state.Sessions[i].Pinned != state.Sessions[j].Pinned {
 			return state.Sessions[i].Pinned
@@ -690,6 +727,9 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		state.Workspaces = append(state.Workspaces, workspace)
 		return nil
 	})
+	if err == nil {
+		s.invalidateMerge()
+	}
 	return project, err
 }
 
@@ -974,7 +1014,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 			}
 		}
 	}
-	return s.Store.Update(func(value *api.State) error {
+	err := s.Store.Update(func(value *api.State) error {
 		found := false
 		workspaceIDs := map[string]bool{}
 		for _, p := range value.Projects {
@@ -999,6 +1039,10 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		}
 		return nil
 	})
+	if err == nil {
+		s.invalidateMerge()
+	}
+	return err
 }
 
 func (s *Service) RenameProject(id, name string) error {
@@ -1132,6 +1176,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						}); err != nil {
 							return api.WorkspaceCreateResult{}, err
 						}
+						s.invalidateMerge()
 						return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 					}
 					if name == "" {
@@ -1148,6 +1193,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					}); err != nil {
 						return api.WorkspaceCreateResult{}, err
 					}
+					s.invalidateMerge()
 					return api.WorkspaceCreateResult{Workspace: workspace, Created: true}, nil
 				}
 			}
@@ -1180,6 +1226,7 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		_, _ = exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", path).CombinedOutput()
 		return api.WorkspaceCreateResult{}, err
 	}
+	s.invalidateMerge()
 	return api.WorkspaceCreateResult{Workspace: workspace, Created: true, GitWorktree: gitCreated}, nil
 }
 
@@ -1247,7 +1294,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 			return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(output)), err)
 		}
 	}
-	return s.Store.Update(func(value *api.State) error {
+	err := s.Store.Update(func(value *api.State) error {
 		projectID := workspace.ProjectID
 		value.Workspaces = filter(value.Workspaces, func(w api.Workspace) bool { return w.ID != id })
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return session.WorkspaceID != id })
@@ -1260,6 +1307,10 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 		return nil
 	})
+	if err == nil {
+		s.invalidateMerge()
+	}
+	return err
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
@@ -1326,17 +1377,13 @@ func (s *Service) createSession(ctx context.Context, workspaceID, groupID, comma
 		kind = "shell"
 	}
 	customTitle := strings.TrimSpace(title)
-	if customTitle != "" {
-		title = customTitle
-	} else {
-		title = map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
-	}
-	if title == "" {
+	defaultTitle := map[string]string{"shell": "Shell", "codex": "Codex", "claude": "Claude Code"}[kind]
+	if defaultTitle == "" {
 		fields := strings.Fields(command)
 		if len(fields) > 0 {
-			title = fields[0]
+			defaultTitle = fields[0]
 		} else {
-			title = "Shell"
+			defaultTitle = "Shell"
 		}
 	}
 	sessionKind := runtimeKind
@@ -1372,7 +1419,7 @@ func (s *Service) createSession(ctx context.Context, workspaceID, groupID, comma
 		WorkspaceID:     workspaceID,
 		TerminalGroupID: groupID,
 		Scope:           api.SessionScopeWorkspace,
-		Title:           title,
+		Title:           defaultTitle,
 		CustomTitle:     customTitle,
 		Kind:            kind,
 		Command:         command,
@@ -1497,6 +1544,83 @@ func (s *Service) Session(id string) (api.Session, bool) {
 	return api.Session{}, false
 }
 
+// MoveSession changes the Host scope of a Session between a Workspace and a
+// Terminal Group. The runtime, working directory, output history, and Session
+// ID are all preserved: moving only re-parents the durable record so clients
+// render the tab under the destination context.
+func (s *Service) MoveSession(ctx context.Context, id, workspaceID, groupID string) (api.Session, error) {
+	if workspaceID == "" && groupID == "" {
+		return api.Session{}, errors.New("workspace or terminal group is required")
+	}
+	if workspaceID != "" && groupID != "" {
+		return api.Session{}, errors.New("workspace and terminal group are mutually exclusive")
+	}
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
+
+	state := s.Store.Snapshot()
+	var session *api.Session
+	for index := range state.Sessions {
+		if state.Sessions[index].ID == id {
+			session = &state.Sessions[index]
+			break
+		}
+	}
+	if session == nil {
+		return api.Session{}, fmt.Errorf("session not found: %s", id)
+	}
+	if workspaceID != "" {
+		found := false
+		for _, workspace := range state.Workspaces {
+			if workspace.ID == workspaceID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return api.Session{}, fmt.Errorf("workspace not found: %s", workspaceID)
+		}
+	} else {
+		found := false
+		for _, group := range state.TerminalGroups {
+			if group.ID == groupID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return api.Session{}, fmt.Errorf("terminal group not found: %s", groupID)
+		}
+	}
+	if session.WorkspaceID == workspaceID && session.TerminalGroupID == groupID {
+		return *session, nil
+	}
+
+	moved := *session
+	moved.WorkspaceID = workspaceID
+	moved.TerminalGroupID = groupID
+	moved.Scope = api.SessionScopeWorkspace
+	if groupID != "" {
+		moved.Scope = api.SessionScopeTerminalGroup
+	}
+	err := s.Store.Update(func(value *api.State) error {
+		for index := range value.Sessions {
+			if value.Sessions[index].ID != id {
+				continue
+			}
+			value.Sessions[index].WorkspaceID = workspaceID
+			value.Sessions[index].TerminalGroupID = groupID
+			value.Sessions[index].Scope = moved.Scope
+			return nil
+		}
+		return fmt.Errorf("session not found: %s", id)
+	})
+	if err != nil {
+		return api.Session{}, err
+	}
+	return moved, nil
+}
+
 func (s *Service) removeWorkspaceRuntime(ctx context.Context, state api.State, workspaceID string) error {
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == workspaceID {
@@ -1570,7 +1694,14 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 	adapter := s.outputAdapterFor(session)
 	if adapter == nil {
 		ring := output.NewRing(session.Epoch, s.ringCapacity(), s.ringMaxBytes(), session.Sequence)
-		outputSession := &outputSession{sessionID: session.ID, runtimeName: session.Runtime, runtimeKind: s.runtimeKindFor(session), ring: ring, responder: s.newQueryResponder()}
+		outputSession := &outputSession{
+			sessionID:   session.ID,
+			runtimeName: session.Runtime,
+			runtimeKind: s.runtimeKindFor(session),
+			ring:        ring,
+			responder:   s.newQueryResponder(),
+			prepareLock: newSessionLock(),
+		}
 		s.outputMu.Lock()
 		s.outputs[session.ID] = outputSession
 		s.outputMu.Unlock()
@@ -1594,6 +1725,7 @@ func (s *Service) ensureOutput(ctx context.Context, session api.Session) (*outpu
 		runtimeName:       session.Runtime,
 		runtimeKind:       s.runtimeKindFor(session),
 		responder:         s.newQueryResponder(),
+		prepareLock:       newSessionLock(),
 		persistedSequence: session.Sequence,
 		reanchorRequired:  true,
 	}
@@ -1850,18 +1982,25 @@ func (s *Service) transcriptTakenByOther(transcriptPath, sessionID string) bool 
 // boundTranscript prefers the deterministic per-session binding (Claude's
 // injected session ID and the Codex hook's report) over cwd+mtime scanning.
 func (s *Service) boundTranscript(session api.Session, workspacePath string) string {
+	binding, err := agent.ReadBinding(agent.BindPath(session.ID))
+	if err == nil && binding != nil && binding.Provider == session.Kind {
+		if info, statErr := os.Stat(binding.TranscriptPath); statErr == nil && !info.IsDir() {
+			return binding.TranscriptPath
+		}
+	}
+	// A Session moved between a Workspace and a Terminal Group keeps its old
+	// transcript: the persisted path outlives cwd-based discovery and is the
+	// only anchor that still points at the CLI's rollout after the move.
+	if session.TranscriptPath != "" {
+		if info, err := os.Stat(session.TranscriptPath); err == nil && !info.IsDir() {
+			return session.TranscriptPath
+		}
+	}
 	if session.Kind == "claude" && session.AgentSessionID != "" {
 		path := agent.ClaudeTranscriptPath(agent.ClaudeProjectsRoot(), workspacePath, session.AgentSessionID)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			return path
 		}
-	}
-	binding, err := agent.ReadBinding(agent.BindPath(session.ID))
-	if err != nil || binding == nil || binding.Provider != session.Kind {
-		return ""
-	}
-	if info, err := os.Stat(binding.TranscriptPath); err == nil && !info.IsDir() {
-		return binding.TranscriptPath
 	}
 	return ""
 }
@@ -2304,7 +2443,13 @@ func (s *Service) broadcastFrame(frame output.Frame) {
 		return
 	}
 	lock := s.broadcastLock(frame.SessionID)
-	lock.Lock()
+	if !lock.TryLock() {
+		// Never let a spool watcher block behind an attach or focus operation.
+		// The ring already retains this frame; force attached peers to reconnect
+		// and recover from a fresh snapshot instead of wedging the watcher.
+		s.forceSessionReanchor(frame.SessionID)
+		return
+	}
 	defer lock.Unlock()
 	s.outputMu.Lock()
 	peers := make([]*wsPeer, 0, len(s.peers[frame.SessionID]))
@@ -2319,16 +2464,39 @@ func (s *Service) broadcastFrame(frame output.Frame) {
 	}
 }
 
-func (s *Service) broadcastLock(sessionID string) *sync.Mutex {
+func (s *Service) broadcastLock(sessionID string) *sessionLock {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
 	s.lazyInitLocked()
 	lock := s.broadcastLocks[sessionID]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = newSessionLock()
 		s.broadcastLocks[sessionID] = lock
 	}
 	return lock
+}
+
+// forceSessionReanchor drops slow or stale peers when output cannot acquire
+// the session broadcast lock. The ring remains authoritative, so reconnecting
+// peers receive a fresh snapshot and do not lose terminal state.
+func (s *Service) forceSessionReanchor(sessionID string) {
+	s.lazyInit()
+	s.outputMu.Lock()
+	outputSession := s.outputs[sessionID]
+	peers := make([]*wsPeer, 0, len(s.peers[sessionID]))
+	for peer := range s.peers[sessionID] {
+		peers = append(peers, peer)
+	}
+	s.outputMu.Unlock()
+	if outputSession == nil || len(peers) == 0 {
+		return
+	}
+	outputSession.mu.Lock()
+	outputSession.reanchorRequired = true
+	outputSession.mu.Unlock()
+	for _, peer := range peers {
+		peer.close()
+	}
 }
 
 // attachOutput prepares a peer's subscription under the session broadcast
@@ -2349,19 +2517,63 @@ func (s *Service) attachOutput(ctx context.Context, peer *wsPeer, session api.Se
 // broadcast lock. A paused watcher cannot read or broadcast, so a reanchor
 // snapshot is an atomic point in the byte stream: bytes at or below the
 // snapshot are represented exactly once.
-func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sync.Mutex, func(), error) {
-	outputSession, err := s.ensureOutput(ctx, session)
+func (s *Service) prepareAttach(ctx context.Context, session api.Session) (*sessionLock, func(), error) {
+	// The desktop client has a shorter request timeout than the daemon's
+	// command timeout. Bound the entire preparation phase independently so a
+	// stalled adoption, watcher, or lock cannot keep a WebSocket command
+	// handler occupied forever.
+	prepareContext, cancelPrepare := context.WithTimeout(ctx, s.commandTimeout())
+	defer cancelPrepare()
+
+	outputSession, err := s.ensureOutput(prepareContext, session)
 	if err != nil {
 		return nil, nil, err
 	}
-	resume := func() {}
+	s.outputMu.Lock()
+	if outputSession.prepareLock == nil {
+		outputSession.prepareLock = newSessionLock()
+	}
+	prepareLock := outputSession.prepareLock
+	s.outputMu.Unlock()
+
+	if err := prepareLock.LockContext(prepareContext); err != nil {
+		return nil, nil, fmt.Errorf("lock attach preparation: %w", err)
+	}
+
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			if outputSession.watcher != nil {
+				outputSession.watcher.Resume()
+			}
+			prepareLock.Unlock()
+		})
+	}
 	if outputSession.watcher != nil {
-		outputSession.watcher.Pause()
-		resume = outputSession.watcher.Resume
+		paused := make(chan struct{})
+		go func() {
+			outputSession.watcher.Pause()
+			close(paused)
+		}()
+		select {
+		case <-paused:
+		case <-prepareContext.Done():
+			// Pause has no cancellation-aware API in the current Ghostline
+			// release. Finish it in the background and immediately resume the
+			// watcher once it is safe, while unblocking this request now.
+			go func() {
+				<-paused
+				release()
+			}()
+			return nil, nil, fmt.Errorf("pause output watcher: %w", prepareContext.Err())
+		}
 	}
 	lock := s.broadcastLock(session.ID)
-	lock.Lock()
-	return lock, resume, nil
+	if err := lock.LockContext(prepareContext); err != nil {
+		release()
+		return nil, nil, fmt.Errorf("lock session output: %w", err)
+	}
+	return lock, release, nil
 }
 
 func (s *Service) attachOutputLocked(ctx context.Context, peer *wsPeer, session api.Session, anchor *output.Anchor) error {

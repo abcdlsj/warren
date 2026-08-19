@@ -41,6 +41,14 @@ const pinIcon = (
   </svg>
 );
 
+const mergeIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="6" cy="6" r="2.4" />
+    <circle cx="18" cy="18" r="2.4" />
+    <path d="M8.4 6H12a4 4 0 0 1 4 4v5.6" />
+  </svg>
+);
+
 const moreIcon = (
   <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
     <circle cx="5" cy="12" r="1.7" />
@@ -99,6 +107,24 @@ export function ActivityDot({ activity }) {
   if (!label) return null;
   const pulse = activity === "ready" || activity === "exited" ? "" : " pulse";
   return <span className={`activity ${activity}${pulse}`} title={label} aria-label={label} />;
+}
+
+function mergedBadgeTitle(tabs) {
+  const count = tabs.length;
+  const parts = ["Merged to default branch"];
+  if (count) parts.push(`${count} active`);
+  const activity = activityLabels[highestActivity(tabs)];
+  if (activity) parts.push(activity);
+  return parts.join(" · ");
+}
+
+export function MergedBadge({ tabs = [] }) {
+  const label = mergedBadgeTitle(tabs);
+  return (
+    <span className="merge-badge" title={label} aria-label={label} role="img">
+      {mergeIcon}
+    </span>
+  );
 }
 
 function SessionPresetIcon({ kind }) {
@@ -255,7 +281,9 @@ export function Sidebar({
                     onDragOver={event => workspaceDragOver(workspace, event)}
                     onDrop={event => dropWorkspace(workspace, event)}
                   >
-                    <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />
+                    {workspace.mergeState === "merged"
+                      ? <MergedBadge tabs={tabsForWorkspace(workspace.id)} />
+                      : <ActivityDot activity={highestActivity(tabsForWorkspace(workspace.id))} />}
                     {workspace.pinned && <span className="pin-icon" title="Pinned">{pinIcon}</span>}
                     <span className="branch">{workspace.branch || workspace.name || "Workspace"}</span>
                   </button>
@@ -1161,7 +1189,9 @@ export function SearchPanel({
                     {...shared}
                     onClick={() => onChooseWorkspace(row.workspace.id)}
                   >
-                    <BranchIcon />
+                    {row.workspace.mergeState === "merged"
+                      ? <MergedBadge tabs={catalog.tabsByWorkspace.get(row.workspace.id) || []} />
+                      : <BranchIcon />}
                     <span className="search-name">{row.workspace.branch || row.workspace.name || "Workspace"}</span>
                     <span className="search-kind">Workspace</span>
                   </button>

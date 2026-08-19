@@ -18,6 +18,8 @@ struct WarrenDesktopTabItem: View {
     let onRename: () -> Void
     let onTogglePin: () -> Void
     let onDismissActivity: () -> Void
+    let sessionMoveTargets: [WarrenDesktopSessionMoveTarget]
+    let onMoveSession: (TerminalSessionID, WarrenDesktopSessionMoveDestination) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.warrenForceHover) private var forceHover
@@ -26,10 +28,23 @@ struct WarrenDesktopTabItem: View {
     @FocusState private var isCloseFocused: Bool
     @State private var isHovered = false
     @State private var isCloseHovered = false
-    @State private var isActivityHovered = false
 
     private var exposesClose: Bool {
         tab.sessionID != nil && (isHovered || isCloseFocused || forceHover)
+    }
+
+    private var workspaceMoveTargets: [WarrenDesktopSessionMoveTarget] {
+        sessionMoveTargets.filter { target in
+            if case .workspace = target.destination { return true }
+            return false
+        }
+    }
+
+    private var terminalGroupMoveTargets: [WarrenDesktopSessionMoveTarget] {
+        sessionMoveTargets.filter { target in
+            if case .terminalGroup = target.destination { return true }
+            return false
+        }
     }
 
     var body: some View {
@@ -50,39 +65,9 @@ struct WarrenDesktopTabItem: View {
                             .accessibilityHidden(true)
                     }
                     if let activity {
-                        ZStack {
-                            Circle()
-                                .stroke(tokens.highlight.opacity(0.46), lineWidth: 1)
-                                .frame(width: 16, height: 16)
-                                .scaleEffect(isActivityHovered ? 1 : 0.72)
-                                .opacity(isActivityHovered ? 1 : 0)
-                                .animation(
-                                    WarrenMotion.animation(
-                                        .feedback,
-                                        reduceMotion: reduceMotion
-                                    ),
-                                    value: isActivityHovered
-                                )
-                            WarrenDesktopActivityIndicator(activity: activity)
-                                .scaleEffect(isActivityHovered ? 1.35 : 1)
-                                .animation(
-                                    WarrenMotion.animation(
-                                        .feedback,
-                                        reduceMotion: reduceMotion
-                                    ),
-                                    value: isActivityHovered
-                                )
-                                .accessibilityHidden(true)
-                        }
-                        .frame(
-                            width: WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
-                            height: WarrenDesktopTabActivityDragGesture.hitTargetSize.height
-                        )
-                        .accessibilityHidden(true)
+                        WarrenDesktopActivityIndicator(activity: activity)
+                            .accessibilityHidden(true)
                     }
-                    // Keep the tab drag source disjoint from the activity
-                    // handle so AppKit never has to arbitrate two drags from
-                    // the same pointer-down sequence.
                     HStack(spacing: 0) {
                         Text(displayTitle)
                             .font(WarrenTypography.tabShellTitle)
@@ -160,25 +145,6 @@ struct WarrenDesktopTabItem: View {
             )
             .padding(.trailing, WarrenSpacing.xs)
         }
-        .overlay(alignment: .leading) {
-            // Keep the native activity drag surface above the tab button. A
-            // nested AppKit view inside a SwiftUI Button can lose the drag
-            // sequence to the button's gesture recognizer.
-            if activity != nil {
-                WarrenDesktopTabActivityDragHandle(
-                    onDismiss: onDismissActivity,
-                    onClick: onSelect,
-                    onHoverChanged: { isActivityHovered = $0 }
-                )
-                .frame(
-                    width: WarrenDesktopTabActivityDragGesture.hitTargetSize.width,
-                    height: WarrenDesktopTabActivityDragGesture.hitTargetSize.height
-                )
-                .offset(x: WarrenSpacing.medium)
-                .zIndex(1)
-                .accessibilityHidden(true)
-            }
-        }
         .frame(width: WarrenLayoutMetrics.tabWidth, height: WarrenLayoutMetrics.tabBarHeight)
         .background(
             isSelected
@@ -220,6 +186,30 @@ struct WarrenDesktopTabItem: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             if tab.sessionID != nil {
+                if !sessionMoveTargets.isEmpty {
+                    Menu("Move Session To") {
+                        if !workspaceMoveTargets.isEmpty {
+                            Menu("Workspace") {
+                                ForEach(workspaceMoveTargets) { target in
+                                    Button(target.title) {
+                                        guard let sessionID = tab.sessionID else { return }
+                                        onMoveSession(sessionID, target.destination)
+                                    }
+                                }
+                            }
+                        }
+                        if !terminalGroupMoveTargets.isEmpty {
+                            Menu("Terminal Group") {
+                                ForEach(terminalGroupMoveTargets) { target in
+                                    Button(target.title) {
+                                        guard let sessionID = tab.sessionID else { return }
+                                        onMoveSession(sessionID, target.destination)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Button(isPinned ? "Unpin Session" : "Pin Session", action: onTogglePin)
                 if activity != nil {
                     Button("Dismiss Activity", action: onDismissActivity)

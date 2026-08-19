@@ -64,6 +64,9 @@ func TestTerminalGroupAliasAndSessionCreateParams(t *testing.T) {
 	if !knownResourceAction("terminal-group", "home") {
 		t.Fatal("terminal-group home action is not registered")
 	}
+	if !knownResourceAction("session", "move") {
+		t.Fatal("session move action is not registered")
+	}
 	params := normalizedParams(parseFlags([]string{"--group", "group-1", "--kind", "shell"}), "session", "create")
 	if params["group"] != "group-1" {
 		t.Fatalf("normalized group = %#v", params["group"])
@@ -105,6 +108,71 @@ func TestSessionCreateRejectsWorkspaceAndGroupTogether(t *testing.T) {
 	}
 }
 
+func TestSessionMoveValidatesTargetFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing target",
+			args: []string{"session", "move", "session-1"},
+			want: "missing --workspace WORKSPACE_ID or --group GROUP_ID",
+		},
+		{
+			name: "conflicting targets",
+			args: []string{"session", "move", "session-1", "--workspace", "workspace-1", "--group", "group-1"},
+			want: "--workspace and --group are mutually exclusive",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := run(test.args)
+			var usageErr *usageError
+			if !errors.As(err, &usageErr) {
+				t.Fatalf("error = %v, want *usageError", err)
+			}
+			if usageErr.message != test.want {
+				t.Fatalf("message = %q, want %q", usageErr.message, test.want)
+			}
+		})
+	}
+}
+
+func TestSessionMoveNormalizesParams(t *testing.T) {
+	params := normalizedParams(parseFlags([]string{
+		"session-1", "--workspace", "workspace-1",
+	}), "session", "move")
+	if params["id"] != "session-1" || params["workspace"] != "workspace-1" {
+		t.Fatalf("normalized params = %#v", params)
+	}
+	groupParams := normalizedParams(parseFlags([]string{
+		"session-1", "--group", "group-1",
+	}), "session", "move")
+	if groupParams["id"] != "session-1" || groupParams["group"] != "group-1" {
+		t.Fatalf("normalized group params = %#v", groupParams)
+	}
+}
+
+func TestEffectiveSessionTitlePrefersCustomTitle(t *testing.T) {
+	session := api.Session{Title: "Shell", CustomTitle: "My Shell"}
+	if got := effectiveSessionTitle(session); got != "My Shell" {
+		t.Fatalf("effective title with custom = %q, want My Shell", got)
+	}
+	session.CustomTitle = "   "
+	if got := effectiveSessionTitle(session); got != "Shell" {
+		t.Fatalf("effective title with blank custom = %q, want Shell", got)
+	}
+
+	rows := sessionRows(api.State{Sessions: []api.Session{{
+		ID: "session-1", Title: "Shell", CustomTitle: "My Shell",
+		Kind: "shell", Lifecycle: "running",
+	}}}, false, false)
+	if got := sessionRowCells(rows[0])[5]; got != "My Shell" {
+		t.Fatalf("session list title cell = %q, want My Shell", got)
+	}
+}
+
 func TestParseFlagsBareBooleanDoesNotConsumePositional(t *testing.T) {
 	params := parseFlags([]string{"session-1", "--raw", "hello world"})
 	if !boolValue(params, "raw") {
@@ -135,6 +203,47 @@ func TestParseFlagsBooleanEqualsStillWorks(t *testing.T) {
 	positions := positionals(params)
 	if len(positions) != 2 || positions[1] != "hello world" {
 		t.Fatalf("positionals = %q, want [session-1 hello world]", positions)
+	}
+}
+
+func TestCollectAgentTypeFlagsPreservesRepeatedValues(t *testing.T) {
+	values := collectAgentTypeFlags([]string{
+		"codex",
+		"--include", "user,assistant",
+		"--include=tool_call",
+		"--filter", "usage",
+	}, "include")
+	if got, want := strings.Join(values, ","), "user,assistant,tool_call"; got != want {
+		t.Fatalf("include values = %q, want %q", got, want)
+	}
+	filters := collectAgentTypeFlags([]string{"--filter", "usage", "--exclude=attachment"}, "filter", "exclude")
+	if got, want := strings.Join(filters, ","), "usage,attachment"; got != want {
+		t.Fatalf("filter values = %q, want %q", got, want)
+	}
+}
+
+func TestValidateAgentReadArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "all and recent", args: []string{"codex", "--all", "--recent", "10"}, want: "--all cannot"},
+		{name: "full and chars", args: []string{"codex", "--full", "--chars", "10"}, want: "--full cannot"},
+		{name: "unknown flag", args: []string{"codex", "--recnet", "10"}, want: "unknown flag"},
+		{name: "missing value", args: []string{"codex", "--workspace"}, want: "requires a value"},
+		{name: "missing include value", args: []string{"codex", "--include", "--all"}, want: "requires a value"},
+		{name: "short flag", args: []string{"codex", "-v"}, want: "unknown flag"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := validateAgentReadArgs(test.args); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate(%q) = %v, want error containing %q", test.args, err, test.want)
+			}
+		})
+	}
+	if help, err := validateAgentReadArgs([]string{"-h"}); err != nil || !help {
+		t.Fatalf("validate -h = help %v, err %v; want help", help, err)
 	}
 }
 
@@ -195,13 +304,14 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 			Path: "/srv/warren",
 		}},
 		Workspaces: []api.Workspace{{
-			ID:        "workspace-1",
-			ProjectID: "project-1",
-			Name:      "release/feature",
-			Path:      "/srv/warren/.worktrees/feature",
-			Branch:    "release/feature",
-			Kind:      "worktree",
-			CreatedAt: now,
+			ID:         "workspace-1",
+			ProjectID:  "project-1",
+			Name:       "release/feature",
+			Path:       "/srv/warren/.worktrees/feature",
+			Branch:     "release/feature",
+			Kind:       "worktree",
+			CreatedAt:  now,
+			MergeState: api.MergeStateMerged,
 		}},
 		Sessions: []api.Session{
 			{ID: "session-1", WorkspaceID: "workspace-1", Lifecycle: "running", CreatedAt: now},
@@ -223,6 +333,21 @@ func TestWorkspaceRowsJoinProjectAndCountRunningSessions(t *testing.T) {
 	}
 	if row.Workspace.ID != "workspace-1" || row.Kind != "worktree" {
 		t.Errorf("embedded workspace lost: %+v", row.Workspace)
+	}
+	if row.MergeState != api.MergeStateMerged {
+		t.Errorf("merge state = %q, want merged", row.MergeState)
+	}
+}
+
+func TestDisplayMergeState(t *testing.T) {
+	if got := displayMergeState(api.MergeStateMerged); got != "merged" {
+		t.Errorf("displayMergeState(merged) = %q, want merged", got)
+	}
+	if got := displayMergeState(api.MergeStateUnmerged); got != "" {
+		t.Errorf("displayMergeState(unmerged) = %q, want empty", got)
+	}
+	if got := displayMergeState(""); got != "" {
+		t.Errorf("displayMergeState(unknown) = %q, want empty", got)
 	}
 }
 

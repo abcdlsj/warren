@@ -147,7 +147,7 @@ final class GhosttyAdapterTests: XCTestCase {
             onResize: { _, _ in }
         )
 
-        var shortcuts = ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q"]
+        var shortcuts = ["super+t", "super+w", "super+x", "super+k", "super+b", "super+q", "super+f"]
         for index in 1...9 {
             shortcuts.append("super+\(index)")
             shortcuts.append("super+digit_\(index)")
@@ -347,15 +347,13 @@ final class GhosttyAdapterTests: XCTestCase {
 
     @MainActor
     func testOutputWriterDrainsFramedAndRawBytesOffMainInOrder() async throws {
-        let surface = GhosttySurface(
-            id: TerminalSessionID(),
-            attachmentID: TerminalAttachmentID(),
-            workingDirectory: "/tmp",
+        let recorder = LockedInputRecorder()
+        let (surface, _, window) = try await makeMountedTerminal(
+            recorder: recorder,
             outputRenderBudgetBytes: 4,
-            outputRenderYield: .milliseconds(1),
-            onInput: { _ in },
-            onResize: { _, _ in }
+            outputRenderYield: .milliseconds(1)
         )
+        defer { window.orderOut(nil) }
 
         surface.outputWriter.enqueue(epoch: 1, sequence: 0, payload: Data("abcd".utf8))
         surface.outputWriter.enqueue(epoch: 1, sequence: 4, payload: Data("ef".utf8))
@@ -388,12 +386,16 @@ private final class LockedInputRecorder: @unchecked Sendable {
 
 @MainActor
 private func makeMountedTerminal(
-    recorder: LockedInputRecorder
+    recorder: LockedInputRecorder,
+    outputRenderBudgetBytes: Int = 128 * 1024,
+    outputRenderYield: Duration = .milliseconds(8)
 ) async throws -> (GhosttySurface, AppTerminalView, NSWindow) {
     let surface = GhosttySurface(
         id: TerminalSessionID(),
         attachmentID: TerminalAttachmentID(),
         workingDirectory: "/tmp",
+        outputRenderBudgetBytes: outputRenderBudgetBytes,
+        outputRenderYield: outputRenderYield,
         onInput: { recorder.append($0) },
         onResize: { _, _ in }
     )

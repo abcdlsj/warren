@@ -692,6 +692,13 @@ final class WarrenRemoteApplicationModel {
             self.outputAnchors.removeValue(forKey: sessionID)
             self.suppressFramedAnchorUpdates.remove(sessionID)
         }
+        guard endpointConfiguration != configuration || eventTask == nil else {
+            // The root view's `.task` can restart on window transitions such
+            // as entering full screen. Tearing down and recreating an already
+            // healthy connection is both wasteful and the trigger for the
+            // terminal teardown deadlock, so keep the live connection instead.
+            return
+        }
         disconnect()
         restorePersistedTabOrders()
         endpointConfiguration = configuration
@@ -721,6 +728,10 @@ final class WarrenRemoteApplicationModel {
     }
 
     func disconnect() {
+        guard eventTask != nil || endpointConfiguration != nil || wire != nil
+            || surfaceManager.retainedSurfaceCount > 0 else {
+            return
+        }
         eventTask?.cancel()
         eventTask = nil
         endpointConfiguration = nil
@@ -737,6 +748,10 @@ final class WarrenRemoteApplicationModel {
         resetAttachmentState()
         webStatus = WarrenDesktopWebStatus()
         publishProjectionIfChanged(projection.withConnectionState(.disconnected))
+    }
+
+    func isConnected(to configuration: WarrenRemoteEndpointConfiguration) -> Bool {
+        endpointConfiguration == configuration && eventTask != nil
     }
 
     /// Keeps the endpoint alive across daemon restarts and transient network
@@ -899,10 +914,13 @@ final class WarrenRemoteApplicationModel {
                 // indication before the terminal attach indication begins so
                 // one user action never displays two spinners at once.
                 self.finishCreatingSession(in: workspaceID)
-                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
-                    selection: .workspace(workspaceID),
-                    selectedTabID: Self.tabID(sessionID)
-                ))
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(sessionID)),
+                        in: self.projection
+                    )
+                )
                 await self.attachSelectedSession()
             } catch {
                 self?.present(error)
@@ -932,10 +950,13 @@ final class WarrenRemoteApplicationModel {
                 guard let self,
                       self.selectedTerminalGroupID == terminalGroupID else { return }
                 self.finishCreatingSession(in: terminalGroupID)
-                self.publishNavigationIfChanged(WarrenDesktopNavigationState(
-                    selection: .terminalGroup(terminalGroupID),
-                    selectedTabID: Self.tabID(sessionID)
-                ))
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(sessionID)),
+                        in: self.projection
+                    )
+                )
                 await self.attachSelectedSession()
             } catch {
                 self?.present(error)
@@ -1277,6 +1298,8 @@ final class WarrenRemoteApplicationModel {
             request("terminal-group.move", params: params)
         case .moveTab(let tabID, let before):
             moveTab(tabID, before: before)
+        case .moveSession(let id, let destination):
+            moveSession(id, to: destination)
         case .importSuperset, .requestNewWorkspace, .requestNewSession,
              .toggleInspector, .toggleSidebar:
             break
@@ -1458,6 +1481,42 @@ final class WarrenRemoteApplicationModel {
                 Task { await self.refreshRosterIfConnected() }
             } else {
                 self.present(error)
+            }
+        }
+    }
+
+    private func moveSession(
+        _ id: TerminalSessionID,
+        to destination: WarrenDesktopSessionMoveDestination
+    ) {
+        guard let wire else { return }
+        let wasSelected = navigation.selectedTabID == Self.tabID(id)
+        var params = ["id": id.description]
+        switch destination {
+        case .workspace(let workspaceID):
+            params["workspace"] = workspaceID.description
+        case .terminalGroup(let groupID):
+            params["group"] = groupID.description
+        }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("session.move", params: params)
+                guard let self else { return }
+                try await self.refreshRoster(using: wire)
+                guard wasSelected else { return }
+                // The roster has already moved the tab into the destination
+                // context; selecting the same tab now transfers navigation
+                // (sidebar selection and active tab) with the UI.
+                self.publishNavigationIfChanged(
+                    WarrenDesktopNavigationReducer.reduce(
+                        self.navigation,
+                        action: .selectTab(Self.tabID(id)),
+                        in: self.projection
+                    )
+                )
+                await self.attachSelectedSession()
+            } catch {
+                self?.present(error)
             }
         }
     }
@@ -1922,23 +1981,19 @@ final class WarrenRemoteApplicationModel {
 
     private func selectSession(_ id: TerminalSessionID) {
         guard let session = projection.sessions.first(where: { $0.id == id }) else { return }
-        let selection: WarrenDesktopSidebarSelection
-        if let workspaceID = session.workspaceID {
-            selection = .workspace(workspaceID)
-        } else if let groupID = session.terminalGroupID {
-            selection = .terminalGroup(groupID)
-        } else {
-            return
-        }
+        guard session.workspaceID != nil || session.terminalGroupID != nil else { return }
         TerminalDiagnostics.log("select_session", [
             "session": id.description,
             "workspace": session.workspaceID?.description ?? "nil",
             "terminalGroup": session.terminalGroupID?.description ?? "nil",
         ])
-        publishNavigationIfChanged(WarrenDesktopNavigationState(
-            selection: selection,
-            selectedTabID: Self.tabID(id)
-        ))
+        publishNavigationIfChanged(
+            WarrenDesktopNavigationReducer.reduce(
+                navigation,
+                action: .openSession(id),
+                in: projection
+            )
+        )
         Task { await attachSelectedSession() }
     }
 

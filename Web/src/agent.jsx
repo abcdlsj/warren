@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { groupAgentEvents } from "./agent.js";
+import { sessionDisplayTitle } from "./title.js";
 
 export function AgentView({
   session,
@@ -23,6 +24,7 @@ export function AgentView({
   const skipFollowRef = useRef(false);
   const [draft, setDraft] = useState("");
   const blocks = groupAgentEvents(events);
+  const displayTitle = sessionDisplayTitle(session) || "Agent";
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -105,7 +107,7 @@ export function AgentView({
       onPointerDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()}
     >
-      <div ref={listRef} className="agent-events" aria-label={`${session.title || "Agent"} conversation`}>
+      <div ref={listRef} className="agent-events" aria-label={`${displayTitle} conversation`}>
         {hasMore && (
           <button
             ref={loadMoreRef}
@@ -143,28 +145,30 @@ export function AgentView({
             submit();
           }}
         >
-          <textarea
-            ref={inputRef}
-            value={draft}
-            onChange={event => setDraft(event.target.value)}
-            onKeyDown={event => {
-              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-            placeholder={`Message ${session.title || "agent"}…`}
-            aria-label="Message"
-            rows={1}
-            enterKeyHint="send"
-            autoCapitalize="off"
-            autoCorrect="off"
-            autoComplete="off"
-            spellCheck="false"
-          />
-          <button type="submit" className="agent-send" disabled={!draft.trim()} aria-label="Send">
-            <SendIcon />
-          </button>
+          <div className="agent-input-surface">
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={event => setDraft(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder={`Message ${displayTitle}…`}
+              aria-label="Message"
+              rows={1}
+              enterKeyHint="send"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck="false"
+            />
+            <button type="submit" className="agent-send" disabled={!draft.trim()} aria-label="Send">
+              <SendIcon />
+            </button>
+          </div>
         </form>
       ) : (
         <div className="agent-starting">
@@ -192,12 +196,18 @@ function AgentBlock({ block }) {
           <div className="agent-bubble">
             <MarkdownContent value={event.content || ""} />
           </div>
+          <div className="agent-message-meta">{formatMessageTime(event.timestamp)}</div>
         </div>
       );
     }
     return (
       <div className="agent-message assistant">
         <MarkdownContent value={event.content || ""} />
+        <div className="agent-message-meta">
+          {event.durationMs ? formatDuration(event.durationMs) : ""}
+          {event.durationMs && event.timestamp ? " · " : ""}
+          {formatMessageTime(event.timestamp)}
+        </div>
       </div>
     );
   }
@@ -254,6 +264,7 @@ function ActivityGroup({ block }) {
   const [open, setOpen] = useState(false);
   const status = groupStatus(tools);
   let step = 0;
+  const toolItems = order.filter(item => item.kind === "tool");
   return (
     <div className={`agent-activity-group ${status}`}>
       <button type="button" className="agent-activity-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -275,8 +286,15 @@ function ActivityGroup({ block }) {
                 </div>
               );
             }
-            return <ToolCard key={blockKindKey(item.block, index)} block={item.block} defaultOpen />;
+            return null;
           })}
+          {toolItems.length > 0 && (
+            <div className="agent-tool-group">
+              {toolItems.map((item, index) => (
+                <ToolCard key={blockKindKey(item.block, index)} block={item.block} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -285,11 +303,31 @@ function ActivityGroup({ block }) {
 
 function ToolCard({ block, defaultOpen = false }) {
   const call = block.call;
-  const lastOutput = block.outputs.at(-1);
-  const status = lastOutput?.toolStatus || call.toolStatus || (block.outputs.length ? "success" : "running");
+  const status = call.toolStatus || (block.outputs.length ? "success" : "running");
   const [open, setOpen] = useState(defaultOpen);
   const summary = toolDisplay(call, status);
   const isWebSearch = call.toolName === "web_search";
+  const isShell = call.toolName === "Bash" || call.toolName === "shell";
+  const shellCommand = isShell ? call.toolInput?.command : null;
+  const isCommand = Boolean(
+    shellCommand
+    || call.toolName === "exec"
+    || call.toolName === "Exec"
+    || call.toolInput?.cmd
+    || call.toolInput?.command,
+  );
+  const preview = shellCommand || summary;
+  if (isCommand) {
+    return (
+      <div className={`agent-tool-card command ${status}`}>
+        <code className="agent-tool-command">
+          <span className="agent-tool-prompt">$ </span>
+          {preview}
+        </code>
+        {!isWebSearch && <span className="agent-tool-status">{statusText(status)}</span>}
+      </div>
+    );
+  }
   return (
     <div className={`agent-tool-card ${status}`}>
       <button type="button" className="agent-tool-head" onClick={() => setOpen(!open)} aria-expanded={open}>
@@ -299,18 +337,18 @@ function ToolCard({ block, defaultOpen = false }) {
         {!isWebSearch && <span className="agent-tool-status">{statusText(status)}</span>}
       </button>
       {open && (
-        <div className="agent-tool-body">
-          {call.toolInput !== undefined && (
-            <div className="agent-tool-section">
-              <div className="agent-tool-label">Input</div>
-              <pre className="agent-body">{JSON.stringify(call.toolInput, null, 2)}</pre>
-            </div>
+        <div className="agent-tool-detail">
+          {shellCommand ? (
+            <pre className="agent-tool-code agent-tool-shell">
+              <span className="agent-tool-prompt">$ </span>
+              {shellCommand}
+            </pre>
+          ) : preview ? (
+            <pre className="agent-tool-code">{preview}</pre>
+          ) : (
+            <span className="agent-tool-waiting">Waiting for output…</span>
           )}
-          {block.outputs.map(output => <ToolOutputBody key={output.seq} event={output} />)}
           {call.files?.length > 0 && <FileList files={call.files} />}
-          {!block.outputs.length && (
-            <div className="agent-tool-label">Waiting for output…</div>
-          )}
         </div>
       )}
     </div>
@@ -351,7 +389,6 @@ function ToolOutputBody({ event }) {
   return (
     <div className="agent-tool-output">
       {event.error && <div className="agent-tool-error">{event.error}</div>}
-      {(event.output || "") !== "" && <pre className="agent-body">{event.output}</pre>}
       {event.files?.length > 0 && <FileList files={event.files} />}
     </div>
   );
@@ -403,7 +440,23 @@ function ChevronRightIcon() {
 function toolSummary(call) {
   const input = call.toolInput;
   if (!input || typeof input !== "object") return "";
-  if (typeof input.command === "string") return input.command;
+  // Codex's exec tool wraps commands in a JavaScript payload; extract the
+  // actual commands so the preview answers "what did it run?" instead of
+  // showing nothing.
+  if (typeof input.raw === "string") {
+    const commands = extractExecCommands(input.raw);
+    if (commands.length > 0) {
+      const first = truncatePreview(commands[0]);
+      return commands.length > 1
+        ? `${first}  (+${commands.length - 1} more)`
+        : first;
+    }
+    return input.raw.length > 200
+      ? `${input.raw.slice(0, 200)}…`
+      : input.raw;
+  }
+  if (typeof input.command === "string") return truncatePreview(input.command);
+  if (typeof input.cmd === "string") return truncatePreview(input.cmd);
   if (typeof input.file_path === "string") return input.file_path;
   if (typeof input.path === "string") return input.path;
   if (typeof input.query === "string") return input.query;
@@ -412,6 +465,25 @@ function toolSummary(call) {
   if (typeof input.url === "string") return input.url;
   if (Array.isArray(input.queries)) return input.queries.join(", ");
   return "";
+}
+
+function truncatePreview(value, maxLength = 140) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength)}…`;
+}
+
+function extractExecCommands(raw) {
+  const commands = [];
+  const pattern = /exec_command\(\s*\{\s*cmd\s*:\s*"(?:[^"\\]|\\.)*"/g;
+  let match;
+  while ((match = pattern.exec(raw))) {
+    const body = match[0];
+    const value = body.match(/cmd\s*:\s*"((?:[^"\\]|\\.)*)"/);
+    if (value) {
+      commands.push(value[1].replace(/\\(["\\])/g, "$1"));
+    }
+  }
+  return commands;
 }
 
 function toolDisplay(call, status) {
@@ -453,4 +525,11 @@ function formatDuration(milliseconds) {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+function formatMessageTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
