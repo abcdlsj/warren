@@ -66,7 +66,7 @@ func TestStatusForReportsUntrackedAndModified(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Change{
-		{Path: "a.txt", Status: "M"},
+		{Path: "a.txt", Status: "M", Added: 1, Deleted: 1},
 		{Path: "new.txt", Status: "?"},
 	}
 	if len(status.Changes) != len(want) {
@@ -97,7 +97,7 @@ func TestLogAndBranchesAndCheckout(t *testing.T) {
 		t.Fatalf("commits = %d, want 2", len(commits))
 	}
 	if commits[0].Subject != "dev commit" || len(commits[0].Files) != 1 ||
-		commits[0].Files[0] != (FileChange{Path: "dev.txt", Status: "A"}) {
+		commits[0].Files[0] != (FileChange{Path: "dev.txt", Status: "A", Added: 1}) {
 		t.Fatalf("latest commit = %#v", commits[0])
 	}
 
@@ -194,4 +194,85 @@ func TestCheckoutRemoteShortNameUsesDWIM(t *testing.T) {
 	if branch != "feature/y" {
 		t.Fatalf("branch = %q, want feature/y", branch)
 	}
+}
+
+func TestStatusForReportsLineCounts(t *testing.T) {
+	dir := newRepository(t)
+	// staged: modify a.txt (2 lines added), stage a new file
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\nb\nc\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("1\n2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, dir, "add", "-A")
+	// unstaged: tweak a.txt further and add an untracked file
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a\nb\nc\nd\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "untracked.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	status, err := StatusFor(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stagedA, unstagedA, staged, untracked Change
+	for _, change := range status.Changes {
+		switch change.Path {
+		case "a.txt":
+			if change.Staged {
+				stagedA = change
+			} else {
+				unstagedA = change
+			}
+		case "staged.txt":
+			staged = change
+		case "untracked.txt":
+			untracked = change
+		}
+	}
+	if !stagedA.Staged || stagedA.Status != "M" || stagedA.Added != 2 || stagedA.Deleted != 0 {
+		t.Errorf("staged a.txt = %#v, want staged M +2 -0", stagedA)
+	}
+	if unstagedA.Staged || unstagedA.Status != "M" || unstagedA.Added != 1 || unstagedA.Deleted != 0 {
+		t.Errorf("unstaged a.txt = %#v, want unstaged M +1 -0", unstagedA)
+	}
+	if staged.Status != "A" || staged.Added != 2 {
+		t.Errorf("staged.txt = %#v, want A +2", staged)
+	}
+	if untracked.Status != "?" || untracked.Added != 0 || untracked.Deleted != 0 {
+		t.Errorf("untracked.txt = %#v, want ? no counts", untracked)
+	}
+}
+
+func TestStatusForMergesRenameCounts(t *testing.T) {
+	dir := newRepository(t)
+	// Rename detected by git (high similarity), so porcelain v2 reports one
+	// R record and numstat merges the old deletions into the new path.
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("a\nb\nc\nd\ne\nf\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, dir, "add", "-A")
+	gitForTest(t, dir, "commit", "-q", "-m", "seed")
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("a\nb\nc\nd\ne\nf\nG\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "old.txt")); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, dir, "add", "-A")
+	status, err := StatusFor(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range status.Changes {
+		if change.RenameFrom != "" {
+			if change.Added != 1 || change.Deleted != 0 {
+				t.Errorf("rename change = %#v, want +1 -0", change)
+			}
+			return
+		}
+	}
+	t.Errorf("no rename change in %#v", status.Changes)
 }
