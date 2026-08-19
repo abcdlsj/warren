@@ -70,3 +70,43 @@ export function diffSummary(changes) {
     { added: 0, deleted: 0 },
   );
 }
+
+export function parseDiff(text) {
+  const rawLines = String(text || "").split("\n");
+  if (rawLines.at(-1) === "") rawLines.pop();
+  const lines = [];
+  let oldLine = 0;
+  let newLine = 0;
+  for (const raw of rawLines) {
+    if (raw.startsWith("@@")) {
+      const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+      if (match) {
+        oldLine = Number(match[1]);
+        newLine = Number(match[2]);
+      }
+      lines.push({ kind: "hunk", oldLine: "", newLine: "", text: raw });
+    } else if (
+      raw.startsWith("diff --git") ||
+      raw.startsWith("index ") ||
+      raw.startsWith("--- ") ||
+      raw.startsWith("+++ ") ||
+      raw.startsWith("new file mode") ||
+      raw.startsWith("deleted file mode") ||
+      raw.startsWith("\\ No newline") ||
+      raw.startsWith("Binary files")
+    ) {
+      lines.push({ kind: "meta", oldLine: "", newLine: "", text: raw });
+    } else if (raw.startsWith("+")) {
+      lines.push({ kind: "add", oldLine: "", newLine, text: raw.slice(1) });
+      newLine += 1;
+    } else if (raw.startsWith("-")) {
+      lines.push({ kind: "del", oldLine, newLine: "", text: raw.slice(1) });
+      oldLine += 1;
+    } else {
+      lines.push({ kind: "context", oldLine, newLine, text: raw.slice(1) });
+      oldLine += 1;
+      newLine += 1;
+    }
+  }
+  return lines;
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { normalizeGitPanel, relativeTime, statusLabel, statusSymbol, diffSummary } from "./git.js";
+import { normalizeGitPanel, relativeTime, statusLabel, statusSymbol, diffSummary, parseDiff } from "./git.js";
 
 function DiffCounts({ added, deleted }) {
   if (!added && !deleted) return null;
@@ -81,6 +81,7 @@ export function GitPanel({
   const [expanded, setExpanded] = useState(new Set());
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState({ loading: false, text: "", error: "" });
+  const diffLines = useMemo(() => (diff.text ? parseDiff(diff.text) : []), [diff.text]);
   const busy = Boolean(action) || loading;
 
   useEffect(() => {
@@ -257,7 +258,16 @@ export function GitPanel({
           ) : diff.error ? (
             <p className="git-error">{diff.error}</p>
           ) : diff.text ? (
-            <pre className="git-diff-view">{diff.text}</pre>
+            <pre className="git-diff-view">
+              {diffLines.map((line, index) => (
+                <div key={index} className={`git-diff-line git-diff-line-${line.kind}`}>
+                  <span className="git-diff-line-num">{line.oldLine}</span>
+                  <span className="git-diff-line-num">{line.newLine}</span>
+                  <span className="git-diff-line-mark">{line.kind === "add" ? "+" : line.kind === "del" ? "-" : ""}</span>
+                  <span className="git-diff-line-text">{line.text}</span>
+                </div>
+              ))}
+            </pre>
           ) : (
             <p className="git-empty">No changes to show.</p>
           )}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeGitPanel, statusLabel, statusSymbol, relativeTime, diffSummary } from "./git.js";
+import { normalizeGitPanel, statusLabel, statusSymbol, relativeTime, diffSummary, parseDiff } from "./git.js";
 
 test("normalizeGitPanel groups staged and unstaged changes", () => {
   const panel = normalizeGitPanel({
@@ -86,4 +86,43 @@ test("normalizeGitPanel passes line counts through", () => {
   assert.equal(panel.staged[0].added, 3);
   assert.equal(panel.staged[0].deleted, 1);
   assert.equal(panel.commits[0].files[0].added, 4);
+});
+
+test("parseDiff splits unified diff into highlighted lines", () => {
+  const lines = parseDiff([
+    "diff --git a/a.txt b/a.txt",
+    "index 0000000..1111111 100644",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -1,2 +1,2 @@",
+    "-old",
+    "+new",
+    " same",
+  ].join("\n"));
+  assert.equal(lines[0].kind, "meta");
+  assert.equal(lines[4].kind, "hunk");
+  assert.deepEqual(lines[5], { kind: "del", oldLine: 1, newLine: "", text: "old" });
+  assert.deepEqual(lines[6], { kind: "add", oldLine: "", newLine: 1, text: "new" });
+  assert.deepEqual(lines[7], { kind: "context", oldLine: 2, newLine: 2, text: "same" });
+});
+
+test("parseDiff tracks line numbers across hunks", () => {
+  const lines = parseDiff([
+    "@@ -10,2 +10,2 @@",
+    " ctx",
+    "-gone",
+    "+added",
+    "@@ -30 +30,2 @@",
+    " tail",
+  ].join("\n"));
+  assert.deepEqual(lines[1], { kind: "context", oldLine: 10, newLine: 10, text: "ctx" });
+  assert.deepEqual(lines[2], { kind: "del", oldLine: 11, newLine: "", text: "gone" });
+  assert.deepEqual(lines[3], { kind: "add", oldLine: "", newLine: 11, text: "added" });
+  assert.deepEqual(lines[5], { kind: "context", oldLine: 30, newLine: 30, text: "tail" });
+});
+
+test("parseDiff tolerates empty and null input", () => {
+  assert.deepEqual(parseDiff(""), []);
+  assert.deepEqual(parseDiff(null), []);
+  assert.deepEqual(parseDiff(undefined), []);
 });

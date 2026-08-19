@@ -3463,11 +3463,45 @@ button:disabled {
   flex: 1;
   min-height: 0;
   margin: 0;
-  padding: 0 var(--space-md) var(--space-md);
+  padding: 0 0 var(--space-md);
   overflow: auto;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-xs);
   line-height: 1.5;
-  white-space: pre;
   color: var(--color-text-primary);
+}
+
+.git-diff-line {
+  display: flex;
+  white-space: pre;
+}
+
+.git-diff-line-num {
+  flex: 0 0 3ch;
+  padding: 0 var(--space-sm) 0 var(--space-md);
+  text-align: end;
+  color: var(--color-text-disabled);
+  user-select: none;
+}
+
+.git-diff-line-mark {
+  flex: 0 0 1.5ch;
+  color: var(--color-text-secondary);
+}
+
+.git-diff-line-add {
+  background: color-mix(in srgb, var(--color-status-success) 16%, transparent);
+}
+
+.git-diff-line-del {
+  background: color-mix(in srgb, var(--color-status-danger) 16%, transparent);
+}
+
+.git-diff-line-hunk {
+  background: var(--color-accent-subtle);
+  color: var(--color-text-secondary);
+}
+
+.git-diff-line-meta {
+  color: var(--color-text-disabled);
 }
