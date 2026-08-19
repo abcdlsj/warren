@@ -57,6 +57,7 @@ import {
   TopBar,
   WorktreeImportDialog,
 } from "./components.jsx";
+import { GitPanel } from "./gitpanel.jsx";
 import { enableTerminalTouchScroll } from "./touch.js";
 
 const storageKeys = {
@@ -138,6 +139,11 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [gitOpen, setGitOpen] = useState(false);
+  const [gitPanel, setGitPanel] = useState(null);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState("");
+  const [gitAction, setGitAction] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false);
   const [terminalSearchQuery, setTerminalSearchQuery] = useState("");
@@ -265,6 +271,37 @@ export default function App() {
       settingsLoadedRef.current = false;
     }
   }, [applyRemoteSettings, request]);
+
+  const loadGitPanel = useCallback(() => {
+    const workspaceID = selectedWorkspaceID;
+    if (!workspaceID) return;
+    setGitLoading(true);
+    setGitError("");
+    request("git.panel", { workspace: workspaceID }, result => {
+      setGitPanel(result);
+      setGitLoading(false);
+    }, error => {
+      setGitPanel(null);
+      setGitError(error);
+      setGitLoading(false);
+    });
+  }, [request, selectedWorkspaceID]);
+
+  const runGitAction = useCallback((method, params) => {
+    setGitAction(method);
+    setGitError("");
+    request(method, params, () => {
+      setGitAction("");
+      loadGitPanel();
+    }, error => {
+      setGitAction("");
+      setGitError(error);
+    });
+  }, [request, loadGitPanel]);
+
+  useEffect(() => {
+    if (gitOpen) loadGitPanel();
+  }, [gitOpen, loadGitPanel]);
 
   const loadAgentHistory = useCallback((sessionID, before = 0) => {
     const params = { session: sessionID, limit: "200" };
@@ -1774,7 +1811,7 @@ export default function App() {
   return (
     <>
       <h1 className="visually-hidden">Warren</h1>
-      <div className={`app${drawerOpen ? " drawer-open" : ""}`} hidden={settingsOpen}>
+      <div className={`app${drawerOpen ? " drawer-open" : ""}${gitOpen && !isMobile ? " git-panel-open" : ""}`} hidden={settingsOpen}>
         <a className="skip-link" href="#main">Skip to content</a>
         <Sidebar
           catalog={catalog}
@@ -1824,6 +1861,8 @@ export default function App() {
                 onNewSession={() => createSession("shell")}
                 onOpenMenu={() => setDrawerOpen(true)}
                 onOpenSearch={() => setSearchOpen(true)}
+                onToggleGit={() => setGitOpen(open => !open)}
+                gitActive={gitOpen}
                 onTabContextMenu={sessionContextMenu}
               />
               <PresetBar presets={orderedPresets} onCreateSession={createSession} />
@@ -1900,6 +1939,20 @@ export default function App() {
           </section>
           {!agentViewActive && <MobileKeys onInput={sendInput} />}
         </main>
+        {!isMobile && gitOpen && (
+          <GitPanel
+            workspaceName={selectedWorkspace?.name}
+            panel={gitPanel}
+            loading={gitLoading}
+            error={gitError}
+            action={gitAction}
+            onRefresh={loadGitPanel}
+            onPull={() => runGitAction("git.pull", { workspace: selectedWorkspaceID })}
+            onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
+            onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
+            onClose={() => setGitOpen(false)}
+          />
+        )}
       </div>
       <SettingsPage
         open={settingsOpen}
