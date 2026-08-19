@@ -258,6 +258,7 @@ final class WarrenDesktopTests: XCTestCase {
             onSelectTab: { _ in },
             onMoveTab: { _, _ in },
             sessionMoveTargets: [],
+            sessionMoveDestinations: [:],
             onMoveSession: { _, _ in },
             canAddTab: true,
             isAddingTab: false,
