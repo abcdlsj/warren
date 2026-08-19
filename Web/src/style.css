@@ -3254,6 +3254,13 @@ button:disabled {
   margin-top: var(--space-md);
 }
 
+.git-actions .chrome-button,
+.git-checkout-row .chrome-button {
+  width: auto;
+  min-width: 48px;
+  padding: 0 var(--space-sm);
+}
+
 .chrome-button.active {
   color: var(--color-accent-text);
   background: var(--color-accent-subtle);
