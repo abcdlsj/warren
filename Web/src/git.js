@@ -34,6 +34,10 @@ export function statusLabel(status) {
   return statusLabels[status] || status;
 }
 
+export function statusSymbol(status) {
+  return status === "?" ? "??" : status;
+}
+
 export function relativeTime(iso) {
   if (!iso) return "";
   const date = new Date(iso);

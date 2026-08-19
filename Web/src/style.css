@@ -3297,8 +3297,10 @@ button:disabled {
 .git-status-A { color: var(--color-status-success); }
 .git-status-D { color: var(--color-status-danger); }
 .git-status-R { color: var(--color-status-ready); }
+.git-status-C { color: var(--color-status-success); }
+.git-status-T { color: var(--color-status-warning); }
 .git-status-U { color: var(--color-status-warning); }
-.git-status-\? { color: var(--color-text-secondary); }
+.git-status-\? { color: var(--color-text-link); }
 
 .git-change-path {
   overflow: hidden;
