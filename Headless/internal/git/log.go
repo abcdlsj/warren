@@ -27,7 +27,7 @@ type Commit struct {
 
 func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
 	output, err := run(ctx, dir, "-c", "core.quotepath=false", "log",
-		"--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00",
+		"-M", "--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00",
 		"-n", strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
