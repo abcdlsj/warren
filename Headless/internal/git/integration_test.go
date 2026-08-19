@@ -170,3 +170,28 @@ func TestPullFailsFastWhenDiverged(t *testing.T) {
 		t.Fatalf("pull error = %q, want fast-forward hint", err.Error())
 	}
 }
+
+func TestCheckoutRemoteShortNameUsesDWIM(t *testing.T) {
+	upstream := newRepository(t)
+	gitForTest(t, upstream, "checkout", "-q", "-b", "feature/y")
+	if err := os.WriteFile(filepath.Join(upstream, "y.txt"), []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, upstream, "add", "-A")
+	gitForTest(t, upstream, "commit", "-m", "y")
+	gitForTest(t, upstream, "checkout", "-q", "main")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitForTest(t, filepath.Dir(upstream), "clone", "-q", upstream, clone)
+
+	if err := Checkout(context.Background(), clone, "feature/y", false); err != nil {
+		t.Fatal(err)
+	}
+	branch, err := CurrentBranch(context.Background(), clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if branch != "feature/y" {
+		t.Fatalf("branch = %q, want feature/y", branch)
+	}
+}
