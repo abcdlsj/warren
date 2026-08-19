@@ -510,7 +510,7 @@ private struct WarrenDesktopSessionRow: View {
                         WarrenDesktopActivityIndicator(activity: activity)
                     }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(session.title)
+                        Text(session.displayTitle)
                             .font(WarrenTypography.navigationItem)
                             .foregroundStyle(tokens.foreground.opacity(0.86))
                             .lineLimit(1)
@@ -530,7 +530,7 @@ private struct WarrenDesktopSessionRow: View {
             .warrenSemanticElement(
                 id: "session.\(session.id.description)",
                 role: .button,
-                label: "Open Session \(session.title)",
+                label: "Open Session \(session.displayTitle)",
                 value: isSelected ? "Selected" : nil,
                 isSelected: isSelected,
                 action: onOpen
@@ -546,12 +546,12 @@ private struct WarrenDesktopSessionRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(tokens.destructive)
-                .accessibilityLabel("Delete Session \(session.title)")
+                .accessibilityLabel("Delete Session \(session.displayTitle)")
                 .help("Delete Session")
                 .warrenSemanticElement(
                     id: "session.\(session.id.description).delete",
                     role: .button,
-                    label: "Delete Session \(session.title)",
+                    label: "Delete Session \(session.displayTitle)",
                     action: onDelete
                 )
             }

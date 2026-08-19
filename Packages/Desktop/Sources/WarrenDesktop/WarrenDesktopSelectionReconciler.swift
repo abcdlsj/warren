@@ -5,16 +5,44 @@ import WarrenDomain
 ///
 /// Host snapshots own durable projects, workspaces, sessions and tabs. This
 /// value owns only which of those values the foreground window is presenting.
+public struct WarrenDesktopNavigationMemory: Codable, Equatable, Hashable, Sendable {
+    /// The last workspace selected from each project.
+    public var workspaceByProjectID: [String: String]
+    /// The last tab selected in each workspace.
+    public var tabByWorkspaceID: [String: String]
+    /// The last tab selected in each terminal group.
+    public var tabByTerminalGroupID: [String: String]
+
+    public var isEmpty: Bool {
+        workspaceByProjectID.isEmpty
+            && tabByWorkspaceID.isEmpty
+            && tabByTerminalGroupID.isEmpty
+    }
+
+    public init(
+        workspaceByProjectID: [String: String] = [:],
+        tabByWorkspaceID: [String: String] = [:],
+        tabByTerminalGroupID: [String: String] = [:]
+    ) {
+        self.workspaceByProjectID = workspaceByProjectID
+        self.tabByWorkspaceID = tabByWorkspaceID
+        self.tabByTerminalGroupID = tabByTerminalGroupID
+    }
+}
+
 public struct WarrenDesktopNavigationState: Equatable, Hashable, Sendable {
     public var selection: WarrenDesktopSidebarSelection?
     public var selectedTabID: String?
+    public var memory: WarrenDesktopNavigationMemory
 
     public init(
         selection: WarrenDesktopSidebarSelection? = nil,
-        selectedTabID: String? = nil
+        selectedTabID: String? = nil,
+        memory: WarrenDesktopNavigationMemory = WarrenDesktopNavigationMemory()
     ) {
         self.selection = selection
         self.selectedTabID = selectedTabID
+        self.memory = memory
     }
 }
 
@@ -44,41 +72,90 @@ public enum WarrenDesktopNavigationReducer {
     ) -> WarrenDesktopNavigationState {
         switch action {
         case .selectProject(let projectID):
-            guard let workspace = projection.firstWorkspace(in: projectID) else {
+            guard let workspace = rememberedWorkspace(
+                for: projectID,
+                memory: state.memory,
+                projection: projection
+            ) ?? projection.firstWorkspace(in: projectID) else {
                 return WarrenDesktopNavigationState(
                     selection: .project(projectID),
-                    selectedTabID: nil
+                    selectedTabID: nil,
+                    memory: state.memory
                 )
             }
-            return WarrenDesktopNavigationState(
+            let next = WarrenDesktopNavigationState(
                 selection: .workspace(workspace.id),
-                selectedTabID: firstTabID(inWorkspace: workspace.id, projection: projection)
+                selectedTabID: rememberedTab(
+                    in: workspace.id,
+                    memory: state.memory,
+                    projection: projection
+                ) ?? firstTabID(inWorkspace: workspace.id, projection: projection),
+                memory: state.memory
+            )
+            return remembering(
+                remembering(workspace: workspace.id, in: next, projection: projection),
+                in: projection
             )
         case .selectWorkspace(let workspaceID):
-            return WarrenDesktopNavigationState(
+            let next = WarrenDesktopNavigationState(
                 selection: .workspace(workspaceID),
-                selectedTabID: firstTabID(inWorkspace: workspaceID, projection: projection)
+                selectedTabID: rememberedTab(
+                    in: workspaceID,
+                    memory: state.memory,
+                    projection: projection
+                ) ?? firstTabID(inWorkspace: workspaceID, projection: projection),
+                memory: state.memory
+            )
+            return remembering(
+                remembering(workspace: workspaceID, in: next, projection: projection),
+                in: projection
             )
         case .selectTerminalGroup(let groupID):
-            return WarrenDesktopNavigationState(
+            let next = WarrenDesktopNavigationState(
                 selection: .terminalGroup(groupID),
-                selectedTabID: firstTabID(inTerminalGroup: groupID, projection: projection)
+                selectedTabID: rememberedTab(
+                    in: groupID,
+                    memory: state.memory,
+                    projection: projection
+                ) ?? firstTabID(inTerminalGroup: groupID, projection: projection),
+                memory: state.memory
             )
+            return remembering(next, in: projection)
         case .selectTab(let tabID):
             guard projection.tabs.contains(where: { $0.id == tabID }) else { return state }
             let selection = selection(for: tabID, in: projection) ?? state.selection
-            return WarrenDesktopNavigationState(selection: selection, selectedTabID: tabID)
+            return remembering(
+                WarrenDesktopNavigationState(
+                    selection: selection,
+                    selectedTabID: tabID,
+                    memory: state.memory
+                ),
+                in: projection
+            )
         case .openSession(let sessionID):
             guard let session = projection.sessions.first(where: { $0.id == sessionID }) else {
                 return state
             }
             guard let selection = selection(for: session.id, in: projection) else { return state }
-            return WarrenDesktopNavigationState(selection: selection, selectedTabID: session.tabID)
+            return remembering(
+                WarrenDesktopNavigationState(
+                    selection: selection,
+                    selectedTabID: session.tabID,
+                    memory: state.memory
+                ),
+                in: projection
+            )
         case .deleteSession(let sessionID):
             guard projection.sessions.contains(where: { $0.id == sessionID }) else { return state }
             let deletedTabID = projection.sessions.first { $0.id == sessionID }?.tabID
-            guard state.selectedTabID == deletedTabID else { return state }
-            return WarrenDesktopNavigationState(selection: state.selection, selectedTabID: nil)
+            var next = state
+            if let deletedTabID {
+                forget(tabID: deletedTabID, from: &next.memory)
+            }
+            if state.selectedTabID == deletedTabID {
+                next.selectedTabID = nil
+            }
+            return next
         case .closeTab(let tabID):
             guard state.selectedTabID == tabID else { return state }
             let tabs = tabs(for: state.selection, projection: projection)
@@ -89,7 +166,8 @@ public enum WarrenDesktopNavigationReducer {
             guard let replacement else {
                 return WarrenDesktopNavigationState(
                     selection: state.selection,
-                    selectedTabID: nil
+                    selectedTabID: nil,
+                    memory: forgetting(tabID: tabID, from: state.memory)
                 )
             }
             return reduce(state, action: .selectTab(replacement.id), in: projection)
@@ -98,7 +176,8 @@ public enum WarrenDesktopNavigationReducer {
         case .closeAllTabs:
             return WarrenDesktopNavigationState(
                 selection: state.selection,
-                selectedTabID: nil
+                selectedTabID: nil,
+                memory: state.memory
             )
         case .restoreNavigation(let restoredState):
             return reconcile(restoredState, with: projection)
@@ -107,7 +186,7 @@ public enum WarrenDesktopNavigationReducer {
              .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,
              .dismissActivity,
-             .moveTab, .moveProject, .moveWorkspace,
+             .moveTab, .moveSession, .moveProject, .moveWorkspace,
              .requestNewSession, .launchSession,
              .requestNewTerminalGroupSession, .launchTerminalGroupSession,
              .createTerminalGroup, .renameTerminalGroup, .setTerminalGroupHome,
@@ -127,20 +206,139 @@ public enum WarrenDesktopNavigationReducer {
         if let tabID = state.selectedTabID,
            projection.tabs.contains(where: { $0.id == tabID }),
            tab(tabID, belongsTo: selection, in: projection) {
-            return WarrenDesktopNavigationState(selection: selection, selectedTabID: tabID)
+            return remembering(
+                WarrenDesktopNavigationState(
+                    selection: selection,
+                    selectedTabID: tabID,
+                    memory: state.memory
+                ),
+                in: projection
+            )
         }
 
         // A valid explicit workspace with no selected tab is an intentional
         // empty workspace view. Background snapshot publications must not
         // steal focus by selecting an unrelated tab.
         if hadValidSelection, state.selectedTabID == nil {
-            return WarrenDesktopNavigationState(selection: selection, selectedTabID: nil)
+            return WarrenDesktopNavigationState(
+                selection: selection,
+                selectedTabID: nil,
+                memory: state.memory
+            )
         }
 
-        return WarrenDesktopNavigationState(
+        let next = WarrenDesktopNavigationState(
             selection: selection,
-            selectedTabID: firstTabID(for: selection, projection: projection)
+            selectedTabID: rememberedTab(
+                for: selection,
+                memory: state.memory,
+                projection: projection
+            ) ?? firstTabID(for: selection, projection: projection),
+            memory: state.memory
         )
+        return remembering(next, in: projection)
+    }
+
+    private static func rememberedWorkspace(
+        for projectID: ProjectID,
+        memory: WarrenDesktopNavigationMemory,
+        projection: WarrenDesktopProjection
+    ) -> Workspace? {
+        guard let rawID = memory.workspaceByProjectID[projectID.description],
+              let workspaceID = WorkspaceID(uuidString: rawID),
+              let workspace = projection.workspace(id: workspaceID),
+              workspace.projectID == projectID else {
+            return nil
+        }
+        return workspace
+    }
+
+    private static func rememberedTab(
+        in workspaceID: WorkspaceID,
+        memory: WarrenDesktopNavigationMemory,
+        projection: WarrenDesktopProjection
+    ) -> String? {
+        guard let tabID = memory.tabByWorkspaceID[workspaceID.description],
+              projection.workspaceID(forTabID: tabID) == workspaceID else {
+            return nil
+        }
+        return tabID
+    }
+
+    private static func rememberedTab(
+        in groupID: TerminalGroupID,
+        memory: WarrenDesktopNavigationMemory,
+        projection: WarrenDesktopProjection
+    ) -> String? {
+        guard let tabID = memory.tabByTerminalGroupID[groupID.description],
+              projection.terminalGroupID(forTabID: tabID) == groupID else {
+            return nil
+        }
+        return tabID
+    }
+
+    private static func rememberedTab(
+        for selection: WarrenDesktopSidebarSelection?,
+        memory: WarrenDesktopNavigationMemory,
+        projection: WarrenDesktopProjection
+    ) -> String? {
+        switch selection {
+        case .workspace(let workspaceID):
+            return rememberedTab(in: workspaceID, memory: memory, projection: projection)
+        case .terminalGroup(let groupID):
+            return rememberedTab(in: groupID, memory: memory, projection: projection)
+        case .project, nil:
+            return nil
+        }
+    }
+
+    private static func remembering(
+        _ state: WarrenDesktopNavigationState,
+        in projection: WarrenDesktopProjection
+    ) -> WarrenDesktopNavigationState {
+        guard let tabID = state.selectedTabID,
+              let selection = selection(for: tabID, in: projection) else {
+            return state
+        }
+
+        var next = state
+        switch selection {
+        case .workspace(let workspaceID):
+            next.memory.tabByWorkspaceID[workspaceID.description] = tabID
+            if let workspace = projection.workspace(id: workspaceID) {
+                next.memory.workspaceByProjectID[workspace.projectID.description] = workspaceID.description
+            }
+        case .terminalGroup(let groupID):
+            next.memory.tabByTerminalGroupID[groupID.description] = tabID
+        case .project:
+            break
+        }
+        return next
+    }
+
+    private static func remembering(
+        workspace workspaceID: WorkspaceID,
+        in state: WarrenDesktopNavigationState,
+        projection: WarrenDesktopProjection
+    ) -> WarrenDesktopNavigationState {
+        guard let workspace = projection.workspace(id: workspaceID) else { return state }
+        var next = state
+        next.memory.workspaceByProjectID[workspace.projectID.description] = workspaceID.description
+        return next
+    }
+
+    private static func forget(tabID: String, from memory: inout WarrenDesktopNavigationMemory) {
+        memory.tabByWorkspaceID = memory.tabByWorkspaceID.filter { $0.value != tabID }
+        memory.tabByTerminalGroupID = memory.tabByTerminalGroupID.filter { $0.value != tabID }
+    }
+
+    private static func forgetting(
+        tabID: String,
+        from memory: WarrenDesktopNavigationMemory
+    ) -> WarrenDesktopNavigationMemory {
+        var next = memory
+        forget(tabID: tabID, from: &next)
+        return next
     }
 
     private static func tab(

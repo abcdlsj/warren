@@ -521,6 +521,90 @@ func TestEnsurePipeTimeoutFailsAttachWithoutWedging(t *testing.T) {
 	readBrowserMessage(t, connection, "synced")
 }
 
+func TestAttachPreparationTimeoutLeavesOutputWatcherUsable(t *testing.T) {
+	state := newStateWithSession(t, "session-prepare-timeout", "runtime-prepare-timeout")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-prepare-timeout", t.TempDir(), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 100 * time.Millisecond}
+	defer service.Shutdown()
+	session := state.Snapshot().Sessions[0]
+	if _, err := service.ensureOutput(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	lock := service.broadcastLock(session.ID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := runtime.Input(context.Background(), session.Runtime, []byte("output while attach is blocked\n")); err != nil {
+		t.Fatal(err)
+	}
+	service.PingOutput(session.ID)
+	waitForRingUpper(t, service, session.ID, uint64(len("output while attach is blocked\n")))
+
+	started := time.Now()
+	if _, _, err := service.prepareAttach(context.Background(), session); err == nil {
+		t.Fatal("prepareAttach unexpectedly succeeded while broadcast lock was held")
+	} else if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("prepareAttach remained blocked for %s", elapsed)
+	}
+}
+
+func TestTimedOutAttachDoesNotWedgeWebSocketCommands(t *testing.T) {
+	state := newStateWithSession(t, "session-command-timeout", "runtime-command-timeout")
+	runtime := newSpoolRuntime(t)
+	if err := runtime.Create(context.Background(), "runtime-command-timeout", t.TempDir(), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state, Runtime: runtime, CommandTimeout: 100 * time.Millisecond}
+	defer service.Shutdown()
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+	lock := service.broadcastLock("session-command-timeout")
+	lock.Lock()
+
+	attachID := store.NewID()
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: attachID, Method: "session.attach",
+		Params: map[string]any{"id": "session-command-timeout"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	_ = connection.SetReadDeadline(deadline)
+	for {
+		messageType, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("timed-out attach did not return: %v", err)
+		}
+		if messageType != websocket.TextMessage {
+			continue
+		}
+		var response api.Response
+		if json.Unmarshal(data, &response) != nil || response.Type != "response" || response.ID != attachID {
+			continue
+		}
+		if response.OK {
+			t.Fatalf("blocked attach unexpectedly succeeded: %#v", response.Result)
+		}
+		break
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+	lock.Unlock()
+
+	created := requestResult[api.Session](t, connection, "session.create", map[string]any{
+		"workspace": state.Snapshot().Workspaces[0].ID,
+		"kind":      "shell",
+	})
+	if created.Lifecycle != "running" {
+		t.Fatalf("session.create after attach timeout returned lifecycle %q", created.Lifecycle)
+	}
+}
+
 func waitForRingUpper(t *testing.T, service *Service, sessionID string, want uint64) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

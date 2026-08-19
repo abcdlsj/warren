@@ -26,11 +26,17 @@ public struct WarrenDesktopTabOrders: Codable, Hashable, Sendable {
 public enum WarrenDesktopNavigationPersistence {
     private static let selectionKey = "warren.desktop.navigation.selection"
     private static let selectedTabIDKey = "warren.desktop.navigation.selectedTabID"
+    private static let memoryKey = "warren.desktop.navigation.memory"
     private static let tabOrdersKey = "warren.desktop.navigation.tabOrders"
 
     public static func restore(from defaults: UserDefaults = .standard) -> WarrenDesktopNavigationState? {
+        let memory = restoreMemory(from: defaults)
         guard let rawSelection = defaults.string(forKey: selectionKey),
-              !rawSelection.isEmpty else { return nil }
+              !rawSelection.isEmpty else {
+            return memory.isEmpty
+                ? nil
+                : WarrenDesktopNavigationState(memory: memory)
+        }
         let parts = rawSelection.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return nil }
 
@@ -51,7 +57,8 @@ public enum WarrenDesktopNavigationPersistence {
 
         return WarrenDesktopNavigationState(
             selection: selection,
-            selectedTabID: defaults.string(forKey: selectedTabIDKey)
+            selectedTabID: defaults.string(forKey: selectedTabIDKey),
+            memory: memory
         )
     }
 
@@ -74,6 +81,21 @@ public enum WarrenDesktopNavigationPersistence {
         } else {
             defaults.removeObject(forKey: selectedTabIDKey)
         }
+        guard let data = try? JSONEncoder().encode(state.memory) else { return }
+        defaults.set(data, forKey: memoryKey)
+    }
+
+    private static func restoreMemory(
+        from defaults: UserDefaults
+    ) -> WarrenDesktopNavigationMemory {
+        guard let data = defaults.data(forKey: memoryKey),
+              let memory = try? JSONDecoder().decode(
+                  WarrenDesktopNavigationMemory.self,
+                  from: data
+              ) else {
+            return WarrenDesktopNavigationMemory()
+        }
+        return memory
     }
 
     public static func restoreTabOrders(

@@ -99,13 +99,16 @@ Deleting the first Group promotes the next ordered Group. If no Group remains,
 the Host creates `Inbox` before the next standalone Session is created.
 
 Moving a Session between Terminal Groups preserves its runtime, working
-directory, output history, and Session ID. Moving a Session between a
-Workspace and a Terminal Group is out of scope for this RFC.
+directory, output history, and Session ID. The same applies when moving a
+Session between a Workspace and a Terminal Group: the move only re-parents the
+durable record, so the tab appears under the destination context while the
+process, cwd, output history, and Session ID remain untouched.
 
 ## Protocol and persistence
 
 The Host roster exposes Terminal Groups and each Session's scope. Session
-creation accepts a scope rather than requiring a Workspace ID. The JSON state
+creation accepts a scope rather than requiring a Workspace ID, and
+`session.move` re-parents an existing Session between scopes. The JSON state
 schema migrates existing `workspace` Sessions without changing their identity
 or runtime.
 
@@ -131,6 +134,8 @@ warren terminal-group home GROUP_ID --path PATH
 warren terminal-group move GROUP_ID [--before OTHER_GROUP_ID]
 warren terminal-group remove GROUP_ID [--force]
 warren session create --group GROUP_ID
+warren session move SESSION_ID --workspace WORKSPACE_ID
+warren session move SESSION_ID --group GROUP_ID
 ```
 
 The existing `session create WORKSPACE_ID` form remains supported for
@@ -143,7 +148,6 @@ the canonical resource is stable.
 - drag-and-drop of Sessions between Groups;
 - Group-level environment profiles or initial commands;
 - runtime panes or tmux windows exposed as Group children;
-- moving Sessions between Workspace and Terminal Group scopes;
 - multi-client synchronized active Group or Tab selection.
 
 ## Acceptance criteria

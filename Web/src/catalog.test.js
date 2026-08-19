@@ -6,7 +6,7 @@ import {
   resolveRestoredWorkspace,
   restoreNavigationPosition,
 } from "./navigation.js";
-import { renderTerminalTitle, terminalTabTitle } from "./title.js";
+import { renderTerminalTitle, sessionDisplayTitle, terminalTabTitle } from "./title.js";
 import { escapeHTML } from "./view.js";
 
 test("catalog indexes workspaces and open tabs", () => {
@@ -49,6 +49,16 @@ test("catalog keeps agent binding fields on sessions", () => {
   assert.equal(session.agentSessionId, "thread-1");
   assert.equal(session.transcriptPath, "/work/rollout.jsonl");
   assert.equal(session.activity, "working");
+});
+
+test("catalog keeps merge state on workspaces", () => {
+  const catalog = buildCatalog(rosterFromMessage({
+    state: {
+      projects: [{ id: "project" }],
+      workspaces: [{ id: "workspace", project: "project", mergeState: "merged" }],
+    },
+  }));
+  assert.equal(catalog.workspaces[0].mergeState, "merged");
 });
 
 test("roster carries live process and directory over launch command", () => {
@@ -210,6 +220,13 @@ test("terminal tab title falls back without a directory", () => {
 
 test("terminal tab title falls back to agent kind without a directory", () => {
   assert.equal(terminalTabTitle({ title: "Codex", kind: "codex", process: "" }, {}), "Codex");
+});
+
+test("session display title prefers custom title", () => {
+  assert.equal(sessionDisplayTitle({ title: "Codex", customTitle: "My Agent" }), "My Agent");
+  assert.equal(sessionDisplayTitle({ title: "Codex" }), "Codex");
+  assert.equal(sessionDisplayTitle({ title: "Codex", customTitle: "   " }), "Codex");
+  assert.equal(sessionDisplayTitle({}), "");
 });
 
 test("HTML escaping is safe for text and attributes", () => {

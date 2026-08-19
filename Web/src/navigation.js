@@ -1,5 +1,57 @@
 import { workspaceTabs } from "./catalog.js";
 
+export function createNavigationMemory(raw = {}) {
+  const normalize = value => Object.fromEntries(
+    Object.entries(value && typeof value === "object" ? value : {}).filter(
+      ([key, item]) => typeof key === "string" && typeof item === "string" && item,
+    ),
+  );
+  return {
+    workspaceByProjectID: normalize(raw.workspaceByProjectID),
+    sessionByWorkspaceID: normalize(raw.sessionByWorkspaceID),
+  };
+}
+
+export function rememberNavigation(memory, catalog, workspaceID, sessionID = null) {
+  const next = createNavigationMemory(memory);
+  const workspace = catalog?.workspaces?.find(value => value.id === workspaceID);
+  if (!workspace) return next;
+
+  next.workspaceByProjectID[workspace.project] = workspaceID;
+  const tabs = workspaceTabs(catalog, workspaceID);
+  if (sessionID && tabs.some(tab => tab.id === sessionID)) {
+    next.sessionByWorkspaceID[workspaceID] = sessionID;
+  }
+  return next;
+}
+
+export function resolveProjectWorkspace(catalog, projectID, memory = {}) {
+  const workspaces = catalog?.workspacesByProject?.get(projectID) || [];
+  const normalized = createNavigationMemory(memory);
+  const rememberedID = normalized.workspaceByProjectID[projectID];
+  return workspaces.find(workspace => workspace.id === rememberedID)?.id
+    || workspaces[0]?.id
+    || null;
+}
+
+export function resolveWorkspaceSession(
+  catalog,
+  workspaceID,
+  memory = {},
+  preferredSessionID = null,
+) {
+  if (!catalog || !workspaceID) return null;
+  const tabs = workspaceTabs(catalog, workspaceID);
+  if (preferredSessionID && tabs.some(tab => tab.id === preferredSessionID)) {
+    return preferredSessionID;
+  }
+  const normalized = createNavigationMemory(memory);
+  const rememberedID = normalized.sessionByWorkspaceID[workspaceID];
+  return tabs.find(tab => tab.id === rememberedID)?.id
+    || tabs[0]?.id
+    || null;
+}
+
 export function captureNavigationPosition(state = {}) {
   return {
     workspaceID: state.activeWorkspace || null,

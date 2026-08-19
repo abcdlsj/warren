@@ -61,7 +61,7 @@ type rosterMessage struct {
 }
 
 func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPServer {
-	return &HTTPServer{
+	server := &HTTPServer{
 		Service: service,
 		Token:   token,
 		Logger:  logger,
@@ -74,6 +74,10 @@ func NewHTTPServer(service *Service, token string, logger *slog.Logger) *HTTPSer
 			},
 		},
 	}
+	if service != nil {
+		service.ClientsActive = func() bool { return server.peerCount() > 0 }
+	}
+	return server
 }
 
 // sameOrigin allows the Web UI served from any host/IP to open the WebSocket
@@ -900,6 +904,21 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"pinned": boolParam(params, "pinned")})
+	case "session.move":
+		id := stringParam(params, "id")
+		if id == "" {
+			return errors.New("session parameter required")
+		}
+		workspaceID := stringParam(params, "workspace")
+		groupID := stringParam(params, "group")
+		if workspaceID != "" && groupID != "" {
+			return errors.New("workspace and terminal group are mutually exclusive")
+		}
+		value, err := p.server.Service.MoveSession(ctx, id, workspaceID, groupID)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
 	case "session.attach":
 		id := stringParam(params, "id")
 		session, ok := p.server.Service.Session(id)

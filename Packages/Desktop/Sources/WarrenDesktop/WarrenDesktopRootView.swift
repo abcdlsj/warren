@@ -144,6 +144,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             projection.sessions.filter(\.pinned).map(\.id)
         )
         let isAddingSession = isAddingSession(in: presentation)
+        let sessionMoveTargets = makeSessionMoveTargets()
+        let sessionMoveDestinations = makeSessionMoveDestinations()
         ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 WarrenDesktopSidebar(
@@ -202,6 +204,11 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onSelectTab: { dispatch(.selectTab($0)) },
                         onMoveTab: { tabID, destinationTabID in
                             dispatch(.moveTab(tabID, before: destinationTabID))
+                        },
+                        sessionMoveTargets: sessionMoveTargets,
+                        sessionMoveDestinations: sessionMoveDestinations,
+                        onMoveSession: { sessionID, destination in
+                            dispatch(.moveSession(sessionID, to: destination))
                         },
                         canAddTab: presentation.workspace != nil || presentation.terminalGroup != nil,
                         isAddingTab: isAddingSession,
@@ -487,6 +494,39 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             return creatingSessionTerminalGroupIDs.contains(terminalGroup.id)
         }
         return false
+    }
+
+    private func makeSessionMoveTargets() -> [WarrenDesktopSessionMoveTarget] {
+        var targets: [WarrenDesktopSessionMoveTarget] = []
+        for group in projection.groups {
+            for workspace in group.workspaces {
+                targets.append(WarrenDesktopSessionMoveTarget(
+                    id: "workspace:\(workspace.id.description)",
+                    title: "\(group.project.name) / \(workspace.name)",
+                    destination: .workspace(workspace.id)
+                ))
+            }
+        }
+        for group in projection.terminalGroups {
+            targets.append(WarrenDesktopSessionMoveTarget(
+                id: "terminalGroup:\(group.id.description)",
+                title: group.name,
+                destination: .terminalGroup(group.id)
+            ))
+        }
+        return targets
+    }
+
+    private func makeSessionMoveDestinations() -> [TerminalSessionID: WarrenDesktopSessionMoveDestination] {
+        Dictionary(uniqueKeysWithValues: projection.sessions.compactMap { session in
+            if let workspaceID = projection.sessionWorkspaceIDs[session.id] {
+                return (session.id, .workspace(workspaceID))
+            }
+            if let groupID = projection.sessionTerminalGroupIDs[session.id] {
+                return (session.id, .terminalGroup(groupID))
+            }
+            return nil
+        })
     }
 
     private func addSession(in presentation: Presentation) {

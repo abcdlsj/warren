@@ -3,9 +3,12 @@ export const agentEventLimit = 2000;
 /**
  * Merges agent event batches by sequence number. Transcripts are append-only,
  * but a replayed history can overlap a live batch after a reconnect, so the
- * sequence is the stable identity.
+ * sequence is the stable identity. When `cap` is false (an explicit "load
+ * earlier" page), the merged array is not truncated: trimming the newest
+ * events would silently drop a middle chunk of the existing conversation and
+ * create a gap the user can never scroll back into.
  */
-export function mergeAgentEvents(existing = [], incoming = []) {
+export function mergeAgentEvents(existing = [], incoming = [], { cap = true } = {}) {
   const bySequence = new Map();
   for (const event of existing || []) {
     if (event && Number.isFinite(event.seq)) bySequence.set(event.seq, event);
@@ -15,7 +18,7 @@ export function mergeAgentEvents(existing = [], incoming = []) {
   }
   return [...bySequence.values()]
     .sort((left, right) => left.seq - right.seq)
-    .slice(-agentEventLimit);
+    .slice(cap ? -agentEventLimit : undefined);
 }
 
 /**

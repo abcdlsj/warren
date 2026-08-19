@@ -390,7 +390,9 @@ func (server *Server) webPage(response http.ResponseWriter, request *http.Reques
 
 func scopeWebPage(page, prefix string) string {
 	for _, attribute := range []string{"href", "src", "srcset"} {
-		page = strings.ReplaceAll(page, attribute+"=\"/assets/", attribute+"=\""+prefix+"/assets/")
+		for _, assetPrefix := range []string{"/assets/", "./assets/"} {
+			page = strings.ReplaceAll(page, attribute+"=\""+assetPrefix, attribute+"=\""+prefix+"/assets/")
+		}
 	}
 	resources := []string{"manifest.webmanifest"}
 	for resource := range webStaticResources {
@@ -398,7 +400,9 @@ func scopeWebPage(page, prefix string) string {
 	}
 	for _, resource := range resources {
 		for _, attribute := range []string{"href", "src", "srcset"} {
-			page = strings.ReplaceAll(page, attribute+"=\"/"+resource+"\"", attribute+"=\""+prefix+"/"+resource+"\"")
+			for _, resourcePrefix := range []string{"/", "./"} {
+				page = strings.ReplaceAll(page, attribute+"=\""+resourcePrefix+resource+"\"", attribute+"=\""+prefix+"/"+resource+"\"")
+			}
 		}
 	}
 	return page

@@ -26,6 +26,28 @@ test("mergeAgentEvents caps history at the agent event limit", () => {
   assert.equal(merged.at(-1).seq, agentEventLimit);
 });
 
+test("mergeAgentEvents keeps older pages intact when paginating", () => {
+  const existing = Array.from({ length: agentEventLimit }, (_, index) => ({
+    seq: index,
+    type: "system",
+  }));
+  const olderPage = Array.from({ length: 200 }, (_, index) => ({
+    seq: index - 200,
+    type: "user",
+    content: `old-${index}`,
+  }));
+  const merged = mergeAgentEvents(existing, olderPage, { cap: false });
+  assert.equal(merged.length, agentEventLimit + 200);
+  assert.equal(merged[0].seq, -200);
+  assert.equal(merged.at(-1).seq, agentEventLimit - 1);
+  // No middle gap: every sequence from the oldest loaded event to the newest
+  // live event is still present.
+  assert.deepEqual(
+    merged.map(event => event.seq),
+    Array.from({ length: agentEventLimit + 200 }, (_, index) => index - 200),
+  );
+});
+
 test("groupAgentEvents pairs tool calls with their outputs", () => {
   const blocks = groupAgentEvents([
     { seq: 1, type: "user", content: "hello" },

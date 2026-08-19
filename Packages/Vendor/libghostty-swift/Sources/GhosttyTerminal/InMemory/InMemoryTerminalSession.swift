@@ -11,6 +11,11 @@ import GhosttyKit
 public final class InMemoryTerminalSession: @unchecked Sendable {
     private let lock = NSLock()
     private var surface: ghostty_surface_t?
+    /// Set only after `setSurface` has finished flushing any pre-surface
+    /// bytes. `receive` refuses to write while this is false so buffered
+    /// output always precedes live output without holding `lock` across a
+    /// Ghostty call.
+    private var surfaceReady = false
     /// Host output received before a surface has attached. The read pump is
     /// armed the instant the child is spawned, but the ghostty surface is not
     /// built until the view mounts a turn later — so the shell's first prompt
@@ -36,15 +41,22 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     // MARK: - Surface Lifecycle
 
     func setSurface(_ surface: ghostty_surface_t?) {
+        var pending: Data?
         lock.lock()
-        defer { lock.unlock() }
         self.surface = surface
-        // Flush anything the host sent before the surface existed — the shell's
-        // first prompt at cold start. Runs under the same lock as `receive`, so
-        // these buffered bytes are written strictly before any live byte that
-        // arrives after attach: order is preserved and nothing double-renders.
-        if let surface, !pendingPreSurface.isEmpty {
-            pendingPreSurface.withUnsafeBytes { buffer in
+        surfaceReady = false
+        if surface != nil, !pendingPreSurface.isEmpty {
+            pending = pendingPreSurface
+            pendingPreSurface.removeAll(keepingCapacity: false)
+        }
+        lock.unlock()
+
+        // Flush anything the host sent before the surface existed — the
+        // shell's first prompt at cold start. The background writer now waits
+        // for `surfaceReady`, so this happens before any live byte is written
+        // and Ghostty is never called while `lock` is held.
+        if let surface, let pending, !pending.isEmpty {
+            pending.withUnsafeBytes { buffer in
                 guard let ptr = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
                     return
                 }
@@ -52,10 +64,16 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
             }
             TerminalDebugLog.log(
                 .output,
-                "terminal <- host flushed pre-surface \(pendingPreSurface.count) bytes"
+                "terminal <- host flushed pre-surface \(pending.count) bytes"
             )
-            pendingPreSurface.removeAll(keepingCapacity: false)
         }
+
+        lock.lock()
+        if surface != nil, self.surface == surface {
+            surfaceReady = true
+        }
+        lock.unlock()
+
         TerminalDebugLog.log(
             .lifecycle,
             "in-memory session surface=\(surface == nil ? "nil" : "set")"
@@ -75,6 +93,7 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
         }
 
         surface = nil
+        surfaceReady = false
         TerminalDebugLog.log(.lifecycle, "in-memory session surface=nil matched")
     }
 
@@ -82,6 +101,12 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return surface
+    }
+
+    public var isSurfaceReady: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return surface != nil && surfaceReady
     }
 
     // MARK: - Viewport Read
@@ -100,8 +125,11 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// `setSurface(_:)`, preventing reads against a surface mid-replacement.
     public func readViewportText() -> String? {
         lock.lock()
-        defer { lock.unlock() }
-        guard let surface else { return nil }
+        guard let surface, surfaceReady else {
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
 
         let topLeft = ghostty_point_s(
             tag: GHOSTTY_POINT_VIEWPORT,
@@ -150,10 +178,10 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     // MARK: - Receiving Data
 
     /// Feed data into the terminal from the host backend.
-    public func receive(_ data: Data) {
+    @discardableResult
+    public func receive(_ data: Data) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        guard let surface else {
+        guard let surface, surfaceReady else {
             // No surface yet — buffer instead of dropping so the shell's first
             // prompt survives the spawn→attach race. Flushed in `setSurface`.
             pendingPreSurface.append(data)
@@ -164,8 +192,10 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
                 .output,
                 "terminal <- host buffered pre-surface \(TerminalDebugLog.describe(data))"
             )
-            return
+            lock.unlock()
+            return false
         }
+        lock.unlock()
 
         TerminalDebugLog.log(
             .output,
@@ -178,6 +208,7 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
             }
             ghostty_surface_write_buffer(surface, ptr, UInt(buffer.count))
         }
+        return true
     }
 
     /// Feed a UTF-8 string into the terminal from the host backend.
@@ -203,14 +234,15 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// Signal that the host-managed process has exited.
     public func finish(exitCode: UInt32, runtimeMilliseconds: UInt64) {
         lock.lock()
-        defer { lock.unlock() }
-        guard let surface else {
+        guard let surface, surfaceReady else {
             TerminalDebugLog.log(
                 .lifecycle,
                 "process exit ignored: missing surface exitCode=\(exitCode) runtimeMs=\(runtimeMilliseconds)"
             )
+            lock.unlock()
             return
         }
+        lock.unlock()
 
         TerminalDebugLog.log(
             .lifecycle,
