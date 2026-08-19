@@ -12,6 +12,13 @@ func TestParseBranches(t *testing.T) {
 	}
 }
 
+func TestParseBranchesDropsOnlyHead(t *testing.T) {
+	list := parseBranches("", "origin/HEAD\n")
+	if len(list.Local) != 0 || len(list.Remote) != 0 {
+		t.Fatalf("list = %#v, want empty", list)
+	}
+}
+
 func TestParseBranchesEmpty(t *testing.T) {
 	list := parseBranches("", "")
 	if len(list.Local) != 0 || len(list.Remote) != 0 {
