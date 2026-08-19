@@ -664,8 +664,11 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var pendingInput = Data()
     @ObservationIgnored private var initialRefreshPending = false
     @ObservationIgnored private var currentRoster: RemoteRoster?
+    @ObservationIgnored private var rosterApplicationGeneration: UInt64 = 0
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
     @ObservationIgnored private var focusTask: Task<Void, Never>?
+    @ObservationIgnored private var deletionReconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var deletionReconciliationWire: WarrenRemoteWire?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
@@ -801,7 +804,7 @@ final class WarrenRemoteApplicationModel {
             let wasCurrentWire = self.wire === wire
             if wasCurrentWire {
                 self.wire = nil
-                clearDeletionState()
+                stopDeletionReconciliation()
             }
             await wire.close()
             guard !Task.isCancelled else { return }
@@ -1198,15 +1201,18 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func refreshRoster(
-        using wire: WarrenRemoteWire,
-        requireCurrent: Bool = false
-    ) async throws {
+    private func refreshRoster(using wire: WarrenRemoteWire) async throws {
+        let generation = rosterApplicationGeneration
         let data = try await wire.request("roster")
         let roster = try JSONDecoder().decode(RemoteRoster.self, from: data)
-        if requireCurrent {
-            guard self.wire === wire else { return }
-        }
+        // A refresh may race with a stream roster or another refresh. Only
+        // apply a response if this wire is still active and no newer roster
+        // has already been applied while the request was in flight.
+        guard self.wire === wire,
+              Self.shouldApplyRoster(
+                  startedAt: generation,
+                  currentGeneration: rosterApplicationGeneration
+              ) else { return }
         currentRoster = roster
         apply(roster)
     }
@@ -1528,16 +1534,24 @@ final class WarrenRemoteApplicationModel {
                     "force": "true",
                 ])
             } catch {
-                guard let self, self.wire === wire else { return }
-                self.deletingProjectIDs.remove(id)
-                self.present(error)
+                guard let self else { return }
+                if Self.isRemoteRequestOutcomeUnknown(error) {
+                    if self.wire === wire {
+                        self.ensureDeletionReconciliation(using: wire)
+                    }
+                } else {
+                    self.deletingProjectIDs.remove(id)
+                    if self.wire === wire {
+                        self.present(error)
+                    }
+                }
                 return
             }
-            // The roster normally arrives through the daemon's change stream;
-            // this refresh closes the gap when the request response wins the
-            // race with that stream.
+            // Keep the row busy until an authoritative roster confirms that
+            // the project is gone. The helper also retries when the refresh
+            // itself times out.
             guard let self, self.wire === wire else { return }
-            try? await self.refreshRoster(using: wire, requireCurrent: true)
+            self.ensureDeletionReconciliation(using: wire)
         }
     }
 
@@ -1554,15 +1568,24 @@ final class WarrenRemoteApplicationModel {
                     "remove_worktree": String(removeLocalWorktree),
                 ])
             } catch {
-                guard let self, self.wire === wire else { return }
-                self.deletingWorkspaceIDs.remove(id)
-                self.present(error)
+                guard let self else { return }
+                if Self.isRemoteRequestOutcomeUnknown(error) {
+                    if self.wire === wire {
+                        self.ensureDeletionReconciliation(using: wire)
+                    }
+                } else {
+                    self.deletingWorkspaceIDs.remove(id)
+                    if self.wire === wire {
+                        self.present(error)
+                    }
+                }
                 return
             }
-            // Keep the row busy until the authoritative roster no longer
-            // contains the workspace, even after the request is acknowledged.
+            // Keep the row busy until an authoritative roster confirms that
+            // the workspace is gone. The helper also retries when the refresh
+            // itself times out.
             guard let self, self.wire === wire else { return }
-            try? await self.refreshRoster(using: wire, requireCurrent: true)
+            self.ensureDeletionReconciliation(using: wire)
         }
     }
 
@@ -1652,8 +1675,56 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func clearDeletionState() {
+        stopDeletionReconciliation()
         deletingProjectIDs.removeAll()
         deletingWorkspaceIDs.removeAll()
+    }
+
+    private func stopDeletionReconciliation() {
+        deletionReconciliationTask?.cancel()
+        deletionReconciliationTask = nil
+        deletionReconciliationWire = nil
+    }
+
+    private var hasPendingDeletion: Bool {
+        !deletingProjectIDs.isEmpty || !deletingWorkspaceIDs.isEmpty
+    }
+
+    private func ensureDeletionReconciliation(using wire: WarrenRemoteWire) {
+        guard self.wire === wire, hasPendingDeletion else { return }
+        if deletionReconciliationWire === wire, deletionReconciliationTask != nil {
+            return
+        }
+        deletionReconciliationTask?.cancel()
+        deletionReconciliationWire = wire
+        deletionReconciliationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reconcilePendingDeletions(using: wire)
+            guard self.deletionReconciliationWire === wire else { return }
+            self.deletionReconciliationTask = nil
+            self.deletionReconciliationWire = nil
+        }
+    }
+
+    private func reconcilePendingDeletions(using wire: WarrenRemoteWire) async {
+        var delayMilliseconds = 500
+        while !Task.isCancelled,
+              self.wire === wire,
+              hasPendingDeletion {
+            do {
+                try await refreshRoster(using: wire)
+            } catch is CancellationError {
+                return
+            } catch {
+                // A timeout here does not prove that the deletion failed. Keep
+                // the row unavailable and retry the read-only reconciliation.
+            }
+            guard !Task.isCancelled,
+                  self.wire === wire,
+                  hasPendingDeletion else { return }
+            try? await Task.sleep(for: .milliseconds(delayMilliseconds))
+            delayMilliseconds = min(delayMilliseconds * 2, 15_000)
+        }
     }
 
     nonisolated static func isSessionAlreadyClosed(
@@ -1673,11 +1744,49 @@ final class WarrenRemoteApplicationModel {
         pending.intersection(live)
     }
 
+    nonisolated static func shouldApplyRoster(
+        startedAt generation: UInt64,
+        currentGeneration: UInt64
+    ) -> Bool {
+        generation == currentGeneration
+    }
+
+    nonisolated static func isRemoteRequestOutcomeUnknown(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return isTransportFailure(nsError)
+        }
+        guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError else {
+            return false
+        }
+        return underlying.domain == NSURLErrorDomain && isTransportFailure(underlying)
+    }
+
+    private nonisolated static func isTransportFailure(_ error: NSError) -> Bool {
+        switch URLError.Code(rawValue: error.code) {
+        case .cancelled,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .resourceUnavailable,
+             .secureConnectionFailed,
+             .timedOut:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func consume(_ event: RemoteWireEvent) async {
         switch event {
         case .roster(let roster):
             currentRoster = roster
             apply(roster)
+            if let wire {
+                ensureDeletionReconciliation(using: wire)
+            }
         case .agent(let sessionID, let activity):
             agentActivityBySessionID[sessionID] = activity
             if WarrenActivityDismissal.presentedActivity(
@@ -1687,7 +1796,7 @@ final class WarrenRemoteApplicationModel {
                 dismissedActivityBySessionID.removeValue(forKey: sessionID)
             }
             if let currentRoster {
-                apply(currentRoster)
+                apply(currentRoster, advancesGeneration: false)
             }
         case .maintenance(let message):
             maintenanceMessage = message?.isEmpty == false ? message : "Warren is updating"
@@ -1774,7 +1883,13 @@ final class WarrenRemoteApplicationModel {
         }
     }
 
-    private func apply(_ roster: RemoteRoster) {
+    private func apply(
+        _ roster: RemoteRoster,
+        advancesGeneration: Bool = true
+    ) {
+        if advancesGeneration {
+            rosterApplicationGeneration &+= 1
+        }
         loadRuntimeSettings()
         clearMaintenance()
         guard let hostID = HostID(uuidString: roster.host.id) else { return }

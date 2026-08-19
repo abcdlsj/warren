@@ -63,6 +63,7 @@ struct WarrenDesktopWorkspaceRow: View {
             role: .button,
             label: "Workspace \(workspace.name)",
             value: workspaceAccessibilityValue,
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
             action: { if !isInteractionDisabled { onSelect() } }
         )
@@ -135,11 +136,11 @@ struct WarrenDesktopWorkspaceRow: View {
             role: .button,
             label: "Workspace \(workspace.name)",
             value: workspaceAccessibilityValue,
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
             action: { if !isInteractionDisabled { onSelect() } }
         )
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarWorkspaceRowHeight)
-        .opacity(isInteractionDisabled ? 0.62 : 1)
         .padding(.leading, WarrenSpacing.compact + WarrenSpacing.xs)
         .padding(.trailing, WarrenSpacing.compact)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))

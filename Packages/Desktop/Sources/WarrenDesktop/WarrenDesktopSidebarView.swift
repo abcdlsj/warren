@@ -49,6 +49,7 @@ struct WarrenDesktopSidebar: View {
                         selection: selection,
                         deletingProjectIDs: deletingProjectIDs,
                         deletingWorkspaceIDs: deletingWorkspaceIDs,
+                        isInteractionDisabled: !projection.isConnected,
                         onAddProject: { onAction(.addProject) },
                         onRequestTerminalGroupCreate: onRequestTerminalGroupCreate,
                         onRequestTerminalGroupEdit: onRequestTerminalGroupEdit,

@@ -260,6 +260,37 @@ final class WarrenRemoteModelTests: XCTestCase {
         )
     }
 
+    func testRosterRefreshAppliesOnlyFromItsCurrentGeneration() {
+        XCTAssertTrue(WarrenRemoteApplicationModel.shouldApplyRoster(
+            startedAt: 4,
+            currentGeneration: 4
+        ))
+        XCTAssertFalse(WarrenRemoteApplicationModel.shouldApplyRoster(
+            startedAt: 4,
+            currentGeneration: 5
+        ))
+    }
+
+    func testRemoteTransportFailureHasUnknownRequestOutcome() {
+        let timeout = NSError(
+            domain: NSURLErrorDomain,
+            code: URLError.Code.timedOut.rawValue
+        )
+        let wrappedTimeout = NSError(
+            domain: "WarrenRemote",
+            code: 1,
+            userInfo: [NSUnderlyingErrorKey: timeout]
+        )
+        let rejected = NSError(
+            domain: "WarrenRemote",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "permission denied"]
+        )
+
+        XCTAssertTrue(WarrenRemoteApplicationModel.isRemoteRequestOutcomeUnknown(wrappedTimeout))
+        XCTAssertFalse(WarrenRemoteApplicationModel.isRemoteRequestOutcomeUnknown(rejected))
+    }
+
     func testActivityDismissalHidesOnlyTheDismissedState() {
         XCTAssertEqual(
             WarrenActivityDismissal.presentedActivity(

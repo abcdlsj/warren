@@ -54,6 +54,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     @State private var terminalGroupName = ""
     @State private var terminalGroupHome = ""
     @State private var pendingDeletion: WarrenDesktopDeletionRequest?
+    @State private var pendingDeletionEndpointID: String?
     @State private var deleteWorkspaceRemoveWorktree = false
     @State private var externalIDEFailure: WarrenDesktopExternalIDEFailure?
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
@@ -756,20 +757,62 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
 
     private func presentDeletion(_ request: WarrenDesktopDeletionRequest) {
         deleteWorkspaceRemoveWorktree = false
+        pendingDeletionEndpointID = selectedEndpointID
         withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
             pendingDeletion = request
         }
     }
 
     private func dismissDeletion() {
+        pendingDeletionEndpointID = nil
         withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
             pendingDeletion = nil
         }
     }
 
+    private func deletionValidation(
+        for request: WarrenDesktopDeletionRequest
+    ) -> (isEnabled: Bool, message: String?) {
+        guard pendingDeletionEndpointID == selectedEndpointID else {
+            return (false, "The endpoint changed. Close this dialog and choose the resource again.")
+        }
+        guard projection.isConnected else {
+            return (false, "Warren is reconnecting. Try again when the connection is restored.")
+        }
+        switch request {
+        case .workspace(let workspace, let project):
+            guard let liveWorkspace = projection.workspace(id: workspace.id) else {
+                return (false, "This workspace is no longer available.")
+            }
+            guard !deletingWorkspaceIDs.contains(workspace.id) else {
+                return (false, "This workspace is already being deleted.")
+            }
+            if deletingProjectIDs.contains(liveWorkspace.projectID)
+                || project.map({ deletingProjectIDs.contains($0.id) }) == true {
+                return (false, "Its project is already being deleted.")
+            }
+        case .project(let project, _):
+            guard let liveGroup = projection.groups.first(where: { $0.project.id == project.id }) else {
+                return (false, "This project is no longer available.")
+            }
+            guard !deletingProjectIDs.contains(project.id) else {
+                return (false, "This project is already being deleted.")
+            }
+            if liveGroup.workspaces.contains(where: { deletingWorkspaceIDs.contains($0.id) }) {
+                return (false, "A workspace in this project is already being deleted.")
+            }
+        case .terminalGroup(let group, _):
+            guard projection.terminalGroup(id: group.id) != nil else {
+                return (false, "This terminal group is no longer available.")
+            }
+        }
+        return (true, nil)
+    }
+
     @ViewBuilder
     private var deletionDialog: some View {
         if let pendingDeletion {
+            let validation = deletionValidation(for: pendingDeletion)
             WarrenModalBackdrop {
                 switch pendingDeletion {
                 case .workspace(let workspace, let project):
@@ -784,7 +827,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                                 removeLocalWorktree: deleteWorkspaceRemoveWorktree
                             ))
                             dismissDeletion()
-                        }
+                        },
+                        isConfirmEnabled: validation.isEnabled,
+                        validationMessage: validation.message
                     )
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 case .project(let project, let workspaceCount):
@@ -795,7 +840,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onConfirm: {
                             dispatch(.deleteProject(project.id))
                             dismissDeletion()
-                        }
+                        },
+                        isConfirmEnabled: validation.isEnabled,
+                        validationMessage: validation.message
                     )
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 case .terminalGroup(let group, let sessionCount):
@@ -806,7 +853,9 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                         onConfirm: {
                             dispatch(.deleteTerminalGroup(group.id))
                             dismissDeletion()
-                        }
+                        },
+                        isConfirmEnabled: validation.isEnabled,
+                        validationMessage: validation.message
                     )
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 }

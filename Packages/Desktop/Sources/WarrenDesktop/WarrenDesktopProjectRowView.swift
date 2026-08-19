@@ -3,6 +3,18 @@ import WarrenDesignSystem
 import WarrenDomain
 import WarrenObservation
 
+enum WarrenDesktopProjectDeletionKind: Equatable {
+    case project
+    case workspace
+
+    var accessibilityLabel: String {
+        switch self {
+        case .project: "Deleting project"
+        case .workspace: "Deleting workspace"
+        }
+    }
+}
+
 /// A project row mirrors Superset's `DashboardSidebarProjectRow`: the avatar
 /// leads, the workspace count sits beside the name, and the new-workspace plus
 /// remains available while the disclosure chevron overlays the avatar slot on
@@ -14,7 +26,7 @@ struct WarrenDesktopProjectRow: View {
     let isSelected: Bool
     let isExpanded: Bool
     let isPinned: Bool
-    let isDeleting: Bool
+    let deletionKind: WarrenDesktopProjectDeletionKind?
     let isInteractionDisabled: Bool
     let onSelect: () -> Void
     let onToggleExpansion: () -> Void
@@ -44,8 +56,8 @@ struct WarrenDesktopProjectRow: View {
             ZStack(alignment: .bottomTrailing) {
                 projectAvatar(tokens: tokens)
                     .frame(width: 24, height: 24)
-                if isDeleting {
-                    WarrenBrailleSpinner(size: 12, accessibilityLabel: "Deleting project")
+                if let deletionKind {
+                    WarrenBrailleSpinner(size: 12, accessibilityLabel: deletionKind.accessibilityLabel)
                         .background(tokens.sidebarSurface, in: Circle())
                         .offset(x: 5, y: 5)
                 }
@@ -57,7 +69,6 @@ struct WarrenDesktopProjectRow: View {
         .frame(width: 32, height: 32)
         .contentShape(.rect)
         .foregroundStyle(tokens.mutedForeground)
-        .opacity(isInteractionDisabled ? 0.62 : 1)
         .clipShape(.rect(cornerRadius: WarrenRadius.row))
         .accessibilityLabel("Project \(project.name)")
         .accessibilityValue(projectAccessibilityValue())
@@ -67,6 +78,7 @@ struct WarrenDesktopProjectRow: View {
             role: .button,
             label: "Project \(project.name)",
             value: projectAccessibilityValue(),
+            isEnabled: !isInteractionDisabled,
             isSelected: isSelected,
             action: { if !isInteractionDisabled { onSelect() } }
         )
@@ -100,8 +112,8 @@ struct WarrenDesktopProjectRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
-                    if isDeleting {
-                        deletionStatus(tokens: tokens)
+                    if let deletionKind {
+                        deletionStatus(tokens: tokens, kind: deletionKind)
                     }
 
                     Text("(\(workspaceCount))")
@@ -138,6 +150,7 @@ struct WarrenDesktopProjectRow: View {
                 role: .button,
                 label: "Project \(project.name)",
                 value: projectAccessibilityValue(isExpanded: isExpanded),
+                isEnabled: !isInteractionDisabled,
                 isSelected: isSelected,
                 action: { if !isInteractionDisabled { onToggleExpansion() } }
             )
@@ -161,6 +174,7 @@ struct WarrenDesktopProjectRow: View {
                     id: "project.\(project.id.description).new-workspace",
                     role: .button,
                     label: "New workspace in \(project.name)",
+                    isEnabled: !isInteractionDisabled,
                     action: { if !isInteractionDisabled { onAddWorkspace() } }
                 )
             }
@@ -187,11 +201,11 @@ struct WarrenDesktopProjectRow: View {
                 id: "project.\(project.id.description).toggle",
                 role: .button,
                 label: isExpanded ? "Collapse project \(project.name)" : "Expand project \(project.name)",
+                isEnabled: !isInteractionDisabled,
                 action: { if !isInteractionDisabled { onToggleExpansion() } }
             )
         }
         .frame(maxWidth: .infinity, minHeight: WarrenLayoutMetrics.sidebarProjectRowHeight)
-        .opacity(isInteractionDisabled ? 0.62 : 1)
         .background(tokens.interactionBackground(for: .resolve(
             disabled: isInteractionDisabled,
             pressed: false,
@@ -231,9 +245,12 @@ struct WarrenDesktopProjectRow: View {
             .accessibilityHidden(true)
     }
 
-    private func deletionStatus(tokens: WarrenColorTokens) -> some View {
+    private func deletionStatus(
+        tokens: WarrenColorTokens,
+        kind: WarrenDesktopProjectDeletionKind
+    ) -> some View {
         HStack(spacing: WarrenSpacing.xs) {
-            WarrenBrailleSpinner(size: 14, accessibilityLabel: "Deleting project")
+            WarrenBrailleSpinner(size: 14, accessibilityLabel: kind.accessibilityLabel)
                 .accessibilityHidden(true)
             Text("Deleting…")
                 .font(WarrenTypography.navigationMeta)
@@ -250,11 +267,15 @@ struct WarrenDesktopProjectRow: View {
         if let isExpanded {
             values.append(isExpanded ? "Expanded" : "Collapsed")
         }
-        if isSelected { values.append("Selected") }
-        if isDeleting {
-            values.append("Deleting")
+        if let deletionKind {
+            values.append(deletionKind.accessibilityLabel)
         } else if isInteractionDisabled {
             values.append("Unavailable")
+        }
+        if isExpanded == nil {
+            values.append(isSelected ? "Selected" : "Not selected")
+        } else if isSelected {
+            values.append("Selected")
         }
         return values.joined(separator: " · ")
     }

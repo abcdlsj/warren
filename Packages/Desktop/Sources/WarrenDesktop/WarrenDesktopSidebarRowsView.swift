@@ -19,6 +19,7 @@ struct WarrenDesktopSidebarRows: View {
     let selection: WarrenDesktopSidebarSelection?
     let deletingProjectIDs: Set<ProjectID>
     let deletingWorkspaceIDs: Set<WorkspaceID>
+    let isInteractionDisabled: Bool
     let onAddProject: () -> Void
     let onRequestTerminalGroupCreate: () -> Void
     let onRequestTerminalGroupEdit: (TerminalGroup) -> Void
@@ -45,6 +46,7 @@ struct WarrenDesktopSidebarRows: View {
                     disclosureExpanded: !tree.projectsCollapsed,
                     actionImage: "folder.badge.plus",
                     actionLabel: "Add project",
+                    actionEnabled: !isInteractionDisabled,
                     onToggle: toggleProjects,
                     onAction: onAddProject
                 )
@@ -64,8 +66,8 @@ struct WarrenDesktopSidebarRows: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("No workspaces yet. Add a project or drop a Git repository folder.")
             }
-            if isCollapsed || !tree.projectsCollapsed {
-                ForEach(groups) { group in
+            if isCollapsed || !tree.projectsCollapsed || hasPendingProjectDeletion {
+                ForEach(visibleProjectGroups) { group in
                     projectRow(for: group)
                     if isCollapsed || isProjectExpanded(group.project.id) {
                         ForEach(group.workspaces) { workspace in
@@ -135,6 +137,7 @@ struct WarrenDesktopSidebarRows: View {
                     title: "Terminals",
                     actionImage: "plus",
                     actionLabel: "New terminal group",
+                    actionEnabled: !isInteractionDisabled,
                     onAction: onRequestTerminalGroupCreate
                 )
             }
@@ -154,6 +157,7 @@ struct WarrenDesktopSidebarRows: View {
                                 group: group,
                                 isCollapsed: isCollapsed,
                                 isSelected: selection == .terminalGroup(group.id),
+                                isInteractionDisabled: isInteractionDisabled,
                                 onSelect: { onAction(.selectTerminalGroup(group.id)) },
                                 onRename: { onRequestTerminalGroupEdit(group.group) },
                                 onSetHome: { onRequestTerminalGroupEdit(group.group) },
@@ -198,7 +202,23 @@ struct WarrenDesktopSidebarRows: View {
         groups.first { $0.project.id == projectID }?.workspaces.count ?? 0
     }
 
+    private var hasPendingProjectDeletion: Bool {
+        groups.contains { group in
+            deletingProjectIDs.contains(group.project.id)
+                || hasDeletingWorkspace(in: group.project.id)
+        }
+    }
+
+    private var visibleProjectGroups: [WarrenDesktopProjectGroup] {
+        guard !tree.projectsCollapsed || isCollapsed else { return groups.filter { group in
+            deletingProjectIDs.contains(group.project.id)
+                || hasDeletingWorkspace(in: group.project.id)
+        } }
+        return groups
+    }
+
     private func select(_ newSelection: WarrenDesktopSidebarSelection) {
+        guard !isInteractionDisabled else { return }
         switch newSelection {
         case .project(let projectID):
             onAction(.selectProject(projectID))
@@ -210,6 +230,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProject(_ projectID: ProjectID) {
+        guard !isInteractionDisabled else { return }
         withAnimation(WarrenMotion.animation(.stateChange, reduceMotion: reduceMotion)) {
             if tree.expandedProjectIDs.contains(projectID) {
                 tree.expandedProjectIDs.remove(projectID)
@@ -238,6 +259,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func toggleProjects() {
+        guard !isInteractionDisabled else { return }
         withAnimation(WarrenMotion.animation(.stateChange, reduceMotion: reduceMotion)) {
             tree.projectsCollapsed.toggle()
         }
@@ -247,9 +269,16 @@ struct WarrenDesktopSidebarRows: View {
     private func projectRow(
         for group: WarrenDesktopProjectGroup
     ) -> some View {
-        let isDeleting = deletingProjectIDs.contains(group.project.id)
+        let isProjectDeleting = deletingProjectIDs.contains(group.project.id)
         let hasDeletingWorkspace = group.workspaces.contains {
             deletingWorkspaceIDs.contains($0.id)
+        }
+        let deletionKind: WarrenDesktopProjectDeletionKind? = if isProjectDeleting {
+            .project
+        } else if hasDeletingWorkspace {
+            .workspace
+        } else {
+            nil
         }
         ZStack {
             WarrenDesktopProjectRow(
@@ -259,8 +288,8 @@ struct WarrenDesktopSidebarRows: View {
                 isSelected: selection == .project(group.project.id),
                 isExpanded: isProjectExpanded(group.project.id),
                 isPinned: group.project.pinned,
-                isDeleting: isDeleting,
-                isInteractionDisabled: isDeleting || hasDeletingWorkspace,
+                deletionKind: deletionKind,
+                isInteractionDisabled: isInteractionDisabled || deletionKind != nil,
                 onSelect: { select(.project(group.project.id)) },
                 onToggleExpansion: { toggleProject(group.project.id) },
                 onAddWorkspace: {
@@ -328,7 +357,7 @@ struct WarrenDesktopSidebarRows: View {
                 isSelected: selection == .workspace(workspace.id),
                 isPinned: workspace.pinned,
                 isDeleting: isDeleting,
-                isInteractionDisabled: isProjectDeleting || isDeleting,
+                isInteractionDisabled: isInteractionDisabled || isProjectDeleting || isDeleting,
                 onSelect: { select(.workspace(workspace.id)) },
                 onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
                 onRename: {
@@ -401,6 +430,7 @@ struct WarrenDesktopSidebarRows: View {
         _ payload: String,
         before projectID: ProjectID?
     ) -> Bool {
+        guard !isInteractionDisabled else { return false }
         guard payload.hasPrefix(WarrenSidebarDragPayload.projectPrefix),
               let sourceID = ProjectID(uuidString: String(
                 payload.dropFirst(WarrenSidebarDragPayload.projectPrefix.count)
@@ -421,6 +451,7 @@ struct WarrenDesktopSidebarRows: View {
         before workspaceID: WorkspaceID?,
         inProject projectID: ProjectID? = nil
     ) -> Bool {
+        guard !isInteractionDisabled else { return false }
         guard payload.hasPrefix(WarrenSidebarDragPayload.workspacePrefix),
               let sourceID = WorkspaceID(uuidString: String(
                 payload.dropFirst(WarrenSidebarDragPayload.workspacePrefix.count)
@@ -451,6 +482,7 @@ struct WarrenDesktopSidebarRows: View {
     }
 
     private func isDragDisabled(_ info: WarrenSidebarRowDragInfo) -> Bool {
+        guard !isInteractionDisabled else { return true }
         switch info.kind {
         case .project(let projectID):
             return isProjectDeletionPending(projectID)
@@ -584,6 +616,7 @@ private struct WarrenDesktopSidebarSectionHeader: View {
                     titleLabel
                 }
                 .buttonStyle(WarrenChromeButtonStyle(isFocused: isToggleFocused))
+                .disabled(!actionEnabled)
                 .focused($isToggleFocused)
             } else {
                 // Sections without a disclosure control (e.g. Terminals) keep
@@ -641,6 +674,8 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
     @Binding var removeWorktree: Bool
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    let isConfirmEnabled: Bool
+    let validationMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -671,6 +706,14 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
                     .foregroundStyle(tokens.foreground)
                     .tint(tokens.highlight)
                     .help("Leave unchecked to keep the Git worktree and branch on disk.")
+                    .disabled(!isConfirmEnabled)
+            }
+
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -680,6 +723,7 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Delete", action: onConfirm)
                     .buttonStyle(WarrenDestructiveButtonStyle())
+                    .disabled(!isConfirmEnabled)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -694,6 +738,8 @@ struct WarrenDesktopDeleteProjectConfirmation: View {
     let workspaceCount: Int
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    let isConfirmEnabled: Bool
+    let validationMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -713,6 +759,13 @@ struct WarrenDesktopDeleteProjectConfirmation: View {
                 .font(WarrenTypography.supporting)
                 .foregroundStyle(tokens.mutedForeground)
 
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
@@ -720,6 +773,7 @@ struct WarrenDesktopDeleteProjectConfirmation: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Delete", action: onConfirm)
                     .buttonStyle(WarrenDestructiveButtonStyle())
+                    .disabled(!isConfirmEnabled)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -734,6 +788,8 @@ struct WarrenDesktopDeleteTerminalGroupConfirmation: View {
     let sessionCount: Int
     let onCancel: () -> Void
     let onConfirm: () -> Void
+    let isConfirmEnabled: Bool
+    let validationMessage: String?
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -753,6 +809,13 @@ struct WarrenDesktopDeleteTerminalGroupConfirmation: View {
                 .font(WarrenTypography.supporting)
                 .foregroundStyle(tokens.warning)
 
+            if let validationMessage {
+                Text(validationMessage)
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel", action: onCancel)
@@ -760,6 +823,7 @@ struct WarrenDesktopDeleteTerminalGroupConfirmation: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Delete", action: onConfirm)
                     .buttonStyle(WarrenDestructiveButtonStyle())
+                    .disabled(!isConfirmEnabled)
                     .keyboardShortcut(.defaultAction)
             }
         }
