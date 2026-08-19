@@ -277,26 +277,38 @@ export default function App() {
     if (!workspaceID) return;
     setGitLoading(true);
     setGitError("");
-    request("git.panel", { workspace: workspaceID }, result => {
+    setGitAction("");
+    const sent = request("git.panel", { workspace: workspaceID }, result => {
+      if (appStateRef.current.activeWorkspace !== workspaceID) return;
       setGitPanel(result);
       setGitLoading(false);
     }, error => {
+      if (appStateRef.current.activeWorkspace !== workspaceID) return;
       setGitPanel(null);
       setGitError(error);
       setGitLoading(false);
     });
+    if (!sent) {
+      setGitPanel(null);
+      setGitError("Not connected");
+      setGitLoading(false);
+    }
   }, [request, selectedWorkspaceID]);
 
   const runGitAction = useCallback((method, params) => {
     setGitAction(method);
     setGitError("");
-    request(method, params, () => {
+    const sent = request(method, params, () => {
       setGitAction("");
       loadGitPanel();
     }, error => {
       setGitAction("");
       setGitError(error);
     });
+    if (!sent) {
+      setGitAction("");
+      setGitError("Not connected");
+    }
   }, [request, loadGitPanel]);
 
   useEffect(() => {
