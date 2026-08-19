@@ -148,6 +148,7 @@ export function Sidebar({
   onToggleProject,
   onChooseWorkspace,
   onOpenWorkspace,
+  onNewSessionInWorkspace,
   onNewSession,
   onOpenSettings,
   onProjectContextMenu,
@@ -267,7 +268,7 @@ export function Sidebar({
                     title="New session"
                     onClick={event => {
                       event.stopPropagation();
-                      onOpenWorkspace(workspaces[0].id);
+                      (onNewSessionInWorkspace || onOpenWorkspace)(workspaces[0].id);
                     }}
                   >
                     <PlusIcon />
@@ -875,6 +876,101 @@ export function SessionSheet({ open, presets, onChoose, onClose }) {
   );
 }
 
+export function WorktreeImportDialog({ dialog, onClose, onToggle, onImport }) {
+  const firstItemRef = useRef(null);
+
+  useEffect(() => {
+    if (!dialog) return undefined;
+    firstItemRef.current?.focus();
+    const handleKeyDown = event => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [dialog, onClose]);
+
+  if (!dialog) return null;
+  const candidates = Array.isArray(dialog.candidates) ? dialog.candidates : [];
+  const selected = new Set(dialog.selectedPaths || []);
+  const availableCount = candidates.filter(candidate => !candidate.imported).length;
+
+  return (
+    <div className="worktree-dialog-overlay" onClick={onClose}>
+      <div
+        className="worktree-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="worktree-dialog-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="worktree-dialog-header">
+          <div>
+            <h2 id="worktree-dialog-title">Import existing worktrees</h2>
+            <p>Choose Git worktrees to register under <strong>{dialog.project.name}</strong>. This is a one-time import: Warren does not create, move, or delete files.</p>
+          </div>
+          <button type="button" className="worktree-dialog-close" aria-label="Close" onClick={onClose}>×</button>
+        </div>
+        <div className="worktree-dialog-body">
+          {dialog.loading ? (
+            <Loading message="Reading Git worktrees…" />
+          ) : dialog.error ? (
+            <div className="worktree-dialog-error" role="alert">{dialog.error}</div>
+          ) : !candidates.length ? (
+            <div className="worktree-dialog-empty">No external Git worktrees are available to import.</div>
+          ) : (
+            <div className="worktree-candidate-list" role="listbox" aria-label="Existing Git worktrees" aria-multiselectable="true">
+              {candidates.map((candidate, index) => {
+                const imported = Boolean(candidate.imported);
+                const checked = selected.has(candidate.path);
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={checked}
+                    aria-disabled={imported}
+                    className={`worktree-candidate${checked ? " selected" : ""}${imported ? " imported" : ""}`}
+                    key={candidate.path}
+                    ref={index === 0 ? firstItemRef : undefined}
+                    disabled={imported}
+                    onClick={() => onToggle(candidate.path)}
+                  >
+                    <span className="worktree-candidate-check" aria-hidden="true">{checked ? "☑" : "☐"}</span>
+                    <span className="worktree-candidate-copy">
+                      <span className="worktree-candidate-title">
+                        <span>{candidate.name || candidate.branch || "Worktree"}</span>
+                        {candidate.branch && candidate.branch !== candidate.name && <code>{candidate.branch}</code>}
+                        {candidate.locked && <span className="worktree-candidate-badge">Locked</span>}
+                        {imported && <span className="worktree-candidate-badge">Imported</span>}
+                      </span>
+                      <span className="worktree-candidate-path">{candidate.path}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="worktree-dialog-footer">
+          <span className="worktree-dialog-summary">
+            {dialog.loading ? "" : `${selected.size} selected · ${availableCount} available`}
+          </span>
+          <div className="worktree-dialog-actions">
+            <button type="button" className="worktree-dialog-secondary" onClick={onClose}>Cancel</button>
+            <button
+              type="button"
+              className="worktree-dialog-primary"
+              disabled={dialog.loading || Boolean(dialog.error) || selected.size === 0}
+              onClick={onImport}
+            >
+              Import selected
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage({
   open,
   fontFamily,
@@ -882,6 +978,8 @@ export function SettingsPage({
   titleTemplate,
   presetCommands,
   presets,
+  autoOpenShell,
+  autoStartAI,
   titlePreview,
   placeholders,
   onClose,
@@ -889,6 +987,8 @@ export function SettingsPage({
   onFontSizeChange,
   onTitleTemplateChange,
   onPresetCommandChange,
+  onAutoOpenShellChange,
+  onAutoStartAIChange,
   onMovePreset,
   onAppendPlaceholder,
   onRestore,
@@ -914,6 +1014,12 @@ export function SettingsPage({
       label: "Presets",
       description: "Commands launched by the Shell, Claude and Codex buttons.",
       keywords: ["preset", "command", "launch", "shell", "claude", "codex", "agent"],
+    },
+    {
+      id: "workspaces",
+      label: "Workspaces",
+      description: "Control project import and workspace entry defaults.",
+      keywords: ["workspace", "project", "git", "worktree", "import", "shell", "open"],
     },
   ], []);
 
@@ -978,7 +1084,13 @@ export function SettingsPage({
               key={section.id}
               onClick={() => setActiveSection(section.id)}
             >
-              {section.id === "font" ? terminalIcon : section.id === "title" ? <TitleIcon /> : <PresetIcon />}
+              {section.id === "font"
+                ? terminalIcon
+                : section.id === "title"
+                  ? <TitleIcon />
+                  : section.id === "workspaces"
+                    ? <BranchIcon />
+                    : <PresetIcon />}
               <span>{section.label}</span>
             </button>
           ))}
@@ -1015,7 +1127,7 @@ export function SettingsPage({
                 <div className="preset-order-section">
                   <div className="settings-subheading">
                     <h3>Session order</h3>
-                    <p>The first AI in this order starts automatically when you enter an empty workspace.</p>
+                    <p>This order controls the preset buttons; opening a workspace never changes it.</p>
                   </div>
                   <div className="preset-order-list">
                     {presets.map((preset, index) => (
@@ -1062,6 +1174,43 @@ export function SettingsPage({
                   Leave Shell empty to open a plain terminal. Claude and Codex run inside the shell, so you can exit
                   them with Ctrl+C / Ctrl+D and keep the session.
                 </p>
+              </section>
+            ) : activeSection === "workspaces" ? (
+              <section className="settings-section">
+                <header className="settings-page-heading">
+                  <h2>Workspaces</h2>
+                  <p>Configure project worktree import and empty-workspace entry behavior.</p>
+                </header>
+                <div className="settings-options">
+                  <div className="settings-info-card">
+                    <span>
+                      <strong>Git worktree import is configured per project</strong>
+                      <small>Open a project’s context menu to enable automatic import (it imports existing worktrees immediately, without a confirmation step), or choose Import existing worktrees… for a one-time selection. Imported workspaces are never removed when the automatic setting is disabled.</small>
+                    </span>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={autoOpenShell}
+                      onChange={event => onAutoOpenShellChange(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Open a Shell when opening an empty workspace</strong>
+                      <small>When enabled, double-clicking an empty workspace creates one Shell. A single click only selects it. Existing sessions are reused, and explicit New Session or preset actions are unchanged.</small>
+                    </span>
+                  </label>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={autoStartAI}
+                      onChange={event => onAutoStartAIChange(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Start the first AI when entering an empty workspace</strong>
+                      <small>When enabled, selecting a project or workspace (including Search and Command Palette navigation) starts the first AI in Launch commands order. Navigation restore does not start a process. On double-click, this AI action takes precedence over the Shell option so only one session is created.</small>
+                    </span>
+                  </label>
+                </div>
               </section>
             ) : (
               <section className="settings-section">

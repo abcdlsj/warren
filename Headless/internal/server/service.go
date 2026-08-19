@@ -696,6 +696,13 @@ func (s *Service) runningSessions(ctx context.Context) func(api.Session) bool {
 }
 
 func (s *Service) AddProject(path, name string) (api.Project, error) {
+	return s.AddProjectWithOptions(path, name, false)
+}
+
+// AddProjectWithOptions adds a project and optionally imports every existing
+// Git worktree for that project. The option is persisted on the Project, not
+// in host-wide settings, so repositories can opt in independently.
+func (s *Service) AddProjectWithOptions(path, name string, autoImportGitWorktrees bool) (api.Project, error) {
 	selected, err := filepath.Abs(expandHome(strings.TrimSpace(path)))
 	if err != nil {
 		return api.Project{}, err
@@ -709,19 +716,25 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		return api.Project{}, fmt.Errorf("project is not a Git repository: %s: %w", selected, err)
 	}
 	createdAt := time.Now().UTC()
-	project := api.Project{ID: store.NewID(), Path: filepath.Clean(worktrees[0].Path), CreatedAt: createdAt}
+	project := api.Project{
+		ID:                     store.NewID(),
+		Path:                   filepath.Clean(worktrees[0].Path),
+		AutoImportGitWorktrees: autoImportGitWorktrees,
+		CreatedAt:              createdAt,
+	}
 	if name == "" {
 		name = filepath.Base(project.Path)
 	}
 	project.Name = name
-	workspaces, err := workspacesForGitWorktrees(project.ID, createdAt, worktrees, os.Stat)
+	workspaces, err := workspacesForGitWorktrees(
+		project.ID,
+		createdAt,
+		worktrees,
+		os.Stat,
+		project.AutoImportGitWorktrees,
+	)
 	if err != nil {
 		return api.Project{}, err
-	}
-	if !s.Settings.ImportGitWorktrees {
-		workspaces = filter(workspaces, func(workspace api.Workspace) bool {
-			return workspace.Kind == "root"
-		})
 	}
 	err = s.Store.Update(func(state *api.State) error {
 		for _, value := range state.Projects {
@@ -738,6 +751,225 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		s.invalidateMerge()
 	}
 	return project, err
+}
+
+// ListProjectWorktrees returns existing external Git worktrees for a project.
+// Already registered worktrees stay in the result so clients can render them
+// disabled and explain that import is a one-time operation.
+func (s *Service) ListProjectWorktrees(projectID string) ([]api.WorktreeCandidate, error) {
+	state := s.Store.Snapshot()
+	var project api.Project
+	found := false
+	for _, value := range state.Projects {
+		if value.ID == projectID {
+			project = value
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("project not found: %s", projectID)
+	}
+	return projectWorktreeCandidates(project, state.Workspaces)
+}
+
+// ImportProjectWorktrees registers selected existing Git worktrees as
+// workspaces. It never creates, moves, or removes a checkout on disk.
+func (s *Service) ImportProjectWorktrees(projectID string, paths []string) ([]api.Workspace, error) {
+	state := s.Store.Snapshot()
+	var project api.Project
+	found := false
+	for _, value := range state.Projects {
+		if value.ID == projectID {
+			project = value
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("project not found: %s", projectID)
+	}
+	candidates, err := projectWorktreeCandidates(project, state.Workspaces)
+	if err != nil {
+		return nil, err
+	}
+	requested := make(map[string]struct{}, len(paths))
+	for _, path := range paths {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path != "." && path != "" {
+			requested[normalizedPathKey(path)] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil, errors.New("at least one worktree path is required")
+	}
+
+	selected := make([]api.WorktreeCandidate, 0, len(requested))
+	for _, candidate := range candidates {
+		if _, ok := requested[normalizedPathKey(candidate.Path)]; !ok {
+			continue
+		}
+		if candidate.Imported {
+			continue
+		}
+		selected = append(selected, candidate)
+		delete(requested, normalizedPathKey(candidate.Path))
+	}
+	if len(requested) > 0 {
+		return nil, fmt.Errorf("worktree is not an importable checkout: %s", firstMapKey(requested))
+	}
+	created := make([]api.Workspace, 0, len(selected))
+	err = s.Store.Update(func(value *api.State) error {
+		for _, candidate := range selected {
+			duplicate := false
+			for _, workspace := range value.Workspaces {
+				if workspace.ProjectID == projectID && samePath(workspace.Path, candidate.Path) {
+					duplicate = true
+					break
+				}
+			}
+			if duplicate {
+				continue
+			}
+			workspace := api.Workspace{
+				ID:             store.NewID(),
+				ProjectID:      projectID,
+				Name:           candidate.Name,
+				Path:           filepath.Clean(candidate.Path),
+				Branch:         candidate.Branch,
+				Kind:           "worktree",
+				WorktreeLocked: candidate.Locked,
+				Order:          nextWorkspaceOrder(value.Workspaces, projectID),
+				CreatedAt:      time.Now().UTC(),
+			}
+			if err := branchAlreadyHasWorkspace(value, projectID, workspace.Branch); err != nil {
+				return err
+			}
+			value.Workspaces = append(value.Workspaces, workspace)
+			created = append(created, workspace)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(created) > 0 {
+		s.invalidateMerge()
+	}
+	return created, nil
+}
+
+// SetProjectAutoImportGitWorktrees changes one project's automatic import
+// policy. Enabling it also imports currently visible external worktrees once;
+// this is deliberately non-interactive and leaves imported checkouts on disk.
+func (s *Service) SetProjectAutoImportGitWorktrees(projectID string, enabled bool) (api.Project, error) {
+	state := s.Store.Snapshot()
+	var project api.Project
+	found := false
+	for _, value := range state.Projects {
+		if value.ID == projectID {
+			project = value
+			found = true
+			break
+		}
+	}
+	if !found {
+		return api.Project{}, fmt.Errorf("project not found: %s", projectID)
+	}
+	project.AutoImportGitWorktrees = enabled
+	if err := s.Store.Update(func(value *api.State) error {
+		for index := range value.Projects {
+			if value.Projects[index].ID == projectID {
+				value.Projects[index].AutoImportGitWorktrees = enabled
+				return nil
+			}
+		}
+		return fmt.Errorf("project not found: %s", projectID)
+	}); err != nil {
+		return api.Project{}, err
+	}
+	if enabled {
+		candidates, err := projectWorktreeCandidates(project, state.Workspaces)
+		if err != nil {
+			return api.Project{}, err
+		}
+		paths := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			if !candidate.Imported {
+				paths = append(paths, candidate.Path)
+			}
+		}
+		if len(paths) > 0 {
+			if _, err := s.ImportProjectWorktrees(projectID, paths); err != nil {
+				return api.Project{}, err
+			}
+		}
+	}
+	return project, nil
+}
+
+func projectWorktreeCandidates(project api.Project, workspaces []api.Workspace) ([]api.WorktreeCandidate, error) {
+	worktrees, err := listGitWorktrees(project.Path)
+	if err != nil {
+		return nil, err
+	}
+	importedByPath := make(map[string]api.Workspace)
+	for _, workspace := range workspaces {
+		if workspace.ProjectID == project.ID {
+			importedByPath[normalizedPathKey(workspace.Path)] = workspace
+		}
+	}
+	candidates := make([]api.WorktreeCandidate, 0, len(worktrees))
+	for _, worktree := range worktrees {
+		path := filepath.Clean(worktree.Path)
+		if worktree.Bare || samePath(path, project.Path) || worktree.Prunable {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("inspect Git worktree %s: %w", path, err)
+		}
+		if !info.IsDir() {
+			continue
+		}
+		name := worktree.Branch
+		if name == "" {
+			name = filepath.Base(path)
+		}
+		candidate := api.WorktreeCandidate{
+			Path:   path,
+			Name:   name,
+			Branch: worktree.Branch,
+			Locked: worktree.Locked,
+		}
+		if workspace, ok := importedByPath[normalizedPathKey(path)]; ok {
+			candidate.Imported = true
+			candidate.WorkspaceID = workspace.ID
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, nil
+}
+
+func normalizedPathKey(path string) string {
+	path = strings.TrimSpace(expandHome(path))
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
+}
+
+func firstMapKey(values map[string]struct{}) string {
+	for value := range values {
+		return value
+	}
+	return ""
 }
 
 // MoveProject moves one project before another project (or to the end when
@@ -1172,7 +1404,10 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						if name == "" {
 							name = defaultValue(branch, "main")
 						}
-						workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "root", CreatedAt: time.Now().UTC()}
+						workspace := api.Workspace{
+							ID: id, ProjectID: projectID, Name: name, Path: resolved,
+							Branch: branch, Kind: "root", CreatedAt: time.Now().UTC(),
+						}
 						if err := s.Store.Update(func(value *api.State) error {
 							if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 								return err
@@ -1189,7 +1424,10 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					if name == "" {
 						name = filepath.Base(resolved)
 					}
-					workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
+					workspace := api.Workspace{
+						ID: id, ProjectID: projectID, Name: name, Path: resolved,
+						Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC(),
+					}
 					if err := s.Store.Update(func(value *api.State) error {
 						if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 							return err
@@ -1221,7 +1459,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		return api.WorkspaceCreateResult{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	gitCreated = true
-	workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: path, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
+	workspace := api.Workspace{
+		ID: id, ProjectID: projectID, Name: name, Path: path,
+		Branch: branch, Kind: "worktree", ManagedWorktree: true,
+		CreatedAt: time.Now().UTC(),
+	}
 	if err := s.Store.Update(func(value *api.State) error {
 		if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 			return err
@@ -1241,6 +1483,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 // one workspace per Git branch, regardless of whether the workspace is a root
 // checkout or a git worktree.
 func branchAlreadyHasWorkspace(state *api.State, projectID, branch string) error {
+	// Detached Git worktrees do not have a branch name. Multiple detached
+	// checkouts are valid and must not collide on the empty string.
+	if strings.TrimSpace(branch) == "" {
+		return nil
+	}
 	for i := range state.Workspaces {
 		workspace := state.Workspaces[i]
 		if workspace.ProjectID == projectID && workspace.Branch == branch {
@@ -1278,28 +1525,11 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 	if options.Force {
 		_ = s.removeWorkspaceRuntime(ctx, state, id)
 	}
-	if workspace.Kind == "worktree" && options.RemoveWorktree {
-		var project api.Project
-		for _, value := range state.Projects {
-			if value.ID == workspace.ProjectID {
-				project = value
-			}
-		}
-		// External shells (Codex, Claude, ...) keep their cwd inside the
-		// worktree. Terminate them before the git remove so deleting the
-		// directory cannot strand their exec sessions on a removed cwd.
-		if _, err := terminateProcessesUnder(workspace.Path); err != nil {
-			return fmt.Errorf("terminate worktree processes: %w", err)
-		}
-		if _, err := os.Stat(workspace.Path); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("stat worktree path: %w", err)
-			}
-			// The worktree was already removed outside Warren. Converge on
-			// state cleanup instead of failing on git's "not a worktree".
-		} else if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
-			return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(output)), err)
-		}
+	// Imported and locked worktrees are never removed from disk. The caller may
+	// still delete Warren's workspace record, but filesystem ownership must be
+	// explicit and a Git lock must be respected.
+	if workspace.Kind == "worktree" && options.RemoveWorktree && workspace.ManagedWorktree && !workspace.WorktreeLocked {
+		s.removeWorktreeDirectory(*workspace, state.Projects)
 	}
 	err := s.Store.Update(func(value *api.State) error {
 		projectID := workspace.ProjectID
@@ -1318,6 +1548,55 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		s.invalidateMerge()
 	}
 	return err
+}
+
+// removeWorktreeDirectory is best-effort physical cleanup of a worktree-backed
+// workspace. Removing the Warren workspace record must never depend on git
+// succeeding: a stale registration, an already-removed directory, or a busy
+// file must not leave the workspace stuck in state. Every failure is logged and
+// the operation proceeds; a leftover directory (and possibly its git
+// registration) is left on disk and would only be re-imported by an explicit
+// `project add`.
+func (s *Service) removeWorktreeDirectory(workspace api.Workspace, projects []api.Project) {
+	var project api.Project
+	for _, value := range projects {
+		if value.ID == workspace.ProjectID {
+			project = value
+			break
+		}
+	}
+	// External shells (Codex, Claude, ...) keep their cwd inside the worktree.
+	// Terminate them before the git remove so deleting the directory cannot
+	// strand their exec sessions on a removed cwd.
+	if _, err := terminateProcessesUnder(workspace.Path); err != nil {
+		s.logWarn("terminate worktree processes during workspace removal", "workspace", workspace.ID, "error", err)
+	}
+	if _, err := os.Stat(workspace.Path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			s.logWarn("stat worktree path during workspace removal", "workspace", workspace.ID, "error", err)
+		}
+		// The worktree was already removed outside Warren. Converge on state
+		// cleanup instead of failing on git's "not a worktree".
+		return
+	}
+	if project.Path == "" {
+		// The owning project was itself removed, so its git metadata is gone
+		// with it. Leave the directory and let state cleanup proceed.
+		return
+	}
+	if output, err := exec.Command("git", "-C", project.Path, "worktree", "remove", "--force", workspace.Path).CombinedOutput(); err != nil {
+		// "not a working tree", a stale registration, or a busy file: leave the
+		// directory on disk rather than failing the deletion the user asked for.
+		s.logWarn("git worktree remove during workspace removal", "workspace", workspace.ID, "output", strings.TrimSpace(string(output)), "error", err)
+	}
+}
+
+func (s *Service) logWarn(message string, keyValues ...any) {
+	logger := s.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Warn(message, keyValues...)
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
@@ -1494,12 +1773,20 @@ func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string, gnar
 	return nil
 }
 
-// SetImportGitWorktrees records whether adding a project imports every Git
-// worktree as a workspace, persisting the intent when a settings file is
-// configured. The change applies to projects added afterwards; existing
-// workspaces are untouched.
-func (s *Service) SetImportGitWorktrees(enabled bool) error {
-	s.Settings.ImportGitWorktrees = enabled
+// SetAutoOpenShell records whether opening an empty workspace creates a Shell
+// session by default. Explicit session actions are unaffected.
+func (s *Service) SetAutoOpenShell(enabled bool) error {
+	s.Settings.AutoOpenShell = enabled
+	if s.SettingsPath != "" {
+		return settings.Save(s.SettingsPath, s.Settings)
+	}
+	return nil
+}
+
+// SetAutoStartAI records whether entering an empty workspace starts the first
+// AI preset. Explicit session actions are unaffected.
+func (s *Service) SetAutoStartAI(enabled bool) error {
+	s.Settings.AutoStartAI = enabled
 	if s.SettingsPath != "" {
 		return settings.Save(s.SettingsPath, s.Settings)
 	}
@@ -3091,9 +3378,7 @@ func normalizeTerminalGroupHome(home string) (string, error) {
 	return resolved, nil
 }
 func samePath(left, right string) bool {
-	a, _ := filepath.Abs(left)
-	b, _ := filepath.Abs(right)
-	return filepath.Clean(a) == filepath.Clean(b)
+	return normalizedPathKey(left) == normalizedPathKey(right)
 }
 func safeName(value string) string {
 	replacer := strings.NewReplacer("/", "-", " ", "-", "..", "-")

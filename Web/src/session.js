@@ -66,8 +66,8 @@ export function firstAIPreset(presets = sessionPresets) {
   return presets.find(preset => preset.kind === "claude" || preset.kind === "codex") || null;
 }
 
-export function automaticSessionKind({ tabs, pending, explicit, presets = sessionPresets }) {
-  if (!explicit || tabs.length || pending) return null;
+export function automaticSessionKind({ tabs, pending, explicit, autoStartAI = false, presets = sessionPresets }) {
+  if (!autoStartAI || !explicit || tabs.length || pending) return null;
   return firstAIPreset(presets)?.kind || null;
 }
 

@@ -884,16 +884,17 @@ func parseFlags(args []string) map[string]any {
 }
 
 var bareBooleanFlags = map[string]bool{
-	"all":           true,
-	"ended":         true,
-	"force":         true,
-	"full":          true,
-	"full-content":  true,
-	"help":          true,
-	"keep-worktree": true,
-	"no-truncate":   true,
-	"raw":           true,
-	"use":           true,
+	"all":                   true,
+	"ended":                 true,
+	"force":                 true,
+	"full":                  true,
+	"full-content":          true,
+	"help":                  true,
+	"keep-worktree":         true,
+	"auto-import-worktrees": true,
+	"no-truncate":           true,
+	"raw":                   true,
+	"use":                   true,
 }
 
 func normalizedParams(values map[string]any, resource, action string) map[string]any {
@@ -908,6 +909,14 @@ func normalizedParams(values map[string]any, resource, action string) map[string
 		if value, ok := result["runtime-kind"]; ok {
 			result["runtimeKind"] = value
 			delete(result, "runtime-kind")
+		}
+	}
+	if action == "add" && resource == "project" {
+		// Project worktree policy is project-scoped. Keep the CLI spelling
+		// readable while matching the WebSocket API field name.
+		if value, ok := result["auto-import-worktrees"]; ok {
+			result["autoImportGitWorktrees"] = value
+			delete(result, "auto-import-worktrees")
 		}
 	}
 	positions := positionals(values)
@@ -1485,7 +1494,7 @@ func resourceUsageText(commandName string) string {
 	case "project":
 		return `Usage:
   warren project list
-  warren project add PATH [--name NAME]
+  warren project add PATH [--name NAME] [--auto-import-worktrees]
   warren project remove PROJECT_ID [--force]
   warren project rename PROJECT_ID --name NAME
   warren project pin PROJECT_ID --pinned BOOL
@@ -1535,7 +1544,7 @@ func actionUsageText(commandName, action string) string {
 		}
 		return fmt.Sprintf("Usage:\n  warren %s %s\n", name, action)
 	case "project.add":
-		return fmt.Sprintf("Usage:\n  warren %s add PATH [--name NAME]\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s add PATH [--name NAME] [--auto-import-worktrees]\n", name)
 	case "project.remove", "project.delete":
 		return fmt.Sprintf("Usage:\n  warren %s remove PROJECT_ID [--force]\n", name)
 	case "project.rename":

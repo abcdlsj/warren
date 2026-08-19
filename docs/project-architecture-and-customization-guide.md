@@ -207,12 +207,16 @@ the old navigation projection visible while reconnecting.
 2. verifies that it is a directory;
 3. runs `git rev-parse --show-toplevel`;
 4. rejects a duplicate normalized repository path;
-5. creates the Project;
-6. creates its root Workspace from the current checkout and branch;
+5. creates the Project and stores its project-scoped worktree import policy;
+6. creates its root Workspace from the current checkout and branch, plus
+   external worktrees only when automatic import is enabled;
 7. commits both records in one Host Store update.
 
 The Project is repository identity. The root Workspace is the executable
-working-directory resource.
+working-directory resource. `project.worktrees` lists external Git checkouts
+for a one-time selector, and `project.worktrees.import` registers the selected
+paths without creating, moving, or deleting files. Imported candidates remain
+in the list with an imported marker so clients can disable them.
 
 ### 6.2 creating a Workspace
 
@@ -642,7 +646,7 @@ Default Host files:
 | --- | --- |
 | `state.json` | Host resources, Runtime bindings, lifecycle, output positions |
 | `config.json` | Desktop/CLI endpoint catalog and selected endpoint |
-| `settings.json` | Default Runtime, Runtime environment, gnar edge, tunnel intent |
+| `settings.json` | Default Runtime, Runtime environment, gnar edge, tunnel intent, and empty-workspace Shell/AI defaults; worktree import policy lives on each Project |
 | `token` | Direct Host bearer token |
 | `output/` | Per-Session raw PTY spools and archives |
 | `agent-bind/` | Warren Session to external agent conversation binding |

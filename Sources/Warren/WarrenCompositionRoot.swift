@@ -13,6 +13,9 @@ struct WarrenCompositionRoot: View {
     @State private var supersetImportPreview: SupersetImportPreview?
     @State private var isSupersetImporting = false
     @State private var workspaceCreatorProjectID: ProjectID?
+    @State private var worktreeImportProjectID: ProjectID?
+    @State private var worktreeImportCandidates: [WarrenDesktopWorktreeCandidate] = []
+    @State private var worktreeImportLoading = false
     @State private var terminalSearchPresented = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -61,8 +64,10 @@ struct WarrenCompositionRoot: View {
             onWebCopyURL: { remoteModel.copyWebURL($0) },
             defaultRuntime: remoteModel.defaultRuntime,
             onSetRuntime: { remoteModel.setDefaultRuntime($0) },
-            importGitWorktrees: remoteModel.importGitWorktrees,
-            onSetImportGitWorktrees: { remoteModel.setImportGitWorktrees($0) }
+            autoOpenShell: remoteModel.autoOpenShell,
+            onSetAutoOpenShell: { remoteModel.setAutoOpenShell($0) },
+            autoStartAI: remoteModel.autoStartAI,
+            onSetAutoStartAI: { remoteModel.setAutoStartAI($0) }
         ) { context in
             WarrenTerminalSurfaceView(
                 context: context,
@@ -131,6 +136,27 @@ struct WarrenCompositionRoot: View {
                 }
             }
         }
+        .sheet(isPresented: worktreeImportBinding) {
+            if let projectID = worktreeImportProjectID,
+               let project = activeProjection.projectGroup(id: projectID)?.project {
+                WarrenDesktopProjectWorktreeImportView(
+                    projectName: project.name,
+                    candidates: worktreeImportCandidates,
+                    isLoading: worktreeImportLoading,
+                    onCancel: dismissWorktreeImport,
+                    onImport: { paths in
+                        Task { @MainActor in
+                            do {
+                                try await remoteModel.importProjectWorktrees(projectID, paths: paths)
+                                dismissWorktreeImport()
+                            } catch {
+                                remoteModel.report(error)
+                            }
+                        }
+                    }
+                )
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: WebCommand.copyLocalURL)) { _ in
             remoteModel.copyLocalWebURL()
         }
@@ -189,27 +215,56 @@ struct WarrenCompositionRoot: View {
             }
         } else if case .requestNewWorkspace(let projectID) = action {
             workspaceCreatorProjectID = projectID
+        } else if case .requestProjectWorktreeImport(let projectID) = action {
+            presentWorktreeImport(for: projectID)
+        } else if case .setProjectAutoImportGitWorktrees(let projectID, let enabled) = action {
+            remoteModel.setProjectAutoImportGitWorktrees(projectID, enabled: enabled)
         } else if case .requestNewSession(let workspaceID) = action {
             remoteModel.createSession(workspaceID: workspaceID, request: .shell)
         } else if case .requestNewTerminalGroupSession(let groupID) = action {
             remoteModel.createSession(terminalGroupID: groupID, request: .shell)
         } else {
-            let automaticWorkspaceID = WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            let workspaceID = WarrenDesktopAutomaticSessionPolicy.workspaceID(
                 for: action,
                 in: remoteModel.projection,
-                creatingWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs
+                creatingWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
+                autoOpenShell: remoteModel.autoOpenShell,
+                autoStartAI: remoteModel.autoStartAI
             )
             remoteModel.perform(action)
-            if let automaticWorkspaceID,
-               let preset = WarrenDesktopSessionPreset.firstAI(orderedBy: presetOrder) {
+            guard let workspaceID else { return }
+            switch action {
+            case .openWorkspace:
+                // A preceding select action may already have reserved this
+                // workspace for the first AI. The remote model's reservation
+                // guard prevents the double-click path from creating a second
+                // process. If this is the first event, the AI preference wins
+                // over the Shell preference for the same empty workspace.
+                if remoteModel.autoStartAI,
+                   let preset = WarrenDesktopSessionPreset.firstAI(orderedBy: presetOrder) {
+                    remoteModel.createSession(
+                        workspaceID: workspaceID,
+                        request: preset.resolvedRequest(
+                            shellCommand: "",
+                            claudeCommand: claudeCommand,
+                            codexCommand: codexCommand
+                        )
+                    )
+                } else {
+                    remoteModel.createSession(workspaceID: workspaceID, request: .shell)
+                }
+            case .selectWorkspace, .selectProject:
+                guard let preset = WarrenDesktopSessionPreset.firstAI(orderedBy: presetOrder) else { return }
                 remoteModel.createSession(
-                    workspaceID: automaticWorkspaceID,
+                    workspaceID: workspaceID,
                     request: preset.resolvedRequest(
                         shellCommand: "",
                         claudeCommand: claudeCommand,
                         codexCommand: codexCommand
                     )
                 )
+            default:
+                break
             }
         }
     }
@@ -347,11 +402,41 @@ struct WarrenCompositionRoot: View {
         }
     }
 
+    private func presentWorktreeImport(for projectID: ProjectID) {
+        worktreeImportProjectID = projectID
+        worktreeImportCandidates = []
+        worktreeImportLoading = true
+        Task { @MainActor in
+            do {
+                worktreeImportCandidates = try await remoteModel.listProjectWorktrees(projectID)
+            } catch {
+                remoteModel.report(error)
+                dismissWorktreeImport()
+            }
+            worktreeImportLoading = false
+        }
+    }
+
+    private func dismissWorktreeImport() {
+        worktreeImportProjectID = nil
+        worktreeImportCandidates = []
+        worktreeImportLoading = false
+    }
+
     private var workspaceCreatorBinding: Binding<Bool> {
         Binding(
             get: { workspaceCreatorProjectID != nil },
             set: { isPresented in
                 if !isPresented { workspaceCreatorProjectID = nil }
+            }
+        )
+    }
+
+    private var worktreeImportBinding: Binding<Bool> {
+        Binding(
+            get: { worktreeImportProjectID != nil },
+            set: { isPresented in
+                if !isPresented { dismissWorktreeImport() }
             }
         )
     }

@@ -13,24 +13,47 @@ type Host struct {
 }
 
 type Project struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Pinned    bool      `json:"pinned,omitempty"`
-	Order     int       `json:"order,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// AutoImportGitWorktrees controls whether this project imports every
+	// existing Git worktree when the project is added or the setting is enabled.
+	// It is deliberately project-scoped; one repository's worktree policy must
+	// not silently change another repository's import behavior.
+	AutoImportGitWorktrees bool      `json:"autoImportGitWorktrees"`
+	Pinned                 bool      `json:"pinned,omitempty"`
+	Order                  int       `json:"order,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
+}
+
+// WorktreeCandidate describes an existing Git worktree that can be imported
+// into a Project. Imported candidates remain in the list so clients can show
+// them as disabled instead of hiding the one-time import state.
+type WorktreeCandidate struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	Branch      string `json:"branch,omitempty"`
+	Locked      bool   `json:"locked,omitempty"`
+	Imported    bool   `json:"imported"`
+	WorkspaceID string `json:"workspace,omitempty"`
 }
 
 type Workspace struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Branch    string    `json:"branch,omitempty"`
-	Kind      string    `json:"kind"`
-	Pinned    bool      `json:"pinned,omitempty"`
-	Order     int       `json:"order,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Branch    string `json:"branch,omitempty"`
+	Kind      string `json:"kind"`
+	// ManagedWorktree is true only for Git worktrees created by Warren. An
+	// imported checkout remains on disk when its Warren record is removed.
+	ManagedWorktree bool `json:"managedWorktree,omitempty"`
+	// WorktreeLocked mirrors Git's lock marker. Locked worktrees are never
+	// removed automatically, even when a caller asks to remove the directory.
+	WorktreeLocked bool      `json:"worktreeLocked,omitempty"`
+	Pinned         bool      `json:"pinned,omitempty"`
+	Order          int       `json:"order,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
 	// MergeState is the live merge projection of the workspace branch against
 	// the project's default branch. It is overlaid on roster snapshots only
 	// and is never persisted with the workspace record.

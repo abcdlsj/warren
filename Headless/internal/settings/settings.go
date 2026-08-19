@@ -36,10 +36,12 @@ type Settings struct {
 	// running. The daemon restores them after a restart so a public URL
 	// survives until the user explicitly stops sharing.
 	TunnelEnabled map[string]bool `json:"tunnelEnabled,omitempty"`
-	// ImportGitWorktrees controls project import: when enabled, adding a
-	// project imports every Git worktree as a workspace; when disabled only
-	// the main checkout is imported.
-	ImportGitWorktrees bool `json:"importGitWorktrees"`
+	// AutoOpenShell controls whether opening an empty workspace creates a
+	// default Shell session. Explicit New Session/Shell actions are unaffected.
+	AutoOpenShell bool `json:"autoOpenShell"`
+	// AutoStartAI controls whether entering an empty workspace starts the first
+	// AI preset. Explicit session actions are unaffected.
+	AutoStartAI bool `json:"autoStartAI"`
 }
 
 // Normalized returns the effective default runtime kind.

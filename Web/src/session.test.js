@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   automaticSessionKind,
-  firstAIPreset,
   loadSessionPresetOrder,
   moveSessionPreset,
   normalizeSessionPresetOrder,
@@ -12,9 +11,30 @@ import {
   shouldAttachCreatedSession,
 } from "./session.js";
 
-test("empty explicit workspace entry selects Claude", () => {
-  assert.equal(firstAIPreset().kind, "claude");
-  assert.equal(automaticSessionKind({ tabs: [], pending: false, explicit: true }), "claude");
+test("automatic AI entry is opt-in, empty-only and follows preset order", () => {
+  assert.equal(automaticSessionKind({ tabs: [], pending: false, explicit: true }), null);
+  assert.equal(
+    automaticSessionKind({
+      tabs: [],
+      pending: false,
+      explicit: true,
+      autoStartAI: true,
+      presets: orderedSessionPresets(["shell", "codex", "claude"]),
+    }),
+    "codex",
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [], pending: true, explicit: true, autoStartAI: true }),
+    null,
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [{ id: "existing" }], pending: false, explicit: true, autoStartAI: true }),
+    null,
+  );
+  assert.equal(
+    automaticSessionKind({ tabs: [], pending: false, explicit: false, autoStartAI: true }),
+    null,
+  );
 });
 
 test("persisted preset order is normalized", () => {
@@ -40,16 +60,10 @@ test("loading preset order repairs persisted data", () => {
   assert.equal(storage.value, '["shell","claude","codex"]');
 });
 
-test("preset order controls presentation and automatic AI selection", () => {
+test("preset order controls presentation", () => {
   const presets = orderedSessionPresets(["shell", "codex", "claude"]);
 
   assert.deepEqual(presets.map(preset => preset.kind), ["shell", "codex", "claude"]);
-  assert.equal(automaticSessionKind({
-    tabs: [],
-    pending: false,
-    explicit: true,
-    presets,
-  }), "codex");
 });
 
 test("preset order moves within bounds", () => {
@@ -58,15 +72,6 @@ test("preset order moves within bounds", () => {
   assert.deepEqual(moveSessionPreset(order, "codex", -1), ["shell", "codex", "claude"]);
   assert.deepEqual(moveSessionPreset(order, "shell", -1), order);
   assert.deepEqual(moveSessionPreset(order, "codex", 1), order);
-});
-
-test("existing or pending workspace does not start a session", () => {
-  assert.equal(automaticSessionKind({ tabs: [{}], pending: false, explicit: true }), null);
-  assert.equal(automaticSessionKind({ tabs: [], pending: true, explicit: true }), null);
-});
-
-test("passive workspace restoration does not start a session", () => {
-  assert.equal(automaticSessionKind({ tabs: [], pending: false, explicit: false }), null);
 });
 
 test("workspace reservation prevents duplicate requests and can be released", () => {

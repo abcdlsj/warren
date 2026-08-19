@@ -33,8 +33,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private let onWebCopyURL: (URL) -> Void
     private let defaultRuntime: String?
     private let onSetRuntime: (String) -> Void
-    private let importGitWorktrees: Bool
-    private let onSetImportGitWorktrees: (Bool) -> Void
+    private let autoOpenShell: Bool
+    private let onSetAutoOpenShell: (Bool) -> Void
+    private let autoStartAI: Bool
+    private let onSetAutoStartAI: (Bool) -> Void
     private let persistenceEnabled: Bool
     private let externalIDEService = WarrenDesktopExternalIDEService.live
     @State private var sidebarState: WarrenDesktopSidebarState
@@ -94,8 +96,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         onWebCopyURL: @escaping (URL) -> Void = { _ in },
         defaultRuntime: String? = nil,
         onSetRuntime: @escaping (String) -> Void = { _ in },
-        importGitWorktrees: Bool = false,
-        onSetImportGitWorktrees: @escaping (Bool) -> Void = { _ in },
+        autoOpenShell: Bool = false,
+        onSetAutoOpenShell: @escaping (Bool) -> Void = { _ in },
+        autoStartAI: Bool = false,
+        onSetAutoStartAI: @escaping (Bool) -> Void = { _ in },
         persistenceEnabled: Bool = true,
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
@@ -116,8 +120,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.onWebCopyURL = onWebCopyURL
         self.defaultRuntime = defaultRuntime
         self.onSetRuntime = onSetRuntime
-        self.importGitWorktrees = importGitWorktrees
-        self.onSetImportGitWorktrees = onSetImportGitWorktrees
+        self.autoOpenShell = autoOpenShell
+        self.onSetAutoOpenShell = onSetAutoOpenShell
+        self.autoStartAI = autoStartAI
+        self.onSetAutoStartAI = onSetAutoStartAI
         self.persistenceEnabled = persistenceEnabled
         _sidebarState = State(
             initialValue: persistenceEnabled
@@ -297,8 +303,10 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     onBack: closeSettings,
                     defaultRuntime: defaultRuntime,
                     onSetRuntime: onSetRuntime,
-                    importGitWorktrees: importGitWorktrees,
-                    onSetImportGitWorktrees: onSetImportGitWorktrees
+                    autoOpenShell: autoOpenShell,
+                    onSetAutoOpenShell: onSetAutoOpenShell,
+                    autoStartAI: autoStartAI,
+                    onSetAutoStartAI: onSetAutoStartAI
                 )
                     .transition(.opacity)
             }

@@ -38,7 +38,9 @@ The default can be changed three ways:
        "PAGER": "less",
        "GH_PAGER": "less",
        "TERM": "xterm-256color"
-     }
+     },
+     "autoOpenShell": false,
+     "autoStartAI": false
    }
    ```
 
@@ -52,6 +54,12 @@ The default can be changed three ways:
    the settings file for this daemon invocation.
 3. `PUT /v1/settings` (or the Desktop **Settings → Terminal runtime** panel),
    which persists to `settings.json` for future daemon starts.
+
+Git worktree import is not a host-wide setting. Each Project stores its own
+`autoImportGitWorktrees` flag. Enable it from that project's context menu to
+import all currently existing external worktrees without confirmation, or use
+the project's **Import Existing Worktrees…** action to select a one-time batch;
+already imported candidates remain visible but disabled.
 
 ## ghostline
 

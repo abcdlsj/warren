@@ -55,6 +55,7 @@ import {
   Sidebar,
   TerminalSearch,
   TopBar,
+  WorktreeImportDialog,
 } from "./components.jsx";
 import { enableTerminalTouchScroll } from "./touch.js";
 
@@ -130,6 +131,8 @@ export default function App() {
   const [titleTemplate, setTitleTemplate] = useState(() => localStorage.getItem(storageKeys.titleTemplate) || defaultTitleTemplate);
   const [presetCommands, setPresetCommands] = useState(() => loadPresetCommands());
   const [presetOrder, setPresetOrder] = useState(() => loadPresetOrder());
+  const [autoOpenShell, setAutoOpenShell] = useState(false);
+  const [autoStartAI, setAutoStartAI] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState({ message: "Connecting…", online: false });
   const [emptyOverride, setEmptyOverride] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -145,6 +148,7 @@ export default function App() {
   const [agentStateBySession, setAgentStateBySession] = useState({});
   const [agentViewOverride, setAgentViewOverride] = useState(null);
   const [sessionSheetOpen, setSessionSheetOpen] = useState(false);
+  const [worktreeImportDialog, setWorktreeImportDialog] = useState(null);
 
   const connectionRef = useRef(null);
   const mainRef = useRef(null);
@@ -169,6 +173,7 @@ export default function App() {
   const appStateRef = useRef({});
   const pendingRequestsRef = useRef(new Map());
   const creatingSessionWorkspaceIDsRef = useRef(new Set());
+  const settingsLoadedRef = useRef(false);
   const inputQueueRef = useRef(null);
   const navigationBeforeSettingsRef = useRef(null);
   const autoFocusOnAttachRef = useRef(true);
@@ -240,6 +245,26 @@ export default function App() {
     }
     return true;
   }, []);
+
+  const applyRemoteSettings = useCallback(result => {
+    if (!result || typeof result !== "object") return;
+    if (typeof result.autoOpenShell === "boolean") {
+      setAutoOpenShell(result.autoOpenShell);
+    }
+    if (typeof result.autoStartAI === "boolean") {
+      setAutoStartAI(result.autoStartAI);
+    }
+  }, []);
+
+  const loadRemoteSettings = useCallback(() => {
+    if (settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    if (!request("settings.get", {}, applyRemoteSettings, () => {
+      settingsLoadedRef.current = false;
+    })) {
+      settingsLoadedRef.current = false;
+    }
+  }, [applyRemoteSettings, request]);
 
   const loadAgentHistory = useCallback((sessionID, before = 0) => {
     const params = { session: sessionID, limit: "200" };
@@ -600,7 +625,7 @@ export default function App() {
     return sent;
   }, [attachSession, orderedPresets, presetCommands, request, selectedWorkspaceID]);
 
-  const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null, explicit = true) => {
+  const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null, automaticEntry = true) => {
     const state = appStateRef.current;
     const wasAttached = Boolean(state.activeSession || state.attachedSession);
     const sessionID = resolveWorkspaceSession(
@@ -609,6 +634,7 @@ export default function App() {
       state.navigationMemory,
       preferredSessionID,
     );
+    const nextTabs = workspaceTabs(state.catalog, workspaceID);
     recordNavigation(state.catalog, workspaceID, sessionID);
     state.activeWorkspace = workspaceID;
     state.activeSession = null;
@@ -632,12 +658,13 @@ export default function App() {
       const automaticKind = automaticSessionKind({
         tabs: nextTabs,
         pending: creatingSessionWorkspaceIDsRef.current.has(workspaceID),
-        explicit,
+        explicit: automaticEntry,
+        autoStartAI,
         presets: orderedPresets,
       });
       if (automaticKind) createSession(automaticKind, workspaceID);
     }
-  }, [attachSession, clearTerminalSearch, createSession, orderedPresets, recordNavigation, request]);
+  }, [attachSession, autoStartAI, clearTerminalSearch, createSession, orderedPresets, recordNavigation, request]);
 
   const chooseSessionPreset = useCallback(kind => {
     setSessionSheetOpen(false);
@@ -660,14 +687,22 @@ export default function App() {
     });
   }, []);
 
-  const openWorkspace = useCallback(workspaceID => {
-    chooseWorkspace(workspaceID);
-    createSession("shell");
-  }, [chooseWorkspace, createSession]);
+  const openWorkspace = useCallback((workspaceID, explicit = false) => {
+    // A normal workspace-open gesture is opt-in through Settings. The
+    // project-row plus button passes explicit=true and remains a deliberate
+    // New Session action regardless of this default.
+    chooseWorkspace(workspaceID, null, !explicit);
+    const tabs = workspaceTabs(appStateRef.current.catalog, workspaceID);
+    if (!creatingSessionWorkspaceIDsRef.current.has(workspaceID)
+      && (explicit || (autoOpenShell && tabs.length === 0))) {
+      createSession("shell", workspaceID);
+    }
+  }, [autoOpenShell, chooseWorkspace, createSession]);
 
   const acceptRoster = useCallback(message => {
     clearMaintenanceTimeout();
     connectionRef.current?.markStable();
+    loadRemoteSettings();
     const nextCatalog = buildCatalog(rosterFromMessage(message));
     const state = appStateRef.current;
     const nextWorkspaceID = resolveRestoredWorkspace(nextCatalog, state.activeWorkspace, state.activeSession);
@@ -719,7 +754,7 @@ export default function App() {
       attachSession(sessionID, false, false, false);
     }
     else if (activeTabWasRemoved) request("session.detach");
-  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, recordNavigation, request]);
+  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, loadRemoteSettings, recordNavigation, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
@@ -968,6 +1003,7 @@ export default function App() {
   const acceptConnectionState = useCallback(state => {
     clearMaintenanceTimeout();
     if (state === "connecting") {
+      settingsLoadedRef.current = false;
       setConnectionStatus({ message: "Connecting…", online: false });
       return;
     }
@@ -1402,6 +1438,71 @@ export default function App() {
     request("project.pin", { id: project.id, pinned: !project.pinned });
   }, [request]);
 
+  const toggleProjectAutoImport = useCallback(project => {
+    request("project.autoImportGitWorktrees", {
+      project: project.id,
+      enabled: !project.autoImportGitWorktrees,
+    });
+  }, [request]);
+
+  const openWorktreeImport = useCallback(project => {
+    setWorktreeImportDialog({
+      project,
+      candidates: [],
+      selectedPaths: [],
+      loading: true,
+      error: "",
+    });
+    const sent = request("project.worktrees", { project: project.id }, result => {
+      const candidates = Array.isArray(result) ? result : [];
+      setWorktreeImportDialog(current => current?.project.id === project.id
+        ? { ...current, candidates, loading: false, error: "" }
+        : current);
+    }, detail => {
+      setWorktreeImportDialog(current => current?.project.id === project.id
+        ? { ...current, loading: false, error: detail || "Unable to read Git worktrees." }
+        : current);
+    });
+    if (!sent) {
+      setWorktreeImportDialog(current => current?.project.id === project.id
+        ? { ...current, loading: false, error: "The daemon is not connected. Reconnect and try again." }
+        : current);
+    }
+  }, [request]);
+
+  const toggleWorktreeCandidate = useCallback(path => {
+    setWorktreeImportDialog(current => {
+      if (!current) return current;
+      const candidate = current.candidates.find(value => value.path === path);
+      if (!candidate || candidate.imported) return current;
+      const selected = new Set(current.selectedPaths);
+      if (selected.has(path)) selected.delete(path);
+      else selected.add(path);
+      return { ...current, selectedPaths: [...selected] };
+    });
+  }, []);
+
+  const importSelectedWorktrees = useCallback(() => {
+    const current = worktreeImportDialog;
+    if (!current || !current.selectedPaths.length) return;
+    setWorktreeImportDialog(previous => previous ? { ...previous, loading: true, error: "" } : previous);
+    const sent = request("project.worktrees.import", {
+      project: current.project.id,
+      paths: current.selectedPaths,
+    }, () => {
+      setWorktreeImportDialog(null);
+    }, detail => {
+      setWorktreeImportDialog(previous => previous
+        ? { ...previous, loading: false, error: detail || "Unable to import selected worktrees." }
+        : previous);
+    });
+    if (!sent) {
+      setWorktreeImportDialog(previous => previous
+        ? { ...previous, loading: false, error: "The daemon is not connected. Reconnect and try again." }
+        : previous);
+    }
+  }, [request, worktreeImportDialog]);
+
   const toggleWorkspacePin = useCallback(workspace => {
     request("workspace.pin", { id: workspace.id, pinned: !workspace.pinned });
   }, [request]);
@@ -1417,8 +1518,15 @@ export default function App() {
         action: () => toggleProjectPin(project),
       },
       { label: "Rename project", action: () => renameProject(project) },
+      {
+        label: project.autoImportGitWorktrees
+          ? "Disable automatic worktree import"
+          : "Enable automatic worktree import (no confirmation)",
+        action: () => toggleProjectAutoImport(project),
+      },
+      { label: "Import existing worktrees…", action: () => openWorktreeImport(project) },
     ]);
-  }, [renameProject, showContextMenu, toggleProjectPin]);
+  }, [openWorktreeImport, renameProject, showContextMenu, toggleProjectAutoImport, toggleProjectPin]);
 
   const workspaceContextMenu = useCallback((event, workspace) => {
     showContextMenu(event, [
@@ -1591,6 +1699,26 @@ export default function App() {
     setTitleTemplate(value.trim() || defaultTitleTemplate);
   }, []);
 
+  const updateAutoOpenShell = useCallback(enabled => {
+    const previous = autoOpenShell;
+    setAutoOpenShell(enabled);
+    if (!request("settings.put", { autoOpenShell: enabled }, applyRemoteSettings, () => {
+      setAutoOpenShell(previous);
+    })) {
+      setAutoOpenShell(previous);
+    }
+  }, [applyRemoteSettings, autoOpenShell, request]);
+
+  const updateAutoStartAI = useCallback(enabled => {
+    const previous = autoStartAI;
+    setAutoStartAI(enabled);
+    if (!request("settings.put", { autoStartAI: enabled }, applyRemoteSettings, () => {
+      setAutoStartAI(previous);
+    })) {
+      setAutoStartAI(previous);
+    }
+  }, [applyRemoteSettings, autoStartAI, request]);
+
   const appendPlaceholder = useCallback(placeholder => {
     setTitleTemplate(previous => `${previous}${previous && !previous.endsWith(" ") ? " " : ""}${placeholder}`);
   }, []);
@@ -1657,6 +1785,7 @@ export default function App() {
           onToggleProject={toggleProject}
           onChooseWorkspace={chooseWorkspace}
           onOpenWorkspace={openWorkspace}
+          onNewSessionInWorkspace={workspaceID => openWorkspace(workspaceID, true)}
           onNewSession={() => createSession("shell")}
           onOpenSettings={openSettings}
           onProjectContextMenu={projectContextMenu}
@@ -1779,6 +1908,8 @@ export default function App() {
         titleTemplate={titleTemplate}
         presetCommands={presetCommands}
         presets={orderedPresets}
+        autoOpenShell={autoOpenShell}
+        autoStartAI={autoStartAI}
         titlePreview={titlePreview}
         placeholders={Object.entries(titlePlaceholders)}
         onClose={closeSettings}
@@ -1786,6 +1917,8 @@ export default function App() {
         onFontSizeChange={updateFontSize}
         onTitleTemplateChange={updateTitleTemplate}
         onPresetCommandChange={updatePresetCommand}
+        onAutoOpenShellChange={updateAutoOpenShell}
+        onAutoStartAIChange={updateAutoStartAI}
         onMovePreset={movePreset}
         onAppendPlaceholder={appendPlaceholder}
         onRestore={restoreDefaults}
@@ -1807,6 +1940,12 @@ export default function App() {
           onClose={() => setSessionSheetOpen(false)}
         />
       )}
+      <WorktreeImportDialog
+        dialog={worktreeImportDialog}
+        onClose={() => setWorktreeImportDialog(null)}
+        onToggle={toggleWorktreeCandidate}
+        onImport={importSelectedWorktrees}
+      />
       <ContextMenu menu={contextMenu} onClose={closeContextMenu} />
     </>
   );

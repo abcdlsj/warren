@@ -110,6 +110,8 @@ public enum WarrenDesktopNavigationReducer {
                 remembering(workspace: workspaceID, in: next, projection: projection),
                 in: projection
             )
+        case .openWorkspace(let workspaceID):
+            return reduce(state, action: .selectWorkspace(workspaceID), in: projection)
         case .selectTerminalGroup(let groupID):
             let next = WarrenDesktopNavigationState(
                 selection: .terminalGroup(groupID),
@@ -182,6 +184,7 @@ public enum WarrenDesktopNavigationReducer {
         case .restoreNavigation(let restoredState):
             return reconcile(restoredState, with: projection)
         case .addProject, .importSuperset, .requestNewWorkspace,
+             .requestProjectWorktreeImport, .setProjectAutoImportGitWorktrees,
              .renameProject, .renameWorkspace, .deleteProject, .deleteWorkspace,
              .renameSession,
              .setProjectPinned, .setWorkspacePinned, .setSessionPinned,

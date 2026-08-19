@@ -1,14 +1,16 @@
 package server
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/warren/Headless/internal/settings"
+	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/store"
 )
 
@@ -88,7 +90,7 @@ func TestWorkspacesForGitWorktreesProjectsValidDirectories(t *testing.T) {
 		{Path: filePath, Branch: "file"},
 	}
 
-	got, err := workspacesForGitWorktrees("project", createdAt, worktrees, os.Stat)
+	got, err := workspacesForGitWorktrees("project", createdAt, worktrees, os.Stat, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +100,7 @@ func TestWorkspacesForGitWorktreesProjectsValidDirectories(t *testing.T) {
 	if got[0].Path != mainPath || got[0].Name != "main" || got[0].Branch != "main" || got[0].Kind != "root" || got[0].Order != 0 {
 		t.Fatalf("root workspace: %#v", got[0])
 	}
-	if got[1].Path != featurePath || got[1].Name != "feature/demo" || got[1].Branch != "feature/demo" || got[1].Kind != "worktree" || got[1].Order != 1 {
+	if got[1].Path != featurePath || got[1].Name != "feature/demo" || got[1].Branch != "feature/demo" || got[1].Kind != "worktree" || !got[1].WorktreeLocked || got[1].Order != 1 {
 		t.Fatalf("branch workspace: %#v", got[1])
 	}
 	if got[2].Path != detachedPath || got[2].Name != "detached" || got[2].Branch != "" || got[2].Kind != "worktree" || got[2].Order != 2 {
@@ -122,6 +124,7 @@ func TestWorkspacesForGitWorktreesProjectsValidDirectories(t *testing.T) {
 			}
 			return os.Stat(path)
 		},
+		true,
 	)
 	if err == nil {
 		t.Fatal("expected filesystem permission error")
@@ -129,12 +132,12 @@ func TestWorkspacesForGitWorktreesProjectsValidDirectories(t *testing.T) {
 }
 
 func TestWorkspacesForGitWorktreesRejectsInvalidRoot(t *testing.T) {
-	_, err := workspacesForGitWorktrees("project", time.Now().UTC(), []gitWorktree{{Path: "/bare", Bare: true}}, os.Stat)
+	_, err := workspacesForGitWorktrees("project", time.Now().UTC(), []gitWorktree{{Path: "/bare", Bare: true}}, os.Stat, true)
 	if err == nil {
 		t.Fatal("expected bare repository error")
 	}
 
-	_, err = workspacesForGitWorktrees("project", time.Now().UTC(), []gitWorktree{{Path: "/missing"}}, os.Stat)
+	_, err = workspacesForGitWorktrees("project", time.Now().UTC(), []gitWorktree{{Path: "/missing"}}, os.Stat, true)
 	if err == nil {
 		t.Fatal("expected missing root error")
 	}
@@ -195,8 +198,8 @@ func TestAddProjectImportsAllGitWorktrees(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{Store: state, Settings: settings.Settings{ImportGitWorktrees: true}}
-	project, err := service.AddProject(detachedPath, "")
+	service := &Service{Store: state}
+	project, err := service.AddProjectWithOptions(detachedPath, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,6 +237,165 @@ func TestAddProjectImportsAllGitWorktrees(t *testing.T) {
 	afterDuplicate := state.Snapshot()
 	if len(afterDuplicate.Projects) != 1 || len(afterDuplicate.Workspaces) != 3 {
 		t.Fatalf("duplicate import changed state: projects=%d workspaces=%d", len(afterDuplicate.Projects), len(afterDuplicate.Workspaces))
+	}
+}
+
+func TestManualProjectWorktreeImportKeepsImportedCandidatesDisabled(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	featurePath := filepath.Join(root, "feature")
+	detachedPath := filepath.Join(root, "detached")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorktreeTest(t, repository, "init", "--quiet", "--initial-branch=main")
+	runGitForWorktreeTest(t, repository, "-c", "user.name=Warren Tests", "-c", "user.email=warren@example.com", "commit", "--quiet", "--allow-empty", "-m", "initial")
+	runGitForWorktreeTest(t, repository, "worktree", "add", "--quiet", "-b", "feature/demo", featurePath)
+	runGitForWorktreeTest(t, repository, "worktree", "add", "--quiet", "--detach", detachedPath, "HEAD")
+
+	state, err := store.Open(filepath.Join(root, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state}
+	project, err := service.AddProject(repository, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := service.ListProjectWorktrees(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2: %#v", len(candidates), candidates)
+	}
+	for _, candidate := range candidates {
+		if candidate.Imported {
+			t.Fatalf("candidate unexpectedly imported before selection: %#v", candidate)
+		}
+	}
+
+	created, err := service.ImportProjectWorktrees(project.ID, []string{featurePath})
+	if err != nil {
+		t.Fatalf("import selected worktree: %v", err)
+	}
+	if len(created) != 1 || !samePath(created[0].Path, featurePath) || created[0].Kind != "worktree" {
+		t.Fatalf("created workspaces = %#v, want feature worktree", created)
+	}
+	if created[0].ManagedWorktree {
+		t.Fatal("manually imported worktree must not be marked Warren-managed")
+	}
+
+	candidates, err = service.ListProjectWorktrees(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imported, remaining api.WorktreeCandidate
+	for _, candidate := range candidates {
+		if samePath(candidate.Path, featurePath) {
+			imported = candidate
+		} else if samePath(candidate.Path, detachedPath) {
+			remaining = candidate
+		}
+	}
+	if !imported.Imported || imported.WorkspaceID != created[0].ID {
+		t.Fatalf("imported candidate = %#v, want workspace %s", imported, created[0].ID)
+	}
+	if remaining.Imported {
+		t.Fatalf("unselected candidate was marked imported: %#v", remaining)
+	}
+	if _, err := service.ImportProjectWorktrees(project.ID, []string{featurePath}); err == nil {
+		t.Fatal("re-importing an imported candidate must fail so clients keep it disabled")
+	}
+}
+
+func TestEnablingProjectAutoImportImportsExistingWorktrees(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	featurePath := filepath.Join(root, "feature")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorktreeTest(t, repository, "init", "--quiet", "--initial-branch=main")
+	runGitForWorktreeTest(t, repository, "-c", "user.name=Warren Tests", "-c", "user.email=warren@example.com", "commit", "--quiet", "--allow-empty", "-m", "initial")
+	runGitForWorktreeTest(t, repository, "worktree", "add", "--quiet", "-b", "feature/demo", featurePath)
+
+	state, err := store.Open(filepath.Join(root, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state}
+	project, err := service.AddProject(repository, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.SetProjectAutoImportGitWorktrees(project.ID, true)
+	if err != nil {
+		t.Fatalf("enable automatic import: %v", err)
+	}
+	if !updated.AutoImportGitWorktrees {
+		t.Fatal("project auto import flag was not enabled")
+	}
+	snapshot := state.Snapshot()
+	if len(snapshot.Workspaces) != 2 {
+		t.Fatalf("workspace count after enabling auto import = %d, want 2", len(snapshot.Workspaces))
+	}
+	if !samePath(snapshot.Workspaces[1].Path, featurePath) {
+		t.Fatalf("auto-imported workspace = %#v, want %s", snapshot.Workspaces[1], featurePath)
+	}
+}
+
+func TestRemoveImportedWorktreeKeepsUserCheckout(t *testing.T) {
+	root := t.TempDir()
+	repository := filepath.Join(root, "repository")
+	featurePath := filepath.Join(root, "feature")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitForWorktreeTest(t, repository, "init", "--quiet", "--initial-branch=main")
+	runGitForWorktreeTest(t, repository, "-c", "user.name=Warren Tests", "-c", "user.email=warren@example.com", "commit", "--quiet", "--allow-empty", "-m", "initial")
+	runGitForWorktreeTest(t, repository, "worktree", "add", "--quiet", "-b", "feature/demo", featurePath)
+
+	state, err := store.Open(filepath.Join(root, "state.json"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Store: state}
+	project, err := service.AddProjectWithOptions(repository, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var imported api.Workspace
+	for _, workspace := range state.Snapshot().Workspaces {
+		if workspace.ProjectID == project.ID && workspace.Branch == "feature/demo" {
+			imported = workspace
+			break
+		}
+	}
+	if imported.ID == "" {
+		t.Fatal("imported worktree was not registered")
+	}
+	if imported.ManagedWorktree {
+		t.Fatal("imported worktree must not be marked Warren-managed")
+	}
+
+	if err := service.RemoveWorkspace(context.Background(), imported.ID, RemoveWorkspaceOptions{
+		Force:          true,
+		RemoveWorktree: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(featurePath); err != nil {
+		t.Fatalf("imported checkout was removed: %v", err)
+	}
+	output, err := exec.Command("git", "-C", repository, "worktree", "list", "--porcelain").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), featurePath) {
+		t.Fatalf("Git worktree registration was removed: %s", output)
 	}
 }
 

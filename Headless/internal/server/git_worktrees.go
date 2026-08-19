@@ -94,6 +94,7 @@ func workspacesForGitWorktrees(
 	createdAt time.Time,
 	worktrees []gitWorktree,
 	stat func(string) (os.FileInfo, error),
+	includeExternal bool,
 ) ([]api.Workspace, error) {
 	if len(worktrees) == 0 {
 		return nil, errors.New("Git repository has no worktrees")
@@ -106,6 +107,12 @@ func workspacesForGitWorktrees(
 	paths := make([]string, 0, len(worktrees))
 	for index, worktree := range worktrees {
 		if worktree.Bare {
+			continue
+		}
+		if index > 0 && !includeExternal {
+			// The default project import is intentionally cheap and conservative:
+			// resolving the repository root must not inspect or register every
+			// checkout unless the host setting explicitly opts in.
 			continue
 		}
 		if worktree.Prunable {
@@ -151,14 +158,15 @@ func workspacesForGitWorktrees(
 			kind = "root"
 		}
 		result = append(result, api.Workspace{
-			ID:        store.NewID(),
-			ProjectID: projectID,
-			Name:      name,
-			Path:      path,
-			Branch:    worktree.Branch,
-			Kind:      kind,
-			Order:     len(result),
-			CreatedAt: createdAt,
+			ID:             store.NewID(),
+			ProjectID:      projectID,
+			Name:           name,
+			Path:           path,
+			Branch:         worktree.Branch,
+			Kind:           kind,
+			WorktreeLocked: worktree.Locked,
+			Order:          len(result),
+			CreatedAt:      createdAt,
 		})
 	}
 	if len(result) == 0 || result[0].Kind != "root" {

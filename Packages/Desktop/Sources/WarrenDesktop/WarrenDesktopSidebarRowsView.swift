@@ -257,6 +257,15 @@ struct WarrenDesktopSidebarRows: View {
                 onAddWorkspace: {
                     onAction(.requestNewWorkspace(group.project.id))
                 },
+                onImportWorktrees: {
+                    onAction(.requestProjectWorktreeImport(group.project.id))
+                },
+                onToggleAutoImportWorktrees: {
+                    onAction(.setProjectAutoImportGitWorktrees(
+                        group.project.id,
+                        !group.project.autoImportGitWorktrees
+                    ))
+                },
                 onRename: {
                     onRequestRename(.project(group.project.id, name: group.project.name))
                 },
@@ -317,7 +326,7 @@ struct WarrenDesktopSidebarRows: View {
                 isSelected: selection == .workspace(workspace.id),
                 isPinned: workspace.pinned,
                 onSelect: { select(.workspace(workspace.id)) },
-                onDoubleClick: { onAction(.launchSession(workspace.id, .shell)) },
+                onDoubleClick: { onAction(.openWorkspace(workspace.id)) },
                 onRename: {
                     onRequestRename(.workspace(workspace.id, name: workspace.name))
                 },
@@ -597,12 +606,8 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
-    private var isWorktree: Bool {
-        guard let project else { return true }
-        return URL(fileURLWithPath: workspace.path)
-            .standardizedFileURL.path
-            != URL(fileURLWithPath: project.rootPath)
-                .standardizedFileURL.path
+    private var canRemoveWorktree: Bool {
+        workspace.managedWorktree && !workspace.worktreeLocked
     }
 
     var body: some View {
@@ -617,13 +622,23 @@ struct WarrenDesktopDeleteWorkspaceConfirmation: View {
                 .foregroundStyle(tokens.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if isWorktree {
+            if canRemoveWorktree {
                 Toggle("Also delete the local worktree directory", isOn: $removeWorktree)
                     .toggleStyle(.checkbox)
                     .font(WarrenTypography.body)
                     .foregroundStyle(tokens.foreground)
                     .tint(tokens.highlight)
                     .help("Leave unchecked to keep the Git worktree and branch on disk.")
+            } else if workspace.worktreeLocked {
+                Text("This Git worktree is locked and will be kept on disk.")
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if project != nil {
+                Text("This checkout is managed outside Warren and will be kept on disk.")
+                    .font(WarrenTypography.supporting)
+                    .foregroundStyle(tokens.mutedForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
