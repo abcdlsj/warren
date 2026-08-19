@@ -1,28 +1,48 @@
-import { useMemo } from "react";
-import { parseDiff } from "./git.js";
+import { useMemo, useState } from "react";
+import { File, PatchDiff, Virtualizer, WorkerPoolContextProvider } from "@pierre/diffs/react";
+import PierreDiffWorker from "@pierre/diffs/worker/worker.js?worker&type=module";
 
-function DiffLine({ line }) {
+const DIFF_THEME = "pierre-dark";
+
+const DIFF_LANGUAGES = [
+  "text", "ansi", "js", "jsx", "ts", "tsx", "json", "css", "html", "xml",
+  "go", "python", "shell", "markdown", "yaml", "toml", "sql",
+  "java", "c", "cpp", "rust", "diff", "ini", "dockerfile", "graphql",
+];
+
+function diffOptions(diffStyle) {
+  return {
+    theme: DIFF_THEME,
+    themeType: "dark",
+    diffStyle,
+    diffIndicators: "classic",
+    lineDiffType: "word",
+    disableFileHeader: true,
+    enableLineSelection: true,
+    lineHoverHighlight: "number",
+  };
+}
+
+const fileOptions = {
+  theme: DIFF_THEME,
+  themeType: "dark",
+  disableFileHeader: true,
+};
+
+function DiffSurface({ children }) {
   return (
-    <div className={`git-diff-line git-diff-line-${line.kind}`}>
-      <span className="git-diff-line-num">{line.oldLine}</span>
-      <span className="git-diff-line-num">{line.newLine}</span>
-      <span className="git-diff-line-mark">{line.kind === "add" ? "+" : line.kind === "del" ? "-" : ""}</span>
-      <span className="git-diff-line-text">{line.text}</span>
-    </div>
+    <WorkerPoolContextProvider
+      poolOptions={{ poolSize: 2, workerFactory: () => new PierreDiffWorker() }}
+      highlighterOptions={{ langs: DIFF_LANGUAGES, theme: DIFF_THEME }}
+    >
+      {children}
+    </WorkerPoolContextProvider>
   );
 }
 
 export function FileDiffView({ path, staged, commit, loading, diff, content, error, onClose }) {
-  const diffLines = useMemo(() => parseDiff(diff), [diff]);
-  const changedLines = useMemo(
-    () => new Set(diffLines.filter(line => line.kind === "add").map(line => line.newLine)),
-    [diffLines],
-  );
-  const contentLines = useMemo(() => {
-    const lines = (content || "").split("\n");
-    if (lines.at(-1) === "") lines.pop();
-    return lines;
-  }, [content]);
+  const [diffStyle, setDiffStyle] = useState("unified");
+  const options = useMemo(() => diffOptions(diffStyle), [diffStyle]);
 
   return (
     <section className="file-diff-view" aria-label="File diff">
@@ -32,36 +52,49 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
           {staged && <span className="file-diff-badge">staged</span>}
           {commit && <code className="file-diff-commit">{commit}</code>}
         </div>
-        <button type="button" className="chrome-button" aria-label="Close file diff" onClick={onClose}>
-          ✕
-        </button>
+        <div className="file-diff-actions">
+          <div className="file-diff-style-toggle" role="group" aria-label="Diff layout">
+            <button
+              type="button"
+              className={diffStyle === "unified" ? "file-diff-style-button active" : "file-diff-style-button"}
+              onClick={() => setDiffStyle("unified")}
+            >
+              Unified
+            </button>
+            <button
+              type="button"
+              className={diffStyle === "split" ? "file-diff-style-button active" : "file-diff-style-button"}
+              onClick={() => setDiffStyle("split")}
+            >
+              Split
+            </button>
+          </div>
+          <button type="button" className="chrome-button" aria-label="Close file diff" onClick={onClose}>
+            ✕
+          </button>
+        </div>
       </header>
       {loading ? (
         <p className="git-empty file-diff-empty">Loading diff…</p>
       ) : error ? (
         <p className="git-error file-diff-empty">{error}</p>
       ) : (
-        <div className="file-diff-body">
-          <section className="file-diff-pane">
-            <h3 className="file-diff-pane-title">File</h3>
-            <pre className="file-diff-content">
-              {contentLines.map((line, index) => (
-                <div key={index} className={`file-diff-content-line${changedLines.has(index + 1) ? " changed" : ""}`}>
-                  <span className="file-diff-content-num">{index + 1}</span>
-                  <span className="file-diff-content-text">{line}</span>
-                </div>
-              ))}
-            </pre>
-          </section>
-          <section className="file-diff-pane">
-            <h3 className="file-diff-pane-title">Diff</h3>
-            <pre className="git-diff-view">
-              {diffLines.map((line, index) => (
-                <DiffLine key={index} line={line} />
-              ))}
-            </pre>
-          </section>
-        </div>
+        <DiffSurface>
+          <div className="file-diff-body">
+            <section className="file-diff-pane">
+              <h3 className="file-diff-pane-title">File</h3>
+              <Virtualizer className="file-diff-pane-scroll">
+                <File file={{ name: path, contents: content }} options={fileOptions} />
+              </Virtualizer>
+            </section>
+            <section className="file-diff-pane">
+              <h3 className="file-diff-pane-title">Diff</h3>
+              <Virtualizer className="file-diff-pane-scroll">
+                <PatchDiff patch={diff} options={options} />
+              </Virtualizer>
+            </section>
+          </div>
+        </DiffSurface>
       )}
     </section>
   );
