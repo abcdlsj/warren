@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -33,7 +34,10 @@ func run(ctx context.Context, dir string, args ...string) (string, error) {
 	output, err := command.CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", fmt.Errorf("git %s timed out: %w", strings.Join(args, " "), ctx.Err())
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return "", fmt.Errorf("git %s timed out: %w", strings.Join(args, " "), ctx.Err())
+			}
+			return "", fmt.Errorf("git %s canceled: %w", strings.Join(args, " "), ctx.Err())
 		}
 		return "", &Error{Output: string(output), Err: err}
 	}

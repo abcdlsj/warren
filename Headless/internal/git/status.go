@@ -24,8 +24,9 @@ type Status struct {
 	Changes  []Change
 }
 
+// StatusFor reports the working-tree status of the git repository at dir.
 func StatusFor(ctx context.Context, dir string) (Status, error) {
-	output, err := run(ctx, dir, "-c", "core.quotepath=false", "status", "--porcelain=v2", "-z", "--branch")
+	output, err := run(ctx, dir, "-c", "core.quotepath=false", "status", "--porcelain=v2", "-z", "--branch", "--show-stash")
 	if err != nil {
 		return Status{}, err
 	}
@@ -47,26 +48,36 @@ func parseStatus(output string) Status {
 			parseStatusHeader(&status, strings.TrimPrefix(chunk, "# "))
 			continue
 		}
-		tokens := strings.Fields(chunk)
-		if len(tokens) == 0 {
-			continue
-		}
-		switch tokens[0] {
-		case "1":
-			path := strings.Join(tokens[8:], " ")
-			addXY(&status, tokens[1], path, "")
-		case "2":
-			path := strings.Join(tokens[9:], " ")
+		switch chunk[0] {
+		case '1':
+			parts := strings.SplitN(chunk, " ", 9)
+			if len(parts) < 9 {
+				continue
+			}
+			addXY(&status, parts[1], parts[8], "")
+		case '2':
+			parts := strings.SplitN(chunk, " ", 10)
+			if len(parts) < 10 {
+				continue
+			}
 			renameFrom := ""
 			if i+1 < len(chunks) {
 				renameFrom = chunks[i+1]
 				i++
 			}
-			addXY(&status, tokens[1], path, renameFrom)
-		case "?":
-			status.Changes = append(status.Changes, Change{Path: strings.Join(tokens[1:], " "), Status: "?"})
-		case "u":
-			status.Changes = append(status.Changes, Change{Path: strings.Join(tokens[9:], " "), Status: strings.ToUpper(tokens[1])})
+			addXY(&status, parts[1], parts[9], renameFrom)
+		case '?':
+			parts := strings.SplitN(chunk, " ", 2)
+			if len(parts) < 2 {
+				continue
+			}
+			status.Changes = append(status.Changes, Change{Path: parts[1], Status: "?"})
+		case 'u':
+			parts := strings.SplitN(chunk, " ", 11)
+			if len(parts) < 11 {
+				continue
+			}
+			status.Changes = append(status.Changes, Change{Path: parts[10], Status: parts[1]})
 		}
 	}
 	return status
@@ -85,8 +96,10 @@ func parseStatusHeader(status *Status, line string) {
 	case "branch.upstream":
 		status.Upstream = fields[1]
 	case "branch.ab":
-		status.Ahead = abCount(fields[1])
-		status.Behind = abCount(fields[2])
+		if len(fields) >= 3 {
+			status.Ahead = abCount(fields[1])
+			status.Behind = abCount(fields[2])
+		}
 	case "stash":
 		status.Stash, _ = strconv.Atoi(fields[1])
 	}
@@ -99,6 +112,8 @@ func abCount(value string) int {
 	return count
 }
 
+// addXY appends one Change per non-dot XY position; a file with both staged
+// and unstaged changes intentionally yields two entries for the same path.
 func addXY(status *Status, xy, path, renameFrom string) {
 	if len(xy) != 2 {
 		return
