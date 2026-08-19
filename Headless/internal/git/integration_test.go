@@ -65,8 +65,17 @@ func TestStatusForReportsUntrackedAndModified(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.Changes) != 2 {
-		t.Fatalf("changes = %#v, want 2", status.Changes)
+	want := []Change{
+		{Path: "a.txt", Status: "M"},
+		{Path: "new.txt", Status: "?"},
+	}
+	if len(status.Changes) != len(want) {
+		t.Fatalf("changes = %#v, want %#v", status.Changes, want)
+	}
+	for i := range want {
+		if status.Changes[i] != want[i] {
+			t.Fatalf("changes[%d] = %#v, want %#v", i, status.Changes[i], want[i])
+		}
 	}
 }
 
@@ -87,7 +96,8 @@ func TestLogAndBranchesAndCheckout(t *testing.T) {
 	if len(commits) != 2 {
 		t.Fatalf("commits = %d, want 2", len(commits))
 	}
-	if commits[0].Subject != "dev commit" || len(commits[0].Files) != 1 || commits[0].Files[0].Path != "dev.txt" {
+	if commits[0].Subject != "dev commit" || len(commits[0].Files) != 1 ||
+		commits[0].Files[0] != (FileChange{Path: "dev.txt", Status: "A"}) {
 		t.Fatalf("latest commit = %#v", commits[0])
 	}
 
