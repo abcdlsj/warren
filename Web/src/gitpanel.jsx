@@ -110,6 +110,7 @@ export function GitPanel({
           <div className="git-checkout-row">
             <select
               className="git-select"
+              aria-label="Branch"
               value={branch}
               onChange={event => setBranch(event.target.value)}
               disabled={createMode || !data?.branches.local.length && !data?.branches.remote.length}
@@ -129,12 +130,13 @@ export function GitPanel({
                 }}
               />
             ) : null}
-            <button type="button" className="chrome-button" onClick={submitCheckout} disabled={busy || (!createMode && !branch)}>
+            <button type="button" className="chrome-button" onClick={submitCheckout} disabled={busy || (createMode ? !newBranch.trim() : !branch)}>
               {action === "git.checkout" ? "Switching…" : createMode ? "Create" : "Checkout"}
             </button>
             <button
               type="button"
               className="chrome-button"
+              disabled={busy}
               onClick={() => {
                 setCreateMode(!createMode);
                 setNewBranch("");
@@ -151,7 +153,7 @@ export function GitPanel({
           <ul className="git-commit-list">
             {data?.commits.map(commit => (
               <li key={commit.hash} className="git-commit">
-                <button type="button" className="git-commit-summary" onClick={() => toggleCommit(commit.hash)}>
+                <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
                   <span className="git-commit-subject">{commit.subject}</span>
                   <span className="git-commit-meta">
                     <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
