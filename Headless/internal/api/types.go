@@ -262,3 +262,42 @@ type Response struct {
 	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
+
+// GitPanel is the aggregated Git projection for one workspace.
+type GitPanel struct {
+	WorkspaceID string      `json:"workspace"`
+	Branch      string      `json:"branch"`
+	Upstream    string      `json:"upstream,omitempty"`
+	Ahead       int         `json:"ahead,omitempty"`
+	Behind      int         `json:"behind,omitempty"`
+	Remote      string      `json:"remote,omitempty"`
+	Changes     []GitChange `json:"changes"`
+	Commits     []GitCommit `json:"commits"`
+	Branches    []GitBranch `json:"branches"`
+}
+
+type GitChange struct {
+	Path       string `json:"path"`
+	Status     string `json:"status"`
+	Staged     bool   `json:"staged,omitempty"`
+	RenameFrom string `json:"renameFrom,omitempty"`
+}
+
+type GitCommit struct {
+	Hash    string      `json:"hash"`
+	Short   string      `json:"short"`
+	Subject string      `json:"subject"`
+	Author  string      `json:"author"`
+	Email   string      `json:"email,omitempty"`
+	Time    time.Time   `json:"time"`
+	Files   []GitChange `json:"files"`
+}
+
+type GitBranch struct {
+	Name   string `json:"name"`
+	Remote bool   `json:"remote"`
+}
+
+type GitCommandResult struct {
+	Message string `json:"message"`
+}
