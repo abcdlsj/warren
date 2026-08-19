@@ -55,5 +55,4 @@ export function relativeTime(iso) {
       return `${count} ${name}${count === 1 ? "" : "s"} ago`;
     }
   }
-  return "";
 }
