@@ -71,6 +71,7 @@ export function GitPanel({
   onPush,
   onCheckout,
   onOpenFile,
+  onCommit,
   onClose,
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
@@ -80,7 +81,21 @@ export function GitPanel({
   const [createMode, setCreateMode] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
   const [selectedKey, setSelectedKey] = useState(null);
+  const [commitOpen, setCommitOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
   const busy = Boolean(action) || loading;
+
+  const openCommit = () => {
+    setCommitMessage("");
+    setCommitOpen(true);
+  };
+
+  const submitCommit = () => {
+    const message = commitMessage.trim();
+    if (!message) return;
+    setCommitOpen(false);
+    onCommit(message);
+  };
 
   useEffect(() => {
     if (!branchTouched && data?.branch && data.branches.local.includes(data.branch)) {
@@ -142,10 +157,42 @@ export function GitPanel({
             <button type="button" className="chrome-button" onClick={onPull} disabled={busy || !data}>
               {action === "git.pull" ? "Pulling…" : "Pull"}
             </button>
-            <button type="button" className="chrome-button" onClick={onPush} disabled={busy || !data}>
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={() => {
+                if (data && (data.staged.length || data.unstaged.length)) openCommit();
+                else onPush();
+              }}
+              disabled={busy || !data}
+            >
               {action === "git.push" ? "Pushing…" : "Push"}
             </button>
           </div>
+          {commitOpen && (
+            <div className="git-commit-box">
+              <p className="git-commit-hint">Commit changes before pushing</p>
+              <input
+                className="git-input"
+                value={commitMessage}
+                onChange={event => setCommitMessage(event.target.value)}
+                placeholder="Commit message"
+                autoFocus
+                onKeyDown={event => {
+                  if (event.key === "Enter") submitCommit();
+                  if (event.key === "Escape") setCommitOpen(false);
+                }}
+              />
+              <div className="git-commit-actions">
+                <button type="button" className="chrome-button" onClick={submitCommit} disabled={!commitMessage.trim() || busy}>
+                  {action === "git.commit" ? "Committing…" : "Commit & Push"}
+                </button>
+                <button type="button" className="chrome-button" onClick={() => setCommitOpen(false)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />

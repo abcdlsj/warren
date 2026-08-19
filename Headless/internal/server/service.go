@@ -1775,6 +1775,18 @@ func (s *Service) GitPush(ctx context.Context, workspaceID string) (api.GitComma
 	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
 }
 
+func (s *Service) GitCommit(ctx context.Context, workspaceID, message string) (api.GitCommandResult, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	output, err := git.CommitAll(ctx, workspace.Path, message)
+	if err != nil {
+		return api.GitCommandResult{}, err
+	}
+	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
+}
+
 func apiGitChanges(changes []git.Change) []api.GitChange {
 	result := make([]api.GitChange, 0, len(changes))
 	for _, change := range changes {

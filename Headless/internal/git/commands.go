@@ -60,6 +60,15 @@ func Pull(ctx context.Context, dir string) (string, error) {
 	return run(ctx, dir, "pull", "--ff-only")
 }
 
+// Commit stages every change (tracked, staged, and untracked) and creates a
+// commit with message, so a subsequent push always has something to upload.
+func CommitAll(ctx context.Context, dir, message string) (string, error) {
+	if _, err := run(ctx, dir, "add", "-A"); err != nil {
+		return "", err
+	}
+	return run(ctx, dir, "commit", "-m", message)
+}
+
 // Push uploads the current branch, setting the upstream when the branch has
 // none yet.
 func Push(ctx context.Context, dir string) (string, error) {

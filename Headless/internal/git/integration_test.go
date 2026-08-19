@@ -307,3 +307,39 @@ func TestStatusForMergesRenameCounts(t *testing.T) {
 	}
 	t.Errorf("no rename change in %#v", status.Changes)
 }
+
+func TestCommitStagesAllChanges(t *testing.T) {
+	dir := newRepository(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "staged.txt"), []byte("s\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitForTest(t, dir, "add", "staged.txt")
+
+	if _, err := CommitAll(context.Background(), dir, "commit everything"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := StatusFor(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Changes) != 0 {
+		t.Fatalf("changes after commit = %#v, want clean tree", status.Changes)
+	}
+	output := gitForTest(t, dir, "log", "-1", "--pretty=%s")
+	if strings.TrimSpace(output) != "commit everything" {
+		t.Fatalf("last commit subject = %q", strings.TrimSpace(output))
+	}
+}
+
+func TestCommitFailsOnCleanTree(t *testing.T) {
+	dir := newRepository(t)
+	if _, err := CommitAll(context.Background(), dir, "nothing to commit"); err == nil {
+		t.Fatal("CommitAll on a clean tree should fail")
+	}
+}
