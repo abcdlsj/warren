@@ -9,7 +9,9 @@ func Checkout(ctx context.Context, dir, branch string, create bool) error {
 	if create {
 		args = append(args, "-c", branch)
 	} else {
-		args = append(args, branch)
+		// "--" keeps a branch named like a flag (e.g. "-f") from being
+		// parsed as a git option, which could silently discard local changes.
+		args = append(args, "--", branch)
 	}
 	_, err := run(ctx, dir, args...)
 	return err
