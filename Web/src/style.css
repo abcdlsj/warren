@@ -3381,3 +3381,32 @@ button:disabled {
   color: var(--color-text-disabled);
   margin: 0;
 }
+
+.git-diff-counts {
+  margin-inline-start: auto;
+  display: flex;
+  gap: var(--space-xs);
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.git-diff-added {
+  color: var(--color-status-success);
+}
+
+.git-diff-deleted {
+  color: var(--color-status-danger);
+}
+
+.git-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.git-commit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
