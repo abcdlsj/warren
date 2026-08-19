@@ -3529,69 +3529,42 @@ button:disabled {
   border-bottom: 1px solid var(--color-border-separator);
 }
 
-.file-diff-content {
+.file-diff-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.file-diff-style-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--fill-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.file-diff-style-button {
+  padding: 2px var(--space-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.file-diff-style-button.active {
+  color: var(--color-text-primary);
+  background: var(--fill-secondary);
+}
+
+.file-diff-pane-scroll {
   flex: 1;
   min-height: 0;
-  margin: 0;
   overflow: auto;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--text-xs);
-  line-height: 1.5;
-  color: var(--color-text-primary);
 }
 
-.file-diff-content-line {
-  display: flex;
+.file-diff-pane-scroll > div:first-child {
+  min-width: max-content;
 }
 
-.file-diff-content-line.changed {
-  background: color-mix(in srgb, var(--color-status-success) 16%, transparent);
-}
-
-.file-diff-content-num {
-  flex: 0 0 4ch;
-  padding: 0 var(--space-sm) 0 var(--space-md);
-  text-align: end;
-  color: var(--color-text-disabled);
-  user-select: none;
-}
-
-.file-diff-content-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.git-diff-line {
-  display: flex;
-  white-space: pre;
-}
-
-.git-diff-line-num {
-  flex: 0 0 3ch;
-  padding: 0 var(--space-sm) 0 var(--space-md);
-  text-align: end;
-  color: var(--color-text-disabled);
-  user-select: none;
-}
-
-.git-diff-line-mark {
-  flex: 0 0 1.5ch;
-  color: var(--color-text-secondary);
-}
-
-.git-diff-line-add {
-  background: color-mix(in srgb, var(--color-status-success) 16%, transparent);
-}
-
-.git-diff-line-del {
-  background: color-mix(in srgb, var(--color-status-danger) 16%, transparent);
-}
-
-.git-diff-line-hunk {
-  background: var(--color-accent-subtle);
-  color: var(--color-text-secondary);
-}
-
-.git-diff-line-meta {
-  color: var(--color-text-disabled);
-}

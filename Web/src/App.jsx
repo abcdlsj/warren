@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -39,7 +39,7 @@ import {
 } from "./terminal.js";
 import { mergeAgentEvents } from "./agent.js";
 import { AgentView } from "./agent.jsx";
-import { FileDiffView } from "./filediff.jsx";
+const FileDiffView = lazy(() => import("./filediff.jsx").then(module => ({ default: module.FileDiffView })));
 import { InputQueue, MobileInputDeduper } from "./input.js";
 import { OutputBatcher } from "./output.js";
 import { decodeOutputFrame, isBinaryEnvelope } from "./wire.js";
@@ -1942,16 +1942,18 @@ export default function App() {
           >
             <div id="terminal" ref={terminalHostRef} hidden={agentViewActive || Boolean(fileView)} />
             {fileView && (
-              <FileDiffView
-                path={fileView.path}
-                staged={fileView.staged}
-                commit={fileView.commit}
-                loading={fileDiff.loading}
-                diff={fileDiff.diff}
-                content={fileDiff.content}
-                error={fileDiff.error}
-                onClose={() => setFileView(null)}
-              />
+              <Suspense fallback={<p className="git-empty file-diff-empty">Loading diff viewer…</p>}>
+                <FileDiffView
+                  path={fileView.path}
+                  staged={fileView.staged}
+                  commit={fileView.commit}
+                  loading={fileDiff.loading}
+                  diff={fileDiff.diff}
+                  content={fileDiff.content}
+                  error={fileDiff.error}
+                  onClose={() => setFileView(null)}
+                />
+              </Suspense>
             )}
             {agentViewActive && (
               <AgentView
