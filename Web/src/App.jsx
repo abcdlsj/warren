@@ -311,6 +311,10 @@ export default function App() {
     }
   }, [request, loadGitPanel]);
 
+  const requestGitDiff = useCallback((params, onResult, onError) => {
+    return request("git.diff", { workspace: selectedWorkspaceID, ...params }, onResult, onError);
+  }, [request, selectedWorkspaceID]);
+
   useEffect(() => {
     if (gitOpen) loadGitPanel();
   }, [gitOpen, loadGitPanel]);
@@ -1962,6 +1966,7 @@ export default function App() {
             onPull={() => runGitAction("git.pull", { workspace: selectedWorkspaceID })}
             onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
+            onDiff={requestGitDiff}
             onClose={() => setGitOpen(false)}
           />
         )}
