@@ -153,6 +153,7 @@ enum WarrenUpdateNotification {
     static let installRequested = Notification.Name("Warren.installUpdateRequested")
     static let dismiss = Notification.Name("Warren.dismissUpdate")
     static let installing = Notification.Name("Warren.installingUpdate")
+    static let failed = Notification.Name("Warren.updateFailed")
     static let keyRelease = "release"
 }
 

@@ -119,12 +119,20 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 }
             } catch {
                 NSLog("Unable to check for Warren updates automatically: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
+                )
             }
         }
     }
 
     @objc private func checkForUpdates(_ sender: NSMenuItem) {
         guard updateInstallTask == nil else { return }
+        if availableRelease != nil {
+            installAvailableUpdate()
+            return
+        }
         updateMenuItem?.isEnabled = false
         updateMenuItem?.title = "Checking for Updates…"
         updateCheckTask?.cancel()
@@ -140,17 +148,16 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 if let release = try await self.updater.checkForUpdates(force: true) {
                     self.publishAvailableUpdate(release)
                 } else {
-                    self.showAlert(
-                        title: "Warren Is Up to Date",
-                        message: "You are running the latest available version of Warren.",
-                        style: .informational
+                    NotificationCenter.default.post(
+                        name: WarrenUpdateNotification.dismiss,
+                        object: nil
                     )
                 }
             } catch {
-                self.showAlert(
-                    title: "Unable to Check for Updates",
-                    message: error.localizedDescription,
-                    style: .warning
+                NSLog("Unable to check for Warren updates: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
                 )
             }
         }
@@ -193,10 +200,10 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                     object: nil,
                     userInfo: [WarrenUpdateNotification.keyRelease: release]
                 )
-                self.showAlert(
-                    title: "Unable to Install Update",
-                    message: error.localizedDescription,
-                    style: .warning
+                NSLog("Unable to install Warren update: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
                 )
             }
         }

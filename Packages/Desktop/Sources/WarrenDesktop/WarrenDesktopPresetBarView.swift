@@ -75,7 +75,7 @@ struct WarrenDesktopPresetBar: View {
         .background(tokens.background)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(tokens.border)
+                .fill(tokens.chromeDivider)
                 .frame(height: WarrenSpacing.hairline)
         }
         .accessibilityElement(children: .contain)

@@ -213,7 +213,7 @@ private struct WarrenDesktopPaneView<TerminalSurface: View>: View {
                 .background(tokens.tertiaryWash)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(tokens.border)
+                        .fill(tokens.chromeDivider)
                         .frame(height: WarrenSpacing.hairline)
                 }
             }

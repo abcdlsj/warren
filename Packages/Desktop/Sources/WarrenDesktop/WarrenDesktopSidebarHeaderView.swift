@@ -4,6 +4,8 @@ import WarrenDesignSystem
 struct WarrenDesktopSidebarHeader: View {
     let isCollapsed: Bool
     let chromeMode: WarrenDesktopChromeMode
+    let updateStatus: WarrenDesktopUpdateStatus
+    let onUpdateAction: () -> Void
     let onToggle: () -> Void
     let onCommandPalette: () -> Void
 
@@ -75,8 +77,12 @@ struct WarrenDesktopSidebarHeader: View {
                 .accessibilityHidden(true)
 
             if WarrenBuildVariant.isBuild {
-                WarrenDesktopBuildBadge()
-                    .padding(.trailing, WarrenSpacing.compact)
+                WarrenDesktopBuildBadge(
+                    updateStatus: updateStatus,
+                    onUpdateAction: onUpdateAction
+                )
+                .padding(.trailing, WarrenSpacing.compact)
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .frame(height: WarrenLayoutMetrics.sidebarTrafficRowHeight)

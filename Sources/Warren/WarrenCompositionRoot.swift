@@ -17,8 +17,7 @@ struct WarrenCompositionRoot: View {
     @State private var worktreeImportCandidates: [WarrenDesktopWorktreeCandidate] = []
     @State private var worktreeImportLoading = false
     @State private var terminalSearchPresented = false
-    @State private var availableUpdate: WarrenRelease?
-    @State private var isInstallingUpdate = false
+    @State private var updateStatus: WarrenDesktopUpdateStatus = .none
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -53,6 +52,13 @@ struct WarrenCompositionRoot: View {
             projection: activeProjection,
             navigation: activeNavigation,
             chromeMode: .workspace,
+            updateStatus: updateStatus,
+            onUpdateAction: {
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.installRequested,
+                    object: nil
+                )
+            },
             actions: WarrenDesktopActions(send: handle),
             webStatus: remoteModel.webStatus,
             creatingSessionWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
@@ -110,18 +116,6 @@ struct WarrenCompositionRoot: View {
                     .warrenPanelSurface(cornerRadius: WarrenRadius.large)
                 }
                 .transition(.opacity)
-            }
-        }
-        .overlay(alignment: .top) {
-            if availableUpdate != nil || isInstallingUpdate {
-                WarrenUpdateBanner(
-                    release: availableUpdate,
-                    isInstalling: isInstallingUpdate
-                )
-                .padding(.top, WarrenLayoutMetrics.tabBarHeight + WarrenSpacing.compact)
-                .padding(.horizontal, WarrenSpacing.medium)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(30)
             }
         }
         .fileImporter(
@@ -199,19 +193,22 @@ struct WarrenCompositionRoot: View {
                 return
             }
             withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
-                availableUpdate = release
-                isInstallingUpdate = false
+                updateStatus = .available(version: release.displayVersion)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.installing)) { _ in
             withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
-                isInstallingUpdate = true
+                updateStatus = .updating
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.dismiss)) { _ in
             withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
-                availableUpdate = nil
-                isInstallingUpdate = false
+                updateStatus = .none
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.failed)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                updateStatus = .failed
             }
         }
         .task {

@@ -71,7 +71,7 @@ struct WarrenDesktopChromeDivider: View {
 
     var body: some View {
         Rectangle()
-            .fill(WarrenColorTokens.resolved(for: colorScheme).border)
+            .fill(WarrenColorTokens.resolved(for: colorScheme).chromeDivider)
             .frame(height: WarrenSpacing.hairline)
     }
 }

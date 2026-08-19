@@ -17,6 +17,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     public let projection: WarrenDesktopProjection
     public let navigation: WarrenDesktopNavigationState
     public let chromeMode: WarrenDesktopChromeMode
+    public let updateStatus: WarrenDesktopUpdateStatus
+    public let onUpdateAction: () -> Void
     public let webStatus: WarrenDesktopWebStatus
     public let creatingSessionWorkspaceIDs: Set<WorkspaceID>
     public let creatingSessionTerminalGroupIDs: Set<TerminalGroupID>
@@ -81,6 +83,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         projection: WarrenDesktopProjection,
         navigation: WarrenDesktopNavigationState? = nil,
         chromeMode: WarrenDesktopChromeMode = .workspace,
+        updateStatus: WarrenDesktopUpdateStatus = .none,
+        onUpdateAction: @escaping () -> Void = {},
         actions: WarrenDesktopActions = WarrenDesktopActions(),
         webStatus: WarrenDesktopWebStatus = .init(),
         creatingSessionWorkspaceIDs: Set<WorkspaceID> = [],
@@ -106,6 +110,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.projection = projection
         self.navigation = navigation ?? WarrenDesktopNavigationReducer.initial(for: projection)
         self.chromeMode = chromeMode
+        self.updateStatus = updateStatus
+        self.onUpdateAction = onUpdateAction
         self.webStatus = webStatus
         self.creatingSessionWorkspaceIDs = creatingSessionWorkspaceIDs
         self.creatingSessionTerminalGroupIDs = creatingSessionTerminalGroupIDs
@@ -180,6 +186,8 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     sidebarTree: $sidebarTree,
                     selection: navigation.selection,
                     chromeMode: chromeMode,
+                    updateStatus: updateStatus,
+                    onUpdateAction: onUpdateAction,
                     onAction: dispatch,
                     onCommandPalette: { commandPalettePresented = true },
                     onRequestRename: presentRename,
