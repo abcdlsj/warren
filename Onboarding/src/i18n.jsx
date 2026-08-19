@@ -86,6 +86,29 @@ const messages = {
     "changelog.viewRelease": "View release",
     "changelog.entries": [
       {
+        version: "0.5.1",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren starts lighter.",
+        summary:
+          "The first workspace becomes available sooner while optional startup work continues safely in the background.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Document cold-start milestones, ownership boundaries, deferral rules, and the measurement checklist for future startup changes.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Defer optional CLI installation, tunnel status refresh, and agent hook installation so the first usable workspace is not blocked by setup work.",
+              "Let the authenticated WebSocket own local daemon readiness instead of issuing a duplicate state probe during launch.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.5.0",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -356,6 +379,28 @@ const messages = {
       "Warren 在公开构建。这里记录每次改变、每个版本，以及接下来要去的地方。",
     "changelog.viewRelease": "查看 Release",
     "changelog.entries": [
+      {
+        version: "0.5.1",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 启动更轻了。",
+        summary: "首个 Workspace 更快可用，非关键启动工作会在后台安全完成。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "记录冷启动里程碑、职责边界、延后规则，以及后续启动改动的测量清单。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "延后可选的 CLI 安装、Tunnel 状态刷新和 Agent Hook 安装，首个可用 Workspace 不再被设置工作阻塞。",
+              "让已认证的 WebSocket 自己负责本地 daemon 就绪判断，启动时不再重复发起 state 探测。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.5.0",
         dateISO: "2026-08-20",

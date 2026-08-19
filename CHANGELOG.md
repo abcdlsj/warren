@@ -6,6 +6,17 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.5.1] - 2026-08-20
+
+### Added
+
+- Document the cold-start milestones, ownership boundaries, deferral rules, and measurement checklist for future startup changes.
+
+### Changed
+
+- Defer optional CLI installation, tunnel status refresh, and agent hook installation so the first usable workspace is not blocked by setup work.
+- Let the authenticated WebSocket own local daemon readiness instead of issuing a duplicate state probe during launch.
+
 ## [0.5.0] - 2026-08-20
 
 ### Added
