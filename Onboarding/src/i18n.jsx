@@ -5,6 +5,7 @@ const messages = {
     "nav.overview": "Overview",
     "nav.terminal": "Terminal",
     "nav.why": "Why",
+    "nav.changelog": "Changelog",
     "nav.source": "Source",
     "hero.kicker": "Local-first development workbench",
     "hero.titleA": "Your terminal,",
@@ -78,11 +79,96 @@ const messages = {
     "footer.servedBy": "Served by a Cloudflare Worker",
     "footer.source": "Source",
     "footer.domain": "warrenai.xyz",
+    "changelog.kicker": "Release notes",
+    "changelog.title": "A living record.",
+    "changelog.lede":
+      "Warren is built in public. Here is what changed, what shipped, and where the work is heading.",
+    "changelog.viewRelease": "View release",
+    "changelog.entries": [
+      {
+        version: "0.2.0",
+        dateISO: "2026-08-19",
+        date: "August 19, 2026",
+        title: "Sessions move with you.",
+        summary:
+          "A release focused on session control, agent context, and a calmer way to move through workspaces.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Move sessions between terminal groups and workspaces with tab-scoped targets.",
+              "Read agent transcripts in the headless service and surface agent chat updates on the web.",
+              "Remember scoped navigation positions and merge them into workspace state.",
+              "Track worktree branches merged into the default branch.",
+              "Add merge projection state and session locking in the headless service.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Improve session title precedence and merged-workspace reconciliation.",
+              "Remove activity drag-to-dismiss in favor of the context-menu flow.",
+              "Bound session attach preparation and harden terminal surface/output lifecycle handling.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Prevent fullscreen teardown deadlocks and merge projection refresh saturation.",
+              "Preserve terminal search keyboard handling.",
+              "Harden agent transcript parsing and stream handling.",
+              "Scope relay web assets under the host route when Vite emits relative URLs.",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.1.1",
+        dateISO: "2026-08-18",
+        date: "August 18, 2026",
+        title: "A smoother first launch.",
+        summary:
+          "Warren became easier to install and easier to discover, with a bundled CLI and a public onboarding site.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Install the bundled Warren CLI on first launch and expose it in the shell path.",
+              "Publish the Warren onboarding site with an interactive terminal demo and direct downloads.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: ["Keep the Chinese locale hidden until its typeface rendering is ready."],
+          },
+        ],
+      },
+      {
+        version: "0.1.0",
+        dateISO: "2026-08-18",
+        date: "August 18, 2026",
+        title: "The first public release.",
+        summary:
+          "Warren launched as a local-first development workbench for durable terminal sessions.",
+        sections: [
+          {
+            title: "Included",
+            items: [
+              "A native macOS desktop app with a menu bar daemon.",
+              "A bundled warren-headless daemon and Warren CLI.",
+              "A responsive Web/PWA client served by the daemon.",
+              "Durable terminal sessions that survive disconnects, app quits, and network changes.",
+            ],
+          },
+        ],
+      },
+    ],
   },
   zh: {
     "nav.overview": "概览",
     "nav.terminal": "终端",
     "nav.why": "为什么",
+    "nav.changelog": "更新日志",
     "nav.source": "源码",
     "hero.kicker": "本地优先的开发工作台",
     "hero.titleA": "你的终端，",
@@ -156,6 +242,87 @@ const messages = {
     "footer.servedBy": "由 Cloudflare Worker 托管",
     "footer.source": "源码",
     "footer.domain": "warrenai.xyz",
+    "changelog.kicker": "更新日志",
+    "changelog.title": "每一次变化，都有记录。",
+    "changelog.lede":
+      "Warren 在公开构建。这里记录每次改变、每个版本，以及接下来要去的地方。",
+    "changelog.viewRelease": "查看 Release",
+    "changelog.entries": [
+      {
+        version: "0.2.0",
+        dateISO: "2026-08-19",
+        date: "2026 年 8 月 19 日",
+        title: "会话跟着你走。",
+        summary: "这一版聚焦会话控制、Agent 上下文，以及更从容的 Workspace 导航。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "支持在 Terminal Group 和 Workspace 之间移动会话，并严格限定 Tab 的目标范围。",
+              "Headless 服务支持读取 Agent transcript，Web 端展示 Agent 对话更新。",
+              "记住每个作用域的导航位置，并合并进 Workspace 状态。",
+              "标记已经合并到默认分支的 worktree 分支。",
+              "Headless 服务增加 merge projection 状态和会话锁。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "优化会话标题优先级和合并 Workspace 的状态协调。",
+              "移除拖拽关闭 Activity，改用上下文菜单流程。",
+              "限制会话 attach 准备时间，并加固终端 surface/output 生命周期。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "避免全屏 teardown 死锁和 merge projection 刷新过载。",
+              "保留终端搜索快捷键行为。",
+              "加固 Agent transcript 解析和流处理。",
+              "Vite 使用相对资源路径时，Relay Web 资源仍正确挂在 Host 路由下。",
+            ],
+          },
+        ],
+      },
+      {
+        version: "0.1.1",
+        dateISO: "2026-08-18",
+        date: "2026 年 8 月 18 日",
+        title: "更顺滑的第一次启动。",
+        summary: "Warren 变得更容易安装和发现，首启 CLI 和公开 onboarding 站点都已就位。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "首次启动时安装内置 Warren CLI，并将它加入 shell PATH。",
+              "发布带交互式终端演示和直接下载入口的 Warren onboarding 站点。",
+            ],
+          },
+          {
+            title: "调整",
+            items: ["中文 locale 的字体渲染准备好之前，暂时隐藏中文切换。"],
+          },
+        ],
+      },
+      {
+        version: "0.1.0",
+        dateISO: "2026-08-18",
+        date: "2026 年 8 月 18 日",
+        title: "第一个公开版本。",
+        summary: "Warren 作为一个本地优先、提供持久终端会话的开发工作台正式发布。",
+        sections: [
+          {
+            title: "包含",
+            items: [
+              "原生 macOS 桌面端和菜单栏 daemon。",
+              "内置 warren-headless daemon 和 Warren CLI。",
+              "由 daemon 提供服务的响应式 Web/PWA 客户端。",
+              "断开连接、退出应用和切换网络后仍然存在的持久终端会话。",
+            ],
+          },
+        ],
+      },
+    ],
   },
 };
 

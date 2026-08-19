@@ -38,18 +38,29 @@ function Reveal({ className = "", delay = 0, children }) {
   );
 }
 
-function Nav() {
+function Nav({ current = "home" }) {
   const { t } = useI18n();
+  const isChangelog = current === "changelog";
+  const homeHref = isChangelog ? "/" : "#top";
+  const terminalHref = isChangelog ? "/#terminal" : "#terminal";
+  const whyHref = isChangelog ? "/#why" : "#why";
   return (
     <header className="nav">
-      <a className="nav-brand" href="#top">
+      <a className="nav-brand" href={homeHref}>
         <img src="/favicon.svg" alt="" width="20" height="20" />
         <span>Warren</span>
       </a>
       <nav className="nav-links">
-        <a href="#top">{t("nav.overview")}</a>
-        <a href="#terminal">{t("nav.terminal")}</a>
-        <a href="#why">{t("nav.why")}</a>
+        <a href={homeHref}>{t("nav.overview")}</a>
+        <a href={terminalHref}>{t("nav.terminal")}</a>
+        <a href={whyHref}>{t("nav.why")}</a>
+        <a
+          className={isChangelog ? "is-current" : ""}
+          href="/changelog"
+          aria-current={isChangelog ? "page" : undefined}
+        >
+          {t("nav.changelog")}
+        </a>
       </nav>
       <div className="nav-right">
         <a
@@ -278,7 +289,61 @@ function Footer() {
   );
 }
 
-export default function App() {
+function ChangelogPage() {
+  const { t } = useI18n();
+  const entries = t("changelog.entries");
+
+  return (
+    <div className="site changelog-site">
+      <div className="grain" aria-hidden="true" />
+      <Nav current="changelog" />
+      <main>
+        <section className="changelog-hero">
+          <Reveal className="changelog-hero-inner">
+            <p className="kicker">{t("changelog.kicker")}</p>
+            <h1>{t("changelog.title")}</h1>
+            <p>{t("changelog.lede")}</p>
+          </Reveal>
+        </section>
+        <section className="changelog-list" aria-label={t("changelog.title")}>
+          {entries.map((entry, index) => (
+            <Reveal className="release-entry" delay={index * 70} key={entry.version}>
+              <div className="release-meta">
+                <span className="release-version">v{entry.version}</span>
+                <time dateTime={entry.dateISO}>{entry.date}</time>
+                <a
+                  className="release-link"
+                  href={`https://github.com/abcdlsj/warren/releases/tag/v${entry.version}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("changelog.viewRelease")} <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+              <article className="release-body">
+                <h2>{entry.title}</h2>
+                <p className="release-summary">{entry.summary}</p>
+                {entry.sections.map((section) => (
+                  <section className="release-section" key={section.title}>
+                    <h3>{section.title}</h3>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </article>
+            </Reveal>
+          ))}
+        </section>
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+function HomePage() {
   return (
     <div className="site">
       <div className="grain" aria-hidden="true" />
@@ -295,4 +360,9 @@ export default function App() {
       <Footer />
     </div>
   );
+}
+
+export default function App() {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  return path === "/changelog" ? <ChangelogPage /> : <HomePage />;
 }
