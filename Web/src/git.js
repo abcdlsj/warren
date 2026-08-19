@@ -56,3 +56,13 @@ export function relativeTime(iso) {
     }
   }
 }
+
+export function diffSummary(changes) {
+  return (changes || []).reduce(
+    (total, change) => ({
+      added: total.added + (change.added || 0),
+      deleted: total.deleted + (change.deleted || 0),
+    }),
+    { added: 0, deleted: 0 },
+  );
+}
