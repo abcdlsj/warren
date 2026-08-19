@@ -1718,23 +1718,22 @@ func (s *Service) GitCheckout(ctx context.Context, workspaceID, branch string, c
 	if err := git.Checkout(ctx, workspace.Path, branch, create); err != nil {
 		return api.GitCommandResult{}, err
 	}
-	storedBranch := branch
-	if !create {
-		if index := strings.LastIndex(storedBranch, "/"); index >= 0 {
-			storedBranch = storedBranch[index+1:]
-		}
+	current, err := git.CurrentBranch(ctx, workspace.Path)
+	if err != nil {
+		return api.GitCommandResult{}, err
 	}
 	if err := s.Store.Update(func(value *api.State) error {
 		for i := range value.Workspaces {
 			if value.Workspaces[i].ID == workspaceID {
-				value.Workspaces[i].Branch = storedBranch
+				value.Workspaces[i].Branch = current
+				return nil
 			}
 		}
-		return nil
+		return fmt.Errorf("workspace not found: %s", workspaceID)
 	}); err != nil {
 		return api.GitCommandResult{}, err
 	}
-	return api.GitCommandResult{Message: "Checked out " + storedBranch}, nil
+	return api.GitCommandResult{Message: "Checked out " + current}, nil
 }
 
 func (s *Service) GitPull(ctx context.Context, workspaceID string) (api.GitCommandResult, error) {

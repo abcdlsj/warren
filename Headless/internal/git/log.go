@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,12 @@ func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
 		"-M", "--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00",
 		"-n", strconv.Itoa(limit))
 	if err != nil {
+		// A repository with no commits yet fails git log; the panel should
+		// show an empty history instead of an error.
+		var gitErr *Error
+		if errors.As(err, &gitErr) && strings.Contains(gitErr.Output, "does not have any commits") {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return parseLog(output), nil
