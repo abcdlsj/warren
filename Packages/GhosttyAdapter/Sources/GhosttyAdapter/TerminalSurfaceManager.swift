@@ -369,7 +369,19 @@ public final class TerminalSurfaceManager {
         to host: TerminalHostContainerView,
         generation: UInt64
     ) {
-        let viewport = sanitizedViewport(latestIntent.viewportSize, fallback: host.bounds.size)
+        // SwiftUI can submit the terminal host before its pane constraints have
+        // propagated through AppKit. Flush that pending layout before deriving
+        // the frame used to create Ghostty's first grid; otherwise the initial
+        // attach can capture an intermediate viewport and only a later manual
+        // resize will correct the PTY/cell geometry.
+        host.window?.contentView?.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        // The host's measured bounds are authoritative after the layout flush.
+        // The intent can still contain the size from the preceding
+        // NSViewRepresentable update while SwiftUI is committing a new pane
+        // frame; using that stale request would recreate the same first-grid
+        // mismatch even though AppKit already knows the final size.
+        let viewport = sanitizedViewport(host.bounds.size, fallback: latestIntent.viewportSize)
         cancelPresentation(for: entry)
         entry.view.setSurfaceVisible(false)
         entry.view.isHidden = true
@@ -634,7 +646,7 @@ public final class TerminalSurfaceManager {
 
     private func estimatedSurfaceBytes(in host: TerminalHostContainerView?) -> Int {
         guard let host else { return 0 }
-        let viewport = sanitizedViewport(latestIntent.viewportSize, fallback: host.bounds.size)
+        let viewport = sanitizedViewport(host.bounds.size, fallback: latestIntent.viewportSize)
         let scale = host.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let pixels = viewport.width * scale * viewport.height * scale
         guard pixels.isFinite, pixels > 0 else { return 0 }

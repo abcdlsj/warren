@@ -85,6 +85,49 @@ final class TerminalSurfaceManagerTests: XCTestCase {
         XCTAssertEqual(manager.snapshot().hiddenRenderAttemptCount, 0)
     }
 
+    func testAttachUsesMeasuredHostGeometryWhenIntentIsStale() async throws {
+        _ = NSApplication.shared
+        let manager = TerminalSurfaceManager(warmLimit: 1)
+        let surface = makeSurface()
+        manager.insert(surface)
+
+        let host = TerminalHostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        defer {
+            manager.shutdown()
+            window.orderOut(nil as Any?)
+        }
+
+        // Simulate an NSViewRepresentable update that still carries the
+        // previous pane size while AppKit has already measured the host.
+        manager.submit(
+            host: host,
+            intent: TerminalPresentationIntent(
+                activeSessionID: surface.id,
+                viewportSize: CGSize(width: 320, height: 200),
+                wantsTerminalFocus: false
+            ),
+            onFocused: { _, _ in },
+            onBlurred: { _ in }
+        )
+        // Keep the stale intent in place so the attach path itself must use
+        // the measured host bounds rather than a later layout callback.
+        host.manager = nil
+
+        try await waitUntil {
+            surface.mountedTerminalView?.window === window
+        }
+        XCTAssertEqual(surface.mountedTerminalView?.frame.size, host.bounds.size)
+    }
+
     func testManagerEvictsLeastRecentlyUsedWarmSurface() async throws {
         _ = NSApplication.shared
         let manager = TerminalSurfaceManager(warmLimit: 1)
