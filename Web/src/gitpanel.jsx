@@ -1,5 +1,15 @@
 import { useMemo, useState } from "react";
-import { normalizeGitPanel, relativeTime, statusLabel } from "./git.js";
+import { normalizeGitPanel, relativeTime, statusLabel, diffSummary } from "./git.js";
+
+function DiffCounts({ added, deleted }) {
+  if (!added && !deleted) return null;
+  return (
+    <span className="git-diff-counts">
+      {added > 0 && <span className="git-diff-added">+{added}</span>}
+      {deleted > 0 && <span className="git-diff-deleted">-{deleted}</span>}
+    </span>
+  );
+}
 
 function ChangeRow({ change }) {
   return (
@@ -11,15 +21,20 @@ function ChangeRow({ change }) {
         {change.path}
         {change.renameFrom && <span className="git-rename-from"> ← {change.renameFrom}</span>}
       </span>
+      <DiffCounts added={change.added} deleted={change.deleted} />
     </li>
   );
 }
 
 function ChangeSection({ title, changes }) {
   if (!changes.length) return null;
+  const summary = diffSummary(changes);
   return (
     <section className="git-section">
-      <h3 className="git-section-title">{title} ({changes.length})</h3>
+      <h3 className="git-section-title">
+        {title} ({changes.length})
+        <DiffCounts added={summary.added} deleted={summary.deleted} />
+      </h3>
       <ul className="git-change-list">
         {changes.map((change, index) => (
           <ChangeRow key={`${change.path}-${change.status}-${change.staged}-${index}`} change={change} />
@@ -157,6 +172,7 @@ export function GitPanel({
                   <span className="git-commit-subject">{commit.subject}</span>
                   <span className="git-commit-meta">
                     <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
+                    <DiffCounts {...diffSummary(commit.files)} />
                   </span>
                 </button>
                 {expanded.has(commit.hash) && (
