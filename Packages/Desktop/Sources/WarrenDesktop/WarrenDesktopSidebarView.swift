@@ -8,6 +8,8 @@ struct WarrenDesktopSidebar: View {
     @Binding var sidebarTree: WarrenDesktopSidebarTreeState
     let selection: WarrenDesktopSidebarSelection?
     let chromeMode: WarrenDesktopChromeMode
+    let updateStatus: WarrenDesktopUpdateStatus
+    let onUpdateAction: () -> Void
     let deletingProjectIDs: Set<ProjectID>
     let deletingWorkspaceIDs: Set<WorkspaceID>
     let onAction: (WarrenDesktopAction) -> Void
@@ -26,6 +28,8 @@ struct WarrenDesktopSidebar: View {
             WarrenDesktopSidebarHeader(
                 isCollapsed: sidebarState.isCollapsed,
                 chromeMode: chromeMode,
+                updateStatus: updateStatus,
+                onUpdateAction: onUpdateAction,
                 onToggle: toggleSidebar,
                 onCommandPalette: onCommandPalette
             )
@@ -74,8 +78,9 @@ struct WarrenDesktopSidebar: View {
         .background(tokens.sidebarSurface)
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(tokens.border)
+                .fill(tokens.chromeDivider)
                 .frame(width: WarrenSpacing.hairline)
+                .zIndex(2)
         }
     }
 

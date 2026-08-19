@@ -63,13 +63,37 @@ enum WarrenMain {
 private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
     private var daemonMenuBarProcess: Process?
+    private let updater = WarrenUpdater()
+    private var availableRelease: WarrenRelease?
+    private var updateMenuItem: NSMenuItem?
+    private var updateCheckTask: Task<Void, Never>?
+    private var updateInstallTask: Task<Void, Never>?
+    private var updateNotificationObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         launchDaemonMenuBar()
         presentMainWindowIfNeeded()
-        NSApp.mainMenu = Self.buildMainMenu(target: self)
+        NSApp.mainMenu = buildMainMenu(target: self)
+        updateNotificationObserver = NotificationCenter.default.addObserver(
+            forName: WarrenUpdateNotification.installRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.installAvailableUpdate()
+            }
+        }
         installCLIIfNeeded()
+        checkForUpdatesAutomatically()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        updateCheckTask?.cancel()
+        updateInstallTask?.cancel()
+        if let updateNotificationObserver {
+            NotificationCenter.default.removeObserver(updateNotificationObserver)
+        }
     }
 
     private func installCLIIfNeeded() {
@@ -81,6 +105,107 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
             // available when a read-only home or a restricted shell profile
             // prevents automatic installation.
             NSLog("Unable to install Warren CLI automatically: %@", error.localizedDescription)
+        }
+    }
+
+    private func checkForUpdatesAutomatically() {
+        updateCheckTask?.cancel()
+        updateCheckTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            do {
+                if let release = try await self.updater.checkForUpdates() {
+                    self.publishAvailableUpdate(release)
+                }
+            } catch {
+                NSLog("Unable to check for Warren updates automatically: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
+                )
+            }
+        }
+    }
+
+    @objc private func checkForUpdates(_ sender: NSMenuItem) {
+        guard updateInstallTask == nil else { return }
+        if availableRelease != nil {
+            installAvailableUpdate()
+            return
+        }
+        updateMenuItem?.isEnabled = false
+        updateMenuItem?.title = "Checking for Updates…"
+        updateCheckTask?.cancel()
+        updateCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.updateMenuItem?.isEnabled = true
+                self.updateMenuItem?.title = self.availableRelease.map {
+                    "Install Update \($0.displayVersion)…"
+                } ?? "Check for Updates…"
+            }
+            do {
+                if let release = try await self.updater.checkForUpdates(force: true) {
+                    self.publishAvailableUpdate(release)
+                } else {
+                    NotificationCenter.default.post(
+                        name: WarrenUpdateNotification.dismiss,
+                        object: nil
+                    )
+                }
+            } catch {
+                NSLog("Unable to check for Warren updates: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
+                )
+            }
+        }
+    }
+
+    private func publishAvailableUpdate(_ release: WarrenRelease) {
+        availableRelease = release
+        updateMenuItem?.title = "Install Update \(release.displayVersion)…"
+        NotificationCenter.default.post(
+            name: WarrenUpdateNotification.available,
+            object: nil,
+            userInfo: [WarrenUpdateNotification.keyRelease: release]
+        )
+    }
+
+    private func installAvailableUpdate() {
+        guard let release = availableRelease, updateInstallTask == nil else { return }
+        updateMenuItem?.isEnabled = false
+        updateMenuItem?.title = "Downloading Update…"
+        NotificationCenter.default.post(name: WarrenUpdateNotification.installing, object: nil)
+        updateInstallTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.updateInstallTask = nil }
+            do {
+                let stagedApplication = try await self.updater.downloadAndPrepare(release)
+                // Keep the user-level CLI in lockstep with the application
+                // before the detached installer replaces the running bundle.
+                _ = try WarrenCLIInstaller.install(
+                    bundleExecutableURL: stagedApplication
+                        .appendingPathComponent("Contents/MacOS/Warren")
+                )
+                try self.updater.launchInstaller(stagedApplicationURL: stagedApplication)
+                self.updateMenuItem?.title = "Restarting Warren…"
+                NSApp.terminate(nil)
+            } catch {
+                self.updateMenuItem?.isEnabled = true
+                self.updateMenuItem?.title = "Install Update \(release.displayVersion)…"
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.available,
+                    object: nil,
+                    userInfo: [WarrenUpdateNotification.keyRelease: release]
+                )
+                NSLog("Unable to install Warren update: %@", error.localizedDescription)
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.failed,
+                    object: nil
+                )
+            }
         }
     }
 
@@ -291,12 +416,20 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         alert.runModal()
     }
 
-    private static func buildMainMenu(target: AnyObject) -> NSMenu {
+    private func buildMainMenu(target: AnyObject) -> NSMenu {
         let mainMenu = NSMenu()
 
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
+        let checkForUpdates = appMenu.addItem(
+            withTitle: "Check for Updates…",
+            action: #selector(WarrenAppDelegate.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkForUpdates.target = target
+        updateMenuItem = checkForUpdates
+        appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Quit Warren",
             action: #selector(NSApplication.terminate(_:)),

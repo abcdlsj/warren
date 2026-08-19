@@ -17,6 +17,7 @@ struct WarrenCompositionRoot: View {
     @State private var worktreeImportCandidates: [WarrenDesktopWorktreeCandidate] = []
     @State private var worktreeImportLoading = false
     @State private var terminalSearchPresented = false
+    @State private var updateStatus: WarrenDesktopUpdateStatus = .none
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(WarrenPreferenceKey.terminalFontFamily)
@@ -51,6 +52,13 @@ struct WarrenCompositionRoot: View {
             projection: activeProjection,
             navigation: activeNavigation,
             chromeMode: .workspace,
+            updateStatus: updateStatus,
+            onUpdateAction: {
+                NotificationCenter.default.post(
+                    name: WarrenUpdateNotification.installRequested,
+                    object: nil
+                )
+            },
             actions: WarrenDesktopActions(send: handle),
             webStatus: remoteModel.webStatus,
             creatingSessionWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
@@ -181,6 +189,29 @@ struct WarrenCompositionRoot: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: WebCommand.copySecureURL)) { _ in
             remoteModel.copySecureWebURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.available)) { note in
+            guard let release = note.userInfo?[WarrenUpdateNotification.keyRelease] as? WarrenRelease else {
+                return
+            }
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                updateStatus = .available(version: release.displayVersion)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.installing)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                updateStatus = .updating
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.dismiss)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                updateStatus = .none
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenUpdateNotification.failed)) { _ in
+            withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
+                updateStatus = .failed
+            }
         }
         .task {
             presetOrder = WarrenDesktopSessionPreset.normalizedOrderRawValue(presetOrder)
