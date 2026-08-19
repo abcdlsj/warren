@@ -6,6 +6,22 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.5.0] - 2026-08-20
+
+### Added
+
+- Show project and workspace deletion progress directly in the desktop sidebar, disabling affected controls until the daemon confirms removal.
+
+### Changed
+
+- Preserve legacy Warren-managed worktree ownership during startup migration while leaving external checkouts user-owned.
+- Keep desktop workspace actions in an explicit, stable order.
+
+### Fixed
+
+- Reconcile pending project and workspace deletions across roster refreshes and reconnects without leaving stale loading indicators.
+- Flush the AppKit layout before creating a terminal surface so the initial shell cursor and viewport use the final pane geometry.
+
 ## [0.4.0] - 2026-08-19
 
 ### Added
