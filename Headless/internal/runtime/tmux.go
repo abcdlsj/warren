@@ -315,7 +315,7 @@ func (t *Tmux) List(ctx context.Context) (map[string]bool, error) {
 // timestamps. The service uses it to reclaim orphaned sessions that outlived
 // their state record, e.g. after a state reset or daemon crash.
 func (t *Tmux) ListCreated(ctx context.Context) (map[string]time.Time, error) {
-	output, err := t.command(ctx, "list-sessions", "-F", "#{session_name}\t#{session_created}").CombinedOutput()
+	output, err := t.command(ctx, "list-sessions", "-F", "#{session_name},#{session_created}").CombinedOutput()
 	if err != nil {
 		message := string(output)
 		if strings.Contains(message, "no server running") || strings.Contains(message, "failed to connect") {
@@ -328,7 +328,7 @@ func (t *Tmux) ListCreated(ctx context.Context) (map[string]time.Time, error) {
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 2)
+		fields := strings.SplitN(line, ",", 2)
 		if len(fields) != 2 {
 			continue
 		}
