@@ -50,6 +50,7 @@ test("relativeTime formats past timestamps", () => {
   assert.equal(relativeTime(new Date(Date.now() - 30 * 1000).toISOString()), "just now");
   assert.equal(relativeTime(new Date(Date.now() - 5 * minute).toISOString()), "5 minutes ago");
   assert.equal(relativeTime(new Date(Date.now() - 2 * hour).toISOString()), "2 hours ago");
+  assert.equal(relativeTime(new Date(Date.now() + 5 * minute).toISOString()), "just now");
   assert.equal(relativeTime(""), "");
   assert.equal(relativeTime("not-a-date"), "");
 });
