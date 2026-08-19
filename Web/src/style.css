@@ -3177,7 +3177,7 @@ button:disabled {
 
 .git-panel-title {
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: var(--text-base);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3190,7 +3190,7 @@ button:disabled {
   border-radius: var(--radius-sm);
   background: var(--color-danger-subtle);
   color: var(--color-text-danger);
-  font-size: 12px;
+  font-size: var(--text-sm);
   word-break: break-word;
 }
 
@@ -3206,7 +3206,7 @@ button:disabled {
 
 .git-section-title {
   margin: 0 0 var(--space-sm);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3222,12 +3222,12 @@ button:disabled {
 
 .git-branch-name {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--color-text-primary);
 }
 
 .git-upstream {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
 
@@ -3235,7 +3235,7 @@ button:disabled {
   display: flex;
   gap: var(--space-md);
   margin-top: var(--space-xs);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .git-ahead { color: var(--color-status-success); }
@@ -3243,7 +3243,7 @@ button:disabled {
 
 .git-remote {
   margin-top: var(--space-xs);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-disabled);
   word-break: break-all;
 }
@@ -3272,7 +3272,7 @@ button:disabled {
   align-items: baseline;
   gap: var(--space-md);
   padding: var(--space-xxs) 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   min-width: 0;
 }
 
@@ -3280,7 +3280,7 @@ button:disabled {
   flex: 0 0 18px;
   text-align: center;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   color: var(--color-text-primary);
   background: var(--fill-tertiary);
@@ -3314,12 +3314,11 @@ button:disabled {
 .git-select,
 .git-input {
   width: 100%;
-  box-sizing: border-box;
   background: var(--color-bg-sunken);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-sm);
   color: var(--color-text-primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: var(--space-sm) var(--space-md);
 }
 
@@ -3356,23 +3355,23 @@ button:disabled {
 }
 
 .git-commit-subject {
-  font-size: 12px;
+  font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .git-commit-meta {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--color-text-secondary);
 }
 
 .git-commit-meta code {
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .git-empty {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--color-text-disabled);
   margin: 0;
 }
