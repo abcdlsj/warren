@@ -68,6 +68,7 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     private var updateMenuItem: NSMenuItem?
     private var updateCheckTask: Task<Void, Never>?
     private var updateInstallTask: Task<Void, Never>?
+    private var cliInstallTask: Task<Void, Never>?
     private var updateNotificationObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -83,7 +84,7 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
                 self?.installAvailableUpdate()
             }
         }
-        installCLIIfNeeded()
+        installCLIIfNeededInBackground()
         checkForUpdatesAutomatically()
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -91,12 +92,20 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
     func applicationWillTerminate(_ notification: Notification) {
         updateCheckTask?.cancel()
         updateInstallTask?.cancel()
+        cliInstallTask?.cancel()
         if let updateNotificationObserver {
             NotificationCenter.default.removeObserver(updateNotificationObserver)
         }
     }
 
-    private func installCLIIfNeeded() {
+    private func installCLIIfNeededInBackground() {
+        cliInstallTask?.cancel()
+        cliInstallTask = Task.detached(priority: .utility) {
+            WarrenAppDelegate.installCLIIfNeeded()
+        }
+    }
+
+    private nonisolated static func installCLIIfNeeded() {
         do {
             guard let result = try WarrenCLIInstaller.installIfNeeded() else { return }
             NSLog("Installed Warren CLI at %@", result.executableURL.path)

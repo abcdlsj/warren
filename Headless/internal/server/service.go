@@ -285,11 +285,16 @@ func (s *Service) Start(parent context.Context) {
 		s.lazyInit()
 		s.migrateLegacyWorktreeOwnership()
 		s.initMergeState()
-		if s.AgentHooks != nil {
+		if installAgentHooks := s.AgentHooks; installAgentHooks != nil {
 			// Best-effort: the managed hook makes Codex binding precise, but
 			// an unwritable config directory must not stop the daemon; the
-			// finder fallback still works.
-			_ = s.AgentHooks()
+			// finder fallback still works. Hook installation touches user
+			// configuration files, so it must not delay daemon readiness.
+			go func() {
+				if err := installAgentHooks(); err != nil {
+					s.logWarn("install agent hooks", "error", err)
+				}
+			}()
 		}
 		ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 		s.lifecycleCancel = cancel

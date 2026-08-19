@@ -793,8 +793,12 @@ final class WarrenRemoteApplicationModel {
                 try await wire.connect()
                 // A daemon restart clears its tunnel state, so refresh the
                 // projection on every (re)connect to keep the top-bar tunnel
-                // indicator truthful.
-                await refreshTunnelStatus()
+                // indicator truthful. Do not hold the initial roster behind
+                // this optional five-second request.
+                let tunnelStatusTask = Task { @MainActor [weak self] in
+                    await self?.refreshTunnelStatus()
+                }
+                defer { tunnelStatusTask.cancel() }
                 for await event in events {
                     guard !Task.isCancelled else { return }
                     if case .roster = event {

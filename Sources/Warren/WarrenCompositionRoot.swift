@@ -391,7 +391,11 @@ struct WarrenCompositionRoot: View {
         Task { @MainActor in
             for _ in 0..<30 {
                 let endpoint = WarrenRemoteEndpointConfiguration.localDaemon()
-                if !endpoint.token.isEmpty, await isLocalDaemonReady(endpoint) {
+                // The remote model already owns the WebSocket retry loop. Once
+                // the daemon has published its token, connect immediately
+                // instead of issuing a second authenticated /v1/state probe
+                // that races the menu-bar supervisor.
+                if !endpoint.token.isEmpty {
                     remoteModel.connect(endpoint)
                     return
                 }
@@ -400,19 +404,6 @@ struct WarrenCompositionRoot: View {
             remoteModel.report(NSError(domain: "WarrenRemote", code: 7, userInfo: [
                 NSLocalizedDescriptionKey: "The local daemon is not running; check the Warren status in the menu bar.",
             ]))
-        }
-    }
-
-    private func isLocalDaemonReady(_ endpoint: WarrenRemoteEndpointConfiguration) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:8789/v1/state") else { return false }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 0.4
-        request.setValue("Bearer \(endpoint.token)", forHTTPHeaderField: "Authorization")
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch {
-            return false
         }
     }
 
