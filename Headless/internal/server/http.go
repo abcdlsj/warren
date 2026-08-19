@@ -1189,6 +1189,30 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, map[string]bool{"resized": resized})
+	case "git.panel":
+		panel, err := p.server.Service.GitPanel(ctx, stringParam(params, "workspace"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, panel)
+	case "git.checkout":
+		result, err := p.server.Service.GitCheckout(ctx, stringParam(params, "workspace"), stringParam(params, "branch"), boolParam(params, "create"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, result)
+	case "git.pull":
+		result, err := p.server.Service.GitPull(ctx, stringParam(params, "workspace"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, result)
+	case "git.push":
+		result, err := p.server.Service.GitPush(ctx, stringParam(params, "workspace"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, result)
 	default:
 		return fmt.Errorf("unknown method: %s", command.Method)
 	}
