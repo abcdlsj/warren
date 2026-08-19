@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeGitPanel, statusLabel, relativeTime, diffSummary } from "./git.js";
+import { normalizeGitPanel, statusLabel, statusSymbol, relativeTime, diffSummary } from "./git.js";
 
 test("normalizeGitPanel groups staged and unstaged changes", () => {
   const panel = normalizeGitPanel({
@@ -42,6 +42,12 @@ test("statusLabel maps letters and falls back to raw", () => {
   assert.equal(statusLabel("M"), "Modified");
   assert.equal(statusLabel("?"), "Untracked");
   assert.equal(statusLabel("Q"), "Q");
+});
+
+test("statusSymbol keeps git letters and doubles untracked", () => {
+  assert.equal(statusSymbol("M"), "M");
+  assert.equal(statusSymbol("?"), "??");
+  assert.equal(statusSymbol("A"), "A");
 });
 
 test("relativeTime formats past timestamps", () => {

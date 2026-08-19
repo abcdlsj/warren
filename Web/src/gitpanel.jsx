@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { normalizeGitPanel, relativeTime, statusLabel, diffSummary } from "./git.js";
+import { useEffect, useMemo, useState } from "react";
+import { normalizeGitPanel, relativeTime, statusLabel, statusSymbol, diffSummary } from "./git.js";
 
 function DiffCounts({ added, deleted }) {
   if (!added && !deleted) return null;
@@ -15,7 +15,7 @@ function ChangeRow({ change }) {
   return (
     <li className="git-change">
       <span className={`git-status git-status-${change.status}`} title={statusLabel(change.status)}>
-        {change.status}
+        {statusSymbol(change.status)}
       </span>
       <span className="git-change-path">
         {change.path}
@@ -58,10 +58,17 @@ export function GitPanel({
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
   const [branch, setBranch] = useState("");
+  const [branchTouched, setBranchTouched] = useState(false);
   const [newBranch, setNewBranch] = useState("");
   const [createMode, setCreateMode] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
   const busy = Boolean(action) || loading;
+
+  useEffect(() => {
+    if (!branchTouched && data?.branch && data.branches.local.includes(data.branch)) {
+      setBranch(data.branch);
+    }
+  }, [branchTouched, data]);
 
   const toggleCommit = hash => {
     setExpanded(previous => {
@@ -127,7 +134,10 @@ export function GitPanel({
               className="git-select"
               aria-label="Branch"
               value={branch}
-              onChange={event => setBranch(event.target.value)}
+              onChange={event => {
+              setBranch(event.target.value);
+              setBranchTouched(true);
+            }}
               disabled={createMode || !data?.branches.local.length && !data?.branches.remote.length}
             >
               <option value="">Choose a branch…</option>
