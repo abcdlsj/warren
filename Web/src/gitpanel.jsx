@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { normalizeGitPanel, relativeTime, statusLabel, statusSymbol, diffSummary, parseDiff } from "./git.js";
+import { normalizeGitPanel, relativeTime, statusLabel, statusSymbol, diffSummary } from "./git.js";
 
 function DiffCounts({ added, deleted }) {
   if (!added && !deleted) return null;
@@ -15,14 +15,14 @@ function changeKey(change, commit = "") {
   return commit ? `${commit}:${change.path}` : `${change.staged ? "s" : "u"}:${change.path}`;
 }
 
-function ChangeRow({ change, commit = "", selected, onSelect }) {
+function ChangeRow({ change, commit = "", selected, onOpenFile }) {
   return (
     <li>
       <button
         type="button"
         className={`git-change${selected ? " selected" : ""}`}
         aria-pressed={selected}
-        onClick={() => onSelect(change, commit)}
+        onClick={() => onOpenFile(change, commit)}
       >
         <span className={`git-status git-status-${change.status}`} title={statusLabel(change.status)}>
           {statusSymbol(change.status)}
@@ -37,7 +37,7 @@ function ChangeRow({ change, commit = "", selected, onSelect }) {
   );
 }
 
-function ChangeSection({ title, changes, selectedKey, onSelect }) {
+function ChangeSection({ title, changes, selectedKey, onOpenFile }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
   return (
@@ -52,7 +52,7 @@ function ChangeSection({ title, changes, selectedKey, onSelect }) {
             key={`${change.path}-${change.status}-${change.staged}-${index}`}
             change={change}
             selected={selectedKey === changeKey(change)}
-            onSelect={onSelect}
+            onOpenFile={onOpenFile}
           />
         ))}
       </ul>
@@ -70,7 +70,7 @@ export function GitPanel({
   onPull,
   onPush,
   onCheckout,
-  onDiff,
+  onOpenFile,
   onClose,
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
@@ -79,9 +79,7 @@ export function GitPanel({
   const [newBranch, setNewBranch] = useState("");
   const [createMode, setCreateMode] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
-  const [selected, setSelected] = useState(null);
-  const [diff, setDiff] = useState({ loading: false, text: "", error: "" });
-  const diffLines = useMemo(() => (diff.text ? parseDiff(diff.text) : []), [diff.text]);
+  const [selectedKey, setSelectedKey] = useState(null);
   const busy = Boolean(action) || loading;
 
   useEffect(() => {
@@ -90,25 +88,10 @@ export function GitPanel({
     }
   }, [branchTouched, data]);
 
-  useEffect(() => {
-    if (!selected) return;
-    let cancelled = false;
-    setDiff({ loading: true, text: "", error: "" });
-    const params = { path: selected.path, staged: selected.staged };
-    if (selected.commit) params.commit = selected.commit;
-    onDiff(params, result => {
-      if (!cancelled) setDiff({ loading: false, text: result?.diff || "", error: "" });
-    }, diffError => {
-      if (!cancelled) setDiff({ loading: false, text: "", error: diffError });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selected, onDiff]);
-
-  const selectChange = (change, commit = "") => {
+  const openFile = (change, commit = "") => {
     const key = changeKey(change, commit);
-    setSelected(previous => (previous?.key === key ? null : { key, path: change.path, staged: change.staged, commit }));
+    setSelectedKey(previous => (previous === key ? null : key));
+    onOpenFile(change, commit);
   };
 
   const toggleCommit = hash => {
@@ -165,8 +148,8 @@ export function GitPanel({
           </div>
         </section>
 
-        <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selected?.key} onSelect={selectChange} />
-        <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selected?.key} onSelect={selectChange} />
+        <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />
+        <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} />
 
         <section className="git-section">
           <h3 className="git-section-title">Checkout</h3>
@@ -233,8 +216,8 @@ export function GitPanel({
                         key={`${commit.hash}-${file.path}-${index}`}
                         change={file}
                         commit={commit.hash}
-                        selected={selected?.key === changeKey(file, commit.hash)}
-                        onSelect={selectChange}
+                        selected={selectedKey === changeKey(file, commit.hash)}
+                        onOpenFile={openFile}
                       />
                     ))}
                   </ul>
@@ -244,35 +227,6 @@ export function GitPanel({
           </ul>
         </section>
       </div>
-
-      {selected && (
-        <div className="git-diff-pane">
-          <header className="git-diff-pane-header">
-            <span className="git-diff-pane-path" title={selected.path}>{selected.path}</span>
-            <button type="button" className="chrome-button" aria-label="Close diff" onClick={() => setSelected(null)}>
-              ✕
-            </button>
-          </header>
-          {diff.loading ? (
-            <p className="git-empty">Loading diff…</p>
-          ) : diff.error ? (
-            <p className="git-error">{diff.error}</p>
-          ) : diff.text ? (
-            <pre className="git-diff-view">
-              {diffLines.map((line, index) => (
-                <div key={index} className={`git-diff-line git-diff-line-${line.kind}`}>
-                  <span className="git-diff-line-num">{line.oldLine}</span>
-                  <span className="git-diff-line-num">{line.newLine}</span>
-                  <span className="git-diff-line-mark">{line.kind === "add" ? "+" : line.kind === "del" ? "-" : ""}</span>
-                  <span className="git-diff-line-text">{line.text}</span>
-                </div>
-              ))}
-            </pre>
-          ) : (
-            <p className="git-empty">No changes to show.</p>
-          )}
-        </div>
-      )}
     </aside>
   );
 }
