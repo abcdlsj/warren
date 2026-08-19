@@ -110,6 +110,8 @@ public enum WarrenDesktopNavigationReducer {
                 remembering(workspace: workspaceID, in: next, projection: projection),
                 in: projection
             )
+        case .openWorkspace(let workspaceID):
+            return reduce(state, action: .selectWorkspace(workspaceID), in: projection)
         case .selectTerminalGroup(let groupID):
             let next = WarrenDesktopNavigationState(
                 selection: .terminalGroup(groupID),

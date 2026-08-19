@@ -20,12 +20,6 @@ struct WarrenCompositionRoot: View {
     private var terminalFontFamily = TerminalFontPreference.defaultFamily
     @AppStorage(WarrenPreferenceKey.terminalFontSize)
     private var terminalFontSize = TerminalFontPreference.defaultSize
-    @AppStorage(WarrenPreferenceKey.presetCommandClaude)
-    private var claudeCommand = "claude"
-    @AppStorage(WarrenPreferenceKey.presetCommandCodex)
-    private var codexCommand = "codex --dangerously-bypass-hook-trust"
-    @AppStorage(WarrenPreferenceKey.sessionPresetOrder)
-    private var presetOrder = WarrenDesktopSessionPreset.defaultOrderRawValue
     @AppStorage("executionEndpoint")
     private var selectedEndpointID = "local"
     @State private var endpointCatalog: [WarrenRemoteEndpointConfiguration]
@@ -62,7 +56,9 @@ struct WarrenCompositionRoot: View {
             defaultRuntime: remoteModel.defaultRuntime,
             onSetRuntime: { remoteModel.setDefaultRuntime($0) },
             importGitWorktrees: remoteModel.importGitWorktrees,
-            onSetImportGitWorktrees: { remoteModel.setImportGitWorktrees($0) }
+            onSetImportGitWorktrees: { remoteModel.setImportGitWorktrees($0) },
+            autoOpenShell: remoteModel.autoOpenShell,
+            onSetAutoOpenShell: { remoteModel.setAutoOpenShell($0) }
         ) { context in
             WarrenTerminalSurfaceView(
                 context: context,
@@ -155,7 +151,6 @@ struct WarrenCompositionRoot: View {
             remoteModel.copySecureWebURL()
         }
         .task {
-            presetOrder = WarrenDesktopSessionPreset.normalizedOrderRawValue(presetOrder)
             updateTerminalFont()
             restoreEndpointSelection()
             await monitorEndpointConfiguration()
@@ -193,24 +188,21 @@ struct WarrenCompositionRoot: View {
             remoteModel.createSession(workspaceID: workspaceID, request: .shell)
         } else if case .requestNewTerminalGroupSession(let groupID) = action {
             remoteModel.createSession(terminalGroupID: groupID, request: .shell)
-        } else {
-            let automaticWorkspaceID = WarrenDesktopAutomaticSessionPolicy.workspaceID(
+        } else if case .openWorkspace = action {
+            let workspaceID = WarrenDesktopAutomaticSessionPolicy.workspaceID(
                 for: action,
                 in: remoteModel.projection,
-                creatingWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs
+                creatingWorkspaceIDs: remoteModel.creatingSessionWorkspaceIDs,
+                autoOpenShell: remoteModel.autoOpenShell
             )
             remoteModel.perform(action)
-            if let automaticWorkspaceID,
-               let preset = WarrenDesktopSessionPreset.firstAI(orderedBy: presetOrder) {
-                remoteModel.createSession(
-                    workspaceID: automaticWorkspaceID,
-                    request: preset.resolvedRequest(
-                        shellCommand: "",
-                        claudeCommand: claudeCommand,
-                        codexCommand: codexCommand
-                    )
-                )
+            if let workspaceID {
+                remoteModel.createSession(workspaceID: workspaceID, request: .shell)
             }
+        } else {
+            // Navigation is passive. Starting an AI process is an explicit
+            // preset action, never a side effect of selecting a workspace.
+            remoteModel.perform(action)
         }
     }
 

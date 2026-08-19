@@ -77,6 +77,8 @@ struct RemoteRoster: Decodable, Sendable {
         let name: String
         let path: String
         let branch: String?
+        let managedWorktree: Bool?
+        let worktreeLocked: Bool?
         let pinned: Bool?
         // Keep the wire value raw so a future Host state cannot invalidate
         // the entire roster; the projection maps known values below.
@@ -639,7 +641,9 @@ final class WarrenRemoteApplicationModel {
     private(set) var defaultRuntime: String?
     /// Whether adding a project imports every Git worktree as a workspace.
     private(set) var importGitWorktrees = false
-    @ObservationIgnored private var runtimeSettingsLoaded = false
+    /// Whether opening an empty workspace creates a default Shell session.
+    private(set) var autoOpenShell = false
+    @ObservationIgnored private var settingsLoaded = false
     /// Set while the daemon has announced an operator-initiated maintenance
     /// window (for example an app install that restarts the daemon). Clients
     /// show an update state instead of treating the disconnect as a failure.
@@ -707,9 +711,10 @@ final class WarrenRemoteApplicationModel {
         disconnect()
         restorePersistedTabOrders()
         endpointConfiguration = configuration
-        runtimeSettingsLoaded = false
+        settingsLoaded = false
         defaultRuntime = nil
         importGitWorktrees = false
+        autoOpenShell = false
         if configuration.url.hasPrefix("http://127.0.0.1:8789"),
            !configuration.token.isEmpty,
            let url = URL(string: "http://127.0.0.1:8789/#t=\(configuration.token)") {
@@ -859,12 +864,11 @@ final class WarrenRemoteApplicationModel {
         ])
     }
 
-    /// Loads the headless daemon's settings (default runtime and Git worktree
-    /// import policy). Runtime selection is a headless-side decision; the
-    /// Desktop only reflects and changes it.
-    func loadRuntimeSettings() {
-        guard !runtimeSettingsLoaded, let wire else { return }
-        runtimeSettingsLoaded = true
+    /// Loads the headless daemon's settings. Runtime selection is a
+    /// headless-side decision; the Desktop only reflects and changes it.
+    func loadSettings() {
+        guard !settingsLoaded, let wire else { return }
+        settingsLoaded = true
         Task { @MainActor [weak self] in
             do {
                 let data = try await wire.request("settings.get")
@@ -876,6 +880,9 @@ final class WarrenRemoteApplicationModel {
                 }
                 if let enabled = result["importGitWorktrees"] as? Bool {
                     self.importGitWorktrees = enabled
+                }
+                if let enabled = result["autoOpenShell"] as? Bool {
+                    self.autoOpenShell = enabled
                 }
             } catch {
                 // Settings are not critical; the picker keeps its default.
@@ -901,6 +908,18 @@ final class WarrenRemoteApplicationModel {
             do {
                 _ = try await wire.request("settings.put", params: ["importGitWorktrees": enabled ? "true" : "false"])
                 self?.importGitWorktrees = enabled
+            } catch {
+                self?.present(error)
+            }
+        }
+    }
+
+    func setAutoOpenShell(_ enabled: Bool) {
+        guard let wire else { return }
+        Task { @MainActor [weak self] in
+            do {
+                _ = try await wire.request("settings.put", params: ["autoOpenShell": enabled ? "true" : "false"])
+                self?.autoOpenShell = enabled
             } catch {
                 self?.present(error)
             }
@@ -1165,6 +1184,11 @@ final class WarrenRemoteApplicationModel {
                     }
                     id = existing.id
                 }
+                // project.add may have imported every Git worktree when the
+                // host setting is enabled. Refresh before issuing explicit
+                // workspace.create requests so this manual import remains
+                // idempotent across both settings modes.
+                try await refreshRoster(using: wire)
                 for workspace in project.workspaces where workspace.status == .ready {
                     if normalizedPath(workspace.path) == normalizedPath(project.repositoryPath) {
                         continue
@@ -1221,7 +1245,7 @@ final class WarrenRemoteApplicationModel {
             WarrenDesktopNavigationReducer.reduce(navigation, action: action, in: projection)
         )
         switch action {
-        case .selectProject, .selectWorkspace, .selectTerminalGroup, .selectTab, .restoreNavigation:
+        case .selectProject, .selectWorkspace, .openWorkspace, .selectTerminalGroup, .selectTab, .restoreNavigation:
             Task { await attachSelectedSession() }
         case .openSession(let id):
             selectSession(id)
@@ -1689,7 +1713,7 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func apply(_ roster: RemoteRoster) {
-        loadRuntimeSettings()
+        loadSettings()
         clearMaintenance()
         guard let hostID = HostID(uuidString: roster.host.id) else { return }
         let host = WarrenDomain.Host(id: hostID, name: roster.host.name)
@@ -1713,6 +1737,8 @@ final class WarrenRemoteApplicationModel {
                 path: value.path,
                 branch: value.branch,
                 pinned: value.pinned ?? false,
+                managedWorktree: value.managedWorktree ?? false,
+                worktreeLocked: value.worktreeLocked ?? false,
                 mergeState: value.mergeState.flatMap(WorkspaceMergeState.init(rawValue:))
             )
         }

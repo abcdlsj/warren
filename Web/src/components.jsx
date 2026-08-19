@@ -148,6 +148,7 @@ export function Sidebar({
   onToggleProject,
   onChooseWorkspace,
   onOpenWorkspace,
+  onNewSessionInWorkspace,
   onNewSession,
   onOpenSettings,
   onProjectContextMenu,
@@ -267,7 +268,7 @@ export function Sidebar({
                     title="New session"
                     onClick={event => {
                       event.stopPropagation();
-                      onOpenWorkspace(workspaces[0].id);
+                      (onNewSessionInWorkspace || onOpenWorkspace)(workspaces[0].id);
                     }}
                   >
                     <PlusIcon />
@@ -882,6 +883,8 @@ export function SettingsPage({
   titleTemplate,
   presetCommands,
   presets,
+  importGitWorktrees,
+  autoOpenShell,
   titlePreview,
   placeholders,
   onClose,
@@ -889,6 +892,8 @@ export function SettingsPage({
   onFontSizeChange,
   onTitleTemplateChange,
   onPresetCommandChange,
+  onImportGitWorktreesChange,
+  onAutoOpenShellChange,
   onMovePreset,
   onAppendPlaceholder,
   onRestore,
@@ -914,6 +919,12 @@ export function SettingsPage({
       label: "Presets",
       description: "Commands launched by the Shell, Claude and Codex buttons.",
       keywords: ["preset", "command", "launch", "shell", "claude", "codex", "agent"],
+    },
+    {
+      id: "workspaces",
+      label: "Workspaces",
+      description: "Control project import and workspace entry defaults.",
+      keywords: ["workspace", "project", "git", "worktree", "import", "shell", "open"],
     },
   ], []);
 
@@ -978,7 +989,13 @@ export function SettingsPage({
               key={section.id}
               onClick={() => setActiveSection(section.id)}
             >
-              {section.id === "font" ? terminalIcon : section.id === "title" ? <TitleIcon /> : <PresetIcon />}
+              {section.id === "font"
+                ? terminalIcon
+                : section.id === "title"
+                  ? <TitleIcon />
+                  : section.id === "workspaces"
+                    ? <BranchIcon />
+                    : <PresetIcon />}
               <span>{section.label}</span>
             </button>
           ))}
@@ -1015,7 +1032,7 @@ export function SettingsPage({
                 <div className="preset-order-section">
                   <div className="settings-subheading">
                     <h3>Session order</h3>
-                    <p>The first AI in this order starts automatically when you enter an empty workspace.</p>
+                    <p>This order controls the preset buttons; opening a workspace never changes it.</p>
                   </div>
                   <div className="preset-order-list">
                     {presets.map((preset, index) => (
@@ -1062,6 +1079,37 @@ export function SettingsPage({
                   Leave Shell empty to open a plain terminal. Claude and Codex run inside the shell, so you can exit
                   them with Ctrl+C / Ctrl+D and keep the session.
                 </p>
+              </section>
+            ) : activeSection === "workspaces" ? (
+              <section className="settings-section">
+                <header className="settings-page-heading">
+                  <h2>Workspaces</h2>
+                  <p>Control project import and workspace entry defaults.</p>
+                </header>
+                <div className="settings-options">
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={importGitWorktrees}
+                      onChange={event => onImportGitWorktreesChange(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Import all Git worktrees</strong>
+                      <small>When adding a project, include every existing Git worktree. Turn this off to import only the main checkout; existing workspaces are never removed.</small>
+                    </span>
+                  </label>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={autoOpenShell}
+                      onChange={event => onAutoOpenShellChange(event.target.checked)}
+                    />
+                    <span>
+                      <strong>Open a Shell when opening an empty workspace</strong>
+                      <small>When enabled, opening an empty workspace (for example by double-clicking it) creates one Shell. Existing sessions are reused, and explicit New Session or preset actions remain available.</small>
+                    </span>
+                  </label>
+                </div>
               </section>
             ) : (
               <section className="settings-section">

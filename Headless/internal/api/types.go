@@ -22,15 +22,21 @@ type Project struct {
 }
 
 type Workspace struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	Branch    string    `json:"branch,omitempty"`
-	Kind      string    `json:"kind"`
-	Pinned    bool      `json:"pinned,omitempty"`
-	Order     int       `json:"order,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string `json:"id"`
+	ProjectID string `json:"project"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Branch    string `json:"branch,omitempty"`
+	Kind      string `json:"kind"`
+	// ManagedWorktree is true only for Git worktrees created by Warren. An
+	// imported checkout remains on disk when its Warren record is removed.
+	ManagedWorktree bool `json:"managedWorktree,omitempty"`
+	// WorktreeLocked mirrors Git's lock marker. Locked worktrees are never
+	// removed automatically, even when a caller asks to remove the directory.
+	WorktreeLocked bool      `json:"worktreeLocked,omitempty"`
+	Pinned         bool      `json:"pinned,omitempty"`
+	Order          int       `json:"order,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
 	// MergeState is the live merge projection of the workspace branch against
 	// the project's default branch. It is overlaid on roster snapshots only
 	// and is never persisted with the workspace record.

@@ -1762,6 +1762,49 @@ button:disabled {
   gap: var(--space-2xl);
 }
 
+.settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--fill-hover);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.settings .settings-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--color-accent-solid);
+}
+
+.settings-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.settings-toggle strong {
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+}
+
+.settings-toggle small {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 .settings label {
   color: var(--color-text-secondary);
   font-size: var(--text-base);

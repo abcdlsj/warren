@@ -40,6 +40,9 @@ type Settings struct {
 	// project imports every Git worktree as a workspace; when disabled only
 	// the main checkout is imported.
 	ImportGitWorktrees bool `json:"importGitWorktrees"`
+	// AutoOpenShell controls whether opening an empty workspace creates a
+	// default Shell session. Explicit New Session/Shell actions are unaffected.
+	AutoOpenShell bool `json:"autoOpenShell"`
 }
 
 // Normalized returns the effective default runtime kind.

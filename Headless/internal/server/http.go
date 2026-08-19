@@ -269,6 +269,7 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 			"runtimeEnv":         s.Service.Settings.RuntimeEnv,
 			"gnarEdge":           s.Service.Settings.GnarEdge,
 			"importGitWorktrees": s.Service.Settings.ImportGitWorktrees,
+			"autoOpenShell":      s.Service.Settings.AutoOpenShell,
 		})
 	case http.MethodPut:
 		var body struct {
@@ -276,6 +277,7 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 			RuntimeEnv         map[string]string `json:"runtimeEnv"`
 			GnarEdge           *string           `json:"gnarEdge"`
 			ImportGitWorktrees *bool             `json:"importGitWorktrees"`
+			AutoOpenShell      *bool             `json:"autoOpenShell"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 16*1024)).Decode(&body); err != nil {
 			http.Error(writer, "invalid settings", http.StatusBadRequest)
@@ -299,6 +301,12 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 				return
 			}
 		}
+		if body.AutoOpenShell != nil {
+			if err := s.Service.SetAutoOpenShell(*body.AutoOpenShell); err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
 		if s.Tunnels != nil {
 			s.Tunnels.SetGnarEdge(s.Service.Settings.GnarEdge)
 		}
@@ -307,6 +315,7 @@ func (s *HTTPServer) handleSettings(writer http.ResponseWriter, request *http.Re
 			"runtimeEnv":         s.Service.Settings.RuntimeEnv,
 			"gnarEdge":           s.Service.Settings.GnarEdge,
 			"importGitWorktrees": s.Service.Settings.ImportGitWorktrees,
+			"autoOpenShell":      s.Service.Settings.AutoOpenShell,
 		})
 	default:
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
@@ -748,6 +757,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			"runtimeEnv":         p.server.Service.Settings.RuntimeEnv,
 			"gnarEdge":           p.server.Service.Settings.GnarEdge,
 			"importGitWorktrees": p.server.Service.Settings.ImportGitWorktrees,
+			"autoOpenShell":      p.server.Service.Settings.AutoOpenShell,
 		})
 	case "settings.put":
 		runtimeEnv := stringMapParam(params, "runtimeEnv")
@@ -766,6 +776,11 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 				return err
 			}
 		}
+		if _, specified := params["autoOpenShell"]; specified {
+			if err := p.server.Service.SetAutoOpenShell(boolParam(params, "autoOpenShell")); err != nil {
+				return err
+			}
+		}
 		if p.server.Tunnels != nil {
 			p.server.Tunnels.SetGnarEdge(p.server.Service.Settings.GnarEdge)
 		}
@@ -774,6 +789,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			"runtimeEnv":         p.server.Service.Settings.RuntimeEnv,
 			"gnarEdge":           p.server.Service.Settings.GnarEdge,
 			"importGitWorktrees": p.server.Service.Settings.ImportGitWorktrees,
+			"autoOpenShell":      p.server.Service.Settings.AutoOpenShell,
 		})
 	case "project.add":
 		value, err := p.server.Service.AddProject(stringParam(params, "path"), stringParam(params, "name"))

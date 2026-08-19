@@ -1006,7 +1006,7 @@ final class WarrenDesktopTests: XCTestCase {
         )
     }
 
-    func testPresetOrderControlsPresentationAndAutomaticAISelection() {
+    func testPresetOrderControlsPresentation() {
         let order = "shell,codex,claude"
 
         XCTAssertEqual(
@@ -1014,6 +1014,53 @@ final class WarrenDesktopTests: XCTestCase {
             ["shell", "codex", "claude"]
         )
         XCTAssertEqual(WarrenDesktopSessionPreset.firstAI(orderedBy: order)?.id, "codex")
+    }
+
+    func testAutomaticShellPolicyIsOptInForAnEmptyWorkspace() {
+        let fixture = WarrenDesktopFixture.preview
+        let emptyWorkspaceID = fixture.groups[0].workspaces[1].id
+        let action = WarrenDesktopAction.openWorkspace(emptyWorkspaceID)
+
+        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            for: action,
+            in: fixture.projection,
+            creatingWorkspaceIDs: [],
+            autoOpenShell: false
+        ))
+        XCTAssertEqual(
+            WarrenDesktopAutomaticSessionPolicy.workspaceID(
+                for: action,
+                in: fixture.projection,
+                creatingWorkspaceIDs: [],
+                autoOpenShell: true
+            ),
+            emptyWorkspaceID
+        )
+    }
+
+    func testAutomaticShellPolicyRejectsPopulatedPendingAndPassiveActions() {
+        let fixture = WarrenDesktopFixture.preview
+        let populatedWorkspaceID = fixture.groups[0].workspaces[0].id
+        let emptyWorkspaceID = fixture.groups[0].workspaces[1].id
+
+        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            for: .openWorkspace(populatedWorkspaceID),
+            in: fixture.projection,
+            creatingWorkspaceIDs: [],
+            autoOpenShell: true
+        ))
+        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            for: .openWorkspace(emptyWorkspaceID),
+            in: fixture.projection,
+            creatingWorkspaceIDs: [emptyWorkspaceID],
+            autoOpenShell: true
+        ))
+        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
+            for: .selectWorkspace(emptyWorkspaceID),
+            in: fixture.projection,
+            creatingWorkspaceIDs: [],
+            autoOpenShell: true
+        ))
     }
 
     func testPresetOrderMovesWithinBounds() {
@@ -1030,86 +1077,6 @@ final class WarrenDesktopTests: XCTestCase {
         XCTAssertEqual(
             WarrenDesktopSessionPreset.moving("codex", by: 1, in: order),
             order
-        )
-    }
-
-    func testAutomaticSessionPolicyChoosesExplicitEmptyWorkspace() {
-        let fixture = WarrenDesktopFixture.preview
-        let emptyWorkspaceID = fixture.groups[0].workspaces[1].id
-
-        XCTAssertEqual(
-            WarrenDesktopAutomaticSessionPolicy.workspaceID(
-                for: .selectWorkspace(emptyWorkspaceID),
-                in: fixture.projection,
-                creatingWorkspaceIDs: []
-            ),
-            emptyWorkspaceID
-        )
-    }
-
-    func testAutomaticSessionPolicyRejectsNonEmptyPendingAndPassiveActions() {
-        let fixture = WarrenDesktopFixture.preview
-        let populatedWorkspaceID = fixture.groups[0].workspaces[0].id
-        let emptyWorkspaceID = fixture.groups[0].workspaces[1].id
-        let restored = WarrenDesktopNavigationState(
-            selection: .workspace(emptyWorkspaceID),
-            selectedTabID: nil
-        )
-
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .selectWorkspace(populatedWorkspaceID),
-            in: fixture.projection,
-            creatingWorkspaceIDs: []
-        ))
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .selectWorkspace(emptyWorkspaceID),
-            in: fixture.projection,
-            creatingWorkspaceIDs: [emptyWorkspaceID]
-        ))
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .restoreNavigation(restored),
-            in: fixture.projection,
-            creatingWorkspaceIDs: []
-        ))
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .closeTab("tab-main"),
-            in: fixture.projection,
-            creatingWorkspaceIDs: []
-        ))
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .selectTerminalGroup(TerminalGroupID()),
-            in: fixture.projection,
-            creatingWorkspaceIDs: []
-        ))
-        XCTAssertNil(WarrenDesktopAutomaticSessionPolicy.workspaceID(
-            for: .selectWorkspace(WorkspaceID()),
-            in: fixture.projection,
-            creatingWorkspaceIDs: []
-        ))
-    }
-
-    func testAutomaticSessionPolicyResolvesAnEmptyProjectsFirstWorkspace() {
-        let host = WarrenDomain.Host(name: "Host")
-        let project = Project(hostID: host.id, name: "Empty Project", rootPath: "/tmp/project")
-        let workspace = Workspace(
-            projectID: project.id,
-            name: "main",
-            path: "/tmp/project",
-            branch: "main"
-        )
-        let projection = WarrenDesktopProjection(
-            host: host,
-            projects: [project],
-            workspaces: [workspace]
-        )
-
-        XCTAssertEqual(
-            WarrenDesktopAutomaticSessionPolicy.workspaceID(
-                for: .selectProject(project.id),
-                in: projection,
-                creatingWorkspaceIDs: []
-            ),
-            workspace.id
         )
     }
 

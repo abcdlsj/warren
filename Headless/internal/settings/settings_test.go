@@ -26,6 +26,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		GnarEdge:           "https://gnar.example.com",
 		TunnelEnabled:      map[string]bool{"gnar": true},
 		ImportGitWorktrees: true,
+		AutoOpenShell:      true,
 	}
 	if err := Save(path, value); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -48,6 +49,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if !loaded.ImportGitWorktrees {
 		t.Fatal("loaded importGitWorktrees = false, want true")
+	}
+	if !loaded.AutoOpenShell {
+		t.Fatal("loaded autoOpenShell = false, want true")
 	}
 }
 

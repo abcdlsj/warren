@@ -714,14 +714,15 @@ func (s *Service) AddProject(path, name string) (api.Project, error) {
 		name = filepath.Base(project.Path)
 	}
 	project.Name = name
-	workspaces, err := workspacesForGitWorktrees(project.ID, createdAt, worktrees, os.Stat)
+	workspaces, err := workspacesForGitWorktrees(
+		project.ID,
+		createdAt,
+		worktrees,
+		os.Stat,
+		s.Settings.ImportGitWorktrees,
+	)
 	if err != nil {
 		return api.Project{}, err
-	}
-	if !s.Settings.ImportGitWorktrees {
-		workspaces = filter(workspaces, func(workspace api.Workspace) bool {
-			return workspace.Kind == "root"
-		})
 	}
 	err = s.Store.Update(func(state *api.State) error {
 		for _, value := range state.Projects {
@@ -1172,7 +1173,10 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 						if name == "" {
 							name = defaultValue(branch, "main")
 						}
-						workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "root", CreatedAt: time.Now().UTC()}
+						workspace := api.Workspace{
+							ID: id, ProjectID: projectID, Name: name, Path: resolved,
+							Branch: branch, Kind: "root", CreatedAt: time.Now().UTC(),
+						}
 						if err := s.Store.Update(func(value *api.State) error {
 							if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 								return err
@@ -1189,7 +1193,10 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 					if name == "" {
 						name = filepath.Base(resolved)
 					}
-					workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: resolved, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
+					workspace := api.Workspace{
+						ID: id, ProjectID: projectID, Name: name, Path: resolved,
+						Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC(),
+					}
 					if err := s.Store.Update(func(value *api.State) error {
 						if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 							return err
@@ -1221,7 +1228,11 @@ func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.Wor
 		return api.WorkspaceCreateResult{}, fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 	gitCreated = true
-	workspace := api.Workspace{ID: id, ProjectID: projectID, Name: name, Path: path, Branch: branch, Kind: "worktree", CreatedAt: time.Now().UTC()}
+	workspace := api.Workspace{
+		ID: id, ProjectID: projectID, Name: name, Path: path,
+		Branch: branch, Kind: "worktree", ManagedWorktree: true,
+		CreatedAt: time.Now().UTC(),
+	}
 	if err := s.Store.Update(func(value *api.State) error {
 		if err := branchAlreadyHasWorkspace(value, projectID, branch); err != nil {
 			return err
@@ -1278,7 +1289,10 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 	if options.Force {
 		_ = s.removeWorkspaceRuntime(ctx, state, id)
 	}
-	if workspace.Kind == "worktree" && options.RemoveWorktree {
+	// Imported and locked worktrees are never removed from disk. The caller may
+	// still delete Warren's workspace record, but filesystem ownership must be
+	// explicit and a Git lock must be respected.
+	if workspace.Kind == "worktree" && options.RemoveWorktree && workspace.ManagedWorktree && !workspace.WorktreeLocked {
 		s.removeWorktreeDirectory(*workspace, state.Projects)
 	}
 	err := s.Store.Update(func(value *api.State) error {
@@ -1529,6 +1543,16 @@ func (s *Service) UpdateSettings(kind string, runtimeEnv map[string]string, gnar
 // workspaces are untouched.
 func (s *Service) SetImportGitWorktrees(enabled bool) error {
 	s.Settings.ImportGitWorktrees = enabled
+	if s.SettingsPath != "" {
+		return settings.Save(s.SettingsPath, s.Settings)
+	}
+	return nil
+}
+
+// SetAutoOpenShell records whether opening an empty workspace creates a Shell
+// session by default. Explicit session actions are unaffected.
+func (s *Service) SetAutoOpenShell(enabled bool) error {
+	s.Settings.AutoOpenShell = enabled
 	if s.SettingsPath != "" {
 		return settings.Save(s.SettingsPath, s.Settings)
 	}

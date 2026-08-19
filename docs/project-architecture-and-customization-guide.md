@@ -642,7 +642,7 @@ Default Host files:
 | --- | --- |
 | `state.json` | Host resources, Runtime bindings, lifecycle, output positions |
 | `config.json` | Desktop/CLI endpoint catalog and selected endpoint |
-| `settings.json` | Default Runtime, Runtime environment, gnar edge, tunnel intent |
+| `settings.json` | Default Runtime, Runtime environment, gnar edge, tunnel intent, project worktree import and workspace Shell defaults |
 | `token` | Direct Host bearer token |
 | `output/` | Per-Session raw PTY spools and archives |
 | `agent-bind/` | Warren Session to external agent conversation binding |

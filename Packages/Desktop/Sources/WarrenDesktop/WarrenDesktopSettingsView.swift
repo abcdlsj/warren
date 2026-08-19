@@ -13,6 +13,8 @@ struct WarrenDesktopSettingsView: View {
     let onSetRuntime: (String) -> Void
     let importGitWorktrees: Bool
     let onSetImportGitWorktrees: (Bool) -> Void
+    let autoOpenShell: Bool
+    let onSetAutoOpenShell: (Bool) -> Void
 
     @AppStorage(WarrenPreferenceKey.terminalTitleTemplate)
     private var titleTemplate = TerminalDisplayTitleTemplate.defaultValue.rawValue
@@ -393,7 +395,7 @@ struct WarrenDesktopSettingsView: View {
             VStack(alignment: .leading, spacing: WarrenSpacing.compact) {
                 Text("Session order")
                     .font(WarrenTypography.bodyEmphasis)
-                Text("The first AI in this order starts automatically when you enter an empty workspace.")
+                Text("This order controls the preset buttons; opening a workspace never changes it.")
                     .font(WarrenTypography.supporting)
                     .foregroundStyle(tokens.mutedForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -498,10 +500,25 @@ struct WarrenDesktopSettingsView: View {
             ))
             .toggleStyle(.switch)
             .accessibilityIdentifier("settings.workspaces.import-git-worktrees")
+            Toggle("Open a Shell when opening an empty workspace", isOn: Binding(
+                get: { autoOpenShell },
+                set: { onSetAutoOpenShell($0) }
+            ))
+            .toggleStyle(.switch)
+            .accessibilityIdentifier("settings.workspaces.auto-open-shell")
             Text(
                 "When adding a project, import every Git worktree as a "
                     + "workspace. Turn this off to add only the main checkout; "
                     + "existing workspaces are never removed."
+            )
+            .font(WarrenTypography.supporting)
+            .foregroundStyle(tokens.mutedForeground)
+            .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "When enabled, opening an empty workspace (for example by "
+                    + "double-clicking it) creates one Shell. "
+                    + "Existing sessions are reused, and explicit New Session "
+                    + "or preset actions always remain available."
             )
             .font(WarrenTypography.supporting)
             .foregroundStyle(tokens.mutedForeground)

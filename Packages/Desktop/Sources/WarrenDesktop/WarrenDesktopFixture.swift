@@ -800,6 +800,9 @@ public enum WarrenDesktopAction: Hashable, Sendable {
     case dismissActivity(TerminalSessionID, AgentActivityState)
     case selectProject(ProjectID)
     case selectWorkspace(WorkspaceID)
+    /// Opens a workspace from a double-click/explicit open gesture. Any
+    /// default Shell creation is decided by the host setting at the root.
+    case openWorkspace(WorkspaceID)
     case selectTerminalGroup(TerminalGroupID)
     case moveProject(ProjectID, before: ProjectID?)
     case moveWorkspace(WorkspaceID, before: WorkspaceID?)

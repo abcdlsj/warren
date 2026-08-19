@@ -1,22 +1,19 @@
 import WarrenDomain
 
+/// Pure guard for the optional workspace-entry Shell convenience.
+///
+/// Selecting a workspace is always safe and passive. The composition root
+/// calls this policy only for an explicit workspace-open gesture, and only
+/// when the host setting enables the convenience.
 public enum WarrenDesktopAutomaticSessionPolicy {
     public static func workspaceID(
         for action: WarrenDesktopAction,
         in projection: WarrenDesktopProjection,
-        creatingWorkspaceIDs: Set<WorkspaceID>
+        creatingWorkspaceIDs: Set<WorkspaceID>,
+        autoOpenShell: Bool
     ) -> WorkspaceID? {
-        let workspaceID: WorkspaceID?
-        switch action {
-        case .selectWorkspace(let id):
-            workspaceID = id
-        case .selectProject(let id):
-            workspaceID = projection.firstWorkspace(in: id)?.id
-        default:
-            return nil
-        }
-
-        guard let workspaceID,
+        guard autoOpenShell else { return nil }
+        guard case .openWorkspace(let workspaceID) = action,
               projection.workspace(id: workspaceID) != nil,
               projection.tabs(in: workspaceID).isEmpty,
               !creatingWorkspaceIDs.contains(workspaceID) else {

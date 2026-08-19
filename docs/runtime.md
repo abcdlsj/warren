@@ -38,7 +38,9 @@ The default can be changed three ways:
        "PAGER": "less",
        "GH_PAGER": "less",
        "TERM": "xterm-256color"
-     }
+     },
+     "importGitWorktrees": false,
+     "autoOpenShell": false
    }
    ```
 

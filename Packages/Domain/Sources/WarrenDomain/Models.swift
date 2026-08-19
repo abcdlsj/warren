@@ -81,6 +81,11 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
     /// Live merge status overlaid by the Host roster; it is absent for legacy
     /// snapshots and workspaces whose status is not currently known.
     public var mergeState: WorkspaceMergeState?
+    /// True only when Warren created the Git worktree directory. Imported
+    /// checkouts remain user-owned and must not be deleted by Warren.
+    public var managedWorktree: Bool
+    /// Git's lock marker for this worktree. Locked checkouts are preserved.
+    public var worktreeLocked: Bool
     /// Host-owned sidebar order within its project. Zero is the legacy
     /// fallback (creation order).
     public var order: Int
@@ -93,6 +98,8 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         branch: String? = nil,
         pinned: Bool = false,
         mergeState: WorkspaceMergeState? = nil,
+        managedWorktree: Bool = false,
+        worktreeLocked: Bool = false,
         order: Int = 0
     ) {
         self.id = id
@@ -102,6 +109,8 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         self.branch = branch
         self.pinned = pinned
         self.mergeState = mergeState
+        self.managedWorktree = managedWorktree
+        self.worktreeLocked = worktreeLocked
         self.order = order
     }
 
@@ -113,6 +122,8 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         case branch
         case pinned
         case mergeState
+        case managedWorktree
+        case worktreeLocked
         case order
     }
 
@@ -125,6 +136,8 @@ public struct Workspace: Identifiable, Codable, Hashable, Sendable {
         branch = try container.decodeIfPresent(String.self, forKey: .branch)
         pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
         mergeState = try container.decodeIfPresent(WorkspaceMergeState.self, forKey: .mergeState)
+        managedWorktree = try container.decodeIfPresent(Bool.self, forKey: .managedWorktree) ?? false
+        worktreeLocked = try container.decodeIfPresent(Bool.self, forKey: .worktreeLocked) ?? false
         order = try container.decodeIfPresent(Int.self, forKey: .order) ?? 0
     }
 }

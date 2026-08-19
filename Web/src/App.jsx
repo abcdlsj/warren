@@ -20,7 +20,6 @@ import {
 } from "./navigation.js";
 import { runtime, serviceWorkerURL, webSocketURL } from "./runtime.js";
 import {
-  automaticSessionKind,
   defaultSessionPresetOrder,
   defaultPresetCommands,
   loadSessionPresetOrder,
@@ -130,6 +129,8 @@ export default function App() {
   const [titleTemplate, setTitleTemplate] = useState(() => localStorage.getItem(storageKeys.titleTemplate) || defaultTitleTemplate);
   const [presetCommands, setPresetCommands] = useState(() => loadPresetCommands());
   const [presetOrder, setPresetOrder] = useState(() => loadPresetOrder());
+  const [importGitWorktrees, setImportGitWorktrees] = useState(false);
+  const [autoOpenShell, setAutoOpenShell] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState({ message: "Connecting…", online: false });
   const [emptyOverride, setEmptyOverride] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -169,6 +170,7 @@ export default function App() {
   const appStateRef = useRef({});
   const pendingRequestsRef = useRef(new Map());
   const creatingSessionWorkspaceIDsRef = useRef(new Set());
+  const settingsLoadedRef = useRef(false);
   const inputQueueRef = useRef(null);
   const navigationBeforeSettingsRef = useRef(null);
   const autoFocusOnAttachRef = useRef(true);
@@ -240,6 +242,26 @@ export default function App() {
     }
     return true;
   }, []);
+
+  const applyRemoteSettings = useCallback(result => {
+    if (!result || typeof result !== "object") return;
+    if (typeof result.importGitWorktrees === "boolean") {
+      setImportGitWorktrees(result.importGitWorktrees);
+    }
+    if (typeof result.autoOpenShell === "boolean") {
+      setAutoOpenShell(result.autoOpenShell);
+    }
+  }, []);
+
+  const loadRemoteSettings = useCallback(() => {
+    if (settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    if (!request("settings.get", {}, applyRemoteSettings, () => {
+      settingsLoadedRef.current = false;
+    })) {
+      settingsLoadedRef.current = false;
+    }
+  }, [applyRemoteSettings, request]);
 
   const loadAgentHistory = useCallback((sessionID, before = 0) => {
     const params = { session: sessionID, limit: "200" };
@@ -600,7 +622,7 @@ export default function App() {
     return sent;
   }, [attachSession, orderedPresets, presetCommands, request, selectedWorkspaceID]);
 
-  const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null, explicit = true) => {
+  const chooseWorkspace = useCallback((workspaceID, preferredSessionID = null) => {
     const state = appStateRef.current;
     const wasAttached = Boolean(state.activeSession || state.attachedSession);
     const sessionID = resolveWorkspaceSession(
@@ -609,6 +631,7 @@ export default function App() {
       state.navigationMemory,
       preferredSessionID,
     );
+    const nextTabs = workspaceTabs(state.catalog, workspaceID);
     recordNavigation(state.catalog, workspaceID, sessionID);
     state.activeWorkspace = workspaceID;
     state.activeSession = null;
@@ -627,17 +650,8 @@ export default function App() {
 
     if (sessionID) attachSession(sessionID, true);
     else if (nextTabs.length) attachSession(nextTabs[0].id, true);
-    else {
-      if (wasAttached) request("session.detach");
-      const automaticKind = automaticSessionKind({
-        tabs: nextTabs,
-        pending: creatingSessionWorkspaceIDsRef.current.has(workspaceID),
-        explicit,
-        presets: orderedPresets,
-      });
-      if (automaticKind) createSession(automaticKind, workspaceID);
-    }
-  }, [attachSession, clearTerminalSearch, createSession, orderedPresets, recordNavigation, request]);
+    else if (wasAttached) request("session.detach");
+  }, [attachSession, clearTerminalSearch, recordNavigation, request]);
 
   const chooseSessionPreset = useCallback(kind => {
     setSessionSheetOpen(false);
@@ -660,14 +674,21 @@ export default function App() {
     });
   }, []);
 
-  const openWorkspace = useCallback(workspaceID => {
+  const openWorkspace = useCallback((workspaceID, explicit = false) => {
+    // A normal workspace-open gesture is opt-in through Settings. The
+    // project-row plus button passes explicit=true and remains a deliberate
+    // New Session action regardless of this default.
     chooseWorkspace(workspaceID);
-    createSession("shell");
-  }, [chooseWorkspace, createSession]);
+    const tabs = workspaceTabs(appStateRef.current.catalog, workspaceID);
+    if (explicit || (autoOpenShell && tabs.length === 0)) {
+      createSession("shell", workspaceID);
+    }
+  }, [autoOpenShell, chooseWorkspace, createSession]);
 
   const acceptRoster = useCallback(message => {
     clearMaintenanceTimeout();
     connectionRef.current?.markStable();
+    loadRemoteSettings();
     const nextCatalog = buildCatalog(rosterFromMessage(message));
     const state = appStateRef.current;
     const nextWorkspaceID = resolveRestoredWorkspace(nextCatalog, state.activeWorkspace, state.activeSession);
@@ -719,7 +740,7 @@ export default function App() {
       attachSession(sessionID, false, false, false);
     }
     else if (activeTabWasRemoved) request("session.detach");
-  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, recordNavigation, request]);
+  }, [attachSession, clearMaintenanceTimeout, clearTerminalSearch, loadRemoteSettings, recordNavigation, request]);
 
   const acceptMessage = useCallback(event => {
     if (event.data instanceof ArrayBuffer) {
@@ -968,6 +989,7 @@ export default function App() {
   const acceptConnectionState = useCallback(state => {
     clearMaintenanceTimeout();
     if (state === "connecting") {
+      settingsLoadedRef.current = false;
       setConnectionStatus({ message: "Connecting…", online: false });
       return;
     }
@@ -1519,7 +1541,7 @@ export default function App() {
       || state.attachedSession !== restoredPosition.sessionID
       || sessionWasInvalidated
     )) {
-      chooseWorkspace(restoredPosition.workspaceID, restoredPosition.sessionID, false);
+      chooseWorkspace(restoredPosition.workspaceID, restoredPosition.sessionID);
     }
     setSettingsOpen(false);
     returnFocusToTerminal();
@@ -1591,6 +1613,26 @@ export default function App() {
     setTitleTemplate(value.trim() || defaultTitleTemplate);
   }, []);
 
+  const updateImportGitWorktrees = useCallback(enabled => {
+    const previous = importGitWorktrees;
+    setImportGitWorktrees(enabled);
+    if (!request("settings.put", { importGitWorktrees: enabled }, applyRemoteSettings, () => {
+      setImportGitWorktrees(previous);
+    })) {
+      setImportGitWorktrees(previous);
+    }
+  }, [applyRemoteSettings, importGitWorktrees, request]);
+
+  const updateAutoOpenShell = useCallback(enabled => {
+    const previous = autoOpenShell;
+    setAutoOpenShell(enabled);
+    if (!request("settings.put", { autoOpenShell: enabled }, applyRemoteSettings, () => {
+      setAutoOpenShell(previous);
+    })) {
+      setAutoOpenShell(previous);
+    }
+  }, [applyRemoteSettings, autoOpenShell, request]);
+
   const appendPlaceholder = useCallback(placeholder => {
     setTitleTemplate(previous => `${previous}${previous && !previous.endsWith(" ") ? " " : ""}${placeholder}`);
   }, []);
@@ -1657,6 +1699,7 @@ export default function App() {
           onToggleProject={toggleProject}
           onChooseWorkspace={chooseWorkspace}
           onOpenWorkspace={openWorkspace}
+          onNewSessionInWorkspace={workspaceID => openWorkspace(workspaceID, true)}
           onNewSession={() => createSession("shell")}
           onOpenSettings={openSettings}
           onProjectContextMenu={projectContextMenu}
@@ -1779,6 +1822,8 @@ export default function App() {
         titleTemplate={titleTemplate}
         presetCommands={presetCommands}
         presets={orderedPresets}
+        importGitWorktrees={importGitWorktrees}
+        autoOpenShell={autoOpenShell}
         titlePreview={titlePreview}
         placeholders={Object.entries(titlePlaceholders)}
         onClose={closeSettings}
@@ -1786,6 +1831,8 @@ export default function App() {
         onFontSizeChange={updateFontSize}
         onTitleTemplateChange={updateTitleTemplate}
         onPresetCommandChange={updatePresetCommand}
+        onImportGitWorktreesChange={updateImportGitWorktrees}
+        onAutoOpenShellChange={updateAutoOpenShell}
         onMovePreset={movePreset}
         onAppendPlaceholder={appendPlaceholder}
         onRestore={restoreDefaults}
