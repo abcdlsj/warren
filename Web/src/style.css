@@ -3257,7 +3257,6 @@ button:disabled {
 .git-actions .chrome-button,
 .git-checkout-row .chrome-button {
   width: auto;
-  min-width: 48px;
   padding: 0 var(--space-sm);
 }
 
