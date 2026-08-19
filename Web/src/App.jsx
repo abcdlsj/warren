@@ -313,6 +313,23 @@ export default function App() {
     }
   }, [request, loadGitPanel]);
 
+  const runGitCommit = useCallback(message => {
+    setGitAction("git.commit");
+    setGitError("");
+    const sent = request("git.commit", { workspace: selectedWorkspaceID, message }, () => {
+      setGitAction("");
+      loadGitPanel();
+      runGitAction("git.push", { workspace: selectedWorkspaceID });
+    }, error => {
+      setGitAction("");
+      setGitError(error);
+    });
+    if (!sent) {
+      setGitAction("");
+      setGitError("Not connected");
+    }
+  }, [request, loadGitPanel, runGitAction, selectedWorkspaceID]);
+
   const [fileView, setFileView] = useState(null);
   const [fileDiff, setFileDiff] = useState({ loading: false, diff: "", content: "", error: "" });
   const fileViewKeyRef = useRef(null);
@@ -2009,6 +2026,7 @@ export default function App() {
             onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
             onOpenFile={openFileView}
+            onCommit={runGitCommit}
             onClose={() => setGitOpen(false)}
           />
         )}

@@ -1219,6 +1219,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, result)
+	case "git.commit":
+		message := strings.TrimSpace(stringParam(params, "message"))
+		if message == "" {
+			return fmt.Errorf("commit message is required")
+		}
+		result, err := p.server.Service.GitCommit(ctx, stringParam(params, "workspace"), message)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, result)
 	default:
 		return fmt.Errorf("unknown method: %s", command.Method)
 	}
