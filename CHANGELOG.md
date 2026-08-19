@@ -6,6 +6,25 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.4.0] - 2026-08-19
+
+### Added
+
+- Add project-scoped controls for importing existing Git worktrees, including one-time selection and automatic import from Desktop, Web, and CLI.
+- Show merged worktrees in the macOS sidebar and keep their terminal groups accessible.
+- Configure empty-workspace defaults for opening a shell and starting an AI session.
+
+### Changed
+
+- Keep imported worktrees protected from destructive workspace operations.
+- Present the terminal-group editor from the desktop window for predictable modal behavior.
+
+### Fixed
+
+- Make workspace removal resilient when Git worktree cleanup fails.
+- Correct tmux session listing when separators appear in session names.
+- Preserve workspace initializer argument order during worktree-backed workspace creation.
+
 ## [0.3.1] - 2026-08-19
 
 ### Fixed
