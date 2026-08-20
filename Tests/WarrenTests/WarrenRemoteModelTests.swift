@@ -334,6 +334,19 @@ final class WarrenRemoteModelTests: XCTestCase {
 
         XCTAssertTrue(WarrenRemoteApplicationModel.isRemoteRequestOutcomeUnknown(wrappedTimeout))
         XCTAssertFalse(WarrenRemoteApplicationModel.isRemoteRequestOutcomeUnknown(rejected))
+
+        let reset = NSError(
+            domain: "WarrenRemote",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "The operation couldn’t be completed. Connection reset by peer",
+                NSUnderlyingErrorKey: NSError(
+                    domain: NSPOSIXErrorDomain,
+                    code: 54
+                ),
+            ]
+        )
+        XCTAssertTrue(WarrenRemoteApplicationModel.isRemoteRequestOutcomeUnknown(reset))
     }
 
     func testActivityDismissalHidesOnlyTheDismissedState() {
