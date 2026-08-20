@@ -3318,7 +3318,9 @@ button:disabled {
 }
 
 .git-actions .chrome-button,
-.git-checkout-row .chrome-button {
+.git-checkout-row .chrome-button,
+.git-pr-form .chrome-button,
+.git-pr-link {
   width: auto;
   padding: 0 var(--space-sm);
 }
