@@ -6,9 +6,16 @@ export function normalizeGitPanel(payload) {
     ahead: payload?.ahead || 0,
     behind: payload?.behind || 0,
     remote: payload?.remote || "",
+    mainBranch: payload?.mainBranch || "",
+    merged: Boolean(payload?.merged),
+    operation: payload?.operation || "",
     staged: changes.filter(change => change.staged),
     unstaged: changes.filter(change => !change.staged),
     commits: (payload?.commits || []).map(commit => ({
+      ...commit,
+      files: commit.files || [],
+    })),
+    unmergedCommits: (payload?.unmergedCommits || []).map(commit => ({
       ...commit,
       files: commit.files || [],
     })),

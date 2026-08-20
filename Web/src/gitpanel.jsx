@@ -37,6 +37,13 @@ function ChangeRow({ change, commit = "", selected, onOpenFile }) {
   );
 }
 
+const operationLabels = {
+  rebase: "Rebase",
+  merge: "Merge",
+  "cherry-pick": "Cherry-pick",
+  revert: "Revert",
+};
+
 function ChangeSection({ title, changes, selectedKey, onOpenFile }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
@@ -84,6 +91,7 @@ export function GitPanel({
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const busy = Boolean(action) || loading;
+  const historyCommits = data?.mainBranch && !data.operation ? (data.unmergedCommits || []) : (data?.commits || []);
 
   const openCommit = () => {
     setCommitMessage("");
@@ -141,10 +149,25 @@ export function GitPanel({
       <div className="git-scroll">
         <section className="git-section">
           <h3 className="git-section-title">Branch</h3>
+          {data?.operation && (
+            <div className="git-operation-warning">
+              {operationLabels[data.operation] || data.operation} in progress — resolve it before pushing or pulling
+            </div>
+          )}
           <div className="git-branch-line">
             <span className="git-branch-name">{data?.branch || "—"}</span>
             {data?.upstream && <span className="git-upstream">{data.upstream}</span>}
           </div>
+          {data?.mainBranch && !data.operation &&
+            (data.merged ? (
+              <div className="git-merged-badge">Merged into {data.mainBranch}</div>
+            ) : (
+              <div className="git-unmerged-count">
+                {data.unmergedCommits.length
+                  ? `${data.unmergedCommits.length} commit${data.unmergedCommits.length === 1 ? "" : "s"} not in ${data.mainBranch}`
+                  : `Up to date with ${data.mainBranch}`}
+              </div>
+            ))}
           {(data?.ahead > 0 || data?.behind > 0) && (
             <div className="git-ahead-behind">
               {data.ahead > 0 && <span className="git-ahead">↑ {data.ahead} ahead</span>}
@@ -244,10 +267,17 @@ export function GitPanel({
         </section>
 
         <section className="git-section">
-          <h3 className="git-section-title">History</h3>
-          {!data?.commits.length && <p className="git-empty">No commits</p>}
+          <h3 className="git-section-title">
+            History
+            {data?.mainBranch && !data.merged && !data.operation && <span className="git-history-scope">not in {data.mainBranch}</span>}
+          </h3>
+          {!historyCommits.length && (
+            <p className="git-empty">
+              {data?.mainBranch && !data.operation ? `All commits are in ${data.mainBranch}` : "No commits"}
+            </p>
+          )}
           <ul className="git-commit-list">
-            {data?.commits.map(commit => (
+            {historyCommits.map(commit => (
               <li key={commit.hash} className="git-commit">
                 <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
                   <span className="git-commit-subject">{commit.subject}</span>
