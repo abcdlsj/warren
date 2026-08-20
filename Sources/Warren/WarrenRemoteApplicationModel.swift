@@ -638,6 +638,8 @@ private enum WarrenRemoteDiagnostics {
 @MainActor
 @Observable
 final class WarrenRemoteApplicationModel {
+    private static let deletionReconciliationTimeout: Duration = .seconds(30)
+
     private(set) var projection = WarrenDesktopProjection
         .empty(host: WarrenDomain.Host(name: "Server"))
         .withConnectionState(.connecting)
@@ -1002,7 +1004,11 @@ final class WarrenRemoteApplicationModel {
     }
 
     func createSession(workspaceID: WorkspaceID, request launch: TerminalSessionLaunchRequest) {
-        guard let wire, !creatingSessionWorkspaceIDs.contains(workspaceID) else { return }
+        guard let wire,
+              let workspace = projection.workspace(id: workspaceID),
+              !creatingSessionWorkspaceIDs.contains(workspaceID),
+              !deletingWorkspaceIDs.contains(workspaceID),
+              !deletingProjectIDs.contains(workspace.projectID) else { return }
         creatingSessionWorkspaceIDs.insert(workspaceID)
         Task { @MainActor [weak self] in
             defer { self?.finishCreatingSession(in: workspaceID) }
@@ -1792,10 +1798,20 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func reconcilePendingDeletions(using wire: WarrenRemoteWire) async {
+        let deadline = ContinuousClock.now.advanced(by: Self.deletionReconciliationTimeout)
         var delayMilliseconds = 500
         while !Task.isCancelled,
               self.wire === wire,
               hasPendingDeletion {
+            guard ContinuousClock.now < deadline else {
+                deletingProjectIDs.removeAll()
+                deletingWorkspaceIDs.removeAll()
+                present(NSError(domain: "WarrenRemote", code: 14, userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Deletion did not finish within 30 seconds. Refresh the roster and try again.",
+                ]))
+                return
+            }
             do {
                 try await refreshRoster(using: wire)
             } catch is CancellationError {

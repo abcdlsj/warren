@@ -126,14 +126,19 @@ type Service struct {
 	// the same Group snapshot, otherwise a concurrent forced deletion can
 	// leave an orphan runtime or a Session whose Group no longer exists.
 	terminalGroupLifecycleMu sync.Mutex
-	outputs                  map[string]*outputSession
-	peers                    map[string]map[*wsPeer]struct{}
-	focusedPeers             map[string]*wsPeer
-	runtimeSizes             map[string]ghostline.Size
-	broadcastLocks           map[string]*sessionLock
-	agentsMu                 sync.Mutex
-	agents                   map[string]*agentSession
-	agentEpoch               uint64
+	// workspaceLifecycleMu serializes Project/Workspace lifecycle changes with
+	// workspace session and worktree creation. Deletions publish the durable
+	// state before slow runtime/filesystem cleanup, so a waiting creator either
+	// observes the removed resource or completes before the deletion removes it.
+	workspaceLifecycleMu sync.Mutex
+	outputs              map[string]*outputSession
+	peers                map[string]map[*wsPeer]struct{}
+	focusedPeers         map[string]*wsPeer
+	runtimeSizes         map[string]ghostline.Size
+	broadcastLocks       map[string]*sessionLock
+	agentsMu             sync.Mutex
+	agents               map[string]*agentSession
+	agentEpoch           uint64
 
 	lifecycleOnce   sync.Once
 	lifecycleCancel context.CancelFunc
@@ -1307,35 +1312,34 @@ func (s *Service) ensureTerminalGroup() (api.TerminalGroup, error) {
 }
 
 func (s *Service) RemoveProject(id string, force bool) error {
+	s.workspaceLifecycleMu.Lock()
 	state := s.Store.Snapshot()
+	found := false
+	workspaceIDs := make([]string, 0)
 	for _, workspace := range state.Workspaces {
 		if workspace.ProjectID != id {
 			continue
 		}
+		workspaceIDs = append(workspaceIDs, workspace.ID)
 		for _, session := range state.Sessions {
 			if session.WorkspaceID == workspace.ID && session.Lifecycle == "running" && !force {
+				s.workspaceLifecycleMu.Unlock()
 				return errors.New("project has running sessions; use --force")
 			}
 		}
 	}
-	if force {
-		for _, workspace := range state.Workspaces {
-			if workspace.ProjectID == id {
-				_ = s.removeWorkspaceRuntime(context.Background(), state, workspace.ID)
-			}
+	for _, project := range state.Projects {
+		if project.ID == id {
+			found = true
+			break
 		}
 	}
+	if !found {
+		s.workspaceLifecycleMu.Unlock()
+		return fmt.Errorf("project not found: %s", id)
+	}
 	err := s.Store.Update(func(value *api.State) error {
-		found := false
 		workspaceIDs := map[string]bool{}
-		for _, p := range value.Projects {
-			if p.ID == id {
-				found = true
-			}
-		}
-		if !found {
-			return fmt.Errorf("project not found: %s", id)
-		}
 		value.Projects = filter(value.Projects, func(p api.Project) bool { return p.ID != id })
 		value.Workspaces = filter(value.Workspaces, func(w api.Workspace) bool {
 			if w.ProjectID == id {
@@ -1350,10 +1354,17 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		}
 		return nil
 	})
-	if err == nil {
-		s.invalidateMerge()
+	s.workspaceLifecycleMu.Unlock()
+	if err != nil {
+		return err
 	}
-	return err
+	s.invalidateMerge()
+	if force {
+		for _, workspaceID := range workspaceIDs {
+			_ = s.removeWorkspaceRuntime(context.Background(), state, workspaceID)
+		}
+	}
+	return nil
 }
 
 func (s *Service) RenameProject(id, name string) error {
@@ -1441,6 +1452,9 @@ func (s *Service) SetSessionPinned(id string, pinned bool) error {
 }
 
 func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.WorkspaceCreateResult, error) {
+	s.workspaceLifecycleMu.Lock()
+	defer s.workspaceLifecycleMu.Unlock()
+
 	state := s.Store.Snapshot()
 	var project *api.Project
 	for i := range state.Projects {
@@ -1578,6 +1592,7 @@ type RemoveWorkspaceOptions struct {
 }
 
 func (s *Service) RemoveWorkspace(ctx context.Context, id string, options RemoveWorkspaceOptions) error {
+	s.workspaceLifecycleMu.Lock()
 	state := s.Store.Snapshot()
 	var workspace *api.Workspace
 	for i := range state.Workspaces {
@@ -1587,24 +1602,18 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 	}
 	if workspace == nil {
+		s.workspaceLifecycleMu.Unlock()
 		return fmt.Errorf("workspace not found: %s", id)
 	}
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == id && session.Lifecycle == "running" && !options.Force {
+			s.workspaceLifecycleMu.Unlock()
 			return errors.New("workspace has running sessions; use --force")
 		}
 	}
-	if options.Force {
-		_ = s.removeWorkspaceRuntime(ctx, state, id)
-	}
-	// Imported and locked worktrees are never removed from disk. The caller may
-	// still delete Warren's workspace record, but filesystem ownership must be
-	// explicit and a Git lock must be respected.
-	if workspace.Kind == "worktree" && options.RemoveWorktree && workspace.ManagedWorktree && !workspace.WorktreeLocked {
-		s.removeWorktreeDirectory(*workspace, state.Projects)
-	}
+	workspaceValue := *workspace
 	err := s.Store.Update(func(value *api.State) error {
-		projectID := workspace.ProjectID
+		projectID := workspaceValue.ProjectID
 		value.Workspaces = filter(value.Workspaces, func(w api.Workspace) bool { return w.ID != id })
 		value.Sessions = filter(value.Sessions, func(session api.Session) bool { return session.WorkspaceID != id })
 		order := 0
@@ -1616,10 +1625,25 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 		return nil
 	})
-	if err == nil {
-		s.invalidateMerge()
+	s.workspaceLifecycleMu.Unlock()
+	if err != nil {
+		return err
 	}
-	return err
+	s.invalidateMerge()
+
+	// Publish the removal before doing best-effort runtime and filesystem
+	// cleanup. This keeps the roster responsive and prevents a new session from
+	// racing with a workspace that is already gone from durable state.
+	if options.Force {
+		_ = s.removeWorkspaceRuntime(ctx, state, id)
+	}
+	// Imported and locked worktrees are never removed from disk. The caller may
+	// still delete Warren's workspace record, but filesystem ownership must be
+	// explicit and a Git lock must be respected.
+	if workspaceValue.Kind == "worktree" && options.RemoveWorktree && workspaceValue.ManagedWorktree && !workspaceValue.WorktreeLocked {
+		s.removeWorktreeDirectory(workspaceValue, state.Projects)
+	}
+	return nil
 }
 
 // removeWorktreeDirectory is best-effort physical cleanup of a worktree-backed
@@ -1672,6 +1696,10 @@ func (s *Service) logWarn(message string, keyValues ...any) {
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
+	if workspaceID != "" {
+		s.workspaceLifecycleMu.Lock()
+		defer s.workspaceLifecycleMu.Unlock()
+	}
 	return s.createSession(ctx, workspaceID, "", command, kind, title, runtimeKind)
 }
 
