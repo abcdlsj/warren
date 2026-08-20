@@ -38,6 +38,10 @@
         override open func becomeFirstResponder() -> Bool {
             let result = super.becomeFirstResponder()
             if result {
+                // A view parked by Warren starts with silent lifecycle focus
+                // handling. Becoming a real responder is an explicit return to
+                // user-visible focus, so future losses must be reported again.
+                core.setFocusLossReportingSuppressed(false)
                 focusDidBecomeFirstResponder()
                 // First-responder ownership and key-window status are separate.
                 // Preserve the binding intent in a non-key window, but keep the
@@ -69,7 +73,10 @@
                 // Also invoked from _setWindow: while AppKit holds the
                 // view-tree lock; keep Ghostty calls off this path.
                 DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+                    // A tab can be parked and reattached before this deferred
+                    // cleanup runs. Do not deliver a stale focus loss to a
+                    // view that is already back in a window.
+                    guard let self, self.window == nil else { return }
                     self.core.stopDisplayLink()
                     self.core.setFocus(false)
                 }

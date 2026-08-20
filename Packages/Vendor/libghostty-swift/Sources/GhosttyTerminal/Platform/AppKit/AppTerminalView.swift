@@ -54,6 +54,12 @@
             core.setDisplayVisible(visible)
         }
 
+        /// Suppresses PTY focus-loss reports while Warren parks this view during
+        /// an internal tab transition. Real AppKit focus changes remain reported.
+        public func setFocusLossReportingSuppressed(_ suppressed: Bool) {
+            core.setFocusLossReportingSuppressed(suppressed)
+        }
+
         var surface: TerminalSurface? {
             core.surface
         }
