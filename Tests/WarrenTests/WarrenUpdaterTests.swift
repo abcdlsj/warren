@@ -54,6 +54,43 @@ final class WarrenUpdaterTests: XCTestCase {
         XCTAssertTrue(release.isInstallable)
     }
 
+    func testReleaseProxyPayloadDecodesWithGitHubCompatibleFields() throws {
+        let release = try JSONDecoder().decode(
+            WarrenRelease.self,
+            from: Data(
+                """
+                {
+                  "tag": "v0.5.1",
+                  "tag_name": "v0.5.1",
+                  "html_url": "https://github.com/abcdlsj/warren/releases/tag/v0.5.1",
+                  "assets": [
+                    {
+                      "name": "Warren-0.5.1.zip",
+                      "browser_download_url": "https://github.com/abcdlsj/warren/releases/download/v0.5.1/Warren-0.5.1.zip",
+                      "size": 20847018
+                    }
+                  ],
+                  "name": "Warren-0.5.1.zip",
+                  "size": 20847018,
+                  "url": "https://github.com/abcdlsj/warren/releases/download/v0.5.1/Warren-0.5.1.zip"
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(release.version, WarrenVersion("0.5.1"))
+        XCTAssertEqual(release.applicationAsset?.size, 20_847_018)
+        XCTAssertTrue(release.isInstallable)
+    }
+
+    @MainActor
+    func testReleaseChecksUseTheCloudflareProxy() {
+        XCTAssertEqual(
+            WarrenUpdater.latestReleaseURL.absoluteString,
+            "https://warrenai.xyz/api/update/latest"
+        )
+    }
+
     @MainActor
     func testAutomaticCheckCadenceUsesThreeHourIntervalAfterSuccessfulCheck() {
         let defaults = UserDefaults(suiteName: #function)!

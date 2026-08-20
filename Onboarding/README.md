@@ -12,6 +12,8 @@ The public onboarding site for Warren, served from a Cloudflare Worker.
 
 The Download button resolves the latest GitHub release through the Worker's
 `/api/latest-release` endpoint and starts the installer download directly.
+The desktop updater uses the same Worker snapshot through
+`/api/update/latest`.
 
 The standalone `/changelog` page presents the release history in the same
 English / Simplified Chinese interface as the landing page. The Worker reads
@@ -36,11 +38,18 @@ npm run preview    # wrangler dev at http://localhost:8787
 ## Deploy
 
 ```sh
+npx wrangler secret put GITHUB_TOKEN  # optional; run once per environment
 npm run deploy
 ```
 
 The worker name is `warren-onboarding`. Once `warrenai.xyz` is ready on
 Cloudflare, uncomment the `routes` block in `wrangler.toml` and deploy again.
+
+Release resolution never sends an unauthenticated GitHub Releases API request.
+With `GITHUB_TOKEN`, the Worker uses the authenticated API; otherwise it reads
+the public release page and caches the normalized snapshot for five minutes.
+See [`docs/update-service.md`](../docs/update-service.md) for the endpoint
+contract and operational policy.
 
 ## Notes
 

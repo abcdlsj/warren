@@ -157,10 +157,12 @@ enum WarrenUpdateNotification {
     static let keyRelease = "release"
 }
 
-/// Fetches GitHub releases and stages a verified Warren.app for installation.
+/// Fetches Warren releases through the release service and stages a verified
+/// Warren.app for installation.
 @MainActor
 final class WarrenUpdater {
-    static let latestReleaseURL = URL(string: "https://api.github.com/repos/abcdlsj/warren/releases/latest")!
+    /// The release proxy keeps GitHub API credentials and caching at the edge.
+    static let latestReleaseURL = URL(string: "https://warrenai.xyz/api/update/latest")!
     static let checkInterval: TimeInterval = 3 * 60 * 60
     static let maximumArchiveSize: Int64 = 512 * 1024 * 1024
     static let lastCheckDateKey = "Warren.Updater.lastCheckDate"
@@ -205,7 +207,7 @@ final class WarrenUpdater {
     }
 
     /// Returns a newer release, or nil when the installed version is current.
-    /// Automatic checks are throttled; manual checks always reach GitHub.
+    /// Automatic checks are throttled; manual checks always reach the release service.
     func checkForUpdates(force: Bool = false) async throws -> WarrenRelease? {
         if !force, !shouldCheckAutomatically {
             return nil
@@ -318,9 +320,8 @@ final class WarrenUpdater {
     private func fetchLatestRelease() async throws -> WarrenRelease {
         var request = URLRequest(url: Self.latestReleaseURL)
         request.timeoutInterval = 15
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Warren-Updater", forHTTPHeaderField: "User-Agent")
-        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
 
         do {
             let (data, response) = try await session.data(for: request)
