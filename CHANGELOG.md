@@ -6,6 +6,19 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.5.2] - 2026-08-20
+
+### Added
+
+- Load the onboarding changelog from the repository at runtime and keep the last successful response available for offline use.
+- Add parser coverage for wrapped Markdown release notes and links.
+- Proxy release metadata through a Cloudflare Worker with cached GitHub API/page fallbacks and a documented updater endpoint.
+
+### Changed
+
+- Serve cached changelog entries while refreshing stale data so the public release history remains available during transient repository failures.
+- Route the desktop updater through the release service and show update status in optimized builds without the development BUILD marker.
+
 ## [0.5.1] - 2026-08-20
 
 ### Added
