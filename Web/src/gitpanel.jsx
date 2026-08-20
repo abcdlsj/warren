@@ -269,59 +269,61 @@ export function GitPanel({
         </section>
 
         {data?.remote && (
-          <section className="git-section git-fixed-section">
-            <h3 className="git-section-title">Pull Request</h3>
-            {data.pullRequest ? (
-              <PullRequestView pr={data.pullRequest} />
-            ) : data.pullRequestError ? (
-              <p className="git-pr-error">{data.pullRequestError}</p>
-            ) : canCreatePR ? (
-              prOpen ? (
-                <div className="git-pr-form">
-                  <input
-                    className="git-input"
-                    value={prTitle}
-                    onChange={event => setPrTitle(event.target.value)}
-                    placeholder="Pull request title"
-                    autoFocus
-                    onKeyDown={event => {
-                      if (event.key === "Enter") submitCreatePR();
-                      if (event.key === "Escape") setPrOpen(false);
-                    }}
-                  />
-                  <textarea
-                    className="git-textarea"
-                    value={prBody}
-                    onChange={event => setPrBody(event.target.value)}
-                    placeholder="Description"
-                    rows={4}
-                  />
-                  <p className="git-commit-hint">
-                    Merge into {data.mainBranch} from {data.branch}
-                  </p>
-                  <div className="git-commit-actions">
-                    <button
-                      type="button"
-                      className="chrome-button"
-                      onClick={submitCreatePR}
-                      disabled={!prTitle.trim() || busy}
-                    >
-                      {action === "git.pr.create" ? "Creating…" : "Create pull request"}
-                    </button>
-                    <button type="button" className="chrome-button" onClick={() => setPrOpen(false)}>
-                      Cancel
-                    </button>
+          <div className="git-pane git-pane-pr">
+            <section className="git-section">
+              <h3 className="git-section-title">Pull Request</h3>
+              {data.pullRequest ? (
+                <PullRequestView pr={data.pullRequest} />
+              ) : data.pullRequestError ? (
+                <p className="git-pr-error">{data.pullRequestError}</p>
+              ) : canCreatePR ? (
+                prOpen ? (
+                  <div className="git-pr-form">
+                    <input
+                      className="git-input"
+                      value={prTitle}
+                      onChange={event => setPrTitle(event.target.value)}
+                      placeholder="Pull request title"
+                      autoFocus
+                      onKeyDown={event => {
+                        if (event.key === "Enter") submitCreatePR();
+                        if (event.key === "Escape") setPrOpen(false);
+                      }}
+                    />
+                    <textarea
+                      className="git-textarea"
+                      value={prBody}
+                      onChange={event => setPrBody(event.target.value)}
+                      placeholder="Description"
+                      rows={4}
+                    />
+                    <p className="git-commit-hint">
+                      Merge into {data.mainBranch} from {data.branch}
+                    </p>
+                    <div className="git-commit-actions">
+                      <button
+                        type="button"
+                        className="chrome-button"
+                        onClick={submitCreatePR}
+                        disabled={!prTitle.trim() || busy}
+                      >
+                        {action === "git.pr.create" ? "Creating…" : "Create pull request"}
+                      </button>
+                      <button type="button" className="chrome-button" onClick={() => setPrOpen(false)}>
+                        Cancel
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <button type="button" className="chrome-button" onClick={openCreatePR} disabled={busy}>
+                    Create pull request
+                  </button>
+                )
               ) : (
-                <button type="button" className="chrome-button" onClick={openCreatePR} disabled={busy}>
-                  Create pull request
-                </button>
-              )
-            ) : (
-              <p className="git-empty">No pull request</p>
-            )}
-          </section>
+                <p className="git-empty">No pull request</p>
+              )}
+            </section>
+          </div>
         )}
 
         <div className="git-pane git-pane-changes">
