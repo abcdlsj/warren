@@ -1,3 +1,5 @@
+import { parseChangelog } from "./changelog.js";
+
 const securityHeaders = {
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' data: ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
@@ -8,6 +10,10 @@ const securityHeaders = {
 };
 
 const RELEASE_API = "https://api.github.com/repos/abcdlsj/warren/releases/latest";
+const CHANGELOG_SOURCE = "https://raw.githubusercontent.com/abcdlsj/warren/main/CHANGELOG.md";
+const CHANGELOG_CACHE_KEY = new Request("https://warrenai.xyz/__cache/changelog");
+const CHANGELOG_TTL_MS = 5 * 60 * 1000;
+const CHANGELOG_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=3600";
 
 function releaseAssetFromHtml(html) {
   const matches = html.matchAll(
@@ -83,8 +89,78 @@ async function latestRelease() {
   }
 }
 
+function changelogResponse(entries, cachedAt = Date.now()) {
+  return new Response(
+    JSON.stringify({ entries, cachedAt: new Date(cachedAt).toISOString() }),
+    {
+      headers: {
+        "Cache-Control": CHANGELOG_CACHE_CONTROL,
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Warren-Changelog-Cached-At": String(cachedAt),
+      },
+    },
+  );
+}
+
+function markStale(response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Warren-Changelog-Stale", "true");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function readCachedChangelog() {
+  const response = await caches.default.match(CHANGELOG_CACHE_KEY);
+  if (!response) return null;
+  const cachedAt = Number(response.headers.get("X-Warren-Changelog-Cached-At"));
+  return {
+    response,
+    fresh: Number.isFinite(cachedAt) && Date.now() - cachedAt < CHANGELOG_TTL_MS,
+  };
+}
+
+async function refreshChangelog() {
+  const upstream = await fetch(CHANGELOG_SOURCE, {
+    headers: { Accept: "text/plain", "User-Agent": "warren-onboarding" },
+  });
+  if (!upstream.ok) {
+    throw new Error(`GitHub changelog responded with ${upstream.status}`);
+  }
+
+  const entries = parseChangelog(await upstream.text());
+  if (!entries.length) {
+    throw new Error("GitHub changelog did not contain any released entries");
+  }
+
+  const response = changelogResponse(entries);
+  await caches.default.put(CHANGELOG_CACHE_KEY, response.clone());
+  return response;
+}
+
+async function changelogResponseForRequest(ctx) {
+  const cached = await readCachedChangelog();
+  if (cached?.fresh) return cached.response;
+
+  if (cached) {
+    ctx.waitUntil(refreshChangelog().catch(() => undefined));
+    return markStale(cached.response);
+  }
+
+  try {
+    return await refreshChangelog();
+  } catch {
+    return Response.json(
+      { error: "Could not resolve the repository changelog." },
+      { status: 502 },
+    );
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
@@ -101,6 +177,10 @@ export default {
           { status: 502 },
         );
       }
+    }
+
+    if (url.pathname === "/api/changelog") {
+      return changelogResponseForRequest(ctx);
     }
 
     // The ASSETS binding rewrites unknown paths to "/" with a redirect, so

@@ -14,9 +14,10 @@ The Download button resolves the latest GitHub release through the Worker's
 `/api/latest-release` endpoint and starts the installer download directly.
 
 The standalone `/changelog` page presents the release history in the same
-English / Simplified Chinese interface as the landing page. Keep its release
-entries in sync with the repository root `CHANGELOG.md` when publishing a
-new Warren version.
+English / Simplified Chinese interface as the landing page. The Worker reads
+released entries from the repository root `CHANGELOG.md` at runtime, caches the
+parsed response for five minutes, and serves stale data while refreshing. The
+browser also keeps the last successful response locally for offline fallback.
 
 ## Local development
 

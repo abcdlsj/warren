@@ -84,6 +84,10 @@ const messages = {
     "changelog.lede":
       "Warren is built in public. Here is what changed, what shipped, and where the work is heading.",
     "changelog.viewRelease": "View release",
+    "changelog.releaseTitle": "Warren release",
+    "changelog.stale": "Showing the last cached changelog; the repository could not be reached.",
+    "changelog.error": "The changelog is temporarily unavailable. View the repository instead.",
+    // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
         version: "0.5.1",
@@ -378,6 +382,10 @@ const messages = {
     "changelog.lede":
       "Warren 在公开构建。这里记录每次改变、每个版本，以及接下来要去的地方。",
     "changelog.viewRelease": "查看 Release",
+    "changelog.releaseTitle": "Warren 版本",
+    "changelog.stale": "仓库暂时无法访问，当前显示的是上次缓存的更新日志。",
+    "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
+    // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
         version: "0.5.1",

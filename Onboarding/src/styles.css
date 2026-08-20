@@ -715,6 +715,14 @@ button {
   padding: 0 clamp(20px, 5vw, 56px) clamp(100px, 13vw, 160px);
 }
 
+.changelog-status {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 clamp(20px, 5vw, 56px) 24px;
+  color: var(--faint);
+  font-size: 13px;
+}
+
 .release-entry {
   display: grid;
   grid-template-columns: minmax(145px, 0.28fr) minmax(0, 1fr);

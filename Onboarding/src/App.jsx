@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "./i18n.jsx";
+import {
+  fetchChangelog,
+  readCachedChangelog,
+  writeCachedChangelog,
+} from "./changelog.js";
 import TerminalDemo from "./TerminalDemo.jsx";
 
 function Reveal({ className = "", delay = 0, children }) {
@@ -289,9 +294,40 @@ function Footer() {
   );
 }
 
+function formatReleaseDate(dateISO, locale) {
+  if (!dateISO) return "";
+  const date = new Date(`${dateISO}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return dateISO;
+  return new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 function ChangelogPage() {
-  const { t } = useI18n();
-  const entries = t("changelog.entries");
+  const { locale, t } = useI18n();
+  const fallbackEntries = t("changelog.entries");
+  const cachedEntries = readCachedChangelog()?.entries;
+  const initialEntries = cachedEntries?.length ? cachedEntries : fallbackEntries;
+  const [entries, setEntries] = useState(initialEntries);
+  const [loadState, setLoadState] = useState(initialEntries.length ? "ready" : "loading");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchChangelog(controller.signal)
+      .then((nextEntries) => {
+        writeCachedChangelog(nextEntries);
+        setEntries(nextEntries);
+        setLoadState("ready");
+      })
+      .catch((error) => {
+        if (error.name === "AbortError") return;
+        setLoadState(entries.length ? "stale" : "error");
+      });
+    return () => controller.abort();
+  }, []);
 
   return (
     <div className="site changelog-site">
@@ -305,12 +341,20 @@ function ChangelogPage() {
             <p>{t("changelog.lede")}</p>
           </Reveal>
         </section>
+        {loadState === "stale" ? (
+          <p className="changelog-status">{t("changelog.stale")}</p>
+        ) : null}
+        {loadState === "error" ? (
+          <p className="changelog-status">{t("changelog.error")}</p>
+        ) : null}
         <section className="changelog-list" aria-label={t("changelog.title")}>
           {entries.map((entry, index) => (
             <Reveal className="release-entry" delay={index * 70} key={entry.version}>
               <div className="release-meta">
                 <span className="release-version">v{entry.version}</span>
-                <time dateTime={entry.dateISO}>{entry.date}</time>
+                <time dateTime={entry.dateISO ?? undefined}>
+                  {formatReleaseDate(entry.dateISO, locale)}
+                </time>
                 <a
                   className="release-link"
                   href={`https://github.com/abcdlsj/warren/releases/tag/v${entry.version}`}
@@ -321,10 +365,13 @@ function ChangelogPage() {
                 </a>
               </div>
               <article className="release-body">
-                <h2>{entry.title}</h2>
-                <p className="release-summary">{entry.summary}</p>
-                {entry.sections.map((section) => (
-                  <section className="release-section" key={section.title}>
+                <h2>{entry.title ?? `${t("changelog.releaseTitle")} ${entry.version}`}</h2>
+                {entry.summary ? <p className="release-summary">{entry.summary}</p> : null}
+                {entry.sections.map((section, sectionIndex) => (
+                  <section
+                    className="release-section"
+                    key={`${entry.version}-${section.title}-${sectionIndex}`}
+                  >
                     <h3>{section.title}</h3>
                     <ul>
                       {section.items.map((item) => (
