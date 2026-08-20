@@ -686,6 +686,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var deletionReconciliationWire: WarrenRemoteWire?
     @ObservationIgnored private var attachGeneration: UInt64 = 0
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
+    @ObservationIgnored private var pendingTerminalOpenRequest: WarrenTerminalOpenRequest?
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
@@ -1085,6 +1086,46 @@ final class WarrenRemoteApplicationModel {
                 self?.present(error)
             }
         }
+    }
+
+    /// Selects a terminal group and creates a fresh shell for external launchers.
+    /// The request is retained until the local/remote roster is ready so a
+    /// Raycast invocation can arrive during Warren's first connection attempt.
+    func openTerminal(_ request: WarrenTerminalOpenRequest) {
+        pendingTerminalOpenRequest = request
+        fulfillPendingTerminalOpenRequest()
+    }
+
+    private func fulfillPendingTerminalOpenRequest() {
+        guard let request = pendingTerminalOpenRequest,
+              wire != nil else { return }
+
+        let group: WarrenDomain.TerminalGroup?
+        if let requestedGroup = request.group {
+            group = projection.terminalGroups.first { candidate in
+                candidate.id.description == requestedGroup
+                    || candidate.name.caseInsensitiveCompare(requestedGroup) == .orderedSame
+            }
+        } else {
+            group = projection.terminalGroups.first
+        }
+        guard let group else {
+            pendingTerminalOpenRequest = nil
+            present(NSError(domain: "WarrenRemote", code: 30, userInfo: [
+                NSLocalizedDescriptionKey: "The requested Warren terminal group does not exist.",
+            ]))
+            return
+        }
+
+        pendingTerminalOpenRequest = nil
+        publishNavigationIfChanged(
+            WarrenDesktopNavigationReducer.reduce(
+                navigation,
+                action: .selectTerminalGroup(group.id),
+                in: projection
+            )
+        )
+        createSession(terminalGroupID: group.id, request: .shell)
     }
 
     private func finishCreatingSession(in workspaceID: WorkspaceID) {
@@ -2177,6 +2218,7 @@ final class WarrenRemoteApplicationModel {
                 await self?.attachSelectedSession()
             }
         }
+        fulfillPendingTerminalOpenRequest()
     }
 
     private func attachSelectedSession() async {

@@ -89,6 +89,24 @@ private final class WarrenAppDelegate: NSObject, NSApplicationDelegate, NSWindow
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        presentMainWindowIfNeeded()
+        application.activate(ignoringOtherApps: true)
+        // Defer delivery until the SwiftUI root has installed its observer.
+        // This matters when LaunchServices starts Warren specifically for the
+        // URL rather than delivering it to an already visible window.
+        let requests = urls.compactMap(WarrenTerminalOpenRequest.init(url:))
+        guard !requests.isEmpty else { return }
+        DispatchQueue.main.async {
+            for request in requests {
+                NotificationCenter.default.post(
+                    name: WarrenAppCommand.openTerminal,
+                    object: request
+                )
+            }
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         updateCheckTask?.cancel()
         updateInstallTask?.cancel()

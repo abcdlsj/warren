@@ -170,6 +170,10 @@ struct WarrenCompositionRoot: View {
         .onReceive(NotificationCenter.default.publisher(for: WebCommand.copyLocalURL)) { _ in
             remoteModel.copyLocalWebURL()
         }
+        .onReceive(NotificationCenter.default.publisher(for: WarrenAppCommand.openTerminal)) { note in
+            guard let request = note.object as? WarrenTerminalOpenRequest else { return }
+            remoteModel.openTerminal(request)
+        }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.findInTerminal)) { _ in
             terminalSearchPresented = true
         }
