@@ -198,7 +198,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                     deletingProjectIDs: deletingProjectIDs,
                     deletingWorkspaceIDs: deletingWorkspaceIDs,
                     onAction: dispatch,
-                    onCommandPalette: { commandPalettePresented = true },
+                    onCommandPalette: presentCommandPalette,
                     onRequestRename: presentRename,
                     onRequestDeletion: presentDeletion,
                     onRequestTerminalGroupCreate: presentTerminalGroupCreate,
@@ -352,7 +352,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                 : WarrenDesktopSidebarTreeState()
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.commandPalette)) { _ in
-            setCommandPalettePresented(true)
+            presentCommandPalette()
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.newSession)) { _ in
             addSession(in: presentation)
@@ -651,6 +651,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         withAnimation(WarrenMotion.animation(.overlay, reduceMotion: reduceMotion)) {
             commandPalettePresented = presented
         }
+    }
+
+    private func presentCommandPalette() {
+        // Release the terminal's AppKit first responder before the overlay
+        // mounts so the palette TextField receives the next keystroke.
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        setCommandPalettePresented(true)
     }
 
     private func setSettingsPresented(_ presented: Bool) {
