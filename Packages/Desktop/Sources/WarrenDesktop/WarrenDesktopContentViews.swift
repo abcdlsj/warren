@@ -16,6 +16,7 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
     let hostName: String
     let titleTemplate: TerminalDisplayTitleTemplate
     let terminalFont: TerminalFontPreference
+    let wantsTerminalFocus: Bool
     let onAddProject: () -> Void
     let onImportSuperset: () -> Void
     let terminalSurface: @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
@@ -49,7 +50,8 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                     WarrenDesktopTerminalContext(
                         workspace: workspace,
                         tab: resolvedTab,
-                        font: terminalFont
+                        font: terminalFont,
+                        wantsTerminalFocus: wantsTerminalFocus
                     )
                 )
             )
@@ -72,7 +74,8 @@ struct WarrenDesktopWorkspaceContent<TerminalSurface: View>: View {
                     WarrenDesktopTerminalContext(
                         terminalGroup: terminalGroup,
                         tab: resolvedTab,
-                        font: terminalFont
+                        font: terminalFont,
+                        wantsTerminalFocus: wantsTerminalFocus
                     )
                 )
             )

@@ -762,6 +762,7 @@ private struct WarrenTerminalSurfaceView: View {
             TerminalHostRepresentable(
                 manager: surfaceManager,
                 activeSessionID: context.tab.sessionID,
+                wantsTerminalFocus: context.wantsTerminalFocus && !searchPresented,
                 onFocused: onFocused,
                 onBlurred: onBlurred
             )
@@ -817,6 +818,7 @@ private struct WarrenTerminalSurfaceView: View {
                 searchFieldFocused = true
             } else {
                 searchQuery = ""
+                searchFieldFocused = false
                 activeSurface?.endSearch()
             }
         }
@@ -1005,10 +1007,19 @@ private struct WarrenTerminalSearchBar: View {
         .warrenPanelSurface(cornerRadius: WarrenRadius.medium)
         .onAppear {
             surface?.search(for: query)
-            fieldFocused = true
+            focusSearchField()
         }
         .onChange(of: query) { _, newValue in
             surface?.search(for: newValue)
+        }
+    }
+
+    private func focusSearchField() {
+        fieldFocused = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(10))
+            guard !Task.isCancelled, presented else { return }
+            fieldFocused = true
         }
     }
 }
