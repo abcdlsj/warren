@@ -297,6 +297,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
                                 family: terminalFontFamily,
                                 size: terminalFontSize
                             ),
+                            wantsTerminalFocus: !commandPalettePresented && !settingsPresented,
                             onAddProject: { dispatch(.addProject) },
                             onImportSuperset: { dispatch(.importSuperset) },
                             terminalSurface: terminalSurface

@@ -888,6 +888,10 @@ public struct WarrenDesktopTerminalContext: Hashable, Sendable {
     public let terminalGroup: TerminalGroup?
     public let tab: ClientTab
     public let font: TerminalFontPreference
+    /// Whether the injected terminal surface should own AppKit keyboard focus.
+    /// Overlays such as search and the command palette temporarily suppress
+    /// this intent while keeping the surface mounted.
+    public let wantsTerminalFocus: Bool
 
     public var scopeID: String {
         workspace?.id.description ?? terminalGroup?.id.description ?? "none"
@@ -896,22 +900,26 @@ public struct WarrenDesktopTerminalContext: Hashable, Sendable {
     public init(
         workspace: Workspace,
         tab: ClientTab,
-        font: TerminalFontPreference = .init()
+        font: TerminalFontPreference = .init(),
+        wantsTerminalFocus: Bool = true
     ) {
         self.workspace = workspace
         self.terminalGroup = nil
         self.tab = tab
         self.font = font
+        self.wantsTerminalFocus = wantsTerminalFocus
     }
 
     public init(
         terminalGroup: TerminalGroup,
         tab: ClientTab,
-        font: TerminalFontPreference = .init()
+        font: TerminalFontPreference = .init(),
+        wantsTerminalFocus: Bool = true
     ) {
         self.workspace = nil
         self.terminalGroup = terminalGroup
         self.tab = tab
         self.font = font
+        self.wantsTerminalFocus = wantsTerminalFocus
     }
 }
