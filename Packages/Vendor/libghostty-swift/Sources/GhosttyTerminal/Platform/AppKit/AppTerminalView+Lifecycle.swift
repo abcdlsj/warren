@@ -129,7 +129,7 @@
                 if self.surface == nil {
                     self.core.rebuildIfReady()
                 } else {
-                    self.core.synchronizeMetrics()
+                    self.scheduleMetricsSync()
                 }
                 self.updateMetalLayerMetrics()
                 self.updateColorScheme()
@@ -172,8 +172,7 @@
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 updateMetalLayerMetrics()
-                core.synchronizeMetrics()
-                core.requestImmediateTick()
+                scheduleMetricsSync()
             }
         }
 
@@ -199,15 +198,20 @@
         }
 
         override open func setFrameSize(_ newSize: NSSize) {
+            let sizeChanged = bounds.size != newSize
             super.setFrameSize(newSize)
-            core.fitToSize()
-            core.requestImmediateTick()
+            if sizeChanged {
+                scheduleMetricsSync()
+            }
         }
 
         override open func layout() {
             super.layout()
-            core.fitToSize()
-            core.requestImmediateTick()
+            let sizeChanged = bounds.size != lastObservedBoundsSize
+            lastObservedBoundsSize = bounds.size
+            if sizeChanged {
+                scheduleMetricsSync()
+            }
             // A SwiftUI/AppKit host can leave this view at an intermediate frame
             // after an *animated or programmatic* grow (window zoom, sidebar
             // toggle): the last `layout()` we get carries mid-animation bounds and
@@ -216,7 +220,9 @@
             // Re-derive metrics one runloop later — by then the host's frame has
             // settled — so the final size is always captured. Coalesced so a burst
             // of layout passes schedules a single catch-up.
-            scheduleSettleResync()
+            if sizeChanged {
+                scheduleSettleResync()
+            }
         }
 
         override open func viewDidEndLiveResize() {
@@ -224,49 +230,53 @@
             // AppKit guarantees the frame is final here, so an interactive
             // window/split drag that ended between layout passes still lands at
             // the true size (the drag-out-to-grow case).
-            core.fitToSize()
-            core.requestImmediateTick()
+            scheduleMetricsSync()
         }
 
-        /// Re-fit after the host layout settles. Fires twice, mirroring Muxy's
-        /// resize hardening (`GhosttyTerminalNSView.updateMetalLayerSize`): once
-        /// on the next runloop turn — covers a normal grow whose final frame
-        /// lands immediately after this pass — and once ~120ms later, which
-        /// covers an *animated* settle (sidebar toggle, fullscreen, window zoom)
-        /// whose final frame arrives mid-animation and would otherwise leave the
-        /// grid boxed at the stale width. Each leg is coalesced independently so
-        /// a burst of layout passes schedules a single catch-up per leg.
+        /// Re-fit after the host layout settles. The immediate leg is handled by
+        /// `scheduleMetricsSync`; the late leg covers an animated settle whose
+        /// final frame lands after the next runloop turn. Both legs run outside
+        /// AppKit's layout call stack.
         private func scheduleSettleResync() {
-            if !settleResyncScheduled {
-                settleResyncScheduled = true
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    settleResyncScheduled = false
-                    resyncAfterLayoutSettle()
-                }
-            }
+            settleResyncScheduled = true
             settleResyncLateWorkItem?.cancel()
             let late = DispatchWorkItem { [weak self] in self?.resyncAfterLayoutSettle() }
             settleResyncLateWorkItem = late
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: late)
         }
 
-        /// Flush any pending layout so the view's `bounds` are the settled size —
-        /// the way Muxy calls `layoutSubtreeIfNeeded()` before reading its backing
-        /// size — then re-derive the grid metrics and paint. This runs off the
-        /// layout pass (a later runloop turn), so forcing layout here is safe and
-        /// guarantees `viewSize()` never measures a half-applied intermediate frame.
+        /// Re-derive metrics using the latest bounds. Do not force a nested AppKit
+        /// layout here: resize callbacks can arrive while the display cycle is
+        /// already laying out the view tree, and nested layout recreates the
+        /// feedback loop this catch-up is meant to avoid.
         private func resyncAfterLayoutSettle() {
-            layoutSubtreeIfNeeded()
-            core.fitToSize()
-            core.requestImmediateTick()
+            settleResyncScheduled = false
+            settleResyncLateWorkItem = nil
+            scheduleMetricsSync()
         }
 
         override open func viewDidChangeBackingProperties() {
             super.viewDidChangeBackingProperties()
             updateMetalLayerMetrics()
-            core.fitToSize()
-            core.requestImmediateTick()
+            scheduleMetricsSync()
+        }
+
+        /// Defer Ghostty metric work until AppKit has released its view-tree
+        /// lock. Multiple frame/layout callbacks in one display interval share
+        /// one synchronization, and `core.viewSize` reads the final bounds when
+        /// it executes rather than an intermediate frame.
+        private func scheduleMetricsSync() {
+            guard !metricsSyncScheduled else { return }
+            metricsSyncScheduled = true
+            metricsSyncGeneration &+= 1
+            let generation = metricsSyncGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
+                guard let self, self.metricsSyncGeneration == generation else { return }
+                self.metricsSyncScheduled = false
+                guard self.window != nil else { return }
+                self.core.fitToSize()
+                self.core.requestImmediateTick()
+            }
         }
 
         public func fitToSize() {

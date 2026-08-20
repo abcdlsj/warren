@@ -165,6 +165,38 @@ struct WarrenLatestValueSignal<Value: Sendable>: Sendable {
     }
 }
 
+/// Keeps at most one unsent terminal viewport. A window drag can produce more
+/// resize callbacks than the daemon can process; intermediate dimensions have
+/// no value once a newer one exists.
+struct WarrenResizeRequestBuffer: Sendable {
+    private(set) var pending: TerminalSize?
+    private(set) var lastSent: TerminalSize?
+
+    /// Returns true when the caller needs to start a drain task.
+    mutating func offer(_ size: TerminalSize) -> Bool {
+        guard size != lastSent || pending != nil else { return false }
+        let shouldStart = pending == nil
+        pending = size
+        return shouldStart
+    }
+
+    mutating func take() -> TerminalSize? {
+        guard let pending else { return nil }
+        self.pending = nil
+        guard pending != lastSent else { return nil }
+        return pending
+    }
+
+    mutating func markSent(_ size: TerminalSize) {
+        lastSent = size
+    }
+
+    mutating func reset() {
+        pending = nil
+        lastSent = nil
+    }
+}
+
 private enum RemoteWireEvent: Sendable {
     case roster
     case agent(sessionID: TerminalSessionID, activity: AgentActivityState)
@@ -349,25 +381,32 @@ private actor WarrenRemoteWire {
         guard let task else { throw URLError(.notConnectedToInternet) }
         let id = UUID().uuidString.lowercased()
         let text = Self.json(["t": "request", "id": id, "method": method, "params": params])
-        return try await withCheckedThrowingContinuation { continuation in
-            continuations[id] = continuation
-            requestContexts[id] = WarrenRemoteRequestContext(
-                method: method,
-                params: params,
-                startedAt: Date()
-            )
-            Task {
-                do { try await task.send(.string(text)) }
-                catch { self.failRequest(id, error: error) }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                continuations[id] = continuation
+                requestContexts[id] = WarrenRemoteRequestContext(
+                    method: method,
+                    params: params,
+                    startedAt: Date()
+                )
+                Task {
+                    do { try await task.send(.string(text)) }
+                    catch { self.failRequest(id, error: error) }
+                }
+                // A daemon can accept the WebSocket and then stall on a request
+                // (for example a wedged attach). Fail the request instead of
+                // leaving the terminal pane on its "Connecting…" spinner forever.
+                Task {
+                    try? await Task.sleep(for: Self.requestTimeout)
+                    self.failRequest(id, error: URLError(.timedOut))
+                }
+                if Task.isCancelled {
+                    self.failRequest(id, error: URLError(.cancelled))
+                }
             }
-            // A daemon can accept the WebSocket and then stall on a request
-            // (for example a wedged attach). Fail the request instead of
-            // leaving the terminal pane on its "Connecting…" spinner forever.
-            Task {
-                try? await Task.sleep(for: Self.requestTimeout)
-                self.failRequest(id, error: URLError(.timedOut))
-            }
-        }
+        }, onCancel: {
+            Task { await self.cancelRequest(id) }
+        })
     }
 
     func sendInput(_ data: Data) {
@@ -401,6 +440,10 @@ private actor WarrenRemoteWire {
         continuations.removeValue(forKey: id)?.resume(
             throwing: makeRequestError(error: error, context: context)
         )
+    }
+
+    private func cancelRequest(_ id: String) {
+        failRequest(id, error: URLError(.cancelled))
     }
 
     private func makeRequestError(
@@ -674,6 +717,10 @@ private enum WarrenRemoteDiagnostics {
 @Observable
 final class WarrenRemoteApplicationModel {
     private static let deletionReconciliationTimeout: Duration = .seconds(30)
+    /// A daemon restart briefly drops the WebSocket before its listener is
+    /// ready again. Keep that expected gap out of the Inspector; persistent
+    /// failures still become visible after the grace period.
+    private static let transientConnectionIssueDelay: Duration = .seconds(5)
 
     private(set) var projection = WarrenDesktopProjection
         .empty(host: WarrenDomain.Host(name: "Server"))
@@ -716,6 +763,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var currentRoster: RemoteRoster?
     @ObservationIgnored private var rosterApplicationGeneration: UInt64 = 0
     @ObservationIgnored private var resizeTask: Task<Void, Never>?
+    @ObservationIgnored private var resizeBuffer = WarrenResizeRequestBuffer()
     @ObservationIgnored private var focusTask: Task<Void, Never>?
     @ObservationIgnored private var deletionReconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var deletionReconciliationWire: WarrenRemoteWire?
@@ -723,6 +771,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var terminalFont = TerminalFontPreference()
     @ObservationIgnored private var pendingTerminalOpenRequest: WarrenTerminalOpenRequest?
     @ObservationIgnored private var maintenanceResetTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionIssueTask: Task<Void, Never>?
     @ObservationIgnored private var outputAnchors: [TerminalSessionID: TerminalOutputAnchor] = [:]
     @ObservationIgnored private var agentActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
     @ObservationIgnored private var dismissedActivityBySessionID: [TerminalSessionID: AgentActivityState] = [:]
@@ -762,6 +811,7 @@ final class WarrenRemoteApplicationModel {
             return
         }
         disconnect()
+        cancelTransientConnectionIssue()
         restorePersistedTabOrders()
         endpointConfiguration = configuration
         settingsLoaded = false
@@ -799,6 +849,7 @@ final class WarrenRemoteApplicationModel {
         eventTask?.cancel()
         eventTask = nil
         endpointConfiguration = nil
+        cancelTransientConnectionIssue()
         clearMaintenance()
         if let wire { Task { await wire.close() } }
         wire = nil
@@ -892,8 +943,7 @@ final class WarrenRemoteApplicationModel {
         attachGeneration &+= 1
         outputAnchors.removeAll()
         suppressFramedAnchorUpdates.removeAll()
-        resizeTask?.cancel()
-        resizeTask = nil
+        cancelResizeRequests()
         focusTask?.cancel()
         focusTask = nil
         shutdownAllMountedSurfaces()
@@ -1384,6 +1434,7 @@ final class WarrenRemoteApplicationModel {
               ) else { return }
         guard Self.shouldApplyRoster(roster, after: currentRoster) else {
             clearMaintenance()
+            cancelTransientConnectionIssue()
             issue = nil
             return
         }
@@ -1550,7 +1601,7 @@ final class WarrenRemoteApplicationModel {
     func resize(columns: Int, rows: Int) {
         guard let sessionID = selectedSessionID,
               attachedSessionID == sessionID else { return }
-        let size = TerminalSize(columns: columns, rows: rows)
+        guard let size = TerminalSize(columns: columns, rows: rows) else { return }
         guard focusedSessionID == sessionID else {
             // The very first Ghostty metric can arrive while the focus claim
             // is still in flight. Remember the latest size and apply it as
@@ -1561,30 +1612,55 @@ final class WarrenRemoteApplicationModel {
             return
         }
         pendingFocusResizeSize = nil
-        TerminalDiagnostics.log("resize_request", [
-            "session": sessionID.description,
-            "cols": String(columns),
-            "rows": String(rows),
-        ])
-        resizeTask?.cancel()
+        guard resizeBuffer.offer(size) else { return }
+        guard resizeTask == nil else { return }
         resizeTask = Task { @MainActor [weak self] in
+            await self?.drainResizeRequests()
+        }
+    }
+
+    private func drainResizeRequests() async {
+        defer { resizeTask = nil }
+        while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .milliseconds(24))
-                guard let self, let wire = self.wire else { return }
-                _ = try await wire.request("session.resize", params: [
-                    "cols": String(columns),
-                    "rows": String(rows),
-                ])
-            } catch is CancellationError {
-                return
             } catch {
-                guard let self,
-                      self.selectedSessionID == sessionID,
-                      self.attachedSessionID == sessionID,
-                      self.focusedSessionID == sessionID else { return }
-                self.present(error)
+                return
+            }
+
+            guard let size = resizeBuffer.take(),
+                  let wire,
+                  let sessionID = selectedSessionID,
+                  attachedSessionID == sessionID,
+                  focusedSessionID == sessionID else {
+                return
+            }
+            resizeBuffer.markSent(size)
+            TerminalDiagnostics.log("resize_request", [
+                "session": sessionID.description,
+                "cols": String(size.columns),
+                "rows": String(size.rows),
+            ])
+            do {
+                _ = try await wire.request("session.resize", params: [
+                    "cols": String(size.columns),
+                    "rows": String(size.rows),
+                ])
+            } catch {
+                guard !Task.isCancelled,
+                      selectedSessionID == sessionID,
+                      attachedSessionID == sessionID,
+                      focusedSessionID == sessionID else { return }
+                present(error)
+                return
             }
         }
+    }
+
+    private func cancelResizeRequests() {
+        resizeTask?.cancel()
+        resizeTask = nil
+        resizeBuffer.reset()
     }
 
     func focus(sessionID: TerminalSessionID, size: TerminalSize?) {
@@ -1607,6 +1683,7 @@ final class WarrenRemoteApplicationModel {
             pendingFocusSize = nil
         }
         pendingFocusResizeSize = nil
+        cancelResizeRequests()
         focusClaimInFlight = false
         focusClaimGeneration += 1
         guard selectedSessionID == sessionID else { return }
@@ -1838,8 +1915,7 @@ final class WarrenRemoteApplicationModel {
         focusClaimGeneration += 1
         attachGeneration &+= 1
         pendingInput.removeAll(keepingCapacity: true)
-        resizeTask?.cancel()
-        resizeTask = nil
+        cancelResizeRequests()
         focusTask?.cancel()
         focusTask = nil
     }
@@ -1937,17 +2013,21 @@ final class WarrenRemoteApplicationModel {
     }
 
     nonisolated static func isRemoteRequestOutcomeUnknown(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            return isTransportFailure(nsError)
-        }
-        guard let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError else {
-            return false
-        }
-        return underlying.domain == NSURLErrorDomain && isTransportFailure(underlying)
+        isTransportFailure(error as NSError)
     }
 
     private nonisolated static func isTransportFailure(_ error: NSError) -> Bool {
+        if error.domain == NSPOSIXErrorDomain {
+            // URLSession occasionally surfaces a dropped WebSocket as a raw
+            // POSIX error instead of an NSURLError. These are all expected
+            // while the daemon is restarting or the client is reconnecting.
+            switch error.code {
+            case 32, 50, 51, 54, 57, 60, 61, 65:
+                return true
+            default:
+                break
+            }
+        }
         switch URLError.Code(rawValue: error.code) {
         case .cancelled,
              .cannotConnectToHost,
@@ -1960,7 +2040,10 @@ final class WarrenRemoteApplicationModel {
              .timedOut:
             return true
         default:
-            return false
+            guard let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError else {
+                return false
+            }
+            return isTransportFailure(underlying)
         }
     }
 
@@ -1968,6 +2051,7 @@ final class WarrenRemoteApplicationModel {
         switch event {
         case .roster:
             guard let wire, let roster = await wire.takeLatestRoster() else { return }
+            cancelTransientConnectionIssue()
             clearMaintenance()
             guard Self.shouldApplyRoster(roster, after: currentRoster) else {
                 ensureDeletionReconciliation(using: wire)
@@ -2233,6 +2317,7 @@ final class WarrenRemoteApplicationModel {
             surfaceManager.removeAll(except: liveTabSessionIDs)
             appliedLiveTabSessionIDs = liveTabSessionIDs
         }
+        cancelTransientConnectionIssue()
         issue = nil
         let previousTabID = navigation.selectedTabID
         let nextNavigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
@@ -2249,6 +2334,7 @@ final class WarrenRemoteApplicationModel {
             focusClaimInFlight = false
             focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
+            cancelResizeRequests()
         }
         if navigation.selectedTabID == nil {
             selectedSessionID = nil
@@ -2260,6 +2346,7 @@ final class WarrenRemoteApplicationModel {
             focusClaimInFlight = false
             focusClaimGeneration += 1
             pendingInput.removeAll(keepingCapacity: true)
+            cancelResizeRequests()
         } else if WarrenRemoteTerminalProtocol.shouldAttach(
             previousTabID: previousTabID,
             nextTabID: navigation.selectedTabID,
@@ -2298,6 +2385,7 @@ final class WarrenRemoteApplicationModel {
             pendingFocusSessionID = nil
             pendingFocusSize = nil
             pendingFocusResizeSize = nil
+            cancelResizeRequests()
         }
         attachGeneration &+= 1
         let generation = attachGeneration
@@ -2557,6 +2645,14 @@ final class WarrenRemoteApplicationModel {
     }
 
     private func present(_ error: Error) {
+        if Self.isRemoteRequestOutcomeUnknown(error), endpointConfiguration != nil {
+            scheduleTransientConnectionIssue(error)
+            return
+        }
+        presentDiagnostic(error)
+    }
+
+    private func presentDiagnostic(_ error: Error) {
         issue = error
         publishProjectionIfChanged(projection.withIssue(
             error,
@@ -2568,6 +2664,28 @@ final class WarrenRemoteApplicationModel {
                 focusedSessionID: focusedSessionID
             )
         ))
+    }
+
+    private func scheduleTransientConnectionIssue(_ error: Error) {
+        guard let expectedConfiguration = endpointConfiguration,
+              connectionIssueTask == nil else { return }
+        connectionIssueTask = Task { @MainActor [weak self] in
+            defer { self?.connectionIssueTask = nil }
+            do {
+                try await Task.sleep(for: Self.transientConnectionIssueDelay)
+            } catch {
+                return
+            }
+            guard let self,
+                  self.endpointConfiguration == expectedConfiguration,
+                  self.maintenanceMessage == nil else { return }
+            self.presentDiagnostic(error)
+        }
+    }
+
+    private func cancelTransientConnectionIssue() {
+        connectionIssueTask?.cancel()
+        connectionIssueTask = nil
     }
 
     @discardableResult

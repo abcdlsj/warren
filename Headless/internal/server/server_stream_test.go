@@ -732,6 +732,60 @@ func TestSlowClientOverflowClosesOnlyThatPeer(t *testing.T) {
 	}
 }
 
+func TestBroadcastFrameWaitsThroughBriefLockContention(t *testing.T) {
+	service := &Service{}
+	service.lazyInit()
+	peer := &wsPeer{
+		server:   &HTTPServer{Service: service},
+		outbound: make(chan outboundMessage, 1),
+		closed:   make(chan struct{}),
+	}
+	service.outputMu.Lock()
+	service.peers["session-broadcast"] = map[*wsPeer]struct{}{peer: {}}
+	service.outputMu.Unlock()
+
+	lock := service.broadcastLock("session-broadcast")
+	lock.Lock()
+	done := make(chan struct{})
+	go func() {
+		service.broadcastFrame(output.Frame{
+			SessionID: "session-broadcast",
+			Payload:   []byte("output"),
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("broadcast bypassed the held session lock")
+	case <-time.After(10 * time.Millisecond):
+	}
+	lock.Unlock()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("broadcast did not resume after the session lock was released")
+	}
+	select {
+	case <-peer.closed:
+		t.Fatal("brief lock contention reset the attached peer")
+	default:
+	}
+	select {
+	case message := <-peer.outbound:
+		frame, err := output.DecodeOutput(message.data)
+		if err != nil {
+			t.Fatalf("decode broadcast frame: %v", err)
+		}
+		if string(frame.Payload) != "output" {
+			t.Fatalf("broadcast payload = %q, want output", frame.Payload)
+		}
+	default:
+		t.Fatal("broadcast did not enqueue the frame")
+	}
+}
+
 func TestLifecycleAdoptsLiveAndMarksMissingEnded(t *testing.T) {
 	state := newStateWithSession(t, "session-live", "runtime-live")
 	_ = state.Update(func(value *api.State) error {

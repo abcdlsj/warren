@@ -34,6 +34,12 @@
         /// the next runloop turn. Coalesced: only the last request in a burst
         /// survives. Mirrors Muxy's deferred double-tap resize hardening.
         var settleResyncLateWorkItem: DispatchWorkItem?
+        /// Coalesces Ghostty metric synchronization requested by AppKit frame
+        /// and layout callbacks. The callbacks can run while AppKit owns its
+        /// view-tree lock, so the actual Ghostty call must happen later.
+        var metricsSyncScheduled = false
+        var metricsSyncGeneration: UInt64 = 0
+        var lastObservedBoundsSize: CGSize = .zero
 
         open weak var delegate: (any TerminalSurfaceViewDelegate)? {
             get { core.delegate }
