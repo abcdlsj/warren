@@ -299,6 +299,23 @@ final class WarrenRemoteModelTests: XCTestCase {
         XCTAssertEqual(signal.take(), 3)
     }
 
+    func testResizeRequestBufferKeepsOnlyLatestUnsentSize() throws {
+        let first = try XCTUnwrap(TerminalSize(columns: 80, rows: 24))
+        let second = try XCTUnwrap(TerminalSize(columns: 100, rows: 30))
+        let final = try XCTUnwrap(TerminalSize(columns: 120, rows: 36))
+        var buffer = WarrenResizeRequestBuffer()
+
+        XCTAssertTrue(buffer.offer(first))
+        XCTAssertFalse(buffer.offer(second))
+        XCTAssertFalse(buffer.offer(final))
+        XCTAssertEqual(buffer.take(), final)
+        buffer.markSent(final)
+        XCTAssertFalse(buffer.offer(final))
+
+        XCTAssertTrue(buffer.offer(second))
+        XCTAssertEqual(buffer.take(), second)
+    }
+
     func testRemoteTransportFailureHasUnknownRequestOutcome() {
         let timeout = NSError(
             domain: NSURLErrorDomain,
