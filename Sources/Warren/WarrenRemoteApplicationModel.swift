@@ -63,9 +63,9 @@ enum WarrenEndpointCatalog {
     }
 }
 
-struct RemoteRoster: Decodable, Sendable {
-    struct Host: Decodable, Sendable { let id: String; let name: String }
-    struct Project: Decodable, Sendable {
+struct RemoteRoster: Decodable, Sendable, Equatable {
+    struct Host: Decodable, Sendable, Equatable { let id: String; let name: String }
+    struct Project: Decodable, Sendable, Equatable {
         let id: String
         let name: String
         let path: String
@@ -80,7 +80,7 @@ struct RemoteRoster: Decodable, Sendable {
         let imported: Bool
         let workspace: String?
     }
-    struct Workspace: Decodable, Sendable {
+    struct Workspace: Decodable, Sendable, Equatable {
         let id: String
         let project: String
         let name: String
@@ -93,14 +93,14 @@ struct RemoteRoster: Decodable, Sendable {
         // the entire roster; the projection maps known values below.
         let mergeState: String?
     }
-    struct TerminalGroup: Decodable, Sendable {
+    struct TerminalGroup: Decodable, Sendable, Equatable {
         let id: String
         let name: String
         let home: String?
         let order: Int?
         let createdAt: String?
     }
-    struct Session: Decodable, Sendable {
+    struct Session: Decodable, Sendable, Equatable {
         let id: String
         let workspace: String?
         let terminalGroup: String?
@@ -140,8 +140,33 @@ struct RemoteRoster: Decodable, Sendable {
     }
 }
 
+/// Keeps the newest value while exposing at most one pending wake-up.
+struct WarrenLatestValueSignal<Value: Sendable>: Sendable {
+    private var latestValue: Value?
+    private var signalPending = false
+
+    mutating func offer(_ value: Value) -> Bool {
+        latestValue = value
+        guard !signalPending else { return false }
+        signalPending = true
+        return true
+    }
+
+    mutating func take() -> Value? {
+        let value = latestValue
+        latestValue = nil
+        signalPending = false
+        return value
+    }
+
+    mutating func reset() {
+        latestValue = nil
+        signalPending = false
+    }
+}
+
 private enum RemoteWireEvent: Sendable {
-    case roster(RemoteRoster)
+    case roster
     case agent(sessionID: TerminalSessionID, activity: AgentActivityState)
     case output(Data)
     case framedOutput(sessionID: TerminalSessionID, epoch: UInt64, sequence: UInt64, payload: Data)
@@ -257,6 +282,10 @@ private actor WarrenRemoteWire {
     private var daemonProtocolVersion: String?
     private var pendingInput = Data()
     private var inputTask: Task<Void, Never>?
+    // Rosters are snapshots, so intermediate states have no value once a
+    // newer snapshot has arrived. Keep one wake-up in the lossless event
+    // stream and let the consumer take the newest snapshot.
+    private var latestRosterSignal = WarrenLatestValueSignal<RemoteRoster>()
     private let eventBuffer = WarrenLosslessAsyncBuffer<RemoteWireEvent>(capacity: 64)
 
     init(configuration: WarrenRemoteEndpointConfiguration) { self.configuration = configuration }
@@ -306,6 +335,7 @@ private actor WarrenRemoteWire {
         inputTask?.cancel()
         inputTask = nil
         pendingInput.removeAll(keepingCapacity: true)
+        latestRosterSignal.reset()
         eventBuffer.finish()
         for continuation in continuations.values {
             continuation.resume(throwing: URLError(.cancelled))
@@ -345,6 +375,10 @@ private actor WarrenRemoteWire {
         pendingInput.append(data)
         guard inputTask == nil else { return }
         inputTask = Task { [weak self] in await self?.drainInput() }
+    }
+
+    func takeLatestRoster() -> RemoteRoster? {
+        latestRosterSignal.take()
     }
 
     private func drainInput() async {
@@ -504,7 +538,8 @@ private actor WarrenRemoteWire {
         } else if type == "roster", let state = object["state"],
                   let encoded = try? JSONSerialization.data(withJSONObject: state),
                   let roster = try? JSONDecoder().decode(RemoteRoster.self, from: encoded) {
-            return await eventBuffer.send(.roster(roster))
+            guard latestRosterSignal.offer(roster) else { return true }
+            return await eventBuffer.send(.roster)
         } else if type == "agent.activity",
                   let sessionString = object["session"] as? String,
                   let sessionID = TerminalSessionID(uuidString: sessionString),
@@ -694,6 +729,7 @@ final class WarrenRemoteApplicationModel {
     @ObservationIgnored private var suppressFramedAnchorUpdates: Set<TerminalSessionID> = []
     @ObservationIgnored private var tabOrderByWorkspaceID: [WorkspaceID: [String]] = [:]
     @ObservationIgnored private var tabOrderByTerminalGroupID: [TerminalGroupID: [String]] = [:]
+    @ObservationIgnored private var appliedLiveTabSessionIDs: Set<TerminalSessionID> = []
     @ObservationIgnored let surfaceManager: TerminalSurfaceManager
     @ObservationIgnored private(set) var projectionPublicationCount: UInt64 = 0
 
@@ -767,6 +803,7 @@ final class WarrenRemoteApplicationModel {
         if let wire { Task { await wire.close() } }
         wire = nil
         currentRoster = nil
+        appliedLiveTabSessionIDs.removeAll()
         agentActivityBySessionID.removeAll()
         tabOrderByWorkspaceID.removeAll()
         tabOrderByTerminalGroupID.removeAll()
@@ -864,6 +901,7 @@ final class WarrenRemoteApplicationModel {
 
     private func shutdownAllMountedSurfaces() {
         surfaceManager.shutdown()
+        appliedLiveTabSessionIDs.removeAll()
         outputAnchors.removeAll()
         suppressFramedAnchorUpdates.removeAll()
     }
@@ -1344,6 +1382,11 @@ final class WarrenRemoteApplicationModel {
                   startedAt: generation,
                   currentGeneration: rosterApplicationGeneration
               ) else { return }
+        guard Self.shouldApplyRoster(roster, after: currentRoster) else {
+            clearMaintenance()
+            issue = nil
+            return
+        }
         currentRoster = roster
         apply(roster)
     }
@@ -1923,12 +1966,17 @@ final class WarrenRemoteApplicationModel {
 
     private func consume(_ event: RemoteWireEvent) async {
         switch event {
-        case .roster(let roster):
+        case .roster:
+            guard let wire, let roster = await wire.takeLatestRoster() else { return }
+            clearMaintenance()
+            guard Self.shouldApplyRoster(roster, after: currentRoster) else {
+                ensureDeletionReconciliation(using: wire)
+                issue = nil
+                return
+            }
             currentRoster = roster
             apply(roster)
-            if let wire {
-                ensureDeletionReconciliation(using: wire)
-            }
+            ensureDeletionReconciliation(using: wire)
         case .agent(let sessionID, let activity):
             agentActivityBySessionID[sessionID] = activity
             if WarrenActivityDismissal.presentedActivity(
@@ -2178,7 +2226,13 @@ final class WarrenRemoteApplicationModel {
             outputAnchors.removeValue(forKey: sessionID)
             suppressFramedAnchorUpdates.remove(sessionID)
         }
-        surfaceManager.removeAll(except: liveTabSessionIDs)
+        // Surface cleanup is only needed when the set of live tabs changes;
+        // repeatedly scanning every mounted terminal makes roster bursts
+        // compete with input and rendering on the main actor.
+        if appliedLiveTabSessionIDs != liveTabSessionIDs {
+            surfaceManager.removeAll(except: liveTabSessionIDs)
+            appliedLiveTabSessionIDs = liveTabSessionIDs
+        }
         issue = nil
         let previousTabID = navigation.selectedTabID
         let nextNavigation = WarrenDesktopNavigationReducer.reconcile(navigation, with: projection)
@@ -2522,6 +2576,10 @@ final class WarrenRemoteApplicationModel {
         projection = nextProjection
         projectionPublicationCount &+= 1
         return true
+    }
+
+    nonisolated static func shouldApplyRoster(_ roster: RemoteRoster, after previous: RemoteRoster?) -> Bool {
+        previous != roster
     }
 
     private func publishNavigationIfChanged(_ nextNavigation: WarrenDesktopNavigationState) {

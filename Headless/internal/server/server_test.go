@@ -154,6 +154,26 @@ func (runtime *blockingKillRuntime) Kill(ctx context.Context, name string) error
 	}
 }
 
+type workspaceBlockingCreateRuntime struct {
+	memoryRuntime
+	blockedDirectory string
+	createStarted    chan struct{}
+	releaseCreate   chan struct{}
+	startOnce        sync.Once
+}
+
+func (runtime *workspaceBlockingCreateRuntime) Create(ctx context.Context, name, directory, command string, env []string) error {
+	if directory == runtime.blockedDirectory {
+		runtime.startOnce.Do(func() { close(runtime.createStarted) })
+		select {
+		case <-runtime.releaseCreate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return runtime.memoryRuntime.Create(ctx, name, directory, command, env)
+}
+
 func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
@@ -393,6 +413,68 @@ func TestSlowWorkspaceRemovalDoesNotBlockSessionCreate(t *testing.T) {
 	_ = connection.SetReadDeadline(time.Time{})
 	if !removeResponse.OK {
 		t.Fatalf("workspace.remove response = %#v", removeResponse)
+	}
+}
+
+func TestWorkspaceSessionCreationDoesNotSerializeOtherWorkspaces(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "state.json"), "test-host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectID := store.NewID()
+	workspaceAID := store.NewID()
+	workspaceBID := store.NewID()
+	workspaceAPath := t.TempDir()
+	workspaceBPath := t.TempDir()
+	if err := state.Update(func(value *api.State) error {
+		value.Projects = []api.Project{{
+			ID: projectID, Name: "Project", Path: t.TempDir(), CreatedAt: time.Now().UTC(),
+		}}
+		value.Workspaces = []api.Workspace{
+			{ID: workspaceAID, ProjectID: projectID, Name: "A", Path: workspaceAPath, Kind: "root", CreatedAt: time.Now().UTC()},
+			{ID: workspaceBID, ProjectID: projectID, Name: "B", Path: workspaceBPath, Kind: "worktree", CreatedAt: time.Now().UTC()},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &workspaceBlockingCreateRuntime{
+		memoryRuntime:    memoryRuntime{sessions: map[string][]byte{}},
+		blockedDirectory: workspaceAPath,
+		createStarted:    make(chan struct{}),
+		releaseCreate:   make(chan struct{}),
+	}
+	service := &Service{Store: state, Runtime: runtime}
+
+	createA := make(chan error, 1)
+	go func() {
+		_, createErr := service.CreateSession(context.Background(), workspaceAID, "", "shell", "", "")
+		createA <- createErr
+	}()
+	select {
+	case <-runtime.createStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace A session creation did not reach the runtime")
+	}
+
+	createB := make(chan error, 1)
+	go func() {
+		_, createErr := service.CreateSession(context.Background(), workspaceBID, "", "shell", "", "")
+		createB <- createErr
+	}()
+	select {
+	case createErr := <-createB:
+		if createErr != nil {
+			t.Fatalf("workspace B session creation: %v", createErr)
+		}
+	case <-time.After(time.Second):
+		close(runtime.releaseCreate)
+		t.Fatal("workspace B session creation was serialized behind workspace A")
+	}
+
+	close(runtime.releaseCreate)
+	if createErr := <-createA; createErr != nil {
+		t.Fatalf("workspace A session creation: %v", createErr)
 	}
 }
 

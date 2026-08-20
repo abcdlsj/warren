@@ -271,6 +271,34 @@ final class WarrenRemoteModelTests: XCTestCase {
         ))
     }
 
+    func testIdenticalRosterIsNotAppliedTwice() throws {
+        let roster = try JSONDecoder().decode(
+            RemoteRoster.self,
+            from: Data("""
+            {
+              "host": {"id": "11111111-1111-4111-8111-111111111111", "name": "Mac"},
+              "projects": [],
+              "workspaces": [],
+              "terminalGroups": [],
+              "sessions": []
+            }
+            """.utf8)
+        )
+
+        XCTAssertTrue(WarrenRemoteApplicationModel.shouldApplyRoster(roster, after: nil))
+        XCTAssertFalse(WarrenRemoteApplicationModel.shouldApplyRoster(roster, after: roster))
+    }
+
+    func testLatestValueSignalCoalescesPendingValues() {
+        var signal = WarrenLatestValueSignal<Int>()
+
+        XCTAssertTrue(signal.offer(1))
+        XCTAssertFalse(signal.offer(2))
+        XCTAssertEqual(signal.take(), 2)
+        XCTAssertTrue(signal.offer(3))
+        XCTAssertEqual(signal.take(), 3)
+    }
+
     func testRemoteTransportFailureHasUnknownRequestOutcome() {
         let timeout = NSError(
             domain: NSURLErrorDomain,

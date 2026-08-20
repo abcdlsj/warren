@@ -126,19 +126,20 @@ type Service struct {
 	// the same Group snapshot, otherwise a concurrent forced deletion can
 	// leave an orphan runtime or a Session whose Group no longer exists.
 	terminalGroupLifecycleMu sync.Mutex
-	// workspaceLifecycleMu serializes Project/Workspace lifecycle changes with
-	// workspace session and worktree creation. Deletions publish the durable
-	// state before slow runtime/filesystem cleanup, so a waiting creator either
-	// observes the removed resource or completes before the deletion removes it.
-	workspaceLifecycleMu sync.Mutex
-	outputs              map[string]*outputSession
-	peers                map[string]map[*wsPeer]struct{}
-	focusedPeers         map[string]*wsPeer
-	runtimeSizes         map[string]ghostline.Size
-	broadcastLocks       map[string]*sessionLock
-	agentsMu             sync.Mutex
-	agents               map[string]*agentSession
-	agentEpoch           uint64
+	// workspaceLifecycleMu protects the lazily-created per-project lifecycle
+	// locks. A project write lock serializes workspace/project lifecycle changes;
+	// workspace session creation takes a read lock so independent workspaces in
+	// the same project do not serialize their runtime startup.
+	workspaceLifecycleMu  sync.Mutex
+	projectLifecycleLocks map[string]*sync.RWMutex
+	outputs               map[string]*outputSession
+	peers                 map[string]map[*wsPeer]struct{}
+	focusedPeers          map[string]*wsPeer
+	runtimeSizes          map[string]ghostline.Size
+	broadcastLocks        map[string]*sessionLock
+	agentsMu              sync.Mutex
+	agents                map[string]*agentSession
+	agentEpoch            uint64
 
 	lifecycleOnce   sync.Once
 	lifecycleCancel context.CancelFunc
@@ -1311,8 +1312,49 @@ func (s *Service) ensureTerminalGroup() (api.TerminalGroup, error) {
 	return group, err
 }
 
-func (s *Service) RemoveProject(id string, force bool) error {
+func (s *Service) projectLifecycleLock(projectID string) *sync.RWMutex {
 	s.workspaceLifecycleMu.Lock()
+	defer s.workspaceLifecycleMu.Unlock()
+	if s.projectLifecycleLocks == nil {
+		s.projectLifecycleLocks = make(map[string]*sync.RWMutex)
+	}
+	if lock := s.projectLifecycleLocks[projectID]; lock != nil {
+		return lock
+	}
+	lock := &sync.RWMutex{}
+	s.projectLifecycleLocks[projectID] = lock
+	return lock
+}
+
+func (s *Service) lockWorkspaceForSession(workspaceID string) *sync.RWMutex {
+	state := s.Store.Snapshot()
+	for _, workspace := range state.Workspaces {
+		if workspace.ID != workspaceID {
+			continue
+		}
+		lock := s.projectLifecycleLock(workspace.ProjectID)
+		lock.RLock()
+		return lock
+	}
+	return nil
+}
+
+func (s *Service) lockWorkspaceLifecycle(workspaceID string) *sync.RWMutex {
+	state := s.Store.Snapshot()
+	for _, workspace := range state.Workspaces {
+		if workspace.ID != workspaceID {
+			continue
+		}
+		lock := s.projectLifecycleLock(workspace.ProjectID)
+		lock.Lock()
+		return lock
+	}
+	return nil
+}
+
+func (s *Service) RemoveProject(id string, force bool) error {
+	projectLock := s.projectLifecycleLock(id)
+	projectLock.Lock()
 	state := s.Store.Snapshot()
 	found := false
 	workspaceIDs := make([]string, 0)
@@ -1323,7 +1365,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		workspaceIDs = append(workspaceIDs, workspace.ID)
 		for _, session := range state.Sessions {
 			if session.WorkspaceID == workspace.ID && session.Lifecycle == "running" && !force {
-				s.workspaceLifecycleMu.Unlock()
+				projectLock.Unlock()
 				return errors.New("project has running sessions; use --force")
 			}
 		}
@@ -1335,7 +1377,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		}
 	}
 	if !found {
-		s.workspaceLifecycleMu.Unlock()
+		projectLock.Unlock()
 		return fmt.Errorf("project not found: %s", id)
 	}
 	err := s.Store.Update(func(value *api.State) error {
@@ -1354,7 +1396,7 @@ func (s *Service) RemoveProject(id string, force bool) error {
 		}
 		return nil
 	})
-	s.workspaceLifecycleMu.Unlock()
+	projectLock.Unlock()
 	if err != nil {
 		return err
 	}
@@ -1452,8 +1494,9 @@ func (s *Service) SetSessionPinned(id string, pinned bool) error {
 }
 
 func (s *Service) CreateWorkspace(projectID, branch, name, path string) (api.WorkspaceCreateResult, error) {
-	s.workspaceLifecycleMu.Lock()
-	defer s.workspaceLifecycleMu.Unlock()
+	projectLock := s.projectLifecycleLock(projectID)
+	projectLock.Lock()
+	defer projectLock.Unlock()
 
 	state := s.Store.Snapshot()
 	var project *api.Project
@@ -1592,7 +1635,10 @@ type RemoveWorkspaceOptions struct {
 }
 
 func (s *Service) RemoveWorkspace(ctx context.Context, id string, options RemoveWorkspaceOptions) error {
-	s.workspaceLifecycleMu.Lock()
+	projectLock := s.lockWorkspaceLifecycle(id)
+	if projectLock == nil {
+		return fmt.Errorf("workspace not found: %s", id)
+	}
 	state := s.Store.Snapshot()
 	var workspace *api.Workspace
 	for i := range state.Workspaces {
@@ -1602,12 +1648,12 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 	}
 	if workspace == nil {
-		s.workspaceLifecycleMu.Unlock()
+		projectLock.Unlock()
 		return fmt.Errorf("workspace not found: %s", id)
 	}
 	for _, session := range state.Sessions {
 		if session.WorkspaceID == id && session.Lifecycle == "running" && !options.Force {
-			s.workspaceLifecycleMu.Unlock()
+			projectLock.Unlock()
 			return errors.New("workspace has running sessions; use --force")
 		}
 	}
@@ -1625,7 +1671,7 @@ func (s *Service) RemoveWorkspace(ctx context.Context, id string, options Remove
 		}
 		return nil
 	})
-	s.workspaceLifecycleMu.Unlock()
+	projectLock.Unlock()
 	if err != nil {
 		return err
 	}
@@ -1697,8 +1743,9 @@ func (s *Service) logWarn(message string, keyValues ...any) {
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {
 	if workspaceID != "" {
-		s.workspaceLifecycleMu.Lock()
-		defer s.workspaceLifecycleMu.Unlock()
+		if projectLock := s.lockWorkspaceForSession(workspaceID); projectLock != nil {
+			defer projectLock.RUnlock()
+		}
 	}
 	return s.createSession(ctx, workspaceID, "", command, kind, title, runtimeKind)
 }
