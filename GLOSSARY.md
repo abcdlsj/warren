@@ -82,3 +82,40 @@ _Avoid_: Session title, Tab title
 A client preference containing placeholders for Warren Terminal Session and
 runtime metadata. Warren clients share its placeholder language, while each
 client may keep its own preferred value.
+
+**Warren Host**:
+A running Warren Headless authority that owns Projects, Workspaces, Terminal
+Sessions, and the Web interface through which those resources are accessed.
+
+**Public Access**:
+A reachability mode that lets the owner of a Warren Host access its existing
+Web interface from outside the local network through a configured gnar Edge.
+It exposes the Host to its owner; it does not grant another person access to a
+Workspace.
+_Avoid_: Sharing, public sharing, share link
+
+**Sharing**:
+A resource-granting mode in which a Workspace or another selected Warren
+resource is made accessible to another person. Sharing is distinct from Public
+Access, which is the owner's remote reachability to a Host.
+_Avoid_: Public Access
+
+**gnar Edge**:
+A relay service that accepts gnar tunnel connections and forwards public
+requests to a connected local Web service. It is shared infrastructure and is
+not a Warren Host, Workspace, or Terminal Session.
+
+**Enrollment Key**:
+A human-configured secret used to bootstrap a client account on a gnar Edge.
+It authorizes enrollment only; it is not the long-lived tunnel credential or a
+public endpoint URL.
+_Avoid_: Account token, Edge URL
+
+**gnar Account Token**:
+A credential issued by a gnar Edge to an enrolled client account and used to
+authenticate tunnel connections. It is distinct from the Enrollment Key and
+from a Warren Host's Web authentication token.
+
+**Public Endpoint**:
+The network address assigned by a gnar Edge to one connected tunnel. It
+identifies a reachable route and carries no enrollment secret by itself.
