@@ -69,7 +69,9 @@ struct WarrenDesktopSidebarRows: View {
             if isCollapsed || !tree.projectsCollapsed || hasPendingProjectDeletion {
                 ForEach(visibleProjectGroups) { group in
                     projectRow(for: group)
-                    if isCollapsed || isProjectExpanded(group.project.id) {
+                    if isCollapsed
+                        || isProjectExpanded(group.project.id)
+                        || hasDeletingWorkspace(in: group.project.id) {
                         ForEach(group.workspaces) { workspace in
                             workspaceRow(workspace, in: group)
                         }
@@ -273,13 +275,12 @@ struct WarrenDesktopSidebarRows: View {
         let hasDeletingWorkspace = group.workspaces.contains {
             deletingWorkspaceIDs.contains($0.id)
         }
-        let deletionKind: WarrenDesktopProjectDeletionKind? = if isProjectDeleting {
-            .project
-        } else if hasDeletingWorkspace {
-            .workspace
-        } else {
-            nil
-        }
+        // Workspace deletion is rendered on the workspace row only. Keep the
+        // project row unavailable while its child is being removed, but do
+        // not make the project look as if the project itself is deleting.
+        let deletionKind: WarrenDesktopProjectDeletionKind? = isProjectDeleting
+            ? .project
+            : nil
         ZStack {
             WarrenDesktopProjectRow(
                 project: group.project,
@@ -289,7 +290,9 @@ struct WarrenDesktopSidebarRows: View {
                 isExpanded: isProjectExpanded(group.project.id),
                 isPinned: group.project.pinned,
                 deletionKind: deletionKind,
-                isInteractionDisabled: isInteractionDisabled || deletionKind != nil,
+                isInteractionDisabled: isInteractionDisabled
+                    || deletionKind != nil
+                    || hasDeletingWorkspace,
                 onSelect: { select(.project(group.project.id)) },
                 onToggleExpansion: { toggleProject(group.project.id) },
                 onAddWorkspace: {

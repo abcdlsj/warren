@@ -137,6 +137,23 @@ func (m *memoryRuntime) Kill(_ context.Context, name string) error {
 	return nil
 }
 
+type blockingKillRuntime struct {
+	memoryRuntime
+	killStarted chan struct{}
+	releaseKill chan struct{}
+	killOnce    sync.Once
+}
+
+func (runtime *blockingKillRuntime) Kill(ctx context.Context, name string) error {
+	runtime.killOnce.Do(func() { close(runtime.killStarted) })
+	select {
+	case <-runtime.releaseKill:
+		return runtime.memoryRuntime.Kill(ctx, name)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestWebSocketAuthenticationAndResourceLifecycle(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
@@ -265,6 +282,117 @@ func TestRemoveWorkspaceCanKeepLocalWorktree(t *testing.T) {
 		if value.ID == workspace.ID {
 			t.Fatalf("workspace %s should be removed", workspace.ID)
 		}
+	}
+}
+
+func TestWorkspaceRemovalPublishesStateBeforeRuntimeCleanup(t *testing.T) {
+	state := newStateWithSession(t, "session-remove-order", "runtime-remove-order")
+	runtime := &blockingKillRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{"runtime-remove-order": []byte("ready\n")}},
+		killStarted:   make(chan struct{}),
+		releaseKill:   make(chan struct{}),
+	}
+	service := &Service{Store: state, Runtime: runtime}
+	workspaceID := state.Snapshot().Workspaces[0].ID
+
+	removeDone := make(chan error, 1)
+	go func() {
+		removeDone <- service.RemoveWorkspace(context.Background(), workspaceID, RemoveWorkspaceOptions{Force: true})
+	}()
+
+	select {
+	case <-runtime.killStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace runtime cleanup did not start")
+	}
+	for _, workspace := range state.Snapshot().Workspaces {
+		if workspace.ID == workspaceID {
+			t.Fatal("workspace state was not published before runtime cleanup")
+		}
+	}
+
+	createContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := service.CreateSession(createContext, workspaceID, "", "shell", "", ""); err == nil || !strings.Contains(err.Error(), "workspace not found") {
+		t.Fatalf("CreateSession during cleanup error = %v, want workspace not found", err)
+	}
+
+	close(runtime.releaseKill)
+	select {
+	case err := <-removeDone:
+		if err != nil {
+			t.Fatalf("RemoveWorkspace: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("workspace runtime cleanup did not finish")
+	}
+}
+
+func TestSlowWorkspaceRemovalDoesNotBlockSessionCreate(t *testing.T) {
+	state := newStateWithSession(t, "session-websocket-remove-order", "runtime-websocket-remove-order")
+	runtime := &blockingKillRuntime{
+		memoryRuntime: memoryRuntime{sessions: map[string][]byte{"runtime-websocket-remove-order": []byte("ready\n")}},
+		killStarted:   make(chan struct{}),
+		releaseKill:   make(chan struct{}),
+	}
+	service := &Service{Store: state, Runtime: runtime}
+	httpServer := httptest.NewServer(NewHTTPServer(service, "secret", nil).Handler())
+	defer httpServer.Close()
+	connection := openAuthenticatedConnection(t, httpServer.URL, "/v1/ws")
+	defer connection.Close()
+
+	workspaceID := state.Snapshot().Workspaces[0].ID
+	removeID := store.NewID()
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: removeID, Method: "workspace.remove",
+		Params: map[string]any{"id": workspaceID, "force": true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-runtime.killStarted:
+	case <-time.After(time.Second):
+		t.Fatal("workspace runtime cleanup did not start")
+	}
+
+	createID := store.NewID()
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: createID, Method: "session.create",
+		Params: map[string]any{"workspace": workspaceID, "kind": "shell"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	var createResponse api.Response
+	for {
+		_, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("session.create remained blocked by workspace removal: %v", err)
+		}
+		if json.Unmarshal(data, &createResponse) == nil && createResponse.Type == "response" && createResponse.ID == createID {
+			break
+		}
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+	if createResponse.OK || !strings.Contains(createResponse.Error, "workspace not found") {
+		t.Fatalf("session.create response = %#v, want workspace-not-found error", createResponse)
+	}
+
+	close(runtime.releaseKill)
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	var removeResponse api.Response
+	for {
+		_, data, err := connection.ReadMessage()
+		if err != nil {
+			t.Fatalf("workspace.remove did not finish: %v", err)
+		}
+		if json.Unmarshal(data, &removeResponse) == nil && removeResponse.Type == "response" && removeResponse.ID == removeID {
+			break
+		}
+	}
+	_ = connection.SetReadDeadline(time.Time{})
+	if !removeResponse.OK {
+		t.Fatalf("workspace.remove response = %#v", removeResponse)
 	}
 }
 

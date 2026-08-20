@@ -32,6 +32,7 @@ const (
 	// is closing the peer, which today means a visible reanchor.
 	outboundQueueCapacity = 8192
 	outboundWriteTimeout  = 30 * time.Second
+	slowMutationTimeout   = 30 * time.Second
 )
 
 type HTTPServer struct {
@@ -439,9 +440,36 @@ func (s *HTTPServer) handleWebSocket(writer http.ResponseWriter, request *http.R
 			_ = peer.writeError("", fmt.Errorf("invalid request: %w", err))
 			continue
 		}
+		if isSlowMutation(command.Method) {
+			// Worktree and process cleanup can take several seconds. Do not hold
+			// the WebSocket read loop while a destructive mutation runs: clients
+			// may still need to create or close sessions on the same connection.
+			go func(command api.Envelope) {
+				// Once accepted, deletion should finish even if the initiating
+				// client disconnects. Bound runtime cleanup independently of the
+				// HTTP handler lifetime so a closed socket cannot strand state.
+				mutationContext, cancel := context.WithTimeout(
+					context.WithoutCancel(request.Context()), slowMutationTimeout,
+				)
+				defer cancel()
+				if err := peer.handle(mutationContext, command); err != nil {
+					_ = peer.writeError(command.ID, err)
+				}
+			}(command)
+			continue
+		}
 		if err := peer.handle(request.Context(), command); err != nil {
 			_ = peer.writeError(command.ID, err)
 		}
+	}
+}
+
+func isSlowMutation(method string) bool {
+	switch method {
+	case "project.remove", "workspace.remove":
+		return true
+	default:
+		return false
 	}
 }
 
