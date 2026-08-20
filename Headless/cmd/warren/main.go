@@ -217,7 +217,7 @@ var resourceActions = map[string]map[string]bool{
 	"session": {
 		"list": true, "create": true, "add": true, "remove": true, "delete": true,
 		"kill": true, "rename": true, "pin": true, "move": true, "send": true, "read": true,
-		"attach": true,
+		"attach": true, "current": true, "undo": true,
 	},
 }
 
@@ -240,6 +240,8 @@ func requiredPositionals(resource, action string) []string {
 	case "session.remove", "session.delete", "session.kill", "session.rename", "session.pin", "session.move",
 		"session.send", "session.read", "session.attach":
 		return []string{"SESSION_ID"}
+	case "session.undo":
+		return []string{"OPERATION_ID"}
 	}
 	return nil
 }
@@ -252,6 +254,15 @@ func missingPositional(params map[string]any, labels []string) string {
 		}
 	}
 	return ""
+}
+
+func sessionTargetAction(action string) bool {
+	switch action {
+	case "remove", "delete", "kill", "rename", "pin", "move", "send", "read", "attach":
+		return true
+	default:
+		return false
+	}
 }
 
 func missingRequiredFlag(resource, action string, params map[string]any) string {
@@ -317,7 +328,14 @@ func resourceCommand(args []string) error {
 		fmt.Print(actionUsageText(commandName, action))
 		return nil
 	}
-	if label := missingPositional(params, requiredPositionals(resource, action)); label != "" {
+	if resource == "session" && sessionTargetAction(action) && boolValue(params, "current") && action != "send" && len(positionals(params)) > 0 {
+		return newUsageError("--current cannot be combined with SESSION_ID", actionUsageText(commandName, action))
+	}
+	positionLabels := requiredPositionals(resource, action)
+	if resource == "session" && sessionTargetAction(action) && boolValue(params, "current") {
+		positionLabels = nil
+	}
+	if label := missingPositional(params, positionLabels); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
 	}
 	if resource == "session" && (action == "create" || action == "add") && len(positionals(params)) > 1 {
@@ -337,6 +355,28 @@ func resourceCommand(args []string) error {
 		if workspaceID == "" && groupID == "" {
 			return newUsageError("missing --workspace WORKSPACE_ID or --group GROUP_ID", actionUsageText(commandName, action))
 		}
+		_, expectedWorkspaceSpecified := params["expected-workspace"]
+		if !expectedWorkspaceSpecified {
+			_, expectedWorkspaceSpecified = params["expected-workspace-id"]
+		}
+		if !expectedWorkspaceSpecified {
+			_, expectedWorkspaceSpecified = params["expectedWorkspace"]
+		}
+		_, expectedAgentSpecified := params["expected-agent-session"]
+		if !expectedAgentSpecified {
+			_, expectedAgentSpecified = params["expected-agent-session-id"]
+		}
+		if !expectedAgentSpecified {
+			_, expectedAgentSpecified = params["expectedAgentSession"]
+		}
+		if !boolValue(params, "current") && !boolValue(params, "dry-run") && !boolValue(params, "preflight") &&
+			!boolValue(params, "confirm") && !boolValue(params, "yes") &&
+			!expectedWorkspaceSpecified && !expectedAgentSpecified {
+			return newUsageError("explicit session move requires --confirm, --dry-run, or an expected source context", actionUsageText(commandName, action))
+		}
+	}
+	if resource == "session" && action == "current" && len(positionals(params)) > 0 {
+		return newUsageError("session current does not accept SESSION_ID; it uses WARREN_SESSION_ID", actionUsageText(commandName, action))
 	}
 	if label := missingRequiredFlag(resource, action, params); label != "" {
 		return newUsageError("missing "+label, actionUsageText(commandName, action))
@@ -344,11 +384,38 @@ func resourceCommand(args []string) error {
 	if resource == "session" && action == "list" && boolValue(params, "all") && boolValue(params, "ended") {
 		return newUsageError("--all and --ended are mutually exclusive", actionUsageText(commandName, action))
 	}
+	var resolvedCurrentID string
+	if resource == "session" && (sessionTargetAction(action) || action == "current") && boolValue(params, "current") {
+		var err error
+		resolvedCurrentID, err = currentSessionID()
+		if err != nil {
+			return err
+		}
+		if action == "send" {
+			params["_"] = append([]string{resolvedCurrentID}, positionals(params)...)
+		} else {
+			params["_"] = []string{resolvedCurrentID}
+		}
+	}
+	if resource == "session" && action == "current" {
+		var err error
+		resolvedCurrentID, err = currentSessionID()
+		if err != nil {
+			return err
+		}
+	}
 	ctx, c, err := connect()
 	if err != nil {
 		return err
 	}
 	defer c.Close()
+	if resource == "session" && action == "current" {
+		var session api.Session
+		if err := c.Request(ctx, "session.current", map[string]any{"id": resolvedCurrentID}, &session); err != nil {
+			return err
+		}
+		return printValue(currentSessionValue{Session: session, WarrenSessionID: session.ID, AgentThreadID: session.AgentSessionID, Current: true})
+	}
 	if action == "list" {
 		state, err := c.Roster(ctx)
 		if err != nil {
@@ -362,7 +429,7 @@ func resourceCommand(args []string) error {
 		case "terminal-group":
 			return printValue(state.TerminalGroups)
 		case "session":
-			return printValue(sessionRows(state, boolValue(params, "all"), boolValue(params, "ended")))
+			return printValue(sessionRowsForCurrent(state, boolValue(params, "all"), boolValue(params, "ended"), strings.TrimSpace(os.Getenv(agent.BindEnvSession))))
 		}
 	}
 	method := ""
@@ -391,9 +458,10 @@ func resourceCommand(args []string) error {
 		result = &map[string]any{}
 		// The interactive UI sends an explicit boolean. The CLI keeps the
 		// historical behavior unless the caller opts out with --keep-worktree.
-		if boolValue(params, "keep_worktree") {
+		if boolValue(params, "keep-worktree") || boolValue(params, "keep_worktree") {
 			params["remove_worktree"] = false
 		}
+		delete(params, "keep-worktree")
 		delete(params, "keep_worktree")
 	case "workspace.rename":
 		method = "workspace.rename"
@@ -434,6 +502,9 @@ func resourceCommand(args []string) error {
 	case "session.move":
 		method = "session.move"
 		result = &api.Session{}
+	case "session.undo":
+		method = "session.undo"
+		result = &api.Session{}
 	case "session.send":
 		id := positional(params, 0, "session id")
 		text := strings.Join(positionals(params)[1:], " ")
@@ -457,6 +528,46 @@ func resourceCommand(args []string) error {
 		return fmt.Errorf("unsupported command: %s %s", resource, action)
 	}
 	request := normalizedParams(params, resource, action)
+	if resource == "session" && action == "undo" {
+		request["operation"] = positional(params, 0, "operation ID")
+	}
+	if resource == "session" && action == "move" {
+		if boolValue(params, "current") {
+			state, err := c.Roster(ctx)
+			if err != nil {
+				return err
+			}
+			id := positional(params, 0, "session id")
+			var observed *api.Session
+			for index := range state.Sessions {
+				if state.Sessions[index].ID == id {
+					observed = &state.Sessions[index]
+					break
+				}
+			}
+			if observed == nil {
+				return fmt.Errorf("current session not found: %s", id)
+			}
+			// Guard both ownership and the agent conversation binding. Empty
+			// values are intentional expectations, not omitted fields.
+			request["expectedWorkspace"] = observed.WorkspaceID
+			request["expectedAgentSession"] = observed.AgentSessionID
+		}
+		if boolValue(params, "dry-run") || boolValue(params, "preflight") {
+			var value api.SessionMovePreflight
+			if err := c.Request(ctx, "session.move.preflight", request, &value); err != nil {
+				return err
+			}
+			return printValue(value)
+		}
+	}
+	if resource == "session" && (action == "remove" || action == "delete" || action == "kill") && boolValue(params, "dry-run") {
+		var value map[string]any
+		if err := c.Request(ctx, "session.delete.preflight", request, &value); err != nil {
+			return err
+		}
+		return printValue(value)
+	}
 	if err := c.Request(ctx, method, request, result); err != nil {
 		return err
 	}
@@ -892,6 +1003,11 @@ var bareBooleanFlags = map[string]bool{
 	"help":                  true,
 	"keep-worktree":         true,
 	"auto-import-worktrees": true,
+	"current":               true,
+	"confirm":               true,
+	"dry-run":               true,
+	"preflight":             true,
+	"yes":                   true,
 	"no-truncate":           true,
 	"raw":                   true,
 	"use":                   true,
@@ -911,6 +1027,20 @@ func normalizedParams(values map[string]any, resource, action string) map[string
 			delete(result, "runtime-kind")
 		}
 	}
+	if resource == "session" && action == "move" {
+		for _, key := range []string{"expected-workspace", "expected-workspace-id"} {
+			if value, ok := result[key]; ok {
+				result["expectedWorkspace"] = value
+				delete(result, key)
+			}
+		}
+		for _, key := range []string{"expected-agent-session", "expected-agent-session-id"} {
+			if value, ok := result[key]; ok {
+				result["expectedAgentSession"] = value
+				delete(result, key)
+			}
+		}
+	}
 	if action == "add" && resource == "project" {
 		// Project worktree policy is project-scoped. Keep the CLI spelling
 		// readable while matching the WebSocket API field name.
@@ -927,6 +1057,8 @@ func normalizedParams(values map[string]any, resource, action string) map[string
 			result["project"] = positions[0]
 		} else if action == "create" && resource == "session" {
 			result["workspace"] = positions[0]
+		} else if action == "undo" && resource == "session" {
+			result["operation"] = positions[0]
 		} else {
 			result["id"] = positions[0]
 		}
@@ -978,15 +1110,22 @@ func durationValue(value map[string]any, key string, fallback time.Duration) tim
 // JSON payload backward compatible while adding the resolved names/paths.
 type SessionRow struct {
 	api.Session
+	WarrenSessionID   string `json:"warrenSessionId"`
+	AgentThreadID     string `json:"agentThreadId,omitempty"`
 	ProjectID         string `json:"projectId,omitempty"`
 	ProjectName       string `json:"projectName,omitempty"`
 	WorkspaceName     string `json:"workspaceName,omitempty"`
 	TerminalGroupName string `json:"terminalGroupName,omitempty"`
 	Branch            string `json:"branch,omitempty"`
 	Path              string `json:"path,omitempty"`
+	Current           bool   `json:"current"`
 }
 
 func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
+	return sessionRowsForCurrent(state, includeEnded, onlyEnded, strings.TrimSpace(os.Getenv(agent.BindEnvSession)))
+}
+
+func sessionRowsForCurrent(state api.State, includeEnded, onlyEnded bool, currentID string) []SessionRow {
 	workspaces := make(map[string]api.Workspace, len(state.Workspaces))
 	for _, workspace := range state.Workspaces {
 		workspaces[workspace.ID] = workspace
@@ -1003,7 +1142,12 @@ func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
 		if !onlyEnded && !includeEnded && session.Lifecycle != "running" {
 			continue
 		}
-		row := SessionRow{Session: session}
+		row := SessionRow{
+			Session:         session,
+			WarrenSessionID: session.ID,
+			AgentThreadID:   session.AgentSessionID,
+			Current:         currentID != "" && currentID == session.ID,
+		}
 		if workspace, ok := workspaces[session.WorkspaceID]; ok {
 			row.WorkspaceName = workspace.Name
 			row.Branch = workspace.Branch
@@ -1025,6 +1169,23 @@ func sessionRows(state api.State, includeEnded, onlyEnded bool) []SessionRow {
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// currentSessionID resolves only the Warren-owned binding environment. It
+// deliberately does not inspect cwd, timestamps, names, or transcripts.
+func currentSessionID() (string, error) {
+	value := strings.TrimSpace(os.Getenv(agent.BindEnvSession))
+	if value == "" {
+		return "", errors.New("WARREN_SESSION_ID is not set; run this command from a Warren-managed session or pass an explicit SESSION_ID")
+	}
+	return value, nil
+}
+
+type currentSessionValue struct {
+	api.Session
+	WarrenSessionID string `json:"warrenSessionId"`
+	AgentThreadID   string `json:"agentThreadId,omitempty"`
+	Current         bool   `json:"current"`
 }
 
 // effectiveSessionTitle is the single display-name rule used everywhere a
@@ -1119,7 +1280,7 @@ func printValue(value any) error {
 		for _, item := range items {
 			rows = append(rows, sessionRowCells(item))
 		}
-		printTable([]string{"ID", "PROJECT", "WORKSPACE", "GROUP", "BRANCH", "TITLE", "KIND", "COMMAND", "LIFECYCLE", "ACTIVITY", "ENDED AT", "PINNED", "CREATED"}, rows...)
+		printTable([]string{"WARREN SESSION ID", "PROJECT", "WORKSPACE", "GROUP", "BRANCH", "TITLE", "CURRENT", "KIND", "COMMAND", "AGENT/THREAD ID", "TRANSCRIPT PATH", "LIFECYCLE", "ACTIVITY", "ENDED AT", "PINNED", "CREATED"}, rows...)
 	case api.WorkspaceCreateResult:
 		printKVTable(workspaceCreateResultPairs(items))
 	case *api.WorkspaceCreateResult:
@@ -1140,6 +1301,14 @@ func printValue(value any) error {
 		printKVTable(sessionPairs(items))
 	case *api.Session:
 		printKVTable(sessionPairs(*items))
+	case currentSessionValue:
+		printKVTable(currentSessionPairs(items))
+	case *currentSessionValue:
+		printKVTable(currentSessionPairs(*items))
+	case api.SessionMovePreflight:
+		printKVTable(sessionMovePreflightPairs(items))
+	case *api.SessionMovePreflight:
+		printKVTable(sessionMovePreflightPairs(*items))
 	case config.Endpoint:
 		printKVTable([][2]string{
 			{"NAME", items.Name},
@@ -1218,8 +1387,11 @@ func sessionRowCells(item SessionRow) []string {
 		displayValue(item.TerminalGroupName),
 		displayValue(item.Branch),
 		effectiveSessionTitle(item.Session),
+		displayBool(item.Current),
 		item.Kind,
 		displayValue(item.Command),
+		displayValue(item.AgentSessionID),
+		displayValue(item.TranscriptPath),
 		item.Lifecycle,
 		displayValue(string(item.AgentActivity)),
 		formatOptionalTime(item.EndedAt),
@@ -1277,10 +1449,30 @@ func sessionPairs(value api.Session) [][2]string {
 		{"LIFECYCLE", value.Lifecycle},
 		{"ACTIVITY", displayValue(string(value.AgentActivity))},
 		{"AGENT SESSION", displayValue(value.AgentSessionID)},
+		{"OPERATION ID", displayValue(value.OperationID)},
 		{"TRANSCRIPT", displayValue(value.TranscriptPath)},
 		{"PINNED", displayBool(value.Pinned)},
 		{"CREATED AT", formatTime(value.CreatedAt)},
 		{"ENDED AT", formatOptionalTime(value.EndedAt)},
+	}
+}
+
+func currentSessionPairs(value currentSessionValue) [][2]string {
+	pairs := sessionPairs(value.Session)
+	pairs = append([][2]string{{"CURRENT", displayBool(value.Current)}, {"WARREN SESSION ID", value.WarrenSessionID}, {"AGENT/THREAD ID", displayValue(value.AgentThreadID)}}, pairs...)
+	return pairs
+}
+
+func sessionMovePreflightPairs(value api.SessionMovePreflight) [][2]string {
+	return [][2]string{
+		{"ALLOWED", displayBool(value.Allowed)},
+		{"WARREN SESSION ID", value.Session.ID},
+		{"SOURCE WORKSPACE", displayValue(value.SourceWorkspaceID)},
+		{"SOURCE GROUP", displayValue(value.SourceTerminalGroupID)},
+		{"DESTINATION WORKSPACE", displayValue(value.DestinationWorkspaceID)},
+		{"DESTINATION GROUP", displayValue(value.DestinationTerminalGroupID)},
+		{"AGENT/THREAD ID", displayValue(value.Session.AgentSessionID)},
+		{"TRANSCRIPT PATH", displayValue(value.Session.TranscriptPath)},
 	}
 }
 
@@ -1418,7 +1610,7 @@ Commands:
   project list|add|remove|rename|pin|move
   workspace list|create|remove|rename|pin|move  (alias: worktree)
   terminal-group list|create|remove|rename|home|move  (alias: group)
-  session list|create|delete|rename|pin|move|send|read|attach
+  session list|current|create|delete|rename|pin|move|send|read|attach|undo
   ssh USER@HOST                     start daemon, save endpoint, keep SSH tunnel
   headless [FLAGS]                  run the installed daemon
 
@@ -1448,9 +1640,12 @@ Examples:
   warren session create WORKSPACE_ID --kind codex --command codex
   warren session create --group GROUP_ID
   warren session create
-  warren session move SESSION_ID --workspace WORKSPACE_ID
-  warren session move SESSION_ID --group GROUP_ID
-  warren session attach SESSION_ID
+  warren session current
+  warren session move SESSION_ID --workspace WORKSPACE_ID [--confirm] [--expected-workspace ID] [--expected-agent-session ID]
+  warren session move --current --workspace WORKSPACE_ID [--dry-run]
+  warren session move SESSION_ID --group GROUP_ID [--confirm] [--dry-run]
+  warren session undo OPERATION_ID
+  warren session attach SESSION_ID [--current]
 `
 }
 
@@ -1521,15 +1716,18 @@ func resourceUsageText(commandName string) string {
 	case "session":
 		return `Usage:
   warren session list [--all | --ended]
+  warren session current
   warren session create [WORKSPACE_ID] [--group GROUP_ID] [--kind KIND] [--command CMD] [--title TITLE]
-  warren session remove SESSION_ID [--force]
-  warren session rename SESSION_ID --title TITLE
-  warren session pin SESSION_ID --pinned BOOL
-  warren session move SESSION_ID --workspace WORKSPACE_ID
-  warren session move SESSION_ID --group GROUP_ID
-  warren session send SESSION_ID [TEXT...]
-  warren session read SESSION_ID [--timeout DURATION] [--contains TEXT]
-  warren session attach SESSION_ID
+  warren session remove SESSION_ID [--force] [--current] [--dry-run]
+  warren session rename SESSION_ID --title TITLE [--current]
+  warren session pin SESSION_ID --pinned BOOL [--current]
+  warren session move SESSION_ID --workspace WORKSPACE_ID [--confirm] [--expected-workspace ID] [--expected-agent-session ID] [--dry-run]
+  warren session move --current --workspace WORKSPACE_ID [--dry-run]
+  warren session move SESSION_ID --group GROUP_ID [--confirm] [--dry-run]
+  warren session send SESSION_ID [TEXT...] [--current]
+  warren session read SESSION_ID [--timeout DURATION] [--contains TEXT] [--current]
+  warren session attach SESSION_ID [--current]
+  warren session undo OPERATION_ID
 `
 	}
 	return ""
@@ -1576,19 +1774,23 @@ func actionUsageText(commandName, action string) string {
 	case "session.create", "session.add":
 		return fmt.Sprintf("Usage:\n  warren %s create [WORKSPACE_ID] [--group GROUP_ID] [--kind KIND] [--command CMD] [--title TITLE]\n", name)
 	case "session.remove", "session.delete", "session.kill":
-		return fmt.Sprintf("Usage:\n  warren %s remove SESSION_ID [--force]\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s remove SESSION_ID [--force] [--current] [--dry-run]\n", name)
 	case "session.rename":
-		return fmt.Sprintf("Usage:\n  warren %s rename SESSION_ID --title TITLE\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s rename SESSION_ID --title TITLE [--current]\n", name)
 	case "session.pin":
-		return fmt.Sprintf("Usage:\n  warren %s pin SESSION_ID --pinned BOOL\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s pin SESSION_ID --pinned BOOL [--current]\n", name)
 	case "session.move":
-		return fmt.Sprintf("Usage:\n  warren %s move SESSION_ID --workspace WORKSPACE_ID\n  warren %s move SESSION_ID --group GROUP_ID\n", name, name)
+		return fmt.Sprintf("Usage:\n  warren %s move SESSION_ID --workspace WORKSPACE_ID [--confirm] [--expected-workspace ID] [--expected-agent-session ID] [--dry-run]\n  warren %s move --current --workspace WORKSPACE_ID [--dry-run]\n  warren %s move SESSION_ID --group GROUP_ID [--confirm] [--dry-run]\n", name, name, name)
 	case "session.send":
-		return fmt.Sprintf("Usage:\n  warren %s send SESSION_ID [TEXT...]\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s send SESSION_ID [TEXT...] [--current]\n", name)
 	case "session.read":
-		return fmt.Sprintf("Usage:\n  warren %s read SESSION_ID [--timeout DURATION] [--contains TEXT]\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s read SESSION_ID [--timeout DURATION] [--contains TEXT] [--current]\n", name)
 	case "session.attach":
-		return fmt.Sprintf("Usage:\n  warren %s attach SESSION_ID\n", name)
+		return fmt.Sprintf("Usage:\n  warren %s attach SESSION_ID [--current]\n", name)
+	case "session.current":
+		return fmt.Sprintf("Usage:\n  warren %s current\n", name)
+	case "session.undo":
+		return fmt.Sprintf("Usage:\n  warren %s undo OPERATION_ID\n", name)
 	}
 	return resourceUsageText(commandName)
 }

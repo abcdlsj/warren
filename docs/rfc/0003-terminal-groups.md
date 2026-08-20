@@ -134,8 +134,10 @@ warren terminal-group home GROUP_ID --path PATH
 warren terminal-group move GROUP_ID [--before OTHER_GROUP_ID]
 warren terminal-group remove GROUP_ID [--force]
 warren session create --group GROUP_ID
-warren session move SESSION_ID --workspace WORKSPACE_ID
-warren session move SESSION_ID --group GROUP_ID
+warren session move SESSION_ID --workspace WORKSPACE_ID --confirm
+warren session move SESSION_ID --group GROUP_ID --confirm
+# From a Warren-managed session, prefer the binding-backed target:
+warren session move --current --workspace WORKSPACE_ID
 ```
 
 The existing `session create WORKSPACE_ID` form remains supported for

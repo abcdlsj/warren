@@ -954,6 +954,31 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			p.detach()
 		}
 		return p.writeResult(command.ID, map[string]bool{"deleted": true})
+	case "session.delete.preflight":
+		id := stringParam(params, "id")
+		if id == "" {
+			return errors.New("session ID is required")
+		}
+		value, ok := p.server.Service.Session(id)
+		if !ok {
+			return fmt.Errorf("session not found: %s", id)
+		}
+		return p.writeResult(command.ID, map[string]any{
+			"allowed": true, "resource": "session", "id": value.ID,
+			"workspace": value.WorkspaceID, "terminalGroup": value.TerminalGroupID,
+			"agentSessionId": value.AgentSessionID, "transcriptPath": value.TranscriptPath,
+			"lifecycle": value.Lifecycle,
+		})
+	case "session.current":
+		id := stringParam(params, "id")
+		if id == "" {
+			return errors.New("session ID is required")
+		}
+		value, ok := p.server.Service.Session(id)
+		if !ok {
+			return fmt.Errorf("session not found: %s", id)
+		}
+		return p.writeResult(command.ID, value)
 	case "session.rename":
 		if err := p.server.Service.RenameSession(stringParam(params, "id"), stringParam(params, "title")); err != nil {
 			return err
@@ -974,7 +999,29 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		if workspaceID != "" && groupID != "" {
 			return errors.New("workspace and terminal group are mutually exclusive")
 		}
-		value, err := p.server.Service.MoveSession(ctx, id, workspaceID, groupID)
+		expectations := sessionMoveExpectations(params)
+		value, err := p.server.Service.MoveSessionWithExpectations(ctx, id, workspaceID, groupID, expectations)
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
+	case "session.move.preflight":
+		id := stringParam(params, "id")
+		if id == "" {
+			return errors.New("session parameter required")
+		}
+		workspaceID := stringParam(params, "workspace")
+		groupID := stringParam(params, "group")
+		if workspaceID != "" && groupID != "" {
+			return errors.New("workspace and terminal group are mutually exclusive")
+		}
+		value, err := p.server.Service.PreflightSessionMove(id, workspaceID, groupID, sessionMoveExpectations(params))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, value)
+	case "session.undo":
+		value, err := p.server.Service.UndoSessionMove(stringParam(params, "operation"))
 		if err != nil {
 			return err
 		}
@@ -1171,6 +1218,28 @@ func (p *wsPeer) detach() {
 func stringParam(values map[string]any, key string) string {
 	value, _ := values[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func sessionMoveExpectations(values map[string]any) SessionMoveExpectations {
+	var result SessionMoveExpectations
+	if value, ok := firstParam(values, "expectedWorkspace", "expectedWorkspaceId", "expected-workspace"); ok {
+		parsed := strings.TrimSpace(fmt.Sprint(value))
+		result.WorkspaceID = &parsed
+	}
+	if value, ok := firstParam(values, "expectedAgentSession", "expectedAgentSessionId", "expected-agent-session"); ok {
+		parsed := strings.TrimSpace(fmt.Sprint(value))
+		result.AgentSessionID = &parsed
+	}
+	return result
+}
+
+func firstParam(values map[string]any, keys ...string) (any, bool) {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func stringMapParam(values map[string]any, key string) map[string]string {

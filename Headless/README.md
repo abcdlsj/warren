@@ -67,10 +67,13 @@ warren --endpoint my-vps project move PROJECT_ID --before OTHER_PROJECT_ID
 warren --endpoint my-vps workspace create PROJECT_ID --branch release/my-feature
 warren --endpoint my-vps workspace move WORKSPACE_ID --before OTHER_WORKSPACE_ID
 warren --endpoint my-vps session create WORKSPACE_ID --kind codex --command codex --title "My Agent"
-warren --endpoint my-vps session move SESSION_ID --group GROUP_ID
-warren --endpoint my-vps session move SESSION_ID --workspace WORKSPACE_ID
+warren --endpoint my-vps session move SESSION_ID --group GROUP_ID --confirm
+warren --endpoint my-vps session move SESSION_ID --workspace WORKSPACE_ID --confirm
+warren --endpoint my-vps session current
+warren --endpoint my-vps session move --current --workspace WORKSPACE_ID --dry-run
+warren --endpoint my-vps session move --current --workspace WORKSPACE_ID
 warren --endpoint my-vps session list
-warren --endpoint my-vps session attach SESSION_ID
+warren --endpoint my-vps session attach --current
 warren agent read codex --recent 10 --include user,assistant
 warren agent read claude /path/to/session.jsonl --full
 ```
@@ -86,6 +89,10 @@ machine-readable JSON output. `workspace create` reports `created` and
 `gitWorktree` in its result, so scripts know whether a Git worktree was really
 created and where it landed. `session list` shows running sessions by default;
 pass `--all` to include ended sessions, or `--ended` to list only ended ones.
+Each session row exposes the Warren Session ID separately from the
+agent/thread ID and transcript path. JSON rows also include `current: true`
+when the row's Warren Session ID exactly matches `WARREN_SESSION_ID`; no cwd,
+name, timestamp, or transcript inference is performed.
 
 `project add --auto-import-worktrees` stores automatic Git worktree import on
 that Project and imports every currently existing external checkout without a
@@ -117,7 +124,22 @@ default (kind or command), and a user-set name always takes precedence.
 `session move SESSION_ID --workspace WORKSPACE_ID` moves a standalone Terminal
 Group session into a Workspace; `session move SESSION_ID --group GROUP_ID`
 moves it back. The running process, cwd, output history, and Session ID are
-preserved, so the tab simply appears under the destination context.
+preserved, so the tab simply appears under the destination context. Use
+`session current` or `--current` from a Warren-managed shell to target only the
+session named by `WARREN_SESSION_ID`. `--current` refuses to guess when the
+binding is missing. `--dry-run` (also `--preflight`) returns the exact source,
+destination, agent binding, and transcript path without changing state.
+Explicit-ID moves require `--confirm` (or `--yes`) unless an expected source
+context is supplied with `--expected-workspace` or `--expected-agent-session`;
+this keeps a copied but valid ID from being treated as sufficient intent.
+Current-session moves automatically send the observed workspace and agent
+session IDs as compare-and-swap expectations; a stale observation fails with a
+refresh-and-retry error instead of moving a changed session. Successful moves
+return an operation ID, and `session undo OPERATION_ID` reverts only when the
+session still has the recorded post-move context. Deletes expose the same
+target information through `session remove ... --dry-run`; deletion has no
+automatic undo because its runtime and transcript side effects are not safely
+reconstructible.
 
 On macOS, `mise run install` also initializes a `local` endpoint pointing at
 `http://127.0.0.1:8789` with the daemon token from `~/.warren/token`, so the
@@ -126,7 +148,7 @@ CLI works against the local daemon without extra setup. On a remote host, use
 
 ## API Boundaries
 
-The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `project.move` and `workspace.move` persist the sidebar order on the Host (both accept `id` and an optional `before`; omitting `before` moves the entry to the end). `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
+The control interface is `/v1/ws`: authenticate with the token first, then use request/response messages with request IDs. Roster is the Host resource projection; terminal output uses WebSocket binary frames. `project.move` and `workspace.move` persist the sidebar order on the Host (both accept `id` and an optional `before`; omitting `before` moves the entry to the end). `session.current` accepts only an already-resolved Warren Session ID, while `session.move.preflight` and `session.delete.preflight` validate context without mutation. `session.move` accepts optional `expectedWorkspace` and `expectedAgentSession` guards and returns a mutation operation ID; `session.undo` is compare-and-swap guarded. `session.attach` subscribes to output only. The client that owns UI focus sends `session.focus` with optional `cols/rows` to control the shared terminal size, while background `session.resize` requests are safe no-ops. SSH, Tailscale, and future Relay provide reachability only and do not enter the resource domain model.
 
 Tunnel lifetimes are bound to the daemon: every running adapter is stopped on shutdown, and a gnar process left behind by a crashed daemon is reaped before the next start, so a public URL never outlives its owner and a restart cannot leave two clients fighting over one reserved name. The user's intent is persisted in `tunnelEnabled` in `~/.warren/settings.json`; after a restart the daemon restores the tunnels that were left running, so a shared URL survives Warren restarts until the user explicitly stops sharing.
 
