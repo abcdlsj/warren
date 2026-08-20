@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WarrenDesktop
@@ -175,6 +176,9 @@ struct WarrenCompositionRoot: View {
             remoteModel.openTerminal(request)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.findInTerminal)) { _ in
+            // Release the terminal's AppKit first responder before the search
+            // field mounts so the field receives the next keystroke.
+            NSApp.keyWindow?.makeFirstResponder(nil)
             terminalSearchPresented = true
         }
         .onChange(of: terminalFontFamily) { _, _ in updateTerminalFont() }
