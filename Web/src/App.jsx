@@ -280,7 +280,7 @@ export default function App() {
     setGitError("");
     setGitAction("");
     setGitPanel(null);
-    const sent = request("git.panel", { workspace: workspaceID }, result => {
+    const sent = request("git.panel", { workspace: workspaceID, fetch: true }, result => {
       if (appStateRef.current.activeWorkspace !== workspaceID) return;
       setGitPanel(result);
       setGitLoading(false);
