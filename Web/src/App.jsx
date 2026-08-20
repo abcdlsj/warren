@@ -73,6 +73,10 @@ const storageKeys = {
   presetOrder: "warren.presetOrder",
 };
 
+// How often the open git panel re-fetches remote refs and rebases the branch
+// while the panel stays visible.
+const GIT_PANEL_POLL_MS = 60_000;
+
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 767px)").matches ? 12 : 13;
 const terminalTheme = {
@@ -144,6 +148,7 @@ export default function App() {
   const [gitPanel, setGitPanel] = useState(null);
   const [gitLoading, setGitLoading] = useState(false);
   const [gitError, setGitError] = useState("");
+  const gitLoadingRef = useRef(null);
   const [gitAction, setGitAction] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false);
@@ -273,29 +278,48 @@ export default function App() {
     }
   }, [applyRemoteSettings, request]);
 
-  const loadGitPanel = useCallback(() => {
+  const loadGitPanel = useCallback((preserve = false) => {
     const workspaceID = selectedWorkspaceID;
-    if (!workspaceID) return;
+    if (!workspaceID || gitLoadingRef.current === workspaceID) return;
+    gitLoadingRef.current = workspaceID;
     setGitLoading(true);
     setGitError("");
     setGitAction("");
-    setGitPanel(null);
+    if (!preserve) setGitPanel(null);
+    const finish = () => {
+      if (gitLoadingRef.current === workspaceID) {
+        gitLoadingRef.current = null;
+        setGitLoading(false);
+      }
+    };
     const sent = request("git.panel", { workspace: workspaceID, fetch: true }, result => {
-      if (appStateRef.current.activeWorkspace !== workspaceID) return;
+      if (appStateRef.current.activeWorkspace !== workspaceID) {
+        finish();
+        return;
+      }
       setGitPanel(result);
-      setGitLoading(false);
+      finish();
     }, error => {
-      if (appStateRef.current.activeWorkspace !== workspaceID) return;
+      if (appStateRef.current.activeWorkspace !== workspaceID) {
+        finish();
+        return;
+      }
       setGitPanel(null);
       setGitError(error);
-      setGitLoading(false);
+      finish();
     });
     if (!sent) {
       setGitPanel(null);
       setGitError("Not connected");
-      setGitLoading(false);
+      finish();
     }
   }, [request, selectedWorkspaceID]);
+
+  useEffect(() => {
+    if (!gitOpen) return;
+    const timer = setInterval(() => loadGitPanel(true), GIT_PANEL_POLL_MS);
+    return () => clearInterval(timer);
+  }, [gitOpen, loadGitPanel]);
 
   const runGitAction = useCallback((method, params) => {
     setGitAction(method);
