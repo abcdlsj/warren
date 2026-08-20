@@ -3257,6 +3257,11 @@ button:disabled {
   flex: 1 1 0;
 }
 
+.git-pane-pr {
+  flex: 0 1 auto;
+  max-height: 40%;
+}
+
 .git-pane .git-section-title {
   position: sticky;
   top: 0;
