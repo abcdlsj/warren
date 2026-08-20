@@ -1752,10 +1752,25 @@ func findWorkspace(state api.State, id string) (api.Workspace, error) {
 	return api.Workspace{}, fmt.Errorf("workspace not found: %s", id)
 }
 
-func (s *Service) GitPanel(ctx context.Context, workspaceID string) (api.GitPanel, error) {
+func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) (api.GitPanel, error) {
 	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
 	if err != nil {
 		return api.GitPanel{}, err
+	}
+	if fetch {
+		// Refresh the remote refs before comparing against origin/main. A
+		// failed fetch (offline, no remote) must not block the panel; the
+		// comparison then uses the last fetched refs.
+		_ = git.Fetch(ctx, workspace.Path)
+	}
+	mainBranch := git.MainBranch(ctx, workspace.Path)
+	if fetch && mainBranch != "" {
+		// Rebase the branch onto the freshly fetched main line so the
+		// comparison below shows exactly this branch's commits. RebaseMain
+		// skips itself when an operation is in progress, the tree is dirty,
+		// or the branch already is the main line; a failed rebase leaves the
+		// workspace in a rebase state that OperationState surfaces.
+		_ = git.RebaseMain(ctx, workspace.Path, mainBranch)
 	}
 	status, err := git.StatusFor(ctx, workspace.Path)
 	if err != nil {
@@ -1777,9 +1792,21 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string) (api.GitPane
 		Ahead:       status.Ahead,
 		Behind:      status.Behind,
 		Remote:      remote,
+		MainBranch:  strings.TrimPrefix(mainBranch, "refs/remotes/"),
+		Operation:   git.OperationState(ctx, workspace.Path),
 		Changes:     apiGitChanges(status.Changes),
 		Commits:     apiGitCommits(commits),
 		Branches:    apiGitBranches(branches),
+	}
+	if mainBranch != "" {
+		if merged, err := git.IsMerged(ctx, workspace.Path, mainBranch); err == nil {
+			panel.Merged = merged
+		}
+		if !panel.Merged {
+			if unmerged, err := git.LogRange(ctx, workspace.Path, mainBranch); err == nil {
+				panel.UnmergedCommits = apiGitCommits(unmerged)
+			}
+		}
 	}
 	return panel, nil
 }

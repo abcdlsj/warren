@@ -303,15 +303,19 @@ type Response struct {
 
 // GitPanel is the aggregated Git projection for one workspace.
 type GitPanel struct {
-	WorkspaceID string      `json:"workspace"`
-	Branch      string      `json:"branch"`
-	Upstream    string      `json:"upstream,omitempty"`
-	Ahead       int         `json:"ahead,omitempty"`
-	Behind      int         `json:"behind,omitempty"`
-	Remote      string      `json:"remote,omitempty"`
-	Changes     []GitChange `json:"changes"`
-	Commits     []GitCommit `json:"commits"`
-	Branches    []GitBranch `json:"branches"`
+	WorkspaceID     string      `json:"workspace"`
+	Branch          string      `json:"branch"`
+	Upstream        string      `json:"upstream,omitempty"`
+	Ahead           int         `json:"ahead,omitempty"`
+	Behind          int         `json:"behind,omitempty"`
+	Remote          string      `json:"remote,omitempty"`
+	MainBranch      string      `json:"mainBranch,omitempty"`
+	Merged          bool        `json:"merged,omitempty"`
+	Operation       string      `json:"operation,omitempty"`
+	Changes         []GitChange `json:"changes"`
+	Commits         []GitCommit `json:"commits"`
+	UnmergedCommits []GitCommit `json:"unmergedCommits,omitempty"`
+	Branches        []GitBranch `json:"branches"`
 }
 
 type GitChange struct {

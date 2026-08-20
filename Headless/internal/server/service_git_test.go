@@ -63,7 +63,7 @@ func TestGitPanelAggregatesWorkspace(t *testing.T) {
 	repository := newRepositoryForServiceTest(t)
 	service, workspaceID := gitPanelService(t, repository)
 
-	panel, err := service.GitPanel(context.Background(), workspaceID)
+	panel, err := service.GitPanel(context.Background(), workspaceID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestGitPanelAggregatesWorkspace(t *testing.T) {
 
 func TestGitPanelRejectsUnknownWorkspace(t *testing.T) {
 	service, _ := gitPanelService(t, newRepositoryForServiceTest(t))
-	if _, err := service.GitPanel(context.Background(), "missing"); err == nil {
+	if _, err := service.GitPanel(context.Background(), "missing", false); err == nil {
 		t.Fatal("expected error for unknown workspace")
 	}
 }
@@ -102,7 +102,7 @@ func TestGitCheckoutUpdatesStoredBranch(t *testing.T) {
 	if _, err := service.GitCheckout(context.Background(), workspaceID, "dev", false); err != nil {
 		t.Fatal(err)
 	}
-	panel, err := service.GitPanel(context.Background(), workspaceID)
+	panel, err := service.GitPanel(context.Background(), workspaceID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
