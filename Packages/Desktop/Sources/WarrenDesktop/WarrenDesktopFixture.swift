@@ -19,6 +19,23 @@ public struct WarrenDesktopProjectGroup: Identifiable, Hashable, Sendable {
     }
 }
 
+/// The workspace-level activity presentation keeps the highest-priority
+/// state while also counting visible tabs whose agents are currently working.
+/// A workspace row can therefore show both actionable state and concurrency
+/// without rescanning the session graph during every SwiftUI render.
+public struct WarrenDesktopWorkspaceActivitySummary: Hashable, Sendable {
+    public let activity: AgentActivityState?
+    public let activeTabCount: Int
+
+    public init(
+        activity: AgentActivityState? = nil,
+        activeTabCount: Int = 0
+    ) {
+        self.activity = activity
+        self.activeTabCount = max(activeTabCount, 0)
+    }
+}
+
 /// An existing Git worktree shown by the project import picker. The candidate
 /// remains visible after import so the UI can render it disabled and explain
 /// that the operation is one-time.
@@ -251,6 +268,7 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     private let firstWorkspaceID: WorkspaceID?
     private let firstWorkspaceIDByProjectID: [ProjectID: WorkspaceID]
     private let activityByWorkspaceID: [WorkspaceID: AgentActivityState]
+    private let workspaceActivitySummariesByID: [WorkspaceID: WarrenDesktopWorkspaceActivitySummary]
     private let activityByTerminalGroupID: [TerminalGroupID: AgentActivityState]
     private let terminalGroupsByID: [TerminalGroupID: TerminalGroup]
     public let inspector: WarrenDesktopInspectorContent?
@@ -265,6 +283,12 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
     /// body evaluation.
     public var workspaceActivities: [WorkspaceID: AgentActivityState] {
         activityByWorkspaceID
+    }
+
+    /// The workspace activity summary includes the existing primary state and
+    /// the number of visible tabs whose agent is actively working.
+    public var workspaceActivitySummaries: [WorkspaceID: WarrenDesktopWorkspaceActivitySummary] {
+        workspaceActivitySummariesByID
     }
 
     public var firstWorkspace: Workspace? {
@@ -408,6 +432,28 @@ public struct WarrenDesktopProjection: Sendable, Hashable {
             }
         }
         self.activityByWorkspaceID = activityByWorkspaceID
+
+        var activeTabCountByWorkspaceID: [WorkspaceID: Int] = [:]
+        for (workspaceID, workspaceTabs) in tabsByWorkspaceID {
+            for tab in workspaceTabs {
+                guard let sessionID = tab.sessionID,
+                      sessionsByID[sessionID]?.activity == .working else {
+                    continue
+                }
+                activeTabCountByWorkspaceID[workspaceID, default: 0] += 1
+            }
+        }
+        var workspaceActivitySummariesByID: [WorkspaceID: WarrenDesktopWorkspaceActivitySummary] = [:]
+        let activityWorkspaceIDs = Set(activityByWorkspaceID.keys)
+            .union(activeTabCountByWorkspaceID.keys)
+        for workspaceID in activityWorkspaceIDs {
+            workspaceActivitySummariesByID[workspaceID] = WarrenDesktopWorkspaceActivitySummary(
+                activity: activityByWorkspaceID[workspaceID],
+                activeTabCount: activeTabCountByWorkspaceID[workspaceID, default: 0]
+            )
+        }
+        self.workspaceActivitySummariesByID = workspaceActivitySummariesByID
+
         var activityByTerminalGroupID: [TerminalGroupID: AgentActivityState] = [:]
         for session in sessions {
             guard let groupID = session.terminalGroupID,

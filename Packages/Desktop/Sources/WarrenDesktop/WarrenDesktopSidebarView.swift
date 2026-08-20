@@ -47,7 +47,7 @@ struct WarrenDesktopSidebar: View {
                                 sessions: projection.sessions(in: $0.id)
                             )
                         },
-                        workspaceActivities: projection.workspaceActivities,
+                        workspaceActivitySummaries: projection.workspaceActivitySummaries,
                         tree: $sidebarTree,
                         isCollapsed: sidebarState.isCollapsed,
                         selection: selection,

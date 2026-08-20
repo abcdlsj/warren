@@ -13,7 +13,7 @@ enum WarrenDesktopDeletionRequest {
 struct WarrenDesktopSidebarRows: View {
     let groups: [WarrenDesktopProjectGroup]
     let terminalGroups: [WarrenDesktopTerminalGroup]
-    let workspaceActivities: [WorkspaceID: AgentActivityState]
+    let workspaceActivitySummaries: [WorkspaceID: WarrenDesktopWorkspaceActivitySummary]
     @Binding var tree: WarrenDesktopSidebarTreeState
     let isCollapsed: Bool
     let selection: WarrenDesktopSidebarSelection?
@@ -361,10 +361,12 @@ struct WarrenDesktopSidebarRows: View {
         let isProjectDeleting = deletingProjectIDs.contains(group.project.id)
         let isDeleting = deletingWorkspaceIDs.contains(workspace.id)
         ZStack {
+            let activitySummary = workspaceActivitySummary(workspace.id)
             WarrenDesktopWorkspaceRow(
                 workspace: workspace,
                 semanticScope: "project-list",
-                activity: workspaceActivity(workspace.id),
+                activity: activitySummary?.activity,
+                activeTabCount: activitySummary?.activeTabCount ?? 0,
                 isCollapsed: isCollapsed,
                 isSelected: selection == .workspace(workspace.id),
                 isPinned: workspace.pinned,
@@ -423,8 +425,10 @@ struct WarrenDesktopSidebarRows: View {
         )
     }
 
-    private func workspaceActivity(_ workspaceID: WorkspaceID) -> AgentActivityState? {
-        workspaceActivities[workspaceID]
+    private func workspaceActivitySummary(
+        _ workspaceID: WorkspaceID
+    ) -> WarrenDesktopWorkspaceActivitySummary? {
+        workspaceActivitySummaries[workspaceID]
     }
 
     private func setDragMeasurementEnabled(_ enabled: Bool) {
