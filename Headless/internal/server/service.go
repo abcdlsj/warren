@@ -1767,6 +1767,7 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch, force
 		if panel, ok := cache.Get(workspaceID); ok {
 			if cache.ShouldRevalidate(workspaceID, panelRevalidateAfter) {
 				go s.revalidatePanel(workspaceID, workspace.Path)
+				panel.Refreshing = true
 			}
 			return panel, nil
 		}
@@ -1784,7 +1785,7 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch, force
 
 func (s *Service) panelCacheFor() *panelCache {
 	s.panelCacheOnce.Do(func() {
-		s.panelCache = newPanelCache(panelCacheCapacity, panelCacheTTL)
+		s.panelCache = newPanelCache(panelCacheCapacity)
 		s.panelLoad = newPanelLoad()
 	})
 	return s.panelCache

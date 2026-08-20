@@ -10,7 +10,7 @@ import (
 )
 
 func TestPanelCacheServesFreshEntries(t *testing.T) {
-	cache := newPanelCache(2, time.Minute)
+	cache := newPanelCache(2)
 	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
 	if _, ok := cache.Get("a"); !ok {
 		t.Fatal("expected cache hit for fresh entry")
@@ -21,7 +21,7 @@ func TestPanelCacheServesFreshEntries(t *testing.T) {
 }
 
 func TestPanelCacheEvictsLeastRecentlyUsed(t *testing.T) {
-	cache := newPanelCache(2, time.Minute)
+	cache := newPanelCache(2)
 	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
 	cache.Set("b", api.GitPanel{WorkspaceID: "b"})
 	if _, ok := cache.Get("a"); !ok {
@@ -36,17 +36,8 @@ func TestPanelCacheEvictsLeastRecentlyUsed(t *testing.T) {
 	}
 }
 
-func TestPanelCacheExpiresEntries(t *testing.T) {
-	cache := newPanelCache(2, 10*time.Millisecond)
-	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
-	time.Sleep(20 * time.Millisecond)
-	if _, ok := cache.Get("a"); ok {
-		t.Fatal("expected expired entry to miss")
-	}
-}
-
 func TestPanelCacheSetIfVersionRejectsStaleWrites(t *testing.T) {
-	cache := newPanelCache(2, time.Minute)
+	cache := newPanelCache(2)
 	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
 	version := cache.Version("a")
 	cache.Remove("a")
@@ -59,7 +50,7 @@ func TestPanelCacheSetIfVersionRejectsStaleWrites(t *testing.T) {
 }
 
 func TestPanelCacheShouldRevalidateCoalesces(t *testing.T) {
-	cache := newPanelCache(2, time.Minute)
+	cache := newPanelCache(2)
 	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
 	if !cache.ShouldRevalidate("a", 0) {
 		t.Fatal("expected first check to trigger revalidation")
@@ -182,5 +173,36 @@ func TestGitPanelForceRefreshBypassesCache(t *testing.T) {
 	}
 	if len(after.Commits) != 2 {
 		t.Fatalf("cache was not refreshed by the forced call, got %d commits", len(after.Commits))
+	}
+}
+
+func TestGitPanelReportsBackgroundRefresh(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	ctx := context.Background()
+
+	if _, err := service.GitPanel(ctx, workspaceID, false, false); err != nil {
+		t.Fatal(err)
+	}
+	cache := service.panelCacheFor()
+	cache.mu.Lock()
+	element := cache.index[workspaceID]
+	element.Value.(*panelCacheEntry).loadedAt = time.Now().Add(-panelRevalidateAfter - time.Minute)
+	cache.mu.Unlock()
+
+	panel, err := service.GitPanel(ctx, workspaceID, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !panel.Refreshing {
+		t.Fatal("expected panel to report a background refresh after the revalidate window")
+	}
+
+	panel, err = service.GitPanel(ctx, workspaceID, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if panel.Refreshing {
+		t.Fatal("expected no refresh flag while revalidation is already running")
 	}
 }

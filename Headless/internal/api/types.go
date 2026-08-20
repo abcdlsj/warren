@@ -318,6 +318,7 @@ type GitPanel struct {
 	Branches         []GitBranch     `json:"branches"`
 	PullRequest      *GitPullRequest `json:"pullRequest,omitempty"`
 	PullRequestError string          `json:"pullRequestError,omitempty"`
+	Refreshing       bool            `json:"refreshing,omitempty"`
 }
 
 type GitChange struct {

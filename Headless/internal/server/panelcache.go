@@ -10,8 +10,7 @@ import (
 
 const (
 	panelCacheCapacity     = 16
-	panelCacheTTL          = 5 * time.Minute
-	panelRevalidateAfter   = 4 * time.Minute
+	panelRevalidateAfter   = 5 * time.Minute
 	panelRevalidateTimeout = 30 * time.Second
 )
 
@@ -20,26 +19,23 @@ type panelCacheEntry struct {
 	panel        api.GitPanel
 	loadedAt     time.Time
 	revalidating bool
-	expiresAt    time.Time
 }
 
 // panelCache is an LRU cache of git panel snapshots keyed by workspace ID.
-// Entries expire after panelCacheTTL and are refreshed in place via
-// stale-while-revalidate: a hit returns immediately while the cache
-// re-queries the workspace in the background once it is older than
-// panelRevalidateAfter. Only requested workspaces are ever cached.
+// Entries never expire on their own; stale-while-revalidate keeps them fresh:
+// a hit returns immediately while the cache re-queries the workspace in the
+// background once it is older than panelRevalidateAfter. Only requested
+// workspaces are ever cached.
 type panelCache struct {
 	mu          sync.Mutex
-	ttl         time.Duration
 	cap         int
 	list        *list.List
 	index       map[string]*list.Element
 	generations map[string]uint64
 }
 
-func newPanelCache(capacity int, ttl time.Duration) *panelCache {
+func newPanelCache(capacity int) *panelCache {
 	return &panelCache{
-		ttl:         ttl,
 		cap:         capacity,
 		list:        list.New(),
 		index:       make(map[string]*list.Element),
@@ -55,10 +51,6 @@ func (c *panelCache) Get(key string) (api.GitPanel, bool) {
 		return api.GitPanel{}, false
 	}
 	entry := element.Value.(*panelCacheEntry)
-	if time.Now().After(entry.expiresAt) {
-		c.remove(element)
-		return api.GitPanel{}, false
-	}
 	c.list.MoveToFront(element)
 	return entry.panel, true
 }
@@ -80,16 +72,14 @@ func (c *panelCache) SetIfVersion(key string, panel api.GitPanel, version uint64
 }
 
 func (c *panelCache) setLocked(key string, panel api.GitPanel) {
-	now := time.Now()
 	if element, ok := c.index[key]; ok {
 		entry := element.Value.(*panelCacheEntry)
 		entry.panel = panel
-		entry.loadedAt = now
-		entry.expiresAt = now.Add(c.ttl)
+		entry.loadedAt = time.Now()
 		c.list.MoveToFront(element)
 		return
 	}
-	entry := &panelCacheEntry{key: key, panel: panel, loadedAt: now, expiresAt: now.Add(c.ttl)}
+	entry := &panelCacheEntry{key: key, panel: panel, loadedAt: time.Now()}
 	element := c.list.PushFront(entry)
 	c.index[key] = element
 	if c.list.Len() > c.cap {

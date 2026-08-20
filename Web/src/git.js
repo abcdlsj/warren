@@ -25,6 +25,7 @@ export function normalizeGitPanel(payload) {
     },
     pullRequest: payload?.pullRequest ? { ...payload.pullRequest } : null,
     pullRequestError: payload?.pullRequestError || "",
+    refreshing: Boolean(payload?.refreshing),
   };
 }
 

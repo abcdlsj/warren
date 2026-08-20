@@ -439,7 +439,10 @@ export default function App() {
   }, [openFileView, setCurrentFileView, setFileDiffView]);
 
   useEffect(() => {
-    if (gitOpen) loadGitPanel();
+    if (gitOpen) {
+      setGitPanel(null);
+      loadGitPanel();
+    }
   }, [gitOpen, loadGitPanel]);
 
   const loadAgentHistory = useCallback((sessionID, before = 0) => {

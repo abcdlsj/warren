@@ -152,6 +152,7 @@ export function GitPanel({
   const [prOpen, setPrOpen] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
+  const [asyncNotice, setAsyncNotice] = useState(false);
   const busy = Boolean(action);
   const changeCount = (data?.staged?.length || 0) + (data?.unstaged?.length || 0);
   const historyCommits = data?.mainBranch && !data.operation ? (data.unmergedCommits || []) : (data?.commits || []);
@@ -161,6 +162,13 @@ export function GitPanel({
     data.branch !== mainShort && !data.merged && !data.operation &&
     !data.pullRequest && !data.pullRequestError && data.unmergedCommits.length > 0,
   );
+
+  useEffect(() => {
+    if (!data?.refreshing) return;
+    setAsyncNotice(true);
+    const timer = setTimeout(() => setAsyncNotice(false), 2000);
+    return () => clearTimeout(timer);
+  }, [data?.refreshing]);
 
   const openCommit = () => {
     setCommitMessage("");
@@ -242,7 +250,9 @@ export function GitPanel({
       <header className="git-panel-header">
         <strong className="git-panel-title">{workspaceName || "Git"}</strong>
         <div className="git-panel-header-actions">
-          {refreshing && data && <span className="git-spinner" title="Refreshing" aria-label="Refreshing" />}
+          {(refreshing && data) || asyncNotice ? (
+            <span className="git-spinner" title={asyncNotice ? "Refreshing in the background" : "Refreshing"} aria-label="Refreshing" />
+          ) : null}
           <button type="button" className="chrome-button" aria-label="Close Git panel" onClick={onClose}>
             ✕
           </button>
