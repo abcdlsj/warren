@@ -2050,6 +2050,7 @@ export default function App() {
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
             onOpenFile={openFileView}
             onCommit={runGitCommit}
+            onCreatePR={(title, body) => runGitAction("git.pr.create", { workspace: selectedWorkspaceID, title, body })}
             onClose={() => setGitOpen(false)}
           />
         )}

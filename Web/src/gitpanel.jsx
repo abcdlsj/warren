@@ -44,6 +44,32 @@ const operationLabels = {
   revert: "Revert",
 };
 
+const prStateLabels = {
+  open: "Open",
+  merged: "Merged",
+  closed: "Closed",
+};
+
+function PullRequestView({ pr }) {
+  return (
+    <div className="git-pr">
+      <div className="git-pr-header">
+        <span className="git-pr-number">#{pr.number}</span>
+        <span className={`git-pr-state git-pr-state-${pr.state}`}>{prStateLabels[pr.state] || pr.state}</span>
+        {pr.draft && <span className="git-pr-draft">Draft</span>}
+      </div>
+      <p className="git-pr-title">{pr.title}</p>
+      <p className="git-pr-meta">
+        {pr.author} · {pr.base} ← {pr.head}
+      </p>
+      {pr.body && <p className="git-pr-body">{pr.body}</p>}
+      <a className="chrome-button git-pr-link" href={pr.url} target="_blank" rel="noreferrer">
+        Open pull request ↗
+      </a>
+    </div>
+  );
+}
+
 function ChangeSection({ title, changes, selectedKey, onOpenFile }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
@@ -79,6 +105,7 @@ export function GitPanel({
   onCheckout,
   onOpenFile,
   onCommit,
+  onCreatePR,
   onClose,
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
@@ -90,8 +117,17 @@ export function GitPanel({
   const [selectedKey, setSelectedKey] = useState(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
+  const [prOpen, setPrOpen] = useState(false);
+  const [prTitle, setPrTitle] = useState("");
+  const [prBody, setPrBody] = useState("");
   const busy = Boolean(action) || loading;
   const historyCommits = data?.mainBranch && !data.operation ? (data.unmergedCommits || []) : (data?.commits || []);
+  const mainShort = data?.mainBranch?.includes("/") ? data.mainBranch.slice(data.mainBranch.indexOf("/") + 1) : data?.mainBranch || "";
+  const canCreatePR = Boolean(
+    data && data.remote && data.branch && data.mainBranch &&
+    data.branch !== mainShort && !data.merged && !data.operation &&
+    !data.pullRequest && !data.pullRequestError && data.unmergedCommits.length > 0,
+  );
 
   const openCommit = () => {
     setCommitMessage("");
@@ -103,6 +139,20 @@ export function GitPanel({
     if (!message) return;
     setCommitOpen(false);
     onCommit(message);
+  };
+
+  const openCreatePR = () => {
+    const commits = data?.unmergedCommits || [];
+    setPrTitle(commits[0]?.subject || data?.branch || "");
+    setPrBody(commits.map(commit => `- ${commit.subject} (${commit.short})`).join("\n"));
+    setPrOpen(true);
+  };
+
+  const submitCreatePR = () => {
+    const title = prTitle.trim();
+    if (!title) return;
+    setPrOpen(false);
+    onCreatePR(title, prBody.trim());
   };
 
   useEffect(() => {
@@ -217,6 +267,62 @@ export function GitPanel({
             </div>
           )}
         </section>
+
+        {data?.remote && (
+          <section className="git-section git-fixed-section">
+            <h3 className="git-section-title">Pull Request</h3>
+            {data.pullRequest ? (
+              <PullRequestView pr={data.pullRequest} />
+            ) : data.pullRequestError ? (
+              <p className="git-pr-error">{data.pullRequestError}</p>
+            ) : canCreatePR ? (
+              prOpen ? (
+                <div className="git-pr-form">
+                  <input
+                    className="git-input"
+                    value={prTitle}
+                    onChange={event => setPrTitle(event.target.value)}
+                    placeholder="Pull request title"
+                    autoFocus
+                    onKeyDown={event => {
+                      if (event.key === "Enter") submitCreatePR();
+                      if (event.key === "Escape") setPrOpen(false);
+                    }}
+                  />
+                  <textarea
+                    className="git-textarea"
+                    value={prBody}
+                    onChange={event => setPrBody(event.target.value)}
+                    placeholder="Description"
+                    rows={4}
+                  />
+                  <p className="git-commit-hint">
+                    Merge into {data.mainBranch} from {data.branch}
+                  </p>
+                  <div className="git-commit-actions">
+                    <button
+                      type="button"
+                      className="chrome-button"
+                      onClick={submitCreatePR}
+                      disabled={!prTitle.trim() || busy}
+                    >
+                      {action === "git.pr.create" ? "Creating…" : "Create pull request"}
+                    </button>
+                    <button type="button" className="chrome-button" onClick={() => setPrOpen(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="chrome-button" onClick={openCreatePR} disabled={busy}>
+                  Create pull request
+                </button>
+              )
+            ) : (
+              <p className="git-empty">No pull request</p>
+            )}
+          </section>
+        )}
 
         <div className="git-pane git-pane-changes">
           <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />

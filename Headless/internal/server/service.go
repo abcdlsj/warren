@@ -1790,6 +1790,14 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 		Commits:     apiGitCommits(commits),
 		Branches:    apiGitBranches(branches),
 	}
+	if remote != "" {
+		pr, prErr := git.PullRequestForBranch(ctx, workspace.Path)
+		if prErr != nil && !errors.Is(prErr, git.ErrNoPullRequest) {
+			panel.PullRequestError = prErr.Error()
+		} else if pr != nil {
+			panel.PullRequest = apiGitPullRequest(pr)
+		}
+	}
 	if mainBranch != "" {
 		if merged, err := git.IsMerged(ctx, workspace.Path, mainBranch); err == nil {
 			panel.Merged = merged
@@ -1880,6 +1888,20 @@ func (s *Service) GitCommit(ctx context.Context, workspaceID, message string) (a
 	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
 }
 
+// GitCreatePullRequest pushes the workspace branch if needed and opens a
+// pull request against the repository's main branch.
+func (s *Service) GitCreatePullRequest(ctx context.Context, workspaceID, title, body string) (api.GitPullRequest, error) {
+	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
+	if err != nil {
+		return api.GitPullRequest{}, err
+	}
+	pr, err := git.CreatePullRequest(ctx, workspace.Path, title, body)
+	if err != nil {
+		return api.GitPullRequest{}, err
+	}
+	return *apiGitPullRequest(pr), nil
+}
+
 func apiGitChanges(changes []git.Change) []api.GitChange {
 	result := make([]api.GitChange, 0, len(changes))
 	for _, change := range changes {
@@ -1930,6 +1952,20 @@ func apiGitBranches(list git.BranchList) []api.GitBranch {
 		result = append(result, api.GitBranch{Name: name, Remote: true})
 	}
 	return result
+}
+
+func apiGitPullRequest(pr *git.PullRequest) *api.GitPullRequest {
+	return &api.GitPullRequest{
+		Number: pr.Number,
+		Title:  pr.Title,
+		Body:   pr.Body,
+		State:  pr.State,
+		Draft:  pr.Draft,
+		URL:    pr.URL,
+		Author: pr.Author,
+		Base:   pr.Base,
+		Head:   pr.Head,
+	}
 }
 
 func (s *Service) CreateSession(ctx context.Context, workspaceID, command, kind, title, runtimeKind string) (api.Session, error) {

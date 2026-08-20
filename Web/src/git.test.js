@@ -36,6 +36,20 @@ test("normalizeGitPanel tolerates missing payload", () => {
   assert.deepEqual(panel.staged, []);
   assert.deepEqual(panel.commits, []);
   assert.deepEqual(panel.branches.local, []);
+  assert.equal(panel.pullRequest, null);
+  assert.equal(panel.pullRequestError, "");
+});
+
+test("normalizeGitPanel passes through pull request info", () => {
+  const panel = normalizeGitPanel({
+    pullRequest: { number: 42, title: "Add PR panel", state: "open", url: "https://github.com/abcdlsj/warren/pull/42" },
+    pullRequestError: "",
+  });
+  assert.equal(panel.pullRequest.number, 42);
+  assert.equal(panel.pullRequest.title, "Add PR panel");
+  assert.equal(panel.pullRequest.state, "open");
+  assert.equal(panel.pullRequest.url, "https://github.com/abcdlsj/warren/pull/42");
+  assert.equal(panel.pullRequestError, "");
 });
 
 test("statusLabel maps letters and falls back to raw", () => {
