@@ -41,7 +41,8 @@ struct WarrenDesktopWorkspaceRow: View {
                 if let activity {
                     WarrenDesktopWorkspaceActivityIndicator(
                         activity: activity,
-                        activeTabCount: activeTabCount
+                        activeTabCount: activeTabCount,
+                        isCompact: true
                     )
                         .offset(x: 5, y: -3)
                 }
@@ -112,7 +113,8 @@ struct WarrenDesktopWorkspaceRow: View {
                 if let activity {
                     WarrenDesktopWorkspaceActivityIndicator(
                         activity: activity,
-                        activeTabCount: activeTabCount
+                        activeTabCount: activeTabCount,
+                        isCompact: false
                     )
                 }
 
@@ -271,6 +273,7 @@ struct WarrenDesktopActivityIndicator: View {
 struct WarrenDesktopWorkspaceActivityIndicator: View {
     let activity: AgentActivityState
     let activeTabCount: Int
+    let isCompact: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -280,6 +283,14 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
 
     private var showsMixedActivity: Bool {
         activity != .working && activeTabCount > 0
+    }
+
+    private var visibleDotCount: Int {
+        min(activeTabCount, 3)
+    }
+
+    private var usesCountLabel: Bool {
+        activeTabCount > visibleDotCount
     }
 
     var body: some View {
@@ -298,30 +309,46 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
 
     private var activeTabIndicator: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
-        return HStack(spacing: 1.5) {
+        let dotSize: CGFloat = isCompact ? 4.5 : 5.5
+        return HStack(spacing: WarrenSpacing.xxs) {
             WarrenStatusIndicator(
                 color: tokens.amber,
                 isActive: true,
-                size: 5,
+                size: dotSize,
                 accessibilityLabel: accessibilityLabel
             )
-            if activeTabCount <= 3 {
-                ForEach(1..<activeTabCount, id: \.self) { _ in
+            if !usesCountLabel {
+                ForEach(1..<visibleDotCount, id: \.self) { _ in
                     Circle()
                         .fill(tokens.amber)
-                        .frame(width: 5, height: 5)
+                        .frame(width: dotSize, height: dotSize)
                         .accessibilityHidden(true)
                 }
             } else {
                 Text("\(activeTabCount)")
                     .font(WarrenTypography.activityChip)
                     .foregroundStyle(tokens.amber)
+                    .monospacedDigit()
                     .accessibilityHidden(true)
             }
+        }
+        .padding(.horizontal, isCompact ? WarrenSpacing.xxs : WarrenSpacing.xs)
+        .padding(.vertical, WarrenSpacing.xxs)
+        .background(
+            tokens.amber.opacity(isCompact ? 0.14 : 0.10),
+            in: Capsule()
+        )
+        .overlay {
+            Capsule()
+                .stroke(
+                    tokens.amber.opacity(isCompact ? 0.36 : 0.24),
+                    lineWidth: WarrenSpacing.hairline
+                )
         }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
+        .help(accessibilityLabel)
     }
 
     private var accessibilityLabel: String {
