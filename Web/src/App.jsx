@@ -1549,13 +1549,10 @@ export default function App() {
   useEffect(() => {
     const opened = gitOpen && !gitOpenRef.current;
     if (opened && selectedWorkspaceID) {
+      persistCurrentGitUI(selectedWorkspaceID);
       restoreGitUIForWorkspace(selectedWorkspaceID);
     }
-    if (!gitOpen) {
-      setCurrentFileView(null);
-      persistCurrentGitUI(selectedWorkspaceID);
-    }
-  }, [gitOpen, persistCurrentGitUI, restoreGitUIForWorkspace, selectedWorkspaceID, setCurrentFileView]);
+  }, [gitOpen, persistCurrentGitUI, restoreGitUIForWorkspace, selectedWorkspaceID]);
 
   const hashInitializedRef = useRef(false);
   useEffect(() => {
@@ -2107,14 +2104,14 @@ export default function App() {
             className="terminal-shell"
             aria-label="Terminal"
             onPointerDown={event => {
-              if (event.pointerType === "mouse" && !fileView) focusTerminal();
+              if (event.pointerType === "mouse" && !(gitOpen && fileView)) focusTerminal();
             }}
             onClick={event => {
-              if (!fileView) focusTerminal();
+              if (!(gitOpen && fileView)) focusTerminal();
             }}
           >
-            <div id="terminal" ref={terminalHostRef} hidden={agentViewActive || Boolean(fileView)} />
-            {fileView && (
+            <div id="terminal" ref={terminalHostRef} hidden={agentViewActive || (gitOpen && Boolean(fileView))} />
+            {gitOpen && fileView && (
               <Suspense fallback={<p className="git-empty file-diff-empty">Loading diff viewer…</p>}>
                 <FileDiffView
                   path={fileView.path}
@@ -2124,7 +2121,10 @@ export default function App() {
                   diff={fileDiff.diff}
                   content={fileDiff.content}
                   error={fileDiff.error}
-                  onClose={() => setCurrentFileView(null)}
+                  onClose={() => {
+                    setCurrentFileView(null);
+                    persistCurrentGitUI(selectedWorkspaceID);
+                  }}
                   viewTab={fileDiffViewTab}
                   diffStyle={fileDiffStyle}
                   onViewTabChange={setFileDiffViewTab}
@@ -2157,7 +2157,7 @@ export default function App() {
               onPrevious={() => stepTerminalSearch("previous")}
               onClose={closeTerminalSearch}
             />
-            {!fileView && (
+            {!(gitOpen && fileView) && (
             <EmptyTerminal
               activeWorkspace={selectedWorkspaceID}
               activeSession={activeSession}
