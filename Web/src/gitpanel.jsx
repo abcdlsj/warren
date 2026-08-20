@@ -123,7 +123,6 @@ function ChangeSection({ title, changes, selectedKey, onOpenFile, showTitle = tr
 export function GitPanel({
   workspaceName,
   panel,
-  loading,
   refreshing,
   error,
   action,
@@ -153,7 +152,7 @@ export function GitPanel({
   const [prOpen, setPrOpen] = useState(false);
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
-  const busy = Boolean(action) || loading;
+  const busy = Boolean(action);
   const changeCount = (data?.staged?.length || 0) + (data?.unstaged?.length || 0);
   const historyCommits = data?.mainBranch && !data.operation ? (data.unmergedCommits || []) : (data?.commits || []);
   const mainShort = data?.mainBranch?.includes("/") ? data.mainBranch.slice(data.mainBranch.indexOf("/") + 1) : data?.mainBranch || "";
@@ -243,7 +242,7 @@ export function GitPanel({
       <header className="git-panel-header">
         <strong className="git-panel-title">{workspaceName || "Git"}</strong>
         <div className="git-panel-header-actions">
-          {refreshing && <span className="git-spinner" title="Auto-refreshing" aria-label="Auto-refreshing" />}
+          {refreshing && data && <span className="git-spinner" title="Refreshing" aria-label="Refreshing" />}
           <button type="button" className="chrome-button" aria-label="Close Git panel" onClick={onClose}>
             ✕
           </button>
@@ -252,12 +251,13 @@ export function GitPanel({
 
       {error && <div className="git-error">{error}</div>}
 
-      {loading && !data ? (
-        <div className="git-loading">
-          <span className="git-spinner" aria-hidden="true" />
-          {action ? `${actionLabels[action] || "Running git command"}…` : "Loading…"}
-        </div>
-      ) : (
+      <div className="git-panel-body">
+        {refreshing && !data && (
+          <div className="git-loading">
+            <span className="git-spinner" aria-hidden="true" />
+            {action ? `${actionLabels[action] || "Running git command"}…` : "Loading…"}
+          </div>
+        )}
         <div className="git-scroll">
         <section className="git-section git-fixed-section">
           <h3 className="git-section-title">Branch</h3>
@@ -480,7 +480,7 @@ export function GitPanel({
         </section>
 
         </div>
-      )}
+      </div>
     </aside>
   );
 }

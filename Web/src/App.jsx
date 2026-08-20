@@ -148,7 +148,6 @@ export default function App() {
   const [gitOpen, setGitOpen] = useState(false);
   const gitOpenRef = useRef(false);
   const [gitPanel, setGitPanel] = useState(null);
-  const [gitLoading, setGitLoading] = useState(false);
   const [gitRefreshing, setGitRefreshing] = useState(false);
   const [gitError, setGitError] = useState("");
   const gitLoadingRef = useRef(null);
@@ -286,19 +285,16 @@ export default function App() {
     setGitOpen(value);
   }, []);
 
-  const loadGitPanel = useCallback((preserve = false, force = false) => {
+  const loadGitPanel = useCallback((force = false) => {
     const workspaceID = selectedWorkspaceID;
     if (!workspaceID || gitLoadingRef.current === workspaceID) return;
     gitLoadingRef.current = workspaceID;
-    if (preserve) setGitRefreshing(true);
-    else setGitLoading(true);
+    setGitRefreshing(true);
     setGitError("");
     setGitAction("");
-    if (!preserve) setGitPanel(null);
     const finish = () => {
       if (gitLoadingRef.current === workspaceID) {
         gitLoadingRef.current = null;
-        setGitLoading(false);
         setGitRefreshing(false);
       }
     };
@@ -314,12 +310,10 @@ export default function App() {
         finish();
         return;
       }
-      setGitPanel(null);
       setGitError(error);
       finish();
     });
     if (!sent) {
-      setGitPanel(null);
       setGitError("Not connected");
       finish();
     }
@@ -327,7 +321,7 @@ export default function App() {
 
   useEffect(() => {
     if (!gitOpen) return;
-    const timer = setInterval(() => loadGitPanel(true), GIT_PANEL_POLL_MS);
+    const timer = setInterval(() => loadGitPanel(), GIT_PANEL_POLL_MS);
     return () => clearInterval(timer);
   }, [gitOpen, loadGitPanel]);
 
@@ -2176,11 +2170,10 @@ export default function App() {
             key={selectedWorkspaceID}
             workspaceName={selectedWorkspace?.name}
             panel={gitPanel}
-            loading={gitLoading}
             refreshing={gitRefreshing}
             error={gitError}
             action={gitAction}
-            onRefresh={() => loadGitPanel(true, true)}
+            onRefresh={() => loadGitPanel(true)}
             onPull={() => runGitAction("git.pull", { workspace: selectedWorkspaceID })}
             onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}

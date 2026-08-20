@@ -3233,12 +3233,23 @@ button:disabled {
   }
 }
 
-.git-loading {
+.git-panel-body {
   flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.git-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
+  background: color-mix(in srgb, var(--color-bg-surface) 72%, transparent);
   color: var(--color-text-secondary);
   font-size: var(--text-sm);
 }
