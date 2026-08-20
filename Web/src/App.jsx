@@ -73,8 +73,7 @@ const storageKeys = {
   presetOrder: "warren.presetOrder",
 };
 
-// How often the open git panel re-fetches remote refs and rebases the branch
-// while the panel stays visible.
+// How often the open git panel re-fetches remote refs while it stays visible.
 const GIT_PANEL_POLL_MS = 60_000;
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
