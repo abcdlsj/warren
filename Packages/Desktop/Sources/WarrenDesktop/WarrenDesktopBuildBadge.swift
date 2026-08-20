@@ -74,13 +74,16 @@ public enum WarrenDesktopUpdateStatus: Equatable, Sendable {
 /// installs when several Warren windows are open side by side.
 struct WarrenDesktopBuildBadge: View {
     let updateStatus: WarrenDesktopUpdateStatus
+    let showsBuildMarker: Bool
     let onUpdateAction: () -> Void
 
     init(
         updateStatus: WarrenDesktopUpdateStatus = .none,
+        showsBuildMarker: Bool = true,
         onUpdateAction: @escaping () -> Void = {}
     ) {
         self.updateStatus = updateStatus
+        self.showsBuildMarker = showsBuildMarker
         self.onUpdateAction = onUpdateAction
     }
 
@@ -90,16 +93,20 @@ struct WarrenDesktopBuildBadge: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         HStack(spacing: WarrenSpacing.small) {
-            Text("BUILD")
-                .fontWeight(.medium)
-                .foregroundStyle(tokens.amber)
+            if showsBuildMarker {
+                Text("BUILD")
+                    .fontWeight(.medium)
+                    .foregroundStyle(tokens.amber)
+            }
 
-            Spacer(minLength: WarrenSpacing.medium)
+            if showsBuildMarker {
+                Spacer(minLength: WarrenSpacing.medium)
+            }
             statusControl(tokens: tokens)
         }
         .font(WarrenTypography.sectionLabel)
         .tracking(1.0)
-        .frame(minWidth: 132, alignment: .trailing)
+        .frame(minWidth: showsBuildMarker ? 132 : 0, alignment: .trailing)
         .frame(height: 28, alignment: .center)
         .fixedSize(horizontal: true, vertical: false)
         // The workspace tab bar is 36pt tall and starts at the window top;

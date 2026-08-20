@@ -10,12 +10,17 @@ const securityHeaders = {
 };
 
 const RELEASE_API = "https://api.github.com/repos/abcdlsj/warren/releases/latest";
+const RELEASE_PAGE = "https://github.com/abcdlsj/warren/releases/latest";
+const RELEASE_CACHE_KEY = new Request("https://warrenai.xyz/__cache/latest-release");
+const RELEASE_TTL_MS = 5 * 60 * 1000;
+const RELEASE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=3600";
+const RELEASE_USER_AGENT = "warren-release-proxy";
 const CHANGELOG_SOURCE = "https://raw.githubusercontent.com/abcdlsj/warren/main/CHANGELOG.md";
 const CHANGELOG_CACHE_KEY = new Request("https://warrenai.xyz/__cache/changelog");
 const CHANGELOG_TTL_MS = 5 * 60 * 1000;
 const CHANGELOG_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=3600";
 
-function releaseAssetFromHtml(html) {
+export function releaseAssetFromHtml(html) {
   const matches = html.matchAll(
     /href="(\/abcdlsj\/warren\/releases\/download\/[^"]+?)"/g,
   );
@@ -28,21 +33,54 @@ function releaseAssetFromHtml(html) {
   return null;
 }
 
+export function normalizeRelease(release, selectedAsset = null) {
+  const tag = release.tag_name ?? release.tag;
+  const sourceAsset =
+    selectedAsset ??
+    release.assets?.find((item) => /^Warren-.*\.(dmg|pkg|zip)$/i.test(item.name)) ??
+    release.assets?.[0];
+  const downloadURL = sourceAsset?.browser_download_url ?? sourceAsset?.url;
+
+  if (!tag || !sourceAsset?.name || !downloadURL) {
+    throw new Error("Latest release has no downloadable asset");
+  }
+
+  const htmlURL = release.html_url ?? `https://github.com/abcdlsj/warren/releases/tag/${tag}`;
+  const asset = {
+    name: sourceAsset.name,
+    browser_download_url: downloadURL,
+    size: Number.isFinite(sourceAsset.size) ? sourceAsset.size : null,
+  };
+
+  // Keep the compact fields for the onboarding page while also exposing the
+  // GitHub-compatible shape consumed by the desktop updater.
+  return {
+    tag,
+    tag_name: tag,
+    html_url: htmlURL,
+    body: release.body ?? null,
+    assets: [asset],
+    name: asset.name,
+    size: asset.size,
+    url: asset.browser_download_url,
+  };
+}
+
 async function latestReleaseFromHtml() {
-  const latest = await fetch("https://github.com/abcdlsj/warren/releases/latest", {
+  const latest = await fetch(RELEASE_PAGE, {
     redirect: "follow",
-    headers: { "User-Agent": "warren-onboarding" },
+    headers: { "User-Agent": RELEASE_USER_AGENT },
   });
   if (!latest.ok) {
     throw new Error(`GitHub releases page responded with ${latest.status}`);
   }
-  const tag = latest.url.split("/").pop();
+  const tag = decodeURIComponent(new URL(latest.url).pathname.split("/").pop() ?? "");
   if (!tag) {
     throw new Error("Could not resolve the latest release tag");
   }
   const assets = await fetch(
     `https://github.com/abcdlsj/warren/releases/expanded_assets/${tag}`,
-    { headers: { "User-Agent": "warren-onboarding" } },
+    { headers: { "User-Agent": RELEASE_USER_AGENT } },
   );
   if (!assets.ok) {
     throw new Error(`GitHub assets page responded with ${assets.status}`);
@@ -51,41 +89,112 @@ async function latestReleaseFromHtml() {
   if (!asset) {
     throw new Error("Latest release has no downloadable asset");
   }
+  return normalizeRelease(
+    {
+      tag_name: tag,
+      html_url: `https://github.com/abcdlsj/warren/releases/tag/${tag}`,
+    },
+    {
+      name: asset.name,
+      browser_download_url: `https://github.com${asset.path}`,
+      size: null,
+    },
+  );
+}
+
+async function latestReleaseFromAPI(env) {
+  const token = env?.GITHUB_TOKEN?.trim();
+  if (!token) return null;
+
+  const response = await fetch(RELEASE_API, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "User-Agent": RELEASE_USER_AGENT,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub API responded with ${response.status}`);
+  }
+  return normalizeRelease(await response.json());
+}
+
+async function latestRelease(env) {
+  // Never spend the Worker's unauthenticated GitHub API quota. A token is
+  // optional because the HTML resolver is a rate-limit-safe fallback.
+  try {
+    const release = await latestReleaseFromAPI(env);
+    if (release) return { release, source: "github-api" };
+  } catch {
+    // Fall through to the release page when a secret is missing or stale.
+  }
+  return { release: await latestReleaseFromHtml(), source: "github-html" };
+}
+
+function releaseResponse(release, cachedAt = Date.now(), source = "unknown") {
+  return new Response(JSON.stringify(release), {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": RELEASE_CACHE_CONTROL,
+      "CDN-Cache-Control": RELEASE_CACHE_CONTROL,
+      "Cloudflare-CDN-Cache-Control": RELEASE_CACHE_CONTROL,
+      "Content-Type": "application/json; charset=utf-8",
+      "X-Warren-Release-Cached-At": String(cachedAt),
+      "X-Warren-Release-Source": source,
+    },
+  });
+}
+
+function markReleaseStale(response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Warren-Release-Stale", "true");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function readCachedRelease() {
+  const response = await caches.default.match(RELEASE_CACHE_KEY);
+  if (!response) return null;
+  const cachedAt = Number(response.headers.get("X-Warren-Release-Cached-At"));
   return {
-    tag,
-    name: asset.name,
-    size: null,
-    url: `https://github.com${asset.path}`,
+    response,
+    fresh: Number.isFinite(cachedAt) && Date.now() - cachedAt < RELEASE_TTL_MS,
   };
 }
 
-async function latestRelease() {
+async function refreshRelease(env) {
+  const { release, source } = await latestRelease(env);
+  const response = releaseResponse(release, Date.now(), source);
+  await caches.default.put(RELEASE_CACHE_KEY, response.clone());
+  return response;
+}
+
+async function latestReleaseResponseForRequest(ctx, env) {
+  const cached = await readCachedRelease();
+  if (cached?.fresh) return cached.response;
+
+  if (cached) {
+    ctx.waitUntil(refreshRelease(env).catch(() => undefined));
+    return markReleaseStale(cached.response);
+  }
+
   try {
-    const response = await fetch(RELEASE_API, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "warren-onboarding",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`GitHub API responded with ${response.status}`);
-    }
-    const release = await response.json();
-    const asset =
-      release.assets.find((item) => /^Warren-.*\.(dmg|pkg|zip)$/i.test(item.name)) ??
-      release.assets[0];
-    if (!asset) {
-      throw new Error("Latest release has no downloadable asset");
-    }
-    return {
-      tag: release.tag_name,
-      name: asset.name,
-      size: asset.size,
-      url: asset.browser_download_url,
-    };
+    return await refreshRelease(env);
   } catch {
-    return latestReleaseFromHtml();
+    return Response.json(
+      { error: "Could not resolve the latest Warren release." },
+      {
+        status: 502,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   }
 }
 
@@ -167,16 +276,8 @@ export default {
       return Response.json({ ok: true, service: "warren-onboarding" });
     }
 
-    if (url.pathname === "/api/latest-release") {
-      try {
-        const release = await latestRelease();
-        return Response.json(release);
-      } catch (error) {
-        return Response.json(
-          { error: "Could not resolve the latest release." },
-          { status: 502 },
-        );
-      }
+    if (url.pathname === "/api/latest-release" || url.pathname === "/api/update/latest") {
+      return latestReleaseResponseForRequest(ctx, env);
     }
 
     if (url.pathname === "/api/changelog") {
