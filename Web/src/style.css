@@ -3259,7 +3259,7 @@ button:disabled {
 
 .git-pane-pr {
   flex: 0 1 auto;
-  max-height: 40%;
+  max-height: 30%;
 }
 
 .git-pane .git-section-title {
@@ -3622,6 +3622,8 @@ button:disabled {
   color: var(--color-text-primary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  max-height: 6em;
+  overflow: hidden;
 }
 
 .git-pr-link {
