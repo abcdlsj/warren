@@ -98,6 +98,10 @@ final class TerminalSurfaceCoordinator {
     private var isDisplayVisible = true
     private var isApplicationActive = true
     private var isSurfaceFocused = false
+    /// Warren parks terminal views during an internal tab transition. Keep the
+    /// Ghostty surface logically focused while it is parked so that its PTY
+    /// does not receive a focus-loss report for a UI-only lifecycle change.
+    private var suppressFocusLossReports = false
     private var pendingImmediateTick = true
     private var lastTickTimestamp: TimeInterval = 0
     private var tickScheduled = false
@@ -348,7 +352,19 @@ final class TerminalSurfaceCoordinator {
 
     // MARK: - Focus
 
+    func setFocusLossReportingSuppressed(_ suppressed: Bool) {
+        suppressFocusLossReports = suppressed
+        TerminalDebugLog.log(
+            .lifecycle,
+            "focus loss reporting suppressed=\(suppressed)"
+        )
+    }
+
     func setFocus(_ focused: Bool) {
+        if !focused, suppressFocusLossReports {
+            TerminalDebugLog.log(.lifecycle, "focus=false suppressed")
+            return
+        }
         isSurfaceFocused = focused
         requestImmediateTick()
         TerminalDebugLog.log(.lifecycle, "focus=\(focused)")
@@ -393,7 +409,11 @@ final class TerminalSurfaceCoordinator {
         let detachIsCurrent = (delegate as? TerminalViewState).map {
             $0.surface === detachingSurface
         } ?? true
-        surface?.setFocus(false)
+        if suppressFocusLossReports {
+            TerminalDebugLog.log(.lifecycle, "surface teardown focus=false suppressed")
+        } else {
+            surface?.setFocus(false)
+        }
         surface?.free()
         surface = nil
         if hadSurface {

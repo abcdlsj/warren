@@ -2,7 +2,7 @@ import XCTest
 import WarrenDomain
 import AppKit
 import GhosttyKit
-import GhosttyTerminal
+@testable import GhosttyTerminal
 @testable import GhosttyAdapter
 
 final class GhosttyAdapterTests: XCTestCase {
@@ -237,6 +237,73 @@ final class GhosttyAdapterTests: XCTestCase {
     }
 
     @MainActor
+    func testInternalTabDemotionSuppressesFocusLossReportButRealBlurReportsIt() async throws {
+        let recorder = LockedInputRecorder()
+        let (surface, view, window) = try await makeMountedTerminal(
+            recorder: recorder,
+            suppressFocusLossReporting: true
+        )
+        defer { window.orderOut(nil) }
+
+        // Let the initial detached-view lifecycle settle before enabling focus
+        // reporting; that setup transition is not the tab demotion under test.
+        try await Task.sleep(for: .milliseconds(250))
+        // Enable xterm focus reporting, the mode used by Codex, Claude, Vim,
+        // and Neovim to receive FocusLost/FocusGained notifications.
+        surface.receive(Data("\u{1b}[?1004h".utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        recorder.clear()
+
+        view.setFocusLossReportingSuppressed(true)
+        view.core.setFocus(false)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(
+            recorder.allBytes().containsSubsequence(Data("\u{1b}[O".utf8)),
+            "an internal tab demotion must not write CSI O to the PTY"
+        )
+
+        view.setFocusLossReportingSuppressed(false)
+        view.core.setFocus(true)
+        view.core.setFocus(false)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !recorder.allBytes().containsSubsequence(Data("\u{1b}[O".utf8)),
+              ContinuousClock.now < deadline
+        {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(
+            recorder.allBytes().containsSubsequence(Data("\u{1b}[O".utf8)),
+            "a real blur must write CSI O to the PTY"
+        )
+    }
+
+    @MainActor
+    func testDeferredDetachDoesNotReportFocusLossAfterImmediateReattach() async throws {
+        let recorder = LockedInputRecorder()
+        let (surface, view, window) = try await makeMountedTerminal(recorder: recorder)
+        defer { window.orderOut(nil) }
+
+        try await Task.sleep(for: .milliseconds(250))
+        surface.receive(Data("\u{1b}[?1004h".utf8))
+        try await Task.sleep(for: .milliseconds(100))
+        view.core.setFocus(true)
+        recorder.clear()
+
+        // AppKit defers the detached-view focus cleanup by one main-runloop
+        // turn. Reattach before that cleanup runs to exercise the stale-task
+        // guard; the terminal never actually lost user-visible focus.
+        let placeholder = NSView(frame: view.frame)
+        window.contentView = placeholder
+        window.contentView = view
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertFalse(
+            recorder.allBytes().containsSubsequence(Data("\u{1b}[O".utf8)),
+            "a stale detached-view cleanup must not write CSI O after reattach"
+        )
+    }
+
+    @MainActor
     func testArrowDownOutsideApplicationCursorModeEmitsCsi() async throws {
         let recorder = LockedInputRecorder()
         let (_, view, window) = try await makeMountedTerminal(recorder: recorder)
@@ -382,13 +449,32 @@ private final class LockedInputRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         return bytes
     }
+
+    func clear() {
+        lock.lock()
+        defer { lock.unlock() }
+        bytes.removeAll(keepingCapacity: true)
+    }
+}
+
+private extension Data {
+    func containsSubsequence(_ needle: Data) -> Bool {
+        guard !needle.isEmpty, needle.count <= count else { return false }
+        let bytes = Array(self)
+        let target = Array(needle)
+        return bytes.indices.contains { index in
+            guard index + target.count <= bytes.count else { return false }
+            return Array(bytes[index..<(index + target.count)]) == target
+        }
+    }
 }
 
 @MainActor
 private func makeMountedTerminal(
     recorder: LockedInputRecorder,
     outputRenderBudgetBytes: Int = 128 * 1024,
-    outputRenderYield: Duration = .milliseconds(8)
+    outputRenderYield: Duration = .milliseconds(8),
+    suppressFocusLossReporting: Bool = false
 ) async throws -> (GhosttySurface, AppTerminalView, NSWindow) {
     let surface = GhosttySurface(
         id: TerminalSessionID(),
@@ -411,6 +497,9 @@ private func makeMountedTerminal(
     view.delegate = surface.state
     view.controller = surface.state.controller
     view.configuration = surface.state.configuration
+    if suppressFocusLossReporting {
+        view.setFocusLossReportingSuppressed(true)
+    }
     window.contentView = view
     view.layoutSubtreeIfNeeded()
 

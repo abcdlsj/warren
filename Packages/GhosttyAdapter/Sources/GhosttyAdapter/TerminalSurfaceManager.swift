@@ -185,6 +185,7 @@ public final class TerminalSurfaceManager {
         view.delegate = surface.state
         view.controller = surface.state.controller
         view.configuration = surface.state.configuration
+        view.setFocusLossReportingSuppressed(true)
         view.setSurfaceVisible(false)
         view.isHidden = true
         surface.mountedTerminalView = view
@@ -423,6 +424,7 @@ public final class TerminalSurfaceManager {
         entry.transitionGeneration &+= 1
         cancelPresentation(for: entry)
         entry.surface.captureReattachAnchor()
+        entry.view.setFocusLossReportingSuppressed(true)
         if entry.view.window?.firstResponder === entry.view {
             entry.view.window?.makeFirstResponder(nil)
         }
@@ -436,6 +438,7 @@ public final class TerminalSurfaceManager {
         guard let entry = entries.removeValue(forKey: sessionID) else { return }
         entry.transitionGeneration &+= 1
         cancelPresentation(for: entry)
+        entry.view.setFocusLossReportingSuppressed(true)
         if entry.view.window?.firstResponder === entry.view {
             entry.view.window?.makeFirstResponder(nil)
         }
@@ -467,6 +470,7 @@ public final class TerminalSurfaceManager {
         guard window.firstResponder === entry.view || window.makeFirstResponder(entry.view) else {
             return
         }
+        entry.view.setFocusLossReportingSuppressed(false)
         let size = entry.surface.state.surfaceSize.flatMap {
             TerminalSize(columns: Int($0.columns), rows: Int($0.rows))
         }
