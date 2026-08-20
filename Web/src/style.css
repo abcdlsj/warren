@@ -3197,11 +3197,35 @@ button:disabled {
 .git-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   padding: var(--space-md);
   display: flex;
   flex-direction: column;
   gap: var(--space-xl);
+}
+
+.git-fixed-section {
+  flex-shrink: 0;
+}
+
+.git-pane {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.git-pane-changes {
+  flex: 2 1 0;
+}
+
+.git-pane-changes:empty {
+  flex: 0;
+}
+
+.git-pane-history {
+  flex: 1 1 0;
 }
 
 .git-section-title {

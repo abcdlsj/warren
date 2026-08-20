@@ -147,7 +147,7 @@ export function GitPanel({
       {error && <div className="git-error">{error}</div>}
 
       <div className="git-scroll">
-        <section className="git-section">
+        <section className="git-section git-fixed-section">
           <h3 className="git-section-title">Branch</h3>
           {data?.operation && (
             <div className="git-operation-warning">
@@ -218,10 +218,52 @@ export function GitPanel({
           )}
         </section>
 
-        <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />
-        <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} />
+        <div className="git-pane git-pane-changes">
+          <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />
+          <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} />
+        </div>
 
-        <section className="git-section">
+        <div className="git-pane git-pane-history">
+          <section className="git-section">
+            <h3 className="git-section-title">
+              History
+              {data?.mainBranch && !data.merged && !data.operation && <span className="git-history-scope">not in {data.mainBranch}</span>}
+            </h3>
+            {!historyCommits.length && (
+              <p className="git-empty">
+                {data?.mainBranch && !data.operation ? `All commits are in ${data.mainBranch}` : "No commits"}
+              </p>
+            )}
+            <ul className="git-commit-list">
+              {historyCommits.map(commit => (
+                <li key={commit.hash} className="git-commit">
+                  <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
+                    <span className="git-commit-subject">{commit.subject}</span>
+                    <span className="git-commit-meta">
+                      <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
+                      <DiffCounts {...diffSummary(commit.files)} />
+                    </span>
+                  </button>
+                  {expanded.has(commit.hash) && (
+                    <ul className="git-change-list">
+                      {commit.files.map((file, index) => (
+                        <ChangeRow
+                          key={`${commit.hash}-${file.path}-${index}`}
+                          change={file}
+                          commit={commit.hash}
+                          selected={selectedKey === changeKey(file, commit.hash)}
+                          onOpenFile={openFile}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        <section className="git-section git-fixed-section">
           <h3 className="git-section-title">Checkout</h3>
           <div className="git-checkout-row">
             <select
@@ -266,43 +308,6 @@ export function GitPanel({
           </div>
         </section>
 
-        <section className="git-section">
-          <h3 className="git-section-title">
-            History
-            {data?.mainBranch && !data.merged && !data.operation && <span className="git-history-scope">not in {data.mainBranch}</span>}
-          </h3>
-          {!historyCommits.length && (
-            <p className="git-empty">
-              {data?.mainBranch && !data.operation ? `All commits are in ${data.mainBranch}` : "No commits"}
-            </p>
-          )}
-          <ul className="git-commit-list">
-            {historyCommits.map(commit => (
-              <li key={commit.hash} className="git-commit">
-                <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
-                  <span className="git-commit-subject">{commit.subject}</span>
-                  <span className="git-commit-meta">
-                    <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
-                    <DiffCounts {...diffSummary(commit.files)} />
-                  </span>
-                </button>
-                {expanded.has(commit.hash) && (
-                  <ul className="git-change-list">
-                    {commit.files.map((file, index) => (
-                      <ChangeRow
-                        key={`${commit.hash}-${file.path}-${index}`}
-                        change={file}
-                        commit={commit.hash}
-                        selected={selectedKey === changeKey(file, commit.hash)}
-                        onOpenFile={openFile}
-                      />
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
       </div>
     </aside>
   );
