@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { File, PatchDiff, Virtualizer, WorkerPoolContextProvider } from "@pierre/diffs/react";
 import PierreDiffWorker from "@pierre/diffs/worker/worker.js?worker&type=module";
 
@@ -40,9 +40,20 @@ function DiffSurface({ children }) {
   );
 }
 
-export function FileDiffView({ path, staged, commit, loading, diff, content, error, onClose }) {
-  const [viewTab, setViewTab] = useState("diff");
-  const [diffStyle, setDiffStyle] = useState("unified");
+export function FileDiffView({
+  path,
+  staged,
+  commit,
+  loading,
+  diff,
+  content,
+  error,
+  onClose,
+  viewTab = "diff",
+  diffStyle = "unified",
+  onViewTabChange,
+  onDiffStyleChange,
+}) {
   const options = useMemo(() => diffOptions(diffStyle), [diffStyle]);
 
   return (
@@ -71,7 +82,7 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
               className={viewTab === "diff" ? "file-diff-tab active" : "file-diff-tab"}
               aria-selected={viewTab === "diff"}
               role="tab"
-              onClick={() => setViewTab("diff")}
+              onClick={() => onViewTabChange?.("diff")}
             >
               Diff
             </button>
@@ -80,7 +91,7 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
               className={viewTab === "file" ? "file-diff-tab active" : "file-diff-tab"}
               aria-selected={viewTab === "file"}
               role="tab"
-              onClick={() => setViewTab("file")}
+              onClick={() => onViewTabChange?.("file")}
             >
               File
             </button>
@@ -92,14 +103,14 @@ export function FileDiffView({ path, staged, commit, loading, diff, content, err
                   <button
                     type="button"
                     className={diffStyle === "split" ? "file-diff-style-button active" : "file-diff-style-button"}
-                    onClick={() => setDiffStyle("split")}
+                    onClick={() => onDiffStyleChange?.("split")}
                   >
                     Highlight
                   </button>
                   <button
                     type="button"
                     className={diffStyle === "unified" ? "file-diff-style-button active" : "file-diff-style-button"}
-                    onClick={() => setDiffStyle("unified")}
+                    onClick={() => onDiffStyleChange?.("unified")}
                   >
                     Unified
                   </button>

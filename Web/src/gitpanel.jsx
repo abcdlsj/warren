@@ -135,15 +135,19 @@ export function GitPanel({
   onCommit,
   onCreatePR,
   onClose,
+  saved = null,
+  onUIChange = null,
 }) {
   const data = useMemo(() => (panel ? normalizeGitPanel(panel) : null), [panel]);
-  const [branch, setBranch] = useState("");
-  const [branchTouched, setBranchTouched] = useState(false);
+  const [branch, setBranch] = useState(saved?.branch || "");
+  const [branchTouched, setBranchTouched] = useState(Boolean(saved?.branch));
   const [newBranch, setNewBranch] = useState("");
   const [createMode, setCreateMode] = useState(false);
-  const [expanded, setExpanded] = useState(new Set());
-  const [openPanes, setOpenPanes] = useState(() => new Set(["pr", "changes", "history"]));
-  const [selectedKey, setSelectedKey] = useState(null);
+  const [expanded, setExpanded] = useState(() => new Set(saved?.expanded || []));
+  const [openPanes, setOpenPanes] = useState(() => new Set(
+    saved?.openPanes ? saved.openPanes : ["pr", "changes", "history"],
+  ));
+  const [selectedKey, setSelectedKey] = useState(saved?.selectedKey || null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
   const [prOpen, setPrOpen] = useState(false);
@@ -214,6 +218,16 @@ export function GitPanel({
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!onUIChange) return;
+    onUIChange({
+      openPanes: [...openPanes],
+      selectedKey,
+      expanded: [...expanded],
+      branch: branchTouched ? branch : null,
+    });
+  }, [onUIChange, openPanes, selectedKey, expanded, branchTouched, branch]);
 
   const submitCheckout = () => {
     if (createMode) {
