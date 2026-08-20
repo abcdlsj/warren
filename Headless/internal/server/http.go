@@ -1154,6 +1154,16 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 			return err
 		}
 		return p.writeResult(command.ID, result)
+	case "git.pr.create":
+		title := strings.TrimSpace(stringParam(params, "title"))
+		if title == "" {
+			return fmt.Errorf("pull request title is required")
+		}
+		result, err := p.server.Service.GitCreatePullRequest(ctx, stringParam(params, "workspace"), title, stringParam(params, "body"))
+		if err != nil {
+			return err
+		}
+		return p.writeResult(command.ID, result)
 	default:
 		return fmt.Errorf("unknown method: %s", command.Method)
 	}

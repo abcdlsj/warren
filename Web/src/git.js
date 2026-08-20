@@ -23,6 +23,8 @@ export function normalizeGitPanel(payload) {
       local: (payload?.branches || []).filter(branch => !branch.remote).map(branch => branch.name),
       remote: (payload?.branches || []).filter(branch => branch.remote).map(branch => branch.name),
     },
+    pullRequest: payload?.pullRequest ? { ...payload.pullRequest } : null,
+    pullRequestError: payload?.pullRequestError || "",
   };
 }
 

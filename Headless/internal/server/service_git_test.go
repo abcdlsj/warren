@@ -76,6 +76,9 @@ func TestGitPanelAggregatesWorkspace(t *testing.T) {
 	if len(panel.Changes) != 0 {
 		t.Fatalf("changes = %#v, want none", panel.Changes)
 	}
+	if panel.PullRequest != nil || panel.PullRequestError != "" {
+		t.Fatalf("pull request = %#v, %q, want none without a remote", panel.PullRequest, panel.PullRequestError)
+	}
 	foundMain := false
 	for _, branch := range panel.Branches {
 		if branch.Name == "main" && !branch.Remote {

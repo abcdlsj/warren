@@ -144,3 +144,38 @@ func TestGitDiffOverWebSocket(t *testing.T) {
 		t.Fatalf("result = %#v, want content field", result)
 	}
 }
+
+func TestGitCreatePullRequestRequiresTitleOverWebSocket(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	server := httptest.NewServer(NewHTTPServer(service, "secret", slog.Default()).Handler())
+	defer server.Close()
+
+	endpoint := "ws" + strings.TrimPrefix(server.URL, "http") + "/v1/ws"
+	connection, _, err := websocket.DefaultDialer.Dial(endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if err := connection.WriteJSON(api.Envelope{Type: "auth", Token: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	var welcome map[string]any
+	if err := connection.ReadJSON(&welcome); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := connection.WriteJSON(api.Envelope{
+		Type: "request", ID: "git-4", Method: "git.pr.create",
+		Params: map[string]any{"workspace": workspaceID, "title": "", "body": ""},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	response := readGitResponse(t, connection, "git-4")
+	if response.OK {
+		t.Fatal("git.pr.create should fail without a title")
+	}
+	if response.Error == "" {
+		t.Fatal("expected an error message")
+	}
+}

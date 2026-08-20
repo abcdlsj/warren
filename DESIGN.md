@@ -189,6 +189,13 @@ The daemon owns all Git execution. Workspace-scoped typed intents:
 - `git.checkout` { workspace, branch, create } -> GitCommandResult
 - `git.pull` { workspace } -> GitCommandResult
 - `git.push` { workspace } -> GitCommandResult
+- `git.pr.create` { workspace, title, body } -> GitPullRequest
+
+`git.panel` also reports the hosted pull request for the current branch
+(`pullRequest`, or `pullRequestError` when the GitHub/GitLab CLI cannot be
+used). Pull requests are created against the repository's main branch
+(origin/main, falling back to origin/master) using `gh` or `glab` depending
+on the origin host.
 
 Read commands run with a 60-second timeout and never interpolate shell
 input; only `git -C <path>` with fixed argument arrays is used.
