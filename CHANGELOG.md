@@ -6,6 +6,26 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.6.2] - 2026-08-20
+
+> Maintenance release: make search and workspace activity clearer while
+> keeping terminal resizing and reconnects smooth.
+
+### Added
+
+- Search projects, workspaces, terminal groups, sessions, and tabs from the command palette.
+- Show concurrent workspace activity in the desktop sidebar.
+
+### Changed
+
+- Coalesce terminal resize requests and defer AppKit/Ghostty metric synchronization so window and pane resizing settles cleanly.
+- Keep transient daemon restart gaps out of the Inspector while reconnecting, and cancel stale remote requests safely.
+
+### Fixed
+
+- Keep healthy WebSocket clients connected during brief resize contention, reanchoring only after the bounded wait expires.
+- Focus terminal search and command palette fields reliably after presentation so the terminal does not steal input.
+
 ## [0.6.1] - 2026-08-20
 
 > Maintenance release: make terminal launchers easier to use and keep

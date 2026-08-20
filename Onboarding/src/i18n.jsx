@@ -90,6 +90,37 @@ const messages = {
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
+        version: "0.6.2",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren stays smooth while you search and resize.",
+        summary:
+          "A maintenance release that broadens command-palette search, makes workspace activity clearer, and stabilizes terminal resizing and reconnection.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Search projects, workspaces, terminal groups, sessions, and tabs from the command palette.",
+              "Show concurrent workspace activity in the desktop sidebar.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Coalesce terminal resize requests and defer AppKit/Ghostty metric synchronization so window and pane resizing settles cleanly.",
+              "Keep transient daemon restart gaps out of the Inspector while reconnecting, and cancel stale remote requests safely.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Keep healthy WebSocket clients connected during brief resize contention, reanchoring only after the bounded wait expires.",
+              "Focus terminal search and command palette fields reliably after presentation so the terminal does not steal input.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.6.1",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -467,6 +498,37 @@ const messages = {
     "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
+      {
+        version: "0.6.2",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 的搜索和调整大小都更顺畅了。",
+        summary:
+          "维护版本：扩展 Command Palette 搜索范围，让 Workspace 活动更清晰，并稳定终端调整大小与重连。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "支持从 Command Palette 搜索 Project、Workspace、Terminal Group、Session 和 Tab。",
+              "在桌面侧栏显示并发 Workspace 活动。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "合并终端 resize 请求，并延后 AppKit/Ghostty 指标同步，让窗口和面板调整大小更稳定。",
+              "重连期间将守护进程短暂重启间隔从 Inspector 中隐藏，并安全取消过期远程请求。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "resize 短暂竞争时保持健康 WebSocket 连接，只有等待超时才重新锚定。",
+              "Terminal Search 和 Command Palette 弹出后可靠聚焦，避免终端抢走输入。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.6.1",
         dateISO: "2026-08-20",
