@@ -67,6 +67,34 @@ The app bundle includes the `warren` CLI. On its first launch Warren installs
 it to `~/.local/bin` and adds that directory to the active shell profile when
 needed. Use `Tools > Install CLI` to reinstall it manually.
 
+### Raycast terminal launcher
+
+Warren registers the `warren://terminal?group=Inbox` URL for external
+launchers. Release app bundles include an optional Raycast Script Command and
+its Warren icon, but Warren does not install either file or modify Raycast
+settings automatically.
+
+After installing Warren at `/Applications/Warren.app`, install the launcher
+for the current user:
+
+```sh
+mkdir -p "$HOME/.warren"
+install -m 755 \
+  "/Applications/Warren.app/Contents/Resources/warren-terminal.sh" \
+  "$HOME/.warren/warren-terminal.sh"
+install -m 644 \
+  "/Applications/Warren.app/Contents/Resources/warren-terminal.png" \
+  "$HOME/.warren/warren-terminal.png"
+```
+
+Then open Raycast **Settings → Script Commands → Add Script Directory**, add
+`~/.warren`, and search for **Warren Terminal**. The command can be given the
+alias `terminal` or a global hotkey from Raycast's **Configure Command** menu.
+
+When working from a source checkout, use the same commands with
+`Support/Raycast/warren-terminal.sh` and `Assets/Brand/warren-app-icon.png` as
+the two source paths.
+
 Warren checks GitHub Releases in the background at launch, no more than once
 every three hours. When a newer
 macOS app is available, a banner below the workspace tabs offers to download
