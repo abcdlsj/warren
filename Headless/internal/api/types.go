@@ -130,6 +130,9 @@ type Session struct {
 	AgentActivity AgentActivity `json:"activity,omitempty"`
 	CreatedAt     time.Time     `json:"createdAt"`
 	EndedAt       *time.Time    `json:"endedAt,omitempty"`
+	// OperationID is returned by mutating session APIs for audit and safe
+	// undo. It is intentionally not persisted in the session record.
+	OperationID string `json:"operationId,omitempty"`
 }
 
 func (session Session) ScopeKind() string {
@@ -230,9 +233,44 @@ type State struct {
 	Workspaces     []Workspace     `json:"workspaces"`
 	TerminalGroups []TerminalGroup `json:"terminalGroups"`
 	Sessions       []Session       `json:"sessions"`
+	// Operations is the bounded mutation audit trail. Entries are only added
+	// for operations that have a safe, compare-and-swap undo representation.
+	Operations []OperationAudit `json:"operations,omitempty"`
 	// WorktreeOwnershipMigrated records that legacy workspace ownership has
 	// been reconciled against the configured Warren worktree root.
 	WorktreeOwnershipMigrated bool `json:"worktreeOwnershipMigrated,omitempty"`
+}
+
+// OperationAudit records a reversible session move (or its reversal). The
+// before/after ownership fields are compared during undo so an unrelated
+// change can never be silently overwritten.
+type OperationAudit struct {
+	ID                    string     `json:"id"`
+	Kind                  string     `json:"kind"`
+	Resource              string     `json:"resource"`
+	ResourceID            string     `json:"resourceId"`
+	BeforeWorkspaceID     string     `json:"beforeWorkspace,omitempty"`
+	BeforeTerminalGroupID string     `json:"beforeTerminalGroup,omitempty"`
+	AfterWorkspaceID      string     `json:"afterWorkspace,omitempty"`
+	AfterTerminalGroupID  string     `json:"afterTerminalGroup,omitempty"`
+	AgentSessionID        string     `json:"agentSessionId,omitempty"`
+	RevertsOperationID    string     `json:"revertsOperationId,omitempty"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	RevertedAt            *time.Time `json:"revertedAt,omitempty"`
+}
+
+// SessionMovePreflight describes the exact source and destination checked by
+// the Host before a move. It contains IDs and context only, never transcript
+// contents.
+type SessionMovePreflight struct {
+	Allowed                    bool    `json:"allowed"`
+	Session                    Session `json:"session"`
+	SourceWorkspaceID          string  `json:"sourceWorkspace,omitempty"`
+	SourceTerminalGroupID      string  `json:"sourceTerminalGroup,omitempty"`
+	DestinationWorkspaceID     string  `json:"destinationWorkspace,omitempty"`
+	DestinationTerminalGroupID string  `json:"destinationTerminalGroup,omitempty"`
+	ExpectedWorkspaceID        string  `json:"expectedWorkspace,omitempty"`
+	ExpectedAgentSessionID     string  `json:"expectedAgentSessionId,omitempty"`
 }
 
 type Envelope struct {

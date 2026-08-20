@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abcdlsj/warren/Headless/internal/agent"
 	"github.com/abcdlsj/warren/Headless/internal/api"
 	"github.com/abcdlsj/warren/Headless/internal/config"
 )
@@ -166,6 +168,68 @@ func TestSessionMoveNormalizesParams(t *testing.T) {
 	}), "session", "move")
 	if groupParams["id"] != "session-1" || groupParams["group"] != "group-1" {
 		t.Fatalf("normalized group params = %#v", groupParams)
+	}
+}
+
+func TestCurrentSessionIDUsesOnlyWarrenBinding(t *testing.T) {
+	t.Setenv(agent.BindEnvSession, "session-current")
+	if got, err := currentSessionID(); err != nil || got != "session-current" {
+		t.Fatalf("currentSessionID = %q, %v; want session-current", got, err)
+	}
+	t.Setenv(agent.BindEnvSession, "")
+	if _, err := currentSessionID(); err == nil || !strings.Contains(err.Error(), agent.BindEnvSession) {
+		t.Fatalf("missing binding error = %v, want WARREN_SESSION_ID guidance", err)
+	}
+}
+
+func TestSessionRowsMarkCurrentAndExposeDistinctAgentFields(t *testing.T) {
+	state := api.State{Sessions: []api.Session{{
+		ID: "warren-session", AgentSessionID: "codex-thread", TranscriptPath: "/tmp/transcript.jsonl",
+		Title: "Codex", Kind: "codex", Lifecycle: "running",
+	}}}
+	rows := sessionRowsForCurrent(state, false, false, "warren-session")
+	if len(rows) != 1 || !rows[0].Current || rows[0].WarrenSessionID != "warren-session" || rows[0].AgentThreadID != "codex-thread" {
+		t.Fatalf("current row = %#v", rows)
+	}
+	data, err := json.Marshal(rows[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"warrenSessionId":"warren-session"`, `"agentThreadId":"codex-thread"`, `"agentSessionId":"codex-thread"`, `"transcriptPath":"/tmp/transcript.jsonl"`, `"current":true`} {
+		if !strings.Contains(string(data), field) {
+			t.Fatalf("row JSON %s missing from %s", field, data)
+		}
+	}
+}
+
+func TestSessionMoveCurrentRequiresBindingBeforeEndpoint(t *testing.T) {
+	t.Setenv(agent.BindEnvSession, "")
+	err := run([]string{"session", "move", "--current", "--workspace", "workspace-1"})
+	if err == nil || !strings.Contains(err.Error(), agent.BindEnvSession) {
+		t.Fatalf("error = %v, want missing WARREN_SESSION_ID", err)
+	}
+}
+
+func TestSessionMoveExpectedContextNormalizes(t *testing.T) {
+	params := normalizedParams(parseFlags([]string{
+		"session-1", "--workspace", "workspace-1", "--expected-workspace", "workspace-old", "--expected-agent-session", "thread-1",
+	}), "session", "move")
+	if params["expectedWorkspace"] != "workspace-old" || params["expectedAgentSession"] != "thread-1" {
+		t.Fatalf("expected context = %#v", params)
+	}
+}
+
+func TestSessionMoveExplicitIDRequiresIntent(t *testing.T) {
+	err := run([]string{"session", "move", "session-1", "--workspace", "workspace-1"})
+	var usageErr *usageError
+	if !errors.As(err, &usageErr) || !strings.Contains(usageErr.message, "requires --confirm") {
+		t.Fatalf("error = %v, want explicit intent usage error", err)
+	}
+	// --dry-run is an explicit preflight intent and should get as far as
+	// endpoint resolution rather than failing the local safety check.
+	err = run([]string{"session", "move", "session-1", "--workspace", "workspace-1", "--dry-run"})
+	if errors.As(err, &usageErr) {
+		t.Fatalf("dry-run unexpectedly returned usage error: %v", err)
 	}
 }
 

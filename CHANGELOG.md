@@ -4,7 +4,11 @@ All notable changes to Warren are documented here.
 
 ## [Unreleased]
 
-- Add release notes here before the next version is published.
+- Add `session current`, safe `session move --current`, explicit move
+  confirmation, dry-run preflight output, and compare-and-swap context guards.
+- Mark the current Warren Session and distinguish its ID from agent/thread and
+  transcript IDs in CLI output; record reversible move operation IDs with a
+  fail-closed `session undo` path.
 
 ## [0.5.2] - 2026-08-20
 

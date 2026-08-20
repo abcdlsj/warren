@@ -54,6 +54,9 @@ const (
 	// first reconcile instead of being reaped minutes after being marked
 	// ended. Five minutes of grace is a safe trade-off for orphan cleanup.
 	orphanReapGrace = 5 * time.Minute
+	// operationAuditLimit keeps the durable safety log bounded. Only entries
+	// with a compare-and-swap undo representation are retained.
+	operationAuditLimit = 256
 	// defaultWorktreeRoot is also the compatibility fallback used when an
 	// embedded Service does not provide an explicit worktree root.
 	defaultWorktreeRoot = "~/.warren/worktrees"
@@ -1927,11 +1930,26 @@ func (s *Service) Session(id string) (api.Session, bool) {
 	return api.Session{}, false
 }
 
+// SessionMoveExpectations are optional compare-and-swap guards. A nil pointer
+// means the caller did not observe that piece of source context and therefore
+// does not ask the Host to guard it. A non-nil pointer, including an empty
+// string, is an explicit expectation.
+type SessionMoveExpectations struct {
+	WorkspaceID    *string
+	AgentSessionID *string
+}
+
 // MoveSession changes the Host scope of a Session between a Workspace and a
-// Terminal Group. The runtime, working directory, output history, and Session
-// ID are all preserved: moving only re-parents the durable record so clients
-// render the tab under the destination context.
+// Terminal Group. The compatibility wrapper keeps existing API callers
+// working; new callers should use MoveSessionWithExpectations.
 func (s *Service) MoveSession(ctx context.Context, id, workspaceID, groupID string) (api.Session, error) {
+	return s.MoveSessionWithExpectations(ctx, id, workspaceID, groupID, SessionMoveExpectations{})
+}
+
+// MoveSessionWithExpectations performs an atomic move with optional source
+// context guards and records a reversible operation audit entry. The runtime,
+// working directory, output history, and Session ID are all preserved.
+func (s *Service) MoveSessionWithExpectations(_ context.Context, id, workspaceID, groupID string, expectations SessionMoveExpectations) (api.Session, error) {
 	if workspaceID == "" && groupID == "" {
 		return api.Session{}, errors.New("workspace or terminal group is required")
 	}
@@ -1941,66 +1959,205 @@ func (s *Service) MoveSession(ctx context.Context, id, workspaceID, groupID stri
 	s.terminalGroupLifecycleMu.Lock()
 	defer s.terminalGroupLifecycleMu.Unlock()
 
-	state := s.Store.Snapshot()
-	var session *api.Session
-	for index := range state.Sessions {
-		if state.Sessions[index].ID == id {
-			session = &state.Sessions[index]
-			break
-		}
-	}
-	if session == nil {
-		return api.Session{}, fmt.Errorf("session not found: %s", id)
-	}
-	if workspaceID != "" {
-		found := false
-		for _, workspace := range state.Workspaces {
-			if workspace.ID == workspaceID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return api.Session{}, fmt.Errorf("workspace not found: %s", workspaceID)
-		}
-	} else {
-		found := false
-		for _, group := range state.TerminalGroups {
-			if group.ID == groupID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return api.Session{}, fmt.Errorf("terminal group not found: %s", groupID)
-		}
-	}
-	if session.WorkspaceID == workspaceID && session.TerminalGroupID == groupID {
-		return *session, nil
-	}
-
-	moved := *session
-	moved.WorkspaceID = workspaceID
-	moved.TerminalGroupID = groupID
-	moved.Scope = api.SessionScopeWorkspace
-	if groupID != "" {
-		moved.Scope = api.SessionScopeTerminalGroup
-	}
+	var moved api.Session
+	var operationID string
 	err := s.Store.Update(func(value *api.State) error {
-		for index := range value.Sessions {
-			if value.Sessions[index].ID != id {
-				continue
+		index := -1
+		for candidate := range value.Sessions {
+			if value.Sessions[candidate].ID == id {
+				index = candidate
+				break
 			}
-			value.Sessions[index].WorkspaceID = workspaceID
-			value.Sessions[index].TerminalGroupID = groupID
-			value.Sessions[index].Scope = moved.Scope
+		}
+		if index < 0 {
+			return fmt.Errorf("session not found: %s", id)
+		}
+		session := value.Sessions[index]
+		if expectations.WorkspaceID != nil && session.WorkspaceID != *expectations.WorkspaceID {
+			return fmt.Errorf("stale session context for %s: expected workspace %q, found %q; refresh session list and retry", id, *expectations.WorkspaceID, session.WorkspaceID)
+		}
+		if expectations.AgentSessionID != nil && session.AgentSessionID != *expectations.AgentSessionID {
+			return fmt.Errorf("stale agent session context for %s: expected agent session %q, found %q; refresh session list and retry", id, *expectations.AgentSessionID, session.AgentSessionID)
+		}
+		if workspaceID != "" {
+			if !workspaceExists(value, workspaceID) {
+				return fmt.Errorf("workspace not found: %s", workspaceID)
+			}
+		} else if !terminalGroupExists(value, groupID) {
+			return fmt.Errorf("terminal group not found: %s", groupID)
+		}
+		if session.WorkspaceID == workspaceID && session.TerminalGroupID == groupID {
+			moved = session
 			return nil
 		}
-		return fmt.Errorf("session not found: %s", id)
+
+		beforeWorkspaceID := session.WorkspaceID
+		beforeGroupID := session.TerminalGroupID
+		session.WorkspaceID = workspaceID
+		session.TerminalGroupID = groupID
+		session.Scope = api.SessionScopeWorkspace
+		if groupID != "" {
+			session.Scope = api.SessionScopeTerminalGroup
+		}
+		value.Sessions[index] = session
+		operationID = store.NewID()
+		value.Operations = append(value.Operations, api.OperationAudit{
+			ID: operationID, Kind: "session.move", Resource: "session", ResourceID: id,
+			BeforeWorkspaceID: beforeWorkspaceID, BeforeTerminalGroupID: beforeGroupID,
+			AfterWorkspaceID: workspaceID, AfterTerminalGroupID: groupID,
+			AgentSessionID: session.AgentSessionID,
+			CreatedAt:      time.Now().UTC(),
+		})
+		if len(value.Operations) > operationAuditLimit {
+			value.Operations = append([]api.OperationAudit(nil), value.Operations[len(value.Operations)-operationAuditLimit:]...)
+		}
+		moved = session
+		return nil
 	})
 	if err != nil {
 		return api.Session{}, err
 	}
+	moved.OperationID = operationID
+	return moved, nil
+}
+
+func workspaceExists(state *api.State, id string) bool {
+	for _, workspace := range state.Workspaces {
+		if workspace.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func terminalGroupExists(state *api.State, id string) bool {
+	for _, group := range state.TerminalGroups {
+		if group.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// PreflightSessionMove validates a move without changing durable state. It
+// uses the same context checks as the atomic mutation path so dry-run output
+// is actionable rather than a best-effort local guess.
+func (s *Service) PreflightSessionMove(id, workspaceID, groupID string, expectations SessionMoveExpectations) (api.SessionMovePreflight, error) {
+	if workspaceID == "" && groupID == "" {
+		return api.SessionMovePreflight{}, errors.New("workspace or terminal group is required")
+	}
+	if workspaceID != "" && groupID != "" {
+		return api.SessionMovePreflight{}, errors.New("workspace and terminal group are mutually exclusive")
+	}
+	state := s.Store.Snapshot()
+	var session api.Session
+	found := false
+	for _, candidate := range state.Sessions {
+		if candidate.ID == id {
+			session = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return api.SessionMovePreflight{}, fmt.Errorf("session not found: %s", id)
+	}
+	if expectations.WorkspaceID != nil && session.WorkspaceID != *expectations.WorkspaceID {
+		return api.SessionMovePreflight{}, fmt.Errorf("stale session context for %s: expected workspace %q, found %q; refresh session list and retry", id, *expectations.WorkspaceID, session.WorkspaceID)
+	}
+	if expectations.AgentSessionID != nil && session.AgentSessionID != *expectations.AgentSessionID {
+		return api.SessionMovePreflight{}, fmt.Errorf("stale agent session context for %s: expected agent session %q, found %q; refresh session list and retry", id, *expectations.AgentSessionID, session.AgentSessionID)
+	}
+	if workspaceID != "" && !workspaceExists(&state, workspaceID) {
+		return api.SessionMovePreflight{}, fmt.Errorf("workspace not found: %s", workspaceID)
+	}
+	if groupID != "" && !terminalGroupExists(&state, groupID) {
+		return api.SessionMovePreflight{}, fmt.Errorf("terminal group not found: %s", groupID)
+	}
+	result := api.SessionMovePreflight{
+		Allowed: true, Session: session,
+		SourceWorkspaceID: session.WorkspaceID, SourceTerminalGroupID: session.TerminalGroupID,
+		DestinationWorkspaceID: workspaceID, DestinationTerminalGroupID: groupID,
+	}
+	if expectations.WorkspaceID != nil {
+		result.ExpectedWorkspaceID = *expectations.WorkspaceID
+	}
+	if expectations.AgentSessionID != nil {
+		result.ExpectedAgentSessionID = *expectations.AgentSessionID
+	}
+	return result, nil
+}
+
+// UndoSessionMove reverts a recorded move only while the session still has
+// the exact post-move ownership recorded by the operation. Any intervening
+// change fails closed and leaves both state and audit history untouched.
+func (s *Service) UndoSessionMove(operationID string) (api.Session, error) {
+	if strings.TrimSpace(operationID) == "" {
+		return api.Session{}, errors.New("operation ID is required")
+	}
+	s.terminalGroupLifecycleMu.Lock()
+	defer s.terminalGroupLifecycleMu.Unlock()
+	var moved api.Session
+	var reversalID string
+	err := s.Store.Update(func(state *api.State) error {
+		operationIndex := -1
+		for index := len(state.Operations) - 1; index >= 0; index-- {
+			if state.Operations[index].ID == operationID {
+				operationIndex = index
+				break
+			}
+		}
+		if operationIndex < 0 {
+			return fmt.Errorf("operation not found: %s", operationID)
+		}
+		operation := state.Operations[operationIndex]
+		if operation.Kind != "session.move" || operation.Resource != "session" {
+			return fmt.Errorf("operation is not an undoable session move: %s", operationID)
+		}
+		if operation.RevertedAt != nil {
+			return fmt.Errorf("operation already reverted: %s", operationID)
+		}
+		sessionIndex := -1
+		for index := range state.Sessions {
+			if state.Sessions[index].ID == operation.ResourceID {
+				sessionIndex = index
+				break
+			}
+		}
+		if sessionIndex < 0 {
+			return fmt.Errorf("session not found for operation %s: %s", operationID, operation.ResourceID)
+		}
+		current := state.Sessions[sessionIndex]
+		if current.WorkspaceID != operation.AfterWorkspaceID || current.TerminalGroupID != operation.AfterTerminalGroupID || current.AgentSessionID != operation.AgentSessionID {
+			return fmt.Errorf("cannot undo operation %s: session context changed; expected workspace %q/group %q/agent %q, found workspace %q/group %q/agent %q", operationID, operation.AfterWorkspaceID, operation.AfterTerminalGroupID, operation.AgentSessionID, current.WorkspaceID, current.TerminalGroupID, current.AgentSessionID)
+		}
+		current.WorkspaceID = operation.BeforeWorkspaceID
+		current.TerminalGroupID = operation.BeforeTerminalGroupID
+		current.Scope = api.SessionScopeWorkspace
+		if current.TerminalGroupID != "" {
+			current.Scope = api.SessionScopeTerminalGroup
+		}
+		state.Sessions[sessionIndex] = current
+		now := time.Now().UTC()
+		state.Operations[operationIndex].RevertedAt = &now
+		reversalID = store.NewID()
+		state.Operations = append(state.Operations, api.OperationAudit{
+			ID: reversalID, Kind: "session.move.revert", Resource: "session", ResourceID: current.ID,
+			BeforeWorkspaceID: operation.AfterWorkspaceID, BeforeTerminalGroupID: operation.AfterTerminalGroupID,
+			AfterWorkspaceID: operation.BeforeWorkspaceID, AfterTerminalGroupID: operation.BeforeTerminalGroupID,
+			AgentSessionID:     operation.AgentSessionID,
+			RevertsOperationID: operationID, CreatedAt: now,
+		})
+		if len(state.Operations) > operationAuditLimit {
+			state.Operations = append([]api.OperationAudit(nil), state.Operations[len(state.Operations)-operationAuditLimit:]...)
+		}
+		moved = current
+		return nil
+	})
+	if err != nil {
+		return api.Session{}, err
+	}
+	moved.OperationID = reversalID
 	return moved, nil
 }
 
