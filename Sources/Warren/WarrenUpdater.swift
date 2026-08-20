@@ -213,7 +213,7 @@ final class WarrenUpdater {
             return nil
         }
 
-        let release = try await fetchLatestRelease()
+        let release = try await fetchLatestRelease(force: force)
         userDefaults.set(now(), forKey: Self.lastCheckDateKey)
         guard let latestVersion = release.version, let currentVersion else {
             return nil
@@ -317,11 +317,19 @@ final class WarrenUpdater {
         }
     }
 
-    private func fetchLatestRelease() async throws -> WarrenRelease {
+    private func fetchLatestRelease(force: Bool) async throws -> WarrenRelease {
         var request = URLRequest(url: Self.latestReleaseURL)
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Warren-Updater", forHTTPHeaderField: "User-Agent")
+        if force {
+            // Manual checks must not reuse a stale URLSession response from
+            // before a release was published. The Worker remains responsible
+            // for its short edge cache; this bypass only the local client cache.
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        }
 
         do {
             let (data, response) = try await session.data(for: request)

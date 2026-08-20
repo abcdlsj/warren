@@ -6,6 +6,14 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.6.3] - 2026-08-20
+
+> Patch release: make manual update checks bypass stale local release responses.
+
+### Fixed
+
+- Force manual update checks to bypass the local URLSession cache so newly published releases appear immediately.
+
 ## [0.6.2] - 2026-08-20
 
 > Maintenance release: make search and workspace activity clearer while

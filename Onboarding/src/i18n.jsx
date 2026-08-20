@@ -90,6 +90,22 @@ const messages = {
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
+        version: "0.6.3",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren finds new releases immediately.",
+        summary:
+          "A patch release that prevents stale local release responses from hiding newly published updates.",
+        sections: [
+          {
+            title: "Fixed",
+            items: [
+              "Force manual update checks to bypass the local URLSession cache so newly published releases appear immediately.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.6.2",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -498,6 +514,21 @@ const messages = {
     "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
+      {
+        version: "0.6.3",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 会立即发现新版本了。",
+        summary: "修复本地版本缓存导致新发布版本不显示的问题。",
+        sections: [
+          {
+            title: "修复",
+            items: [
+              "手动检查更新时绕过本地 URLSession 缓存，让刚发布的版本立即显示。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.6.2",
         dateISO: "2026-08-20",
