@@ -3317,9 +3317,7 @@ button:disabled {
   margin-top: var(--space-md);
 }
 
-.git-actions .chrome-button,
-.git-checkout-row .chrome-button,
-.git-pr-form .chrome-button,
+.git-panel .chrome-button,
 .git-pr-link {
   width: auto;
   padding: 0 var(--space-sm);
