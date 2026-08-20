@@ -720,7 +720,7 @@ final class WarrenRemoteApplicationModel {
     /// A daemon restart briefly drops the WebSocket before its listener is
     /// ready again. Keep that expected gap out of the Inspector; persistent
     /// failures still become visible after the grace period.
-    private static let transientConnectionIssueDelay: Duration = .seconds(2)
+    private static let transientConnectionIssueDelay: Duration = .seconds(5)
 
     private(set) var projection = WarrenDesktopProjection
         .empty(host: WarrenDomain.Host(name: "Server"))
