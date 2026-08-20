@@ -149,7 +149,6 @@ export default function App() {
   const [gitRefreshing, setGitRefreshing] = useState(false);
   const [gitError, setGitError] = useState("");
   const gitLoadingRef = useRef(null);
-  const gitPanelCacheRef = useRef(new Map());
   const [gitAction, setGitAction] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false);
@@ -287,7 +286,7 @@ export default function App() {
     else setGitLoading(true);
     setGitError("");
     setGitAction("");
-    if (!preserve) setGitPanel(gitPanelCacheRef.current.get(workspaceID) ?? null);
+    if (!preserve) setGitPanel(null);
     const finish = () => {
       if (gitLoadingRef.current === workspaceID) {
         gitLoadingRef.current = null;
@@ -300,7 +299,6 @@ export default function App() {
         finish();
         return;
       }
-      gitPanelCacheRef.current.set(workspaceID, result);
       setGitPanel(result);
       finish();
     }, error => {
@@ -308,10 +306,12 @@ export default function App() {
         finish();
         return;
       }
+      setGitPanel(null);
       setGitError(error);
       finish();
     });
     if (!sent) {
+      setGitPanel(null);
       setGitError("Not connected");
       finish();
     }

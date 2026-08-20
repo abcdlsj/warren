@@ -79,6 +79,10 @@ type Service struct {
 	Settings settings.Settings
 	// SettingsPath persists settings changes made over the API.
 	SettingsPath string
+	// panelCache lazily caches git panel snapshots per workspace so multiple
+	// clients share one snapshot instead of each loading git state itself.
+	panelCache     *panelCache
+	panelCacheOnce sync.Once
 	// Logger receives lifecycle warnings. A nil logger falls back to slog's
 	// process-wide default so tests and embedders do not need to configure one.
 	Logger *slog.Logger
@@ -1757,26 +1761,51 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 	if err != nil {
 		return api.GitPanel{}, err
 	}
+	if cached, ok := s.panelCacheFor().Get(workspaceID); ok {
+		return cached, nil
+	}
+	panel, err := s.loadGitPanel(ctx, workspaceID, workspace.Path, fetch)
+	if err != nil {
+		return api.GitPanel{}, err
+	}
+	s.panelCacheFor().Set(workspaceID, panel)
+	return panel, nil
+}
+
+func (s *Service) panelCacheFor() *panelCache {
+	s.panelCacheOnce.Do(func() {
+		s.panelCache = newPanelCache(panelCacheCapacity, panelCacheTTL)
+	})
+	return s.panelCache
+}
+
+func (s *Service) invalidatePanelCache(workspaceID string) {
+	if s.panelCache != nil {
+		s.panelCache.Remove(workspaceID)
+	}
+}
+
+func (s *Service) loadGitPanel(ctx context.Context, workspaceID, path string, fetch bool) (api.GitPanel, error) {
 	if fetch {
 		// Refresh the remote refs before comparing against origin/main. A
 		// failed fetch (offline, no remote) must not block the panel; the
 		// comparison then uses the last fetched refs.
-		_ = git.Fetch(ctx, workspace.Path)
+		_ = git.Fetch(ctx, path)
 	}
-	mainBranch := git.MainBranch(ctx, workspace.Path)
-	status, err := git.StatusFor(ctx, workspace.Path)
+	mainBranch := git.MainBranch(ctx, path)
+	status, err := git.StatusFor(ctx, path)
 	if err != nil {
 		return api.GitPanel{}, err
 	}
-	commits, err := git.Log(ctx, workspace.Path, 20)
+	commits, err := git.Log(ctx, path, 20)
 	if err != nil {
 		return api.GitPanel{}, err
 	}
-	branches, err := git.Branches(ctx, workspace.Path)
+	branches, err := git.Branches(ctx, path)
 	if err != nil {
 		return api.GitPanel{}, err
 	}
-	remote, _ := git.RemoteURL(ctx, workspace.Path)
+	remote, _ := git.RemoteURL(ctx, path)
 	panel := api.GitPanel{
 		WorkspaceID: workspaceID,
 		Branch:      status.Branch,
@@ -1785,13 +1814,13 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 		Behind:      status.Behind,
 		Remote:      remote,
 		MainBranch:  strings.TrimPrefix(mainBranch, "refs/remotes/"),
-		Operation:   git.OperationState(ctx, workspace.Path),
+		Operation:   git.OperationState(ctx, path),
 		Changes:     apiGitChanges(status.Changes),
 		Commits:     apiGitCommits(commits),
 		Branches:    apiGitBranches(branches),
 	}
 	if remote != "" {
-		pr, prErr := git.PullRequestForBranch(ctx, workspace.Path)
+		pr, prErr := git.PullRequestForBranch(ctx, path)
 		if prErr != nil && !errors.Is(prErr, git.ErrNoPullRequest) {
 			panel.PullRequestError = prErr.Error()
 		} else if pr != nil {
@@ -1799,11 +1828,11 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 		}
 	}
 	if mainBranch != "" {
-		if merged, err := git.IsMerged(ctx, workspace.Path, mainBranch); err == nil {
+		if merged, err := git.IsMerged(ctx, path, mainBranch); err == nil {
 			panel.Merged = merged
 		}
 		if !panel.Merged {
-			if unmerged, err := git.LogRange(ctx, workspace.Path, mainBranch); err == nil {
+			if unmerged, err := git.LogRange(ctx, path, mainBranch); err == nil {
 				panel.UnmergedCommits = apiGitCommits(unmerged)
 			}
 		}
@@ -1849,6 +1878,7 @@ func (s *Service) GitCheckout(ctx context.Context, workspaceID, branch string, c
 	}); err != nil {
 		return api.GitCommandResult{}, err
 	}
+	s.invalidatePanelCache(workspaceID)
 	return api.GitCommandResult{Message: "Checked out " + current}, nil
 }
 
@@ -1861,6 +1891,7 @@ func (s *Service) GitPull(ctx context.Context, workspaceID string) (api.GitComma
 	if err != nil {
 		return api.GitCommandResult{}, err
 	}
+	s.invalidatePanelCache(workspaceID)
 	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
 }
 
@@ -1873,6 +1904,7 @@ func (s *Service) GitPush(ctx context.Context, workspaceID string) (api.GitComma
 	if err != nil {
 		return api.GitCommandResult{}, err
 	}
+	s.invalidatePanelCache(workspaceID)
 	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
 }
 
@@ -1885,6 +1917,7 @@ func (s *Service) GitCommit(ctx context.Context, workspaceID, message string) (a
 	if err != nil {
 		return api.GitCommandResult{}, err
 	}
+	s.invalidatePanelCache(workspaceID)
 	return api.GitCommandResult{Message: strings.TrimSpace(output)}, nil
 }
 
@@ -1899,6 +1932,7 @@ func (s *Service) GitCreatePullRequest(ctx context.Context, workspaceID, title, 
 	if err != nil {
 		return api.GitPullRequest{}, err
 	}
+	s.invalidatePanelCache(workspaceID)
 	return *apiGitPullRequest(pr), nil
 }
 
