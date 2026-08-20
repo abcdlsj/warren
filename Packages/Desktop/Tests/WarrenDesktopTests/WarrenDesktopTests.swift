@@ -1660,7 +1660,79 @@ final class WarrenDesktopTests: XCTestCase {
 
         XCTAssertEqual(projection.activity(in: workspaceID), .failed)
         XCTAssertEqual(projection.workspaceActivities[workspaceID], .failed)
+        XCTAssertEqual(
+            projection.workspaceActivitySummaries[workspaceID]?.activeTabCount,
+            0
+        )
         XCTAssertEqual(projection.session(id: failed.id), failed)
+    }
+
+    func testWorkspaceActivityCountsOnlyVisibleWorkingTabs() {
+        let fixture = WarrenDesktopFixture.preview
+        let workspaceID = fixture.groups[0].workspaces[0].id
+        let visibleWorkingIDs = [TerminalSessionID(), TerminalSessionID()]
+        let hiddenWorkingID = TerminalSessionID()
+        let waitingID = TerminalSessionID()
+        let sessions = [
+            WarrenDesktopSession(
+                id: visibleWorkingIDs[0],
+                workspaceID: workspaceID,
+                title: "Working One",
+                kind: .codex,
+                activity: .working
+            ),
+            WarrenDesktopSession(
+                id: visibleWorkingIDs[1],
+                workspaceID: workspaceID,
+                title: "Working Two",
+                kind: .claude,
+                activity: .working
+            ),
+            WarrenDesktopSession(
+                id: hiddenWorkingID,
+                workspaceID: workspaceID,
+                title: "Hidden Working",
+                kind: .codex,
+                activity: .working
+            ),
+            WarrenDesktopSession(
+                id: waitingID,
+                workspaceID: workspaceID,
+                title: "Waiting",
+                kind: .claude,
+                activity: .waitingForInput
+            ),
+        ]
+        let tabs = [
+            ClientTab(
+                id: "working-one",
+                title: "Working One",
+                sessionID: visibleWorkingIDs[0],
+                kind: .codex
+            ),
+            ClientTab(
+                id: "working-two",
+                title: "Working Two",
+                sessionID: visibleWorkingIDs[1],
+                kind: .claude
+            ),
+            ClientTab(
+                id: "waiting",
+                title: "Waiting",
+                sessionID: waitingID,
+                kind: .claude
+            ),
+        ]
+        let projection = WarrenDesktopProjection(
+            host: fixture.host,
+            groups: fixture.groups,
+            sessions: sessions,
+            tabs: tabs
+        )
+
+        let summary = projection.workspaceActivitySummaries[workspaceID]
+        XCTAssertEqual(summary?.activity, .waitingForInput)
+        XCTAssertEqual(summary?.activeTabCount, 2)
     }
 
     func testProjectionChangesOneSessionActivityWithoutChangingRelationships() {

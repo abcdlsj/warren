@@ -10,6 +10,7 @@ struct WarrenDesktopWorkspaceRow: View {
     let workspace: Workspace
     let semanticScope: String
     let activity: AgentActivityState?
+    let activeTabCount: Int
     let isCollapsed: Bool
     let isSelected: Bool
     let isPinned: Bool
@@ -38,7 +39,10 @@ struct WarrenDesktopWorkspaceRow: View {
             ZStack(alignment: .topTrailing) {
                 workspaceGlyph(tokens: tokens)
                 if let activity {
-                    WarrenDesktopActivityIndicator(activity: activity)
+                    WarrenDesktopWorkspaceActivityIndicator(
+                        activity: activity,
+                        activeTabCount: activeTabCount
+                    )
                         .offset(x: 5, y: -3)
                 }
                 if isDeleting {
@@ -106,7 +110,10 @@ struct WarrenDesktopWorkspaceRow: View {
                 }
 
                 if let activity {
-                    WarrenDesktopActivityIndicator(activity: activity)
+                    WarrenDesktopWorkspaceActivityIndicator(
+                        activity: activity,
+                        activeTabCount: activeTabCount
+                    )
                 }
 
                 if isPinned {
@@ -170,6 +177,13 @@ struct WarrenDesktopWorkspaceRow: View {
             values.append("Deleting")
         } else if isInteractionDisabled {
             values.append("Unavailable")
+        }
+        if activeTabCount > 0 {
+            values.append(
+                activeTabCount == 1
+                    ? "1 tab active"
+                    : "\(activeTabCount) tabs active"
+            )
         }
         values.append(isSelected ? "Selected" : "Not selected")
         return values.joined(separator: " · ")
@@ -248,5 +262,71 @@ struct WarrenDesktopActivityIndicator: View {
         case .ready: "Agent ready"
         case .exited: "Session exited"
         }
+    }
+}
+
+/// Shows concurrent working tabs while keeping the workspace row compact when
+/// a workspace has many active tabs. A higher-priority failure or input state
+/// remains visible beside the orange working marker.
+struct WarrenDesktopWorkspaceActivityIndicator: View {
+    let activity: AgentActivityState
+    let activeTabCount: Int
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var showsMultipleWorkingTabs: Bool {
+        activity == .working && activeTabCount > 1
+    }
+
+    private var showsMixedActivity: Bool {
+        activity != .working && activeTabCount > 0
+    }
+
+    var body: some View {
+        if showsMultipleWorkingTabs {
+            activeTabIndicator
+        } else if showsMixedActivity {
+            HStack(spacing: WarrenSpacing.xxs) {
+                WarrenDesktopActivityIndicator(activity: activity)
+                activeTabIndicator
+                    .accessibilityHidden(true)
+            }
+        } else {
+            WarrenDesktopActivityIndicator(activity: activity)
+        }
+    }
+
+    private var activeTabIndicator: some View {
+        let tokens = WarrenColorTokens.resolved(for: colorScheme)
+        return HStack(spacing: 1.5) {
+            WarrenStatusIndicator(
+                color: tokens.amber,
+                isActive: true,
+                size: 5,
+                accessibilityLabel: accessibilityLabel
+            )
+            if activeTabCount <= 3 {
+                ForEach(1..<activeTabCount, id: \.self) { _ in
+                    Circle()
+                        .fill(tokens.amber)
+                        .frame(width: 5, height: 5)
+                        .accessibilityHidden(true)
+                }
+            } else {
+                Text("\(activeTabCount)")
+                    .font(WarrenTypography.activityChip)
+                    .foregroundStyle(tokens.amber)
+                    .accessibilityHidden(true)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        activeTabCount == 1
+            ? "1 tab active"
+            : "\(activeTabCount) tabs active"
     }
 }
