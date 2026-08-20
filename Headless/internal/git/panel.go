@@ -2,7 +2,6 @@ package git
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,33 +13,6 @@ import (
 // working tree, so it is safe during rebases and merges.
 func Fetch(ctx context.Context, dir string) error {
 	_, err := run(ctx, dir, "fetch", "origin")
-	return err
-}
-
-// RebaseMain rebases the current branch onto the remote main line ref when it
-// is safe: no operation (rebase/merge/cherry-pick/revert) is in progress, the
-// working tree is clean, and the branch is not the main line itself. It
-// returns an error when any guard fails or git rebase does; the caller treats
-// it as a non-fatal skip so the panel still shows the last-known state.
-func RebaseMain(ctx context.Context, dir, ref string) error {
-	if OperationState(ctx, dir) != "" {
-		return errors.New("git operation in progress")
-	}
-	status, err := StatusFor(ctx, dir)
-	if err != nil {
-		return err
-	}
-	if len(status.Changes) > 0 {
-		return errors.New("working tree not clean")
-	}
-	if status.Branch == "" {
-		return errors.New("detached HEAD")
-	}
-	short := strings.TrimPrefix(strings.TrimPrefix(ref, "refs/remotes/"), "origin/")
-	if status.Branch == short {
-		return errors.New("branch is the main line")
-	}
-	_, err = run(ctx, dir, "rebase", ref)
 	return err
 }
 

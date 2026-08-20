@@ -1690,14 +1690,6 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 		_ = git.Fetch(ctx, workspace.Path)
 	}
 	mainBranch := git.MainBranch(ctx, workspace.Path)
-	if fetch && mainBranch != "" {
-		// Rebase the branch onto the freshly fetched main line so the
-		// comparison below shows exactly this branch's commits. RebaseMain
-		// skips itself when an operation is in progress, the tree is dirty,
-		// or the branch already is the main line; a failed rebase leaves the
-		// workspace in a rebase state that OperationState surfaces.
-		_ = git.RebaseMain(ctx, workspace.Path, mainBranch)
-	}
 	status, err := git.StatusFor(ctx, workspace.Path)
 	if err != nil {
 		return api.GitPanel{}, err
