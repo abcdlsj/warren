@@ -1,0 +1,61 @@
+name: Notify PR to WeCom
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Resolve approvers
+        id: approvers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          reviewers=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers" --jq '.users[].login' 2>/dev/null || true)
+          if [ -z "$reviewers" ]; then
+            reviewers=$(awk '/^\*/ {for (i = 2; i <= NF; i++) if ($i !~ /^#/) {gsub(/^@/, "", $i); print $i}}' .github/CODEOWNERS 2>/dev/null || true)
+          fi
+          approvers=$(printf '%s\n' "$reviewers" | paste -sd ',' -)
+          echo "approvers=${approvers:-none}" >> "$GITHUB_OUTPUT"
+
+      - name: Send WeCom notification
+        uses: actions/github-script@v7
+        env:
+          WECOM_PR_WEBHOOK_KEY: ${{ secrets.WECOM_PR_WEBHOOK_KEY }}
+          APPROVERS: ${{ steps.approvers.outputs.approvers }}
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const key = process.env.WECOM_PR_WEBHOOK_KEY;
+            if (!key) {
+              core.setFailed('Missing WECOM_PR_WEBHOOK_KEY secret; add it in repo Settings > Secrets and variables > Actions');
+              return;
+            }
+            const content = [
+              '## PR 待审批',
+              `**#${pr.number}** ${pr.title}`,
+              `🔗 [PR #${pr.number}](${pr.html_url})`,
+              `分支: ${pr.head.ref} → ${pr.base.ref}`,
+              `作者: ${pr.user.login}`,
+              `审批人: ${process.env.APPROVERS}`,
+            ].join('\n');
+            const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=${key}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ msgtype: 'markdown', markdown: { content } }),
+            });
+            const body = await res.json();
+            if (!res.ok || body.errcode !== 0) {
+              core.setFailed(`WeCom notification failed: ${JSON.stringify(body)}`);
+            }
