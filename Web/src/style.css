@@ -125,6 +125,35 @@
   box-sizing: border-box;
 }
 
+/* Thin, square scrollbars: the default rounded capsules clash with the flat
+   chrome surfaces, so render a slim square thumb everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html,
 body,
 #root {
@@ -3226,6 +3255,16 @@ button:disabled {
 
 .git-pane-history {
   flex: 1 1 0;
+}
+
+.git-pane .git-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-inline: calc(-1 * var(--space-md));
+  padding: var(--space-xs) var(--space-md);
+  background: var(--color-bg-surface);
+  box-shadow: 0 1px 0 var(--color-border-separator);
 }
 
 .git-section-title {
