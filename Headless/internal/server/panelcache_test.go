@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +42,66 @@ func TestPanelCacheExpiresEntries(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if _, ok := cache.Get("a"); ok {
 		t.Fatal("expected expired entry to miss")
+	}
+}
+
+func TestPanelCacheSetIfVersionRejectsStaleWrites(t *testing.T) {
+	cache := newPanelCache(2, time.Minute)
+	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
+	version := cache.Version("a")
+	cache.Remove("a")
+	if cache.SetIfVersion("a", api.GitPanel{WorkspaceID: "a", Branch: "stale"}, version) {
+		t.Fatal("expected stale write to be rejected after removal")
+	}
+	if _, ok := cache.Get("a"); ok {
+		t.Fatal("expected removed entry to stay absent")
+	}
+}
+
+func TestPanelCacheShouldRevalidateCoalesces(t *testing.T) {
+	cache := newPanelCache(2, time.Minute)
+	cache.Set("a", api.GitPanel{WorkspaceID: "a"})
+	if !cache.ShouldRevalidate("a", 0) {
+		t.Fatal("expected first check to trigger revalidation")
+	}
+	if cache.ShouldRevalidate("a", 0) {
+		t.Fatal("expected concurrent check to be coalesced while revalidating")
+	}
+	cache.FinishRevalidate("a")
+	if !cache.ShouldRevalidate("a", 0) {
+		t.Fatal("expected revalidation to be allowed again after finishing")
+	}
+}
+
+func TestPanelLoadMergesConcurrentLoads(t *testing.T) {
+	loads := newPanelLoad()
+	var calls atomic.Int32
+	start := make(chan struct{})
+	const workers = 8
+	results := make(chan string, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			<-start
+			panel, err := loads.Do("a", func() (api.GitPanel, error) {
+				calls.Add(1)
+				time.Sleep(50 * time.Millisecond)
+				return api.GitPanel{WorkspaceID: "a", Branch: "main"}, nil
+			})
+			if err != nil {
+				results <- "error"
+				return
+			}
+			results <- panel.Branch
+		}()
+	}
+	close(start)
+	for i := 0; i < workers; i++ {
+		if branch := <-results; branch != "main" {
+			t.Fatalf("worker got branch %q, want main", branch)
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("load executed %d times, want 1", calls.Load())
 	}
 }
 

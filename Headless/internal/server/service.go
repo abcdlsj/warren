@@ -82,6 +82,7 @@ type Service struct {
 	// panelCache lazily caches git panel snapshots per workspace so multiple
 	// clients share one snapshot instead of each loading git state itself.
 	panelCache     *panelCache
+	panelLoad      *panelLoad
 	panelCacheOnce sync.Once
 	// Logger receives lifecycle warnings. A nil logger falls back to slog's
 	// process-wide default so tests and embedders do not need to configure one.
@@ -1761,22 +1762,42 @@ func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) 
 	if err != nil {
 		return api.GitPanel{}, err
 	}
-	if cached, ok := s.panelCacheFor().Get(workspaceID); ok {
-		return cached, nil
+	cache := s.panelCacheFor()
+	if panel, ok := cache.Get(workspaceID); ok {
+		if cache.ShouldRevalidate(workspaceID, panelRevalidateAfter) {
+			go s.revalidatePanel(workspaceID, workspace.Path)
+		}
+		return panel, nil
 	}
-	panel, err := s.loadGitPanel(ctx, workspaceID, workspace.Path, fetch)
+	version := cache.Version(workspaceID)
+	panel, err := s.panelLoad.Do(workspaceID, func() (api.GitPanel, error) {
+		return s.loadGitPanel(ctx, workspaceID, workspace.Path, fetch)
+	})
 	if err != nil {
 		return api.GitPanel{}, err
 	}
-	s.panelCacheFor().Set(workspaceID, panel)
+	cache.SetIfVersion(workspaceID, panel, version)
 	return panel, nil
 }
 
 func (s *Service) panelCacheFor() *panelCache {
 	s.panelCacheOnce.Do(func() {
 		s.panelCache = newPanelCache(panelCacheCapacity, panelCacheTTL)
+		s.panelLoad = newPanelLoad()
 	})
 	return s.panelCache
+}
+
+func (s *Service) revalidatePanel(workspaceID, path string) {
+	ctx, cancel := context.WithTimeout(context.Background(), panelRevalidateTimeout)
+	defer cancel()
+	cache := s.panelCacheFor()
+	version := cache.Version(workspaceID)
+	panel, err := s.loadGitPanel(ctx, workspaceID, path, true)
+	if err == nil {
+		cache.SetIfVersion(workspaceID, panel, version)
+	}
+	cache.FinishRevalidate(workspaceID)
 }
 
 func (s *Service) invalidatePanelCache(workspaceID string) {
