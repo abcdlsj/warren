@@ -1757,17 +1757,19 @@ func findWorkspace(state api.State, id string) (api.Workspace, error) {
 	return api.Workspace{}, fmt.Errorf("workspace not found: %s", id)
 }
 
-func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch bool) (api.GitPanel, error) {
+func (s *Service) GitPanel(ctx context.Context, workspaceID string, fetch, force bool) (api.GitPanel, error) {
 	workspace, err := findWorkspace(s.Store.Snapshot(), workspaceID)
 	if err != nil {
 		return api.GitPanel{}, err
 	}
 	cache := s.panelCacheFor()
-	if panel, ok := cache.Get(workspaceID); ok {
-		if cache.ShouldRevalidate(workspaceID, panelRevalidateAfter) {
-			go s.revalidatePanel(workspaceID, workspace.Path)
+	if !force {
+		if panel, ok := cache.Get(workspaceID); ok {
+			if cache.ShouldRevalidate(workspaceID, panelRevalidateAfter) {
+				go s.revalidatePanel(workspaceID, workspace.Path)
+			}
+			return panel, nil
 		}
-		return panel, nil
 	}
 	version := cache.Version(workspaceID)
 	panel, err := s.panelLoad.Do(workspaceID, func() (api.GitPanel, error) {

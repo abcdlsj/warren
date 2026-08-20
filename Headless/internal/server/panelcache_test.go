@@ -110,13 +110,13 @@ func TestGitPanelServesCachedSnapshot(t *testing.T) {
 	service, workspaceID := gitPanelService(t, repository)
 	ctx := context.Background()
 
-	first, err := service.GitPanel(ctx, workspaceID, false)
+	first, err := service.GitPanel(ctx, workspaceID, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	gitForServiceTest(t, repository, "commit", "--allow-empty", "-m", "second")
 
-	second, err := service.GitPanel(ctx, workspaceID, false)
+	second, err := service.GitPanel(ctx, workspaceID, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestGitPanelServesCachedSnapshot(t *testing.T) {
 	}
 
 	service.invalidatePanelCache(workspaceID)
-	third, err := service.GitPanel(ctx, workspaceID, false)
+	third, err := service.GitPanel(ctx, workspaceID, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +142,45 @@ func TestGitPanelCacheIsLazyPerWorkspace(t *testing.T) {
 	if _, ok := service.panelCacheFor().Get(otherWorkspaceID); ok {
 		t.Fatal("expected unrequested workspace to be absent from the cache")
 	}
-	if _, err := service.GitPanel(context.Background(), workspaceID, false); err != nil {
+	if _, err := service.GitPanel(context.Background(), workspaceID, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := service.panelCacheFor().Get(otherWorkspaceID); ok {
 		t.Fatal("expected unrequested workspace to stay uncached after another request")
+	}
+}
+
+func TestGitPanelForceRefreshBypassesCache(t *testing.T) {
+	repository := newRepositoryForServiceTest(t)
+	service, workspaceID := gitPanelService(t, repository)
+	ctx := context.Background()
+
+	if _, err := service.GitPanel(ctx, workspaceID, false, false); err != nil {
+		t.Fatal(err)
+	}
+	gitForServiceTest(t, repository, "commit", "--allow-empty", "-m", "second")
+
+	cached, err := service.GitPanel(ctx, workspaceID, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cached.Commits) != 1 {
+		t.Fatalf("cached call returned %d commits, want 1 from cache", len(cached.Commits))
+	}
+
+	forced, err := service.GitPanel(ctx, workspaceID, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(forced.Commits) != 2 {
+		t.Fatalf("forced call returned %d commits, want 2", len(forced.Commits))
+	}
+
+	after, err := service.GitPanel(ctx, workspaceID, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Commits) != 2 {
+		t.Fatalf("cache was not refreshed by the forced call, got %d commits", len(after.Commits))
 	}
 }

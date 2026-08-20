@@ -286,7 +286,7 @@ export default function App() {
     setGitOpen(value);
   }, []);
 
-  const loadGitPanel = useCallback((preserve = false) => {
+  const loadGitPanel = useCallback((preserve = false, force = false) => {
     const workspaceID = selectedWorkspaceID;
     if (!workspaceID || gitLoadingRef.current === workspaceID) return;
     gitLoadingRef.current = workspaceID;
@@ -302,7 +302,7 @@ export default function App() {
         setGitRefreshing(false);
       }
     };
-    const sent = request("git.panel", { workspace: workspaceID, fetch: true }, result => {
+    const sent = request("git.panel", { workspace: workspaceID, fetch: true, force }, result => {
       if (appStateRef.current.activeWorkspace !== workspaceID) {
         finish();
         return;
@@ -2180,7 +2180,7 @@ export default function App() {
             refreshing={gitRefreshing}
             error={gitError}
             action={gitAction}
-            onRefresh={loadGitPanel}
+            onRefresh={() => loadGitPanel(true, true)}
             onPull={() => runGitAction("git.pull", { workspace: selectedWorkspaceID })}
             onPush={() => runGitAction("git.push", { workspace: selectedWorkspaceID })}
             onCheckout={(branch, create) => runGitAction("git.checkout", { workspace: selectedWorkspaceID, branch, create })}
