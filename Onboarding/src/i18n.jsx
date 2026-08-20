@@ -90,6 +90,31 @@ const messages = {
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
+        version: "0.5.2",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren keeps release notes in sync.",
+        summary:
+          "The onboarding changelog now follows the repository while remaining useful when the network is unavailable.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Load the onboarding changelog from the repository at runtime and keep the last successful response available for offline use.",
+              "Add parser coverage for wrapped Markdown release notes and links.",
+              "Proxy release metadata through a Cloudflare Worker with cached GitHub API/page fallbacks and a documented updater endpoint.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Serve cached changelog entries while refreshing stale data so the public release history remains available during transient repository failures.",
+              "Route the desktop updater through the release service and show update status in optimized builds without the development BUILD marker.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.5.1",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -387,6 +412,30 @@ const messages = {
     "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
+      {
+        version: "0.5.2",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 的更新日志现在会保持同步。",
+        summary: "Onboarding 更新日志现在跟随仓库，同时在网络不可用时仍可使用。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "运行时从仓库加载 Onboarding 更新日志，并保留最近一次成功响应供离线使用。",
+              "增加对折行 Markdown 发布说明和链接的解析测试。",
+              "通过 Cloudflare Worker 代理版本信息，使用带缓存的 GitHub API/页面降级，并补充更新服务接口文档。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "刷新过期数据时继续提供缓存的更新日志，让公共版本记录在仓库短暂不可用时仍可访问。",
+              "让桌面端更新器通过更新服务获取版本信息，并在优化构建中显示更新状态而不显示开发版 BUILD 标记。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.5.1",
         dateISO: "2026-08-20",
