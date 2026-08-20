@@ -4,11 +4,29 @@ All notable changes to Warren are documented here.
 
 ## [Unreleased]
 
-- Add `session current`, safe `session move --current`, explicit move
-  confirmation, dry-run preflight output, and compare-and-swap context guards.
-- Mark the current Warren Session and distinguish its ID from agent/thread and
-  transcript IDs in CLI output; record reversible move operation IDs with a
-  fail-closed `session undo` path.
+- Add release notes here before the next version is published.
+
+## [0.6.0] - 2026-08-20
+
+> Important release: this version hardens session operations and prevents stale
+> or ambiguous context from changing the wrong terminal. Review the new
+> confirmation, dry-run, and undo behavior before using session moves in
+> automation.
+
+### Added
+
+- Add `session current`, safe `session move --current`, explicit move confirmation, dry-run preflight output, and compare-and-swap context guards.
+- Mark the current Warren Session and distinguish its ID from agent/thread and transcript IDs in CLI output; record reversible move operation IDs with a fail-closed `session undo` path.
+
+### Changed
+
+- Publish project and workspace removals before slow runtime and filesystem cleanup so active session operations remain responsive.
+- Bound destructive mutations independently from the initiating WebSocket, allowing cleanup to finish safely after a client disconnects.
+
+### Fixed
+
+- Prevent workspace deletion from blocking session creation, closing, or other session operations.
+- Suppress stale terminal focus reports during tab transitions.
 
 ## [0.5.2] - 2026-08-20
 

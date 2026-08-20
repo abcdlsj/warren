@@ -90,6 +90,37 @@ const messages = {
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
+        version: "0.6.0",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren makes session operations safe.",
+        summary:
+          "Important release: session targeting now fails closed, explains its target, and supports safe recovery when context changes.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Add session current, safe current-session moves, explicit confirmation, dry-run preflight output, and compare-and-swap context guards.",
+              "Mark the current Warren Session separately from agent, thread, and transcript IDs, and record reversible move operation IDs with session undo.",
+            ],
+          },
+          {
+            title: "Changed",
+            items: [
+              "Publish project and workspace removals before slow runtime and filesystem cleanup so active session operations remain responsive.",
+              "Bound destructive mutations independently from the initiating WebSocket, allowing cleanup to finish safely after a client disconnects.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Prevent workspace deletion from blocking session creation, closing, or other session operations.",
+              "Suppress stale terminal focus reports during tab transitions.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.5.2",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -412,6 +443,37 @@ const messages = {
     "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
+      {
+        version: "0.6.0",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 让 Session 操作更安全。",
+        summary:
+          "重要版本：Session 定位现在会失败即关闭、明确展示目标，并在上下文变化时支持安全恢复。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "增加 session current、安全的当前 Session 移动、显式确认、dry-run 预检输出和 compare-and-swap 上下文保护。",
+              "在 CLI 输出中明确区分 Warren Session、Agent、Thread 和 Transcript ID，并为移动操作记录可撤销的 operation ID，支持 session undo。",
+            ],
+          },
+          {
+            title: "调整",
+            items: [
+              "先发布 Project 和 Workspace 的移除状态，再执行耗时的运行时和文件系统清理，保持活跃 Session 操作响应。",
+              "让破坏性变更脱离发起请求的 WebSocket 独立执行，即使客户端断开，清理也能安全完成。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "修复 Workspace 删除阻塞 Session 创建、关闭和其他操作的问题。",
+              "抑制终端 Tab 切换期间的过期 focus 上报。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.5.2",
         dateISO: "2026-08-20",
