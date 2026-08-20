@@ -3212,6 +3212,37 @@ button:disabled {
   white-space: nowrap;
 }
 
+.git-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.git-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border-separator);
+  border-top-color: var(--color-accent-text);
+  border-radius: 50%;
+  animation: git-spin 0.8s linear infinite;
+}
+
+@keyframes git-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.git-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
 .git-error {
   margin: var(--space-md);
   padding: var(--space-md);

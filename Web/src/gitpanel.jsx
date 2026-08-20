@@ -44,6 +44,14 @@ const operationLabels = {
   revert: "Revert",
 };
 
+const actionLabels = {
+  "git.pull": "Pulling",
+  "git.push": "Pushing",
+  "git.checkout": "Switching branches",
+  "git.commit": "Committing",
+  "git.pr.create": "Creating pull request",
+};
+
 const prStateLabels = {
   open: "Open",
   merged: "Merged",
@@ -87,15 +95,17 @@ function GitPane({ title, open, onToggle, children }) {
   );
 }
 
-function ChangeSection({ title, changes, selectedKey, onOpenFile }) {
+function ChangeSection({ title, changes, selectedKey, onOpenFile, showTitle = true }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
   return (
     <section className="git-section">
-      <h3 className="git-section-title">
-        {title} ({changes.length})
-        <DiffCounts added={summary.added} deleted={summary.deleted} />
-      </h3>
+      {showTitle && (
+        <h3 className="git-section-title">
+          {title} ({changes.length})
+          <DiffCounts added={summary.added} deleted={summary.deleted} />
+        </h3>
+      )}
       <ul className="git-change-list">
         {changes.map((change, index) => (
           <ChangeRow
@@ -114,6 +124,7 @@ export function GitPanel({
   workspaceName,
   panel,
   loading,
+  refreshing,
   error,
   action,
   onRefresh,
@@ -139,6 +150,7 @@ export function GitPanel({
   const [prTitle, setPrTitle] = useState("");
   const [prBody, setPrBody] = useState("");
   const busy = Boolean(action) || loading;
+  const changeCount = (data?.staged?.length || 0) + (data?.unstaged?.length || 0);
   const historyCommits = data?.mainBranch && !data.operation ? (data.unmergedCommits || []) : (data?.commits || []);
   const mainShort = data?.mainBranch?.includes("/") ? data.mainBranch.slice(data.mainBranch.indexOf("/") + 1) : data?.mainBranch || "";
   const canCreatePR = Boolean(
@@ -216,14 +228,23 @@ export function GitPanel({
     <aside className="git-panel" aria-label="Git">
       <header className="git-panel-header">
         <strong className="git-panel-title">{workspaceName || "Git"}</strong>
-        <button type="button" className="chrome-button" aria-label="Close Git panel" onClick={onClose}>
-          ✕
-        </button>
+        <div className="git-panel-header-actions">
+          {refreshing && <span className="git-spinner" title="Auto-refreshing" aria-label="Auto-refreshing" />}
+          <button type="button" className="chrome-button" aria-label="Close Git panel" onClick={onClose}>
+            ✕
+          </button>
+        </div>
       </header>
 
       {error && <div className="git-error">{error}</div>}
 
-      <div className="git-scroll">
+      {loading && !data ? (
+        <div className="git-loading">
+          <span className="git-spinner" aria-hidden="true" />
+          {action ? `${actionLabels[action] || "Running git command"}…` : "Loading…"}
+        </div>
+      ) : (
+        <div className="git-scroll">
         <section className="git-section git-fixed-section">
           <h3 className="git-section-title">Branch</h3>
           {data?.operation && (
@@ -350,9 +371,13 @@ export function GitPanel({
           </GitPane>
         )}
 
-        <GitPane title="Changes" open={openPanes.has("changes")} onToggle={() => togglePane("changes")}>
+        <GitPane
+          title={<>Changes{changeCount > 0 && ` (${changeCount})`}</>}
+          open={openPanes.has("changes")}
+          onToggle={() => togglePane("changes")}
+        >
           <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />
-          <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} />
+          <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} showTitle={false} />
         </GitPane>
 
         <GitPane
@@ -440,7 +465,8 @@ export function GitPanel({
           </div>
         </section>
 
-      </div>
+        </div>
+      )}
     </aside>
   );
 }

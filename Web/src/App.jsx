@@ -74,7 +74,7 @@ const storageKeys = {
 };
 
 // How often the open git panel re-fetches remote refs while it stays visible.
-const GIT_PANEL_POLL_MS = 60_000;
+const GIT_PANEL_POLL_MS = 5 * 60_000;
 
 const defaultFontFamily = 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace';
 const defaultFontSize = matchMedia("(max-width: 767px)").matches ? 12 : 13;
@@ -146,8 +146,10 @@ export default function App() {
   const [gitOpen, setGitOpen] = useState(false);
   const [gitPanel, setGitPanel] = useState(null);
   const [gitLoading, setGitLoading] = useState(false);
+  const [gitRefreshing, setGitRefreshing] = useState(false);
   const [gitError, setGitError] = useState("");
   const gitLoadingRef = useRef(null);
+  const gitPanelCacheRef = useRef(new Map());
   const [gitAction, setGitAction] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [terminalSearchOpen, setTerminalSearchOpen] = useState(false);
@@ -281,14 +283,16 @@ export default function App() {
     const workspaceID = selectedWorkspaceID;
     if (!workspaceID || gitLoadingRef.current === workspaceID) return;
     gitLoadingRef.current = workspaceID;
-    setGitLoading(true);
+    if (preserve) setGitRefreshing(true);
+    else setGitLoading(true);
     setGitError("");
     setGitAction("");
-    if (!preserve) setGitPanel(null);
+    if (!preserve) setGitPanel(gitPanelCacheRef.current.get(workspaceID) ?? null);
     const finish = () => {
       if (gitLoadingRef.current === workspaceID) {
         gitLoadingRef.current = null;
         setGitLoading(false);
+        setGitRefreshing(false);
       }
     };
     const sent = request("git.panel", { workspace: workspaceID, fetch: true }, result => {
@@ -296,6 +300,7 @@ export default function App() {
         finish();
         return;
       }
+      gitPanelCacheRef.current.set(workspaceID, result);
       setGitPanel(result);
       finish();
     }, error => {
@@ -303,12 +308,10 @@ export default function App() {
         finish();
         return;
       }
-      setGitPanel(null);
       setGitError(error);
       finish();
     });
     if (!sent) {
-      setGitPanel(null);
       setGitError("Not connected");
       finish();
     }
@@ -2042,6 +2045,7 @@ export default function App() {
             workspaceName={selectedWorkspace?.name}
             panel={gitPanel}
             loading={gitLoading}
+            refreshing={gitRefreshing}
             error={gitError}
             action={gitAction}
             onRefresh={loadGitPanel}
