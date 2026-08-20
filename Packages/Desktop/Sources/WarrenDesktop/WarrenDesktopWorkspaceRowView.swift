@@ -267,9 +267,9 @@ struct WarrenDesktopActivityIndicator: View {
     }
 }
 
-/// Shows concurrent working tabs while keeping the workspace row compact when
-/// a workspace has many active tabs. A higher-priority failure or input state
-/// remains visible beside the orange working marker.
+/// Shows concurrent working tabs as a compact, unboxed dot cluster. A
+/// higher-priority failure or input state remains visible beside the orange
+/// working marker.
 struct WarrenDesktopWorkspaceActivityIndicator: View {
     let activity: AgentActivityState
     let activeTabCount: Int
@@ -295,11 +295,11 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
 
     var body: some View {
         if showsMultipleWorkingTabs {
-            activeTabIndicator
+            activeTabCluster
         } else if showsMixedActivity {
             HStack(spacing: WarrenSpacing.xxs) {
                 WarrenDesktopActivityIndicator(activity: activity)
-                activeTabIndicator
+                activeTabCluster
                     .accessibilityHidden(true)
             }
         } else {
@@ -307,10 +307,11 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
         }
     }
 
-    private var activeTabIndicator: some View {
+    private var activeTabCluster: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         let dotSize: CGFloat = isCompact ? 4.5 : 5.5
-        return HStack(spacing: WarrenSpacing.xxs) {
+        let dotSlotSize = dotSize * 1.6
+        return HStack(spacing: 0) {
             WarrenStatusIndicator(
                 color: tokens.amber,
                 isActive: true,
@@ -322,6 +323,7 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
                     Circle()
                         .fill(tokens.amber)
                         .frame(width: dotSize, height: dotSize)
+                        .frame(width: dotSlotSize, height: dotSlotSize)
                         .accessibilityHidden(true)
                 }
             } else {
@@ -329,21 +331,9 @@ struct WarrenDesktopWorkspaceActivityIndicator: View {
                     .font(WarrenTypography.activityChip)
                     .foregroundStyle(tokens.amber)
                     .monospacedDigit()
+                    .padding(.leading, WarrenSpacing.xxs)
                     .accessibilityHidden(true)
             }
-        }
-        .padding(.horizontal, isCompact ? WarrenSpacing.xxs : WarrenSpacing.xs)
-        .padding(.vertical, WarrenSpacing.xxs)
-        .background(
-            tokens.amber.opacity(isCompact ? 0.14 : 0.10),
-            in: Capsule()
-        )
-        .overlay {
-            Capsule()
-                .stroke(
-                    tokens.amber.opacity(isCompact ? 0.36 : 0.24),
-                    lineWidth: WarrenSpacing.hairline
-                )
         }
         .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
