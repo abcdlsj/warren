@@ -6,6 +6,24 @@ All notable changes to Warren are documented here.
 
 - Add release notes here before the next version is published.
 
+## [0.6.1] - 2026-08-20
+
+> Maintenance release: make terminal launchers easier to use and keep
+> workspace deletion isolated from active session operations.
+
+### Added
+
+- Add the `warren://terminal` deep link for opening a terminal group from
+  external launchers.
+- Bundle a Raycast Script Command and Warren icon with the release app.
+
+### Fixed
+
+- Keep workspace deletion cleanup isolated from roster publication and active
+  session lifecycle so deletion cannot block unrelated session operations.
+- Focus the command palette input when it opens so keyboard-first use remains
+  reliable.
+
 ## [0.6.0] - 2026-08-20
 
 > Important release: this version hardens session operations and prevents stale

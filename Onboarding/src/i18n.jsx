@@ -90,6 +90,30 @@ const messages = {
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
       {
+        version: "0.6.1",
+        dateISO: "2026-08-20",
+        date: "August 20, 2026",
+        title: "Warren makes terminal launching easier.",
+        summary:
+          "A maintenance release with a stable terminal deep link, a bundled Raycast launcher, and safer workspace deletion cleanup.",
+        sections: [
+          {
+            title: "Added",
+            items: [
+              "Add the warren://terminal deep link for opening a terminal group from external launchers.",
+              "Bundle a Raycast Script Command and Warren icon with the release app.",
+            ],
+          },
+          {
+            title: "Fixed",
+            items: [
+              "Keep workspace deletion cleanup isolated from roster publication and active session lifecycle so deletion cannot block unrelated session operations.",
+              "Focus the command palette input when it opens so keyboard-first use remains reliable.",
+            ],
+          },
+        ],
+      },
+      {
         version: "0.6.0",
         dateISO: "2026-08-20",
         date: "August 20, 2026",
@@ -443,6 +467,30 @@ const messages = {
     "changelog.error": "更新日志暂时不可用，可以先查看仓库。",
     // Offline fallback; live entries come from the repository changelog API.
     "changelog.entries": [
+      {
+        version: "0.6.1",
+        dateISO: "2026-08-20",
+        date: "2026 年 8 月 20 日",
+        title: "Warren 更容易启动终端了。",
+        summary:
+          "维护版本：增加稳定的终端 deep link、内置 Raycast 启动器，并让 Workspace 删除清理更安全。",
+        sections: [
+          {
+            title: "新增",
+            items: [
+              "增加 warren://terminal deep link，支持从外部启动器打开指定 Terminal Group。",
+              "在发布版应用中内置 Raycast Script Command 和 Warren 图标。",
+            ],
+          },
+          {
+            title: "修复",
+            items: [
+              "隔离 Workspace 删除清理与 roster 发布及活跃 Session 生命周期，避免删除操作阻塞无关的 Session 操作。",
+              "打开 Command Palette 时自动聚焦输入框，保证键盘操作可靠。",
+            ],
+          },
+        ],
+      },
       {
         version: "0.6.0",
         dateISO: "2026-08-20",

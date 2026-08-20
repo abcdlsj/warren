@@ -1,0 +1,75 @@
+# Warren Release Process
+
+This document is the required release checklist for Warren. Keep the release
+version, changelog, onboarding fallback, app metadata, and archive name in
+sync before publishing anything.
+
+## Before the release commit
+
+1. Choose the next semantic version from the latest tag and record the release
+   date. Use a patch version for backwards-compatible fixes and small release
+   maintenance; use a minor or major version when the product contract
+   changes.
+2. Move the completed notes from `CHANGELOG.md`'s `Unreleased` section into a
+   dated version section. Leave a fresh `Unreleased` placeholder at the top.
+3. Add the same release to both English and Simplified Chinese offline
+   fallback lists in `Onboarding/src/i18n.jsx`. The onboarding Worker reads
+   `CHANGELOG.md` at runtime, but the fallback must remain useful offline.
+4. Update `Support/Info.plist`:
+   - Set `CFBundleShortVersionString` to the release version.
+   - Increment `CFBundleVersion` by one from the previous release.
+5. Update the archive version in `scripts/package.sh` so the generated file is
+   named `Warren-<version>.zip`.
+6. Review the complete diff for business, interaction, performance, fresh
+   checkout, and coupling risks. Record any material risk and its mitigation
+   in the release description before publishing.
+
+## Checks and packaging
+
+Run the checks relevant to the changed surfaces before creating the release
+commit:
+
+```sh
+npm --prefix Onboarding test
+npm --prefix Onboarding run build
+swift test
+go test -race ./Headless/...
+```
+
+## Commit, push, and publish
+
+1. Create one release-preparation commit after the checks pass. The commit
+   subject must use a type prefix, for example:
+   `chore: prepare 0.6.1 release`.
+2. Create the matching annotated tag locally at the release commit before
+   packaging. `scripts/version.sh` embeds the exact tag when one is present, so
+   packaging before tagging would put the commit hash in the shipped binaries.
+   Do not reuse an existing release tag.
+3. Build the release archive from the tagged release commit:
+
+   ```sh
+   bash scripts/package.sh
+   ```
+
+   Confirm that `Warren.app/Contents/Info.plist` contains the release version,
+   `Warren.app/Contents/MacOS/warren-headless --version` prints the release
+   tag, and `Warren-<version>.zip` exists. Do not commit `Warren.app`, zip
+   archives, or generated build output.
+4. Push the release commit and tag to the intended remote, then create or
+   update the pull request when branch policy permits.
+5. If an explicitly authorized emergency direct push is required because a
+   pull request is blocked by approval policy, use the repository-local
+   `.local/force-push-once.sh` helper when it is available. Run its dry run
+   first; prefer `--force-with-lease`, use `--allow-direct-push` only for this
+   exceptional case, and verify that branch protection is restored afterward.
+6. Publish a GitHub release with `Warren-<version>.zip` attached and the
+   corresponding `CHANGELOG.md` notes.
+7. Verify the tag, release asset, download URL, and onboarding release
+   response after publishing.
+
+## Rollback
+
+Do not delete or move a published tag silently. If an archive is defective,
+mark the GitHub release as a draft or clearly superseded, prepare a new patch
+version, and repeat this checklist. Preserve the previous release asset until
+the replacement has been verified.
