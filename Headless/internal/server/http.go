@@ -1115,7 +1115,7 @@ func (p *wsPeer) handle(ctx context.Context, command api.Envelope) error {
 		}
 		return p.writeResult(command.ID, map[string]bool{"resized": resized})
 	case "git.panel":
-		panel, err := p.server.Service.GitPanel(ctx, stringParam(params, "workspace"))
+		panel, err := p.server.Service.GitPanel(ctx, stringParam(params, "workspace"), boolParam(params, "fetch"))
 		if err != nil {
 			return err
 		}

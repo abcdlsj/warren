@@ -34,6 +34,17 @@ func Log(ctx context.Context, dir string, limit int) ([]Commit, error) {
 	if err != nil {
 		return nil, err
 	}
+	return logRange(ctx, dir, args)
+}
+
+// LogRange returns every commit reachable from HEAD but not from ref, i.e.
+// the current branch's changes that are not yet merged into ref's line.
+func LogRange(ctx context.Context, dir, ref string) ([]Commit, error) {
+	args := []string{"-c", "core.quotepath=false", "log", "-M", ref + "..HEAD"}
+	return logRange(ctx, dir, args)
+}
+
+func logRange(ctx context.Context, dir string, args []string) ([]Commit, error) {
 	output, err := run(ctx, dir, append(append([]string{}, args...), "--name-status", "--format=COMMIT%x00%H%x00%h%x00%s%x00%an%x00%ae%x00%aI%x00")...)
 	if err != nil {
 		// A repository with no commits yet fails git log; the panel should
