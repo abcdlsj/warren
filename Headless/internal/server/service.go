@@ -31,6 +31,7 @@ const (
 	defaultRingMaxBytes     = 8 * 1024 * 1024
 	defaultMaxSpool         = 8 * 1024 * 1024
 	defaultCommandTimeout   = 10 * time.Second
+	broadcastLockWait       = 100 * time.Millisecond
 	metadataRefreshInterval = 750 * time.Millisecond
 	metadataProbeTimeout    = 2 * time.Second
 	cursorPersistEvery      = 256 * 1024
@@ -3059,11 +3060,18 @@ func (s *Service) broadcastFrame(frame output.Frame) {
 	}
 	lock := s.broadcastLock(frame.SessionID)
 	if !lock.TryLock() {
-		// Never let a spool watcher block behind an attach or focus operation.
-		// The ring already retains this frame; force attached peers to reconnect
-		// and recover from a fresh snapshot instead of wedging the watcher.
-		s.forceSessionReanchor(frame.SessionID)
-		return
+		// Focus and resize briefly hold the same lock while the runtime applies a
+		// PTY size. Do not reset a healthy WebSocket for that normal contention:
+		// waiting for a bounded interval preserves frame ordering and lets the
+		// current frame reach the client. A genuinely wedged attach/focus still
+		// falls through to the existing reanchor path after the deadline.
+		ctx, cancel := context.WithTimeout(context.Background(), broadcastLockWait)
+		err := lock.LockContext(ctx)
+		cancel()
+		if err != nil {
+			s.forceSessionReanchor(frame.SessionID)
+			return
+		}
 	}
 	defer lock.Unlock()
 	s.outputMu.Lock()
