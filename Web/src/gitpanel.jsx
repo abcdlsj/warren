@@ -70,6 +70,23 @@ function PullRequestView({ pr }) {
   );
 }
 
+function GitPane({ title, open, onToggle, children }) {
+  return (
+    <div className={`git-pane${open ? "" : " collapsed"}`}>
+      <button
+        type="button"
+        className="git-pane-header"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="git-pane-header-title">{title}</span>
+        <span className="git-pane-chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && <div className="git-pane-content">{children}</div>}
+    </div>
+  );
+}
+
 function ChangeSection({ title, changes, selectedKey, onOpenFile }) {
   if (!changes.length) return null;
   const summary = diffSummary(changes);
@@ -114,6 +131,7 @@ export function GitPanel({
   const [newBranch, setNewBranch] = useState("");
   const [createMode, setCreateMode] = useState(false);
   const [expanded, setExpanded] = useState(new Set());
+  const [openPanes, setOpenPanes] = useState(() => new Set(["pr", "changes", "history"]));
   const [selectedKey, setSelectedKey] = useState(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
@@ -172,6 +190,15 @@ export function GitPanel({
       const next = new Set(previous);
       if (next.has(hash)) next.delete(hash);
       else next.add(hash);
+      return next;
+    });
+  };
+
+  const togglePane = key => {
+    setOpenPanes(previous => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -269,107 +296,102 @@ export function GitPanel({
         </section>
 
         {data?.remote && (
-          <div className="git-pane git-pane-pr">
-            <section className="git-section">
-              <h3 className="git-section-title">Pull Request</h3>
-              {data.pullRequest ? (
-                <PullRequestView pr={data.pullRequest} />
-              ) : data.pullRequestError ? (
-                <p className="git-pr-error">{data.pullRequestError}</p>
-              ) : canCreatePR ? (
-                prOpen ? (
-                  <div className="git-pr-form">
-                    <input
-                      className="git-input"
-                      value={prTitle}
-                      onChange={event => setPrTitle(event.target.value)}
-                      placeholder="Pull request title"
-                      autoFocus
-                      onKeyDown={event => {
-                        if (event.key === "Enter") submitCreatePR();
-                        if (event.key === "Escape") setPrOpen(false);
-                      }}
-                    />
-                    <textarea
-                      className="git-textarea"
-                      value={prBody}
-                      onChange={event => setPrBody(event.target.value)}
-                      placeholder="Description"
-                      rows={4}
-                    />
-                    <p className="git-commit-hint">
-                      Merge into {data.mainBranch} from {data.branch}
-                    </p>
-                    <div className="git-commit-actions">
-                      <button
-                        type="button"
-                        className="chrome-button"
-                        onClick={submitCreatePR}
-                        disabled={!prTitle.trim() || busy}
-                      >
-                        {action === "git.pr.create" ? "Creating…" : "Create pull request"}
-                      </button>
-                      <button type="button" className="chrome-button" onClick={() => setPrOpen(false)}>
-                        Cancel
-                      </button>
-                    </div>
+          <GitPane title="Pull Request" open={openPanes.has("pr")} onToggle={() => togglePane("pr")}>
+            {data.pullRequest ? (
+              <PullRequestView pr={data.pullRequest} />
+            ) : data.pullRequestError ? (
+              <p className="git-pr-error">{data.pullRequestError}</p>
+            ) : canCreatePR ? (
+              prOpen ? (
+                <div className="git-pr-form">
+                  <input
+                    className="git-input"
+                    value={prTitle}
+                    onChange={event => setPrTitle(event.target.value)}
+                    placeholder="Pull request title"
+                    autoFocus
+                    onKeyDown={event => {
+                      if (event.key === "Enter") submitCreatePR();
+                      if (event.key === "Escape") setPrOpen(false);
+                    }}
+                  />
+                  <textarea
+                    className="git-textarea"
+                    value={prBody}
+                    onChange={event => setPrBody(event.target.value)}
+                    placeholder="Description"
+                    rows={4}
+                  />
+                  <p className="git-commit-hint">
+                    Merge into {data.mainBranch} from {data.branch}
+                  </p>
+                  <div className="git-commit-actions">
+                    <button
+                      type="button"
+                      className="chrome-button"
+                      onClick={submitCreatePR}
+                      disabled={!prTitle.trim() || busy}
+                    >
+                      {action === "git.pr.create" ? "Creating…" : "Create pull request"}
+                    </button>
+                    <button type="button" className="chrome-button" onClick={() => setPrOpen(false)}>
+                      Cancel
+                    </button>
                   </div>
-                ) : (
-                  <button type="button" className="chrome-button" onClick={openCreatePR} disabled={busy}>
-                    Create pull request
-                  </button>
-                )
+                </div>
               ) : (
-                <p className="git-empty">No pull request</p>
-              )}
-            </section>
-          </div>
+                <button type="button" className="chrome-button" onClick={openCreatePR} disabled={busy}>
+                  Create pull request
+                </button>
+              )
+            ) : (
+              <p className="git-empty">No pull request</p>
+            )}
+          </GitPane>
         )}
 
-        <div className="git-pane git-pane-changes">
+        <GitPane title="Changes" open={openPanes.has("changes")} onToggle={() => togglePane("changes")}>
           <ChangeSection title="Staged" changes={data?.staged || []} selectedKey={selectedKey} onOpenFile={openFile} />
           <ChangeSection title="Changes" changes={data?.unstaged || []} selectedKey={selectedKey} onOpenFile={openFile} />
-        </div>
+        </GitPane>
 
-        <div className="git-pane git-pane-history">
-          <section className="git-section">
-            <h3 className="git-section-title">
-              History
-              {data?.mainBranch && !data.merged && !data.operation && <span className="git-history-scope">not in {data.mainBranch}</span>}
-            </h3>
-            {!historyCommits.length && (
-              <p className="git-empty">
-                {data?.mainBranch && !data.operation ? `All commits are in ${data.mainBranch}` : "No commits"}
-              </p>
-            )}
-            <ul className="git-commit-list">
-              {historyCommits.map(commit => (
-                <li key={commit.hash} className="git-commit">
-                  <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
-                    <span className="git-commit-subject">{commit.subject}</span>
-                    <span className="git-commit-meta">
-                      <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
-                      <DiffCounts {...diffSummary(commit.files)} />
-                    </span>
-                  </button>
-                  {expanded.has(commit.hash) && (
-                    <ul className="git-change-list">
-                      {commit.files.map((file, index) => (
-                        <ChangeRow
-                          key={`${commit.hash}-${file.path}-${index}`}
-                          change={file}
-                          commit={commit.hash}
-                          selected={selectedKey === changeKey(file, commit.hash)}
-                          onOpenFile={openFile}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
+        <GitPane
+          title={<>History{data?.mainBranch && !data.merged && !data.operation && <span className="git-history-scope">not in {data.mainBranch}</span>}</>}
+          open={openPanes.has("history")}
+          onToggle={() => togglePane("history")}
+        >
+          {!historyCommits.length && (
+            <p className="git-empty">
+              {data?.mainBranch && !data.operation ? `All commits are in ${data.mainBranch}` : "No commits"}
+            </p>
+          )}
+          <ul className="git-commit-list">
+            {historyCommits.map(commit => (
+              <li key={commit.hash} className="git-commit">
+                <button type="button" className="git-commit-summary" aria-expanded={expanded.has(commit.hash)} onClick={() => toggleCommit(commit.hash)}>
+                  <span className="git-commit-subject">{commit.subject}</span>
+                  <span className="git-commit-meta">
+                    <code>{commit.short}</code> · {commit.author} · {relativeTime(commit.time)}
+                    <DiffCounts {...diffSummary(commit.files)} />
+                  </span>
+                </button>
+                {expanded.has(commit.hash) && (
+                  <ul className="git-change-list">
+                    {commit.files.map((file, index) => (
+                      <ChangeRow
+                        key={`${commit.hash}-${file.path}-${index}`}
+                        change={file}
+                        commit={commit.hash}
+                        selected={selectedKey === changeKey(file, commit.hash)}
+                        onOpenFile={openFile}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </GitPane>
 
         <section className="git-section git-fixed-section">
           <h3 className="git-section-title">Checkout</h3>
@@ -399,20 +421,22 @@ export function GitPanel({
                 }}
               />
             ) : null}
-            <button type="button" className="chrome-button" onClick={submitCheckout} disabled={busy || (createMode ? !newBranch.trim() : !branch)}>
-              {action === "git.checkout" ? "Switching…" : createMode ? "Create" : "Checkout"}
-            </button>
-            <button
-              type="button"
-              className="chrome-button"
-              disabled={busy}
-              onClick={() => {
-                setCreateMode(!createMode);
-                setNewBranch("");
-              }}
-            >
-              {createMode ? "Existing" : "New"}
-            </button>
+            <div className="git-checkout-actions">
+              <button type="button" className="chrome-button" onClick={submitCheckout} disabled={busy || (createMode ? !newBranch.trim() : !branch)}>
+                {action === "git.checkout" ? "Switching…" : createMode ? "Create" : "Checkout"}
+              </button>
+              <button
+                type="button"
+                className="chrome-button"
+                disabled={busy}
+                onClick={() => {
+                  setCreateMode(!createMode);
+                  setNewBranch("");
+                }}
+              >
+                {createMode ? "Existing" : "New"}
+              </button>
+            </div>
           </div>
         </section>
 
