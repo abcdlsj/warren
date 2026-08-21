@@ -22,8 +22,11 @@ struct WarrenDesktopTabBar: View {
     let externalIDEOptions: [WarrenDesktopExternalIDEOption]?
     let hasInspector: Bool
     let isInspectorVisible: Bool
+    let hasGitPanel: Bool
+    let gitActive: Bool
     let onToggleSidebar: () -> Void
     let onToggleInspector: () -> Void
+    let onToggleGit: () -> Void
     let onSettings: () -> Void
     let onChromePopover: (WarrenDesktopChromePopover) -> Void
     let onOpenInExternalIDE: (WarrenDesktopExternalIDEOption) -> Void
@@ -151,11 +154,14 @@ struct WarrenDesktopTabBar: View {
                         externalIDEOptions: externalIDEOptions,
                         hasInspector: hasInspector,
                         isInspectorVisible: isInspectorVisible,
+                        hasGitPanel: hasGitPanel,
+                        gitActive: gitActive,
                         onSettings: onSettings,
                         onChromePopover: onChromePopover,
                         onOpenInExternalIDE: onOpenInExternalIDE,
                         onSelectEndpoint: onSelectEndpoint,
-                        onToggleInspector: onToggleInspector
+                        onToggleInspector: onToggleInspector,
+                        onToggleGit: onToggleGit
                     )
                 }
             }
@@ -298,6 +304,7 @@ enum WarrenDesktopWorkspaceTabTrailingControl: CaseIterable, Hashable {
     case externalIDE
     case endpoint
     case web
+    case git
     case inspector
     case settings
 }
@@ -310,11 +317,14 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
     let externalIDEOptions: [WarrenDesktopExternalIDEOption]?
     let hasInspector: Bool
     let isInspectorVisible: Bool
+    let hasGitPanel: Bool
+    let gitActive: Bool
     let onSettings: () -> Void
     let onChromePopover: (WarrenDesktopChromePopover) -> Void
     let onOpenInExternalIDE: (WarrenDesktopExternalIDEOption) -> Void
     let onSelectEndpoint: (String) -> Void
     let onToggleInspector: () -> Void
+    let onToggleGit: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -365,6 +375,13 @@ private struct WarrenDesktopWorkspaceTabTrailing: View {
                     ? tokens.info
                     : (webStatus.isRunning ? tokens.success : nil)
             )
+        case .git:
+            if hasGitPanel {
+                WarrenDesktopGitButton(
+                    isVisible: gitActive,
+                    action: onToggleGit
+                )
+            }
         case .inspector:
             if hasInspector {
                 WarrenDesktopInspectorButton(

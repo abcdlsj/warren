@@ -40,13 +40,20 @@ struct WarrenCompositionRoot: View {
     @AppStorage("executionEndpoint")
     private var selectedEndpointID = "local"
     @State private var endpointCatalog: [WarrenRemoteEndpointConfiguration]
+    @State private var gitPanelModel: WarrenDesktopGitPanelModel
 
     @MainActor
     init() {
         let surfaceManager = TerminalSurfaceManager()
         _surfaceManager = State(initialValue: surfaceManager)
-        _remoteModel = State(initialValue: WarrenRemoteApplicationModel(
+        let remoteModel = WarrenRemoteApplicationModel(
             surfaceManager: surfaceManager
+        )
+        _remoteModel = State(initialValue: remoteModel)
+        _gitPanelModel = State(initialValue: WarrenDesktopGitPanelModel(
+            client: WarrenRemoteGitClient { [remoteModel] method, params in
+                try await remoteModel.gitRequest(method, params: params)
+            }
         ))
         // Endpoint configuration is user input, not frame state. Seed the
         // catalog once and refresh it from disk in the background so CLI
@@ -84,7 +91,8 @@ struct WarrenCompositionRoot: View {
             autoOpenShell: remoteModel.autoOpenShell,
             onSetAutoOpenShell: { remoteModel.setAutoOpenShell($0) },
             autoStartAI: remoteModel.autoStartAI,
-            onSetAutoStartAI: { remoteModel.setAutoStartAI($0) }
+            onSetAutoStartAI: { remoteModel.setAutoStartAI($0) },
+            gitPanel: gitPanelModel
         ) { context in
             WarrenTerminalSurfaceView(
                 context: context,
