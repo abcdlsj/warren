@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { groupAgentEvents } from "./agent.js";
+import { groupAgentEvents, questionData } from "./agent.js";
 import { sessionDisplayTitle } from "./title.js";
 
 export function AgentView({
@@ -261,7 +261,9 @@ function AgentBlock({ block }) {
 
 function ActivityGroup({ block }) {
   const { reasoning, tools, order } = block;
-  const [open, setOpen] = useState(false);
+  // Reasoning and tool steps are the visible process, not a footnote: keep
+  // the strip open so thinking text and commands read like the terminal.
+  const [open, setOpen] = useState(true);
   const status = groupStatus(tools);
   let step = 0;
   const toolItems = order.filter(item => item.kind === "tool");
@@ -304,6 +306,10 @@ function ActivityGroup({ block }) {
 function ToolCard({ block, defaultOpen = false }) {
   const call = block.call;
   const status = call.toolStatus || (block.outputs.length ? "success" : "running");
+  const question = questionData(call, block.outputs);
+  if (question) {
+    return <QuestionCard status={status} question={question} />;
+  }
   const [open, setOpen] = useState(defaultOpen);
   const summary = toolDisplay(call, status);
   const isWebSearch = call.toolName === "web_search";
@@ -417,8 +423,47 @@ function displayToolName(name) {
     apply_patch: "Apply patch",
     Task: "Subagent",
     Write: "Write file",
+    ask_user_questions: "Question",
+    request_user_input: "Question",
   };
   return names[name] || name || "Tool";
+}
+
+function QuestionCard({ status, question }) {
+  const answered = Boolean(question.answer);
+  const waiting = status === "running" && !answered;
+  return (
+    <div className={`agent-question${waiting ? " waiting" : ""}${answered ? " answered" : ""}`}>
+      <div className="agent-question-head">
+        <span className="agent-question-mark" aria-hidden="true">?</span>
+        <span className="agent-question-title">{answered ? "Answer received" : "Waiting for your answer"}</span>
+        <span className="agent-tool-status">{answered ? "Answered" : "Waiting…"}</span>
+      </div>
+      <div className="agent-question-body">
+        {question.questions.map((item, index) => (
+          <div className="agent-question-item" key={item.id || index}>
+            <div className="agent-question-text">
+              {item.header && <span className="agent-question-header">{item.header}: </span>}
+              {item.question}
+            </div>
+            {item.options.length > 0 && (
+              <ul className="agent-question-options">
+                {item.options.map((option, optionIndex) => (
+                  <li key={option.label || optionIndex}>
+                    {option.label}
+                    {option.description
+                      ? <span className="agent-question-option-desc"> — {option.description}</span>
+                      : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+        {answered && <div className="agent-question-answer">You answered: {question.answer}</div>}
+      </div>
+    </div>
+  );
 }
 
 function SendIcon() {
@@ -438,6 +483,11 @@ function ChevronRightIcon() {
 }
 
 function toolSummary(call) {
+  const question = questionData(call);
+  if (question) {
+    const prompt = question.questions.map(item => item.question).filter(Boolean).join(" / ");
+    return truncatePreview(prompt || "Question");
+  }
   const input = call.toolInput;
   if (!input || typeof input !== "object") return "";
   // Codex's exec tool wraps commands in a JavaScript payload; extract the

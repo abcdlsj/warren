@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentEventLimit, groupAgentEvents, mergeAgentEvents } from "./agent.js";
+import { agentEventLimit, groupAgentEvents, mergeAgentEvents, questionData } from "./agent.js";
 
 test("mergeAgentEvents keeps sequence order and deduplicates overlap", () => {
   const existing = [
@@ -108,4 +108,43 @@ test("groupAgentEvents keeps unmatched tool outputs standalone", () => {
   ]);
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].kind, "tool_output");
+});
+
+test("questionData extracts ask_user_questions prompts and options", () => {
+  const call = {
+    toolName: "ask_user_questions",
+    toolInput: {
+      questions: [
+        { id: "q1", header: "Env", question: "Which environment?", options: [{ label: "UAT", description: "test" }, { label: "PROD" }] },
+        { id: "q2", question: "Second?" },
+      ],
+    },
+  };
+  const data = questionData(call, []);
+  assert.notEqual(data, null);
+  assert.equal(data.questions.length, 2);
+  assert.equal(data.questions[0].header, "Env");
+  assert.equal(data.questions[0].question, "Which environment?");
+  assert.equal(data.questions[0].options.length, 2);
+  assert.equal(data.answer, "");
+});
+
+test("questionData extracts the chosen answer from tool output", () => {
+  const call = { toolName: "ask_user_questions", toolInput: { questions: [{ question: "Go?" }] } };
+  const data = questionData(call, [
+    { output: '{"answers":[{"question_id":"q1","answer":"UAT"}]}' },
+  ]);
+  assert.equal(data.answer, "UAT");
+});
+
+test("questionData falls back to plain-text answers", () => {
+  const call = { toolName: "request_user_input", toolInput: { question: "Ready?" } };
+  const data = questionData(call, [{ output: "Not yet" }]);
+  assert.equal(data.questions[0].question, "Ready?");
+  assert.equal(data.answer, "Not yet");
+});
+
+test("questionData returns null for non-question tools", () => {
+  assert.equal(questionData({ toolName: "exec_command", toolInput: { cmd: "ls" } }), null);
+  assert.equal(questionData(null), null);
 });

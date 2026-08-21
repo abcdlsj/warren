@@ -102,3 +102,57 @@ function foldTurns(blocks) {
   flush();
   return result;
 }
+
+/**
+ * Recognizes Codex's question-prompt tools. `ask_user_questions` (and the
+ * `request_user_input` alias) blocks the turn until the user answers, so the
+ * UI must render the prompt itself instead of a bare tool card.
+ */
+export function isQuestionCall(call) {
+  const name = call?.toolName;
+  return name === "ask_user_questions" || name === "request_user_input";
+}
+
+/**
+ * Extracts the human-readable prompt, options and (once answered) the chosen
+ * answer from an ask_user_questions tool call so the web client can render
+ * the question instead of hiding it inside a generic tool card.
+ */
+export function questionData(call, outputs = []) {
+  if (!isQuestionCall(call)) return null;
+  const input = call?.toolInput || {};
+  let rawQuestions = Array.isArray(input.questions) ? input.questions : [];
+  if (rawQuestions.length === 0 && typeof input.question === "string") {
+    rawQuestions = [{ question: input.question }];
+  }
+  const questions = rawQuestions
+    .map(question => ({
+      id: question?.id || "",
+      header: question?.header || "",
+      question: question?.question || question?.text || "",
+      options: Array.isArray(question?.options) ? question.options : [],
+    }))
+    .filter(question => question.question || question.header);
+  if (questions.length === 0 && typeof input.raw === "string" && input.raw) {
+    questions.push({ id: "", header: "", question: input.raw, options: [] });
+  }
+  return { questions, answer: questionAnswer(outputs) };
+}
+
+function questionAnswer(outputs) {
+  for (const output of outputs || []) {
+    const value = output?.output;
+    if (typeof value !== "string" || !value) continue;
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed?.answers)) {
+        const parts = parsed.answers.map(item => item?.answer || "").filter(Boolean);
+        if (parts.length) return parts.join("; ");
+      }
+      if (typeof parsed?.answer === "string" && parsed.answer) return parsed.answer;
+    } catch {
+      return value;
+    }
+  }
+  return "";
+}

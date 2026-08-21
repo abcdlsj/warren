@@ -1261,6 +1261,88 @@ button:disabled {
   background: var(--fill-hover);
 }
 
+.agent-question {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-sunken);
+}
+
+.agent-question.waiting {
+  border-color: var(--color-status-working);
+}
+
+.agent-question-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.agent-question-mark {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-status-working);
+  color: var(--color-bg-sunken);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+}
+
+.agent-question-title {
+  flex: 1 1 auto;
+  color: var(--color-text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.agent-question-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-inline-start: 26px;
+}
+
+.agent-question-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-question-text {
+  color: var(--color-text-primary);
+  font: var(--text-sm)/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.agent-question-header {
+  font-weight: var(--weight-semibold);
+}
+
+.agent-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-inline-start: 18px;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font: var(--text-xs)/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+.agent-question-option-desc {
+  color: var(--color-text-secondary);
+}
+
+.agent-question-answer {
+  color: var(--color-status-working);
+  font: var(--text-sm)/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
 .agent-files {
   display: flex;
   flex-wrap: wrap;
