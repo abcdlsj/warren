@@ -428,4 +428,53 @@ final class WarrenDesktopGitPanelTests: XCTestCase {
         XCTAssertEqual(WarrenDesktopGitStatusLabel.symbol(for: "?"), "??")
         XCTAssertEqual(WarrenDesktopGitStatusLabel.symbol(for: "A"), "A")
     }
+
+    func testDecodesOmitemptyPanelPayload() throws {
+        // The daemon omits zero-valued counters and flags, so a clean
+        // workspace arrives without ahead/behind/merged/refreshing and
+        // untracked changes without staged/added/deleted.
+        let payload = """
+        {
+          "workspace": "ws-test",
+          "branch": "feature/x",
+          "changes": [
+            {"path": "a.txt", "status": "?"}
+          ],
+          "commits": [
+            {
+              "hash": "abc123",
+              "short": "abc123",
+              "subject": "fix stuff",
+              "author": "Alice",
+              "time": "2026-08-20T10:00:00Z",
+              "files": [{"path": "a.txt", "status": "M"}]
+            }
+          ],
+          "branches": [
+            {"name": "feature/x", "remote": false}
+          ]
+        }
+        """
+        let panel = try JSONDecoder().decode(
+            WarrenDesktopGitPanel.self,
+            from: Data(payload.utf8)
+        )
+
+        XCTAssertEqual(panel.workspace, "ws-test")
+        XCTAssertEqual(panel.branch, "feature/x")
+        XCTAssertEqual(panel.ahead, 0)
+        XCTAssertEqual(panel.behind, 0)
+        XCTAssertEqual(panel.aheadOfMain, 0)
+        XCTAssertEqual(panel.merged, false)
+        XCTAssertEqual(panel.refreshing, false)
+        XCTAssertEqual(panel.upstream, nil)
+        XCTAssertEqual(panel.changes.count, 1)
+        XCTAssertEqual(panel.changes[0].staged, false)
+        XCTAssertEqual(panel.changes[0].added, 0)
+        XCTAssertEqual(panel.changes[0].deleted, 0)
+        XCTAssertEqual(panel.commits[0].files[0].staged, false)
+        XCTAssertEqual(panel.unmergedCommits, nil)
+        XCTAssertEqual(panel.pullRequest, nil)
+        XCTAssertEqual(panel.branches[0].remote, false)
+    }
 }

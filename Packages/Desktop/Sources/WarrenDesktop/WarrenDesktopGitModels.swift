@@ -58,6 +58,37 @@ public struct WarrenDesktopGitPanel: Codable, Hashable, Sendable {
         self.pullRequestError = pullRequestError
         self.refreshing = refreshing
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case workspace, branch, upstream, ahead, behind, aheadOfMain, remote
+        case mainBranch, merged, operation, changes, commits, unmergedCommits
+        case branches, pullRequest, pullRequestError, refreshing
+    }
+
+    /// The daemon tags zero-valued counters and flags with `omitempty`, so a
+    /// clean workspace arrives without `ahead`, `behind`, `aheadOfMain`,
+    /// `merged` or `refreshing`. Decode them leniently instead of failing on a
+    /// missing key.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspace = try container.decode(String.self, forKey: .workspace)
+        branch = try container.decodeIfPresent(String.self, forKey: .branch) ?? ""
+        upstream = try container.decodeIfPresent(String.self, forKey: .upstream)
+        ahead = try container.decodeIfPresent(Int.self, forKey: .ahead) ?? 0
+        behind = try container.decodeIfPresent(Int.self, forKey: .behind) ?? 0
+        aheadOfMain = try container.decodeIfPresent(Int.self, forKey: .aheadOfMain) ?? 0
+        remote = try container.decodeIfPresent(String.self, forKey: .remote)
+        mainBranch = try container.decodeIfPresent(String.self, forKey: .mainBranch)
+        merged = try container.decodeIfPresent(Bool.self, forKey: .merged) ?? false
+        operation = try container.decodeIfPresent(String.self, forKey: .operation)
+        changes = try container.decodeIfPresent([WarrenDesktopGitChange].self, forKey: .changes) ?? []
+        commits = try container.decodeIfPresent([WarrenDesktopGitCommit].self, forKey: .commits) ?? []
+        unmergedCommits = try container.decodeIfPresent([WarrenDesktopGitCommit].self, forKey: .unmergedCommits)
+        branches = try container.decodeIfPresent([WarrenDesktopGitBranch].self, forKey: .branches) ?? []
+        pullRequest = try container.decodeIfPresent(WarrenDesktopGitPullRequest.self, forKey: .pullRequest)
+        pullRequestError = try container.decodeIfPresent(String.self, forKey: .pullRequestError)
+        refreshing = try container.decodeIfPresent(Bool.self, forKey: .refreshing) ?? false
+    }
 }
 
 public struct WarrenDesktopGitChange: Codable, Hashable, Sendable {
@@ -82,6 +113,20 @@ public struct WarrenDesktopGitChange: Codable, Hashable, Sendable {
         self.renameFrom = renameFrom
         self.added = added
         self.deleted = deleted
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path, status, staged, renameFrom, added, deleted
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? ""
+        staged = try container.decodeIfPresent(Bool.self, forKey: .staged) ?? false
+        renameFrom = try container.decodeIfPresent(String.self, forKey: .renameFrom)
+        added = try container.decodeIfPresent(Int.self, forKey: .added) ?? 0
+        deleted = try container.decodeIfPresent(Int.self, forKey: .deleted) ?? 0
     }
 }
 
@@ -111,6 +156,21 @@ public struct WarrenDesktopGitCommit: Codable, Hashable, Sendable {
         self.time = time
         self.files = files
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case hash, short, subject, author, email, time, files
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hash = try container.decodeIfPresent(String.self, forKey: .hash) ?? ""
+        short = try container.decodeIfPresent(String.self, forKey: .short) ?? ""
+        subject = try container.decodeIfPresent(String.self, forKey: .subject) ?? ""
+        author = try container.decodeIfPresent(String.self, forKey: .author) ?? ""
+        email = try container.decodeIfPresent(String.self, forKey: .email)
+        time = try container.decodeIfPresent(String.self, forKey: .time) ?? ""
+        files = try container.decodeIfPresent([WarrenDesktopGitChange].self, forKey: .files) ?? []
+    }
 }
 
 public struct WarrenDesktopGitBranch: Codable, Hashable, Sendable {
@@ -120,6 +180,16 @@ public struct WarrenDesktopGitBranch: Codable, Hashable, Sendable {
     public init(name: String, remote: Bool = false) {
         self.name = name
         self.remote = remote
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, remote
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        remote = try container.decodeIfPresent(Bool.self, forKey: .remote) ?? false
     }
 }
 
@@ -155,6 +225,23 @@ public struct WarrenDesktopGitPullRequest: Codable, Hashable, Sendable {
         self.base = base
         self.head = head
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case number, title, body, state, draft, url, author, base, head
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        number = try container.decodeIfPresent(Int.self, forKey: .number)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        body = try container.decodeIfPresent(String.self, forKey: .body)
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        draft = try container.decodeIfPresent(Bool.self, forKey: .draft) ?? false
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        base = try container.decodeIfPresent(String.self, forKey: .base)
+        head = try container.decodeIfPresent(String.self, forKey: .head)
+    }
 }
 
 public struct WarrenDesktopGitDiff: Codable, Hashable, Sendable {
@@ -164,6 +251,16 @@ public struct WarrenDesktopGitDiff: Codable, Hashable, Sendable {
     public init(diff: String = "", content: String = "") {
         self.diff = diff
         self.content = content
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case diff, content
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        diff = try container.decodeIfPresent(String.self, forKey: .diff) ?? ""
+        content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
     }
 }
 
