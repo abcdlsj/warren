@@ -44,6 +44,8 @@ public enum WarrenLayoutMetrics {
     public static let inspectorDefaultWidth: CGFloat = 340
     public static let inspectorMinimumWidth: CGFloat = 240
     public static let inspectorMaximumWidth: CGFloat = 640
+    /// The desktop Git panel mirrors the web client's right-side panel density.
+    public static let gitPanelDefaultWidth: CGFloat = 320
 
     // Sidebar row geometry from DashboardSidebar's Tailwind classes.
     public static let sidebarProjectRowHeight: CGFloat = 32

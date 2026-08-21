@@ -55,8 +55,11 @@ private func makeTabBar(
         externalIDEOptions: nil,
         hasInspector: false,
         isInspectorVisible: false,
+        hasGitPanel: false,
+        gitActive: false,
         onToggleSidebar: {},
         onToggleInspector: {},
+        onToggleGit: {},
         onSettings: {},
         onChromePopover: { _ in },
         onOpenInExternalIDE: { _ in },
@@ -89,7 +92,7 @@ final class WarrenDesktopTests: XCTestCase {
     func testWorkspaceTabTrailingControlsHaveStableOrder() {
         XCTAssertEqual(
             WarrenDesktopWorkspaceTabTrailingControl.allCases,
-            [.externalIDE, .endpoint, .web, .inspector, .settings]
+            [.externalIDE, .endpoint, .web, .git, .inspector, .settings]
         )
     }
 

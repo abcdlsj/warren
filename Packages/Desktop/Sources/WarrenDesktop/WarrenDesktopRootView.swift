@@ -42,11 +42,13 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private let autoStartAI: Bool
     private let onSetAutoStartAI: (Bool) -> Void
     private let persistenceEnabled: Bool
+    private let gitPanel: WarrenDesktopGitPanelModel?
     private let externalIDEService = WarrenDesktopExternalIDEService.live
     @State private var sidebarState: WarrenDesktopSidebarState
     @State private var sidebarTree: WarrenDesktopSidebarTreeState
     @State private var inspectorVisible: Bool
     @State private var inspectorWasAvailable: Bool
+    @State private var gitPanelVisible = false
     @State private var commandPalettePresented = false
     @State private var settingsPresented = false
     @State private var navigationBeforeSettings: WarrenDesktopNavigationState?
@@ -109,6 +111,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         onSetAutoOpenShell: @escaping (Bool) -> Void = { _ in },
         autoStartAI: Bool = false,
         onSetAutoStartAI: @escaping (Bool) -> Void = { _ in },
+        gitPanel: WarrenDesktopGitPanelModel? = nil,
         persistenceEnabled: Bool = true,
         @ViewBuilder terminalSurface: @escaping @MainActor (WarrenDesktopTerminalContext) -> TerminalSurface
     ) {
@@ -137,6 +140,7 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
         self.onSetAutoOpenShell = onSetAutoOpenShell
         self.autoStartAI = autoStartAI
         self.onSetAutoStartAI = onSetAutoStartAI
+        self.gitPanel = gitPanel
         self.persistenceEnabled = persistenceEnabled
         _sidebarState = State(
             initialValue: persistenceEnabled
@@ -174,154 +178,14 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             projection.sessions.filter(\.pinned).map(\.id)
         )
         let isAddingSession = isAddingSession(in: presentation)
-        let sessionMoveTargets = makeSessionMoveTargets()
-        let sessionMoveDestinations = makeSessionMoveDestinations()
-        ZStack(alignment: .topLeading) {
-            HStack(spacing: 0) {
-                WarrenDesktopSidebar(
-                    projection: projection,
-                    sidebarState: $sidebarState,
-                    sidebarTree: $sidebarTree,
-                    selection: navigation.selection,
-                    chromeMode: chromeMode,
-                    updateStatus: updateStatus,
-                    onUpdateAction: onUpdateAction,
-                    deletingProjectIDs: deletingProjectIDs,
-                    deletingWorkspaceIDs: deletingWorkspaceIDs,
-                    onAction: dispatch,
-                    onCommandPalette: presentCommandPalette,
-                    onRequestRename: presentRename,
-                    onRequestDeletion: presentDeletion,
-                    onRequestTerminalGroupCreate: presentTerminalGroupCreate,
-                    onRequestTerminalGroupEdit: presentTerminalGroupEdit
-                )
-                .frame(width: sidebarState.renderedWidth)
-
-                VStack(spacing: 0) {
-                    if chromeMode.showsIndependentTopBar {
-                        WarrenDesktopTopBar(
-                            hostName: projection.host.name,
-                            isSidebarCollapsed: sidebarState.isCollapsed,
-                            hasInspector: projection.inspector != nil,
-                            isInspectorVisible: inspectorVisible,
-                            onToggleSidebar: toggleSidebar,
-                            onToggleInspector: {}
-                        )
-                    }
-                    WarrenDesktopTabBar(
-                        tabs: presentation.tabs,
-                        tabTitles: tabTitles,
-                        tabActivities: tabActivities,
-                        pinnedSessionIDs: pinnedSessionIDs,
-                        selectedTabID: navigation.selectedTabID,
-                        chromeMode: chromeMode,
-                        isSidebarCollapsed: sidebarState.isCollapsed,
-                        connectionState: projection.connectionState,
-                        endpointOptions: endpointOptions,
-                        selectedEndpointID: selectedEndpointID,
-                        webStatus: webStatus,
-                        externalIDEOptions: externalIDEOptions,
-                        hasInspector: projection.inspector != nil,
-                        isInspectorVisible: inspectorVisible,
-                        onToggleSidebar: toggleSidebar,
-                        onToggleInspector: toggleInspector,
-                        onSettings: {
-                            setCommandPalettePresented(false)
-                            navigationBeforeSettings = navigation
-                            // Settings overlays a still-mounted shell so its
-                            // Ghostty grid survives the trip; drop keyboard
-                            // ownership so keystrokes go to Settings instead
-                            // of the hidden terminal.
-                            NSApp.keyWindow?.makeFirstResponder(nil)
-                            setChromePopover(nil)
-                            setSettingsPresented(true)
-                        },
-                        onChromePopover: { popover in
-                            setChromePopover(chromePopover == popover ? nil : popover)
-                        },
-                        onOpenInExternalIDE: openInExternalIDE,
-                        onSelectEndpoint: onSelectEndpoint,
-                        onSelectTab: { dispatch(.selectTab($0)) },
-                        onMoveTab: { tabID, destinationTabID in
-                            dispatch(.moveTab(tabID, before: destinationTabID))
-                        },
-                        sessionMoveTargets: sessionMoveTargets,
-                        sessionMoveDestinations: sessionMoveDestinations,
-                        onMoveSession: { sessionID, destination in
-                            dispatch(.moveSession(sessionID, to: destination))
-                        },
-                        canAddTab: presentation.workspace != nil || presentation.terminalGroup != nil,
-                        isAddingTab: isAddingSession,
-                        onAddTab: {
-                            addSession(in: presentation)
-                        },
-                        onCloseTab: { dispatch(.closeTab($0)) },
-                        onCloseOtherTabs: { dispatch(.closeOtherTabs($0)) },
-                        onCloseAllTabs: { dispatch(.closeAllTabs) },
-                        onRequestRename: presentRename,
-                        onToggleSessionPin: { sessionID, pinned in
-                            dispatch(.setSessionPinned(sessionID, pinned))
-                        },
-                        onDismissActivity: { sessionID, activity in
-                            dispatch(.dismissActivity(sessionID, activity))
-                        }
-                    )
-                    WarrenDesktopPresetBar(
-                        workspace: presentation.workspace,
-                        terminalGroup: presentation.terminalGroup,
-                        isBusy: isAddingSession,
-                        onLaunch: { request in
-                            launchSession(request, in: presentation)
-                        }
-                    )
-                    HStack(spacing: 0) {
-                        WarrenDesktopWorkspaceContent(
-                            workspace: presentation.contentWorkspace,
-                            terminalGroup: presentation.contentTerminalGroup,
-                            tab: presentation.tab,
-                            hasProjects: !projection.groups.isEmpty,
-                            connectionState: projection.connectionState,
-                            // Superset keeps the 28pt pane toolbar in workspace
-                            // mode too. It is pane chrome, not a duplicate top bar.
-                            showsPaneHeader: true,
-                            session: presentation.session,
-                            hostName: projection.host.name,
-                            titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
-                            terminalFont: TerminalFontPreference(
-                                family: terminalFontFamily,
-                                size: terminalFontSize
-                            ),
-                            wantsTerminalFocus: !commandPalettePresented && !settingsPresented,
-                            onAddProject: { dispatch(.addProject) },
-                            onImportSuperset: { dispatch(.importSuperset) },
-                            terminalSurface: terminalSurface
-                        )
-                        if inspectorVisible, let inspector = projection.inspector {
-                            WarrenDesktopInspectorSlot(content: inspector)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(settingsPresented ? 0 : 1)
-            .allowsHitTesting(!settingsPresented)
-            .accessibilityHidden(settingsPresented)
-
-            if settingsPresented {
-                WarrenDesktopSettingsView(
-                    onBack: closeSettings,
-                    defaultRuntime: defaultRuntime,
-                    onSetRuntime: onSetRuntime,
-                    autoOpenShell: autoOpenShell,
-                    onSetAutoOpenShell: onSetAutoOpenShell,
-                    autoStartAI: autoStartAI,
-                    onSetAutoStartAI: onSetAutoStartAI
-                )
-                    .transition(.opacity)
-            }
-        }
+        let activeWorkspaceID = presentation.workspace?.id
+        mainShell(
+            presentation: presentation,
+            tabTitles: tabTitles,
+            tabActivities: tabActivities,
+            pinnedSessionIDs: pinnedSessionIDs,
+            isAddingSession: isAddingSession
+        )
         .frame(
             minWidth: WarrenLayoutMetrics.sidebarExpandedWidth
                 + WarrenLayoutMetrics.paneMinimumWidth,
@@ -345,6 +209,12 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
             sidebarTree = persistenceEnabled
                 ? Self.restoredSidebarTree(scope: newEndpointID)
                 : WarrenDesktopSidebarTreeState()
+        }
+        .onChange(of: gitPanelVisible) { _, isVisible in
+            updateGitPanelVisibility(isVisible, presentation: presentation)
+        }
+        .onChange(of: activeWorkspaceID) { _, _ in
+            updateGitPanelWorkspace(presentation: presentation)
         }
         .onReceive(NotificationCenter.default.publisher(for: WarrenDesktopCommand.commandPalette)) { _ in
             presentCommandPalette()
@@ -541,6 +411,228 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     /// SwiftUI asks for these values in several branches and closures; keeping
     /// one immutable presentation value avoids repeated graph lookups while
     /// preserving the navigation ownership rules.
+    /// The top-level shell: sidebar, workspace chrome, and the settings
+    /// overlay. Kept as its own expression so the root `body` stays
+    /// type-checkable.
+    @ViewBuilder
+    private func mainShell(
+        presentation: Presentation,
+        tabTitles: [String: String],
+        tabActivities: [TerminalSessionID: AgentActivityState],
+        pinnedSessionIDs: Set<TerminalSessionID>,
+        isAddingSession: Bool
+    ) -> some View {
+        ZStack(alignment: .topLeading) {
+            workspaceShell(
+                presentation: presentation,
+                tabTitles: tabTitles,
+                tabActivities: tabActivities,
+                pinnedSessionIDs: pinnedSessionIDs,
+                isAddingSession: isAddingSession
+            )
+
+            if settingsPresented {
+                WarrenDesktopSettingsView(
+                    onBack: closeSettings,
+                    defaultRuntime: defaultRuntime,
+                    onSetRuntime: onSetRuntime,
+                    autoOpenShell: autoOpenShell,
+                    onSetAutoOpenShell: onSetAutoOpenShell,
+                    autoStartAI: autoStartAI,
+                    onSetAutoStartAI: onSetAutoStartAI
+                )
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    /// The sidebar and workspace chrome column. Kept as its own expression so
+    /// the root `body` stays type-checkable.
+    @ViewBuilder
+    private func workspaceShell(
+        presentation: Presentation,
+        tabTitles: [String: String],
+        tabActivities: [TerminalSessionID: AgentActivityState],
+        pinnedSessionIDs: Set<TerminalSessionID>,
+        isAddingSession: Bool
+    ) -> some View {
+        HStack(spacing: 0) {
+            WarrenDesktopSidebar(
+                projection: projection,
+                sidebarState: $sidebarState,
+                sidebarTree: $sidebarTree,
+                selection: navigation.selection,
+                chromeMode: chromeMode,
+                updateStatus: updateStatus,
+                onUpdateAction: onUpdateAction,
+                deletingProjectIDs: deletingProjectIDs,
+                deletingWorkspaceIDs: deletingWorkspaceIDs,
+                onAction: dispatch,
+                onCommandPalette: presentCommandPalette,
+                onRequestRename: presentRename,
+                onRequestDeletion: presentDeletion,
+                onRequestTerminalGroupCreate: presentTerminalGroupCreate,
+                onRequestTerminalGroupEdit: presentTerminalGroupEdit
+            )
+            .frame(width: sidebarState.renderedWidth)
+
+            VStack(spacing: 0) {
+                if chromeMode.showsIndependentTopBar {
+                    WarrenDesktopTopBar(
+                        hostName: projection.host.name,
+                        isSidebarCollapsed: sidebarState.isCollapsed,
+                        hasInspector: projection.inspector != nil,
+                        isInspectorVisible: inspectorVisible,
+                        onToggleSidebar: toggleSidebar,
+                        onToggleInspector: {}
+                    )
+                }
+                workspaceTabBar(
+                    presentation: presentation,
+                    tabTitles: tabTitles,
+                    tabActivities: tabActivities,
+                    pinnedSessionIDs: pinnedSessionIDs,
+                    isAddingSession: isAddingSession
+                )
+                WarrenDesktopPresetBar(
+                    workspace: presentation.workspace,
+                    terminalGroup: presentation.terminalGroup,
+                    isBusy: isAddingSession,
+                    onLaunch: { request in
+                        launchSession(request, in: presentation)
+                    }
+                )
+                workspaceContentArea(presentation: presentation)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .opacity(settingsPresented ? 0 : 1)
+        .allowsHitTesting(!settingsPresented)
+        .accessibilityHidden(settingsPresented)
+    }
+
+    /// The workspace tab bar and its trailing chrome controls. Kept as its own
+    /// expression so the root `body` stays type-checkable.
+    @ViewBuilder
+    private func workspaceTabBar(
+        presentation: Presentation,
+        tabTitles: [String: String],
+        tabActivities: [TerminalSessionID: AgentActivityState],
+        pinnedSessionIDs: Set<TerminalSessionID>,
+        isAddingSession: Bool
+    ) -> some View {
+        WarrenDesktopTabBar(
+            tabs: presentation.tabs,
+            tabTitles: tabTitles,
+            tabActivities: tabActivities,
+            pinnedSessionIDs: pinnedSessionIDs,
+            selectedTabID: navigation.selectedTabID,
+            chromeMode: chromeMode,
+            isSidebarCollapsed: sidebarState.isCollapsed,
+            connectionState: projection.connectionState,
+            endpointOptions: endpointOptions,
+            selectedEndpointID: selectedEndpointID,
+            webStatus: webStatus,
+            externalIDEOptions: externalIDEOptions,
+            hasInspector: projection.inspector != nil,
+            isInspectorVisible: inspectorVisible,
+            hasGitPanel: gitPanel != nil && presentation.workspace != nil,
+            gitActive: gitPanelVisible,
+            onToggleSidebar: toggleSidebar,
+            onToggleInspector: toggleInspector,
+            onToggleGit: toggleGitPanel,
+            onSettings: {
+                setCommandPalettePresented(false)
+                navigationBeforeSettings = navigation
+                // Settings overlays a still-mounted shell so its
+                // Ghostty grid survives the trip; drop keyboard
+                // ownership so keystrokes go to Settings instead
+                // of the hidden terminal.
+                NSApp.keyWindow?.makeFirstResponder(nil)
+                setChromePopover(nil)
+                setSettingsPresented(true)
+            },
+            onChromePopover: { popover in
+                setChromePopover(chromePopover == popover ? nil : popover)
+            },
+            onOpenInExternalIDE: openInExternalIDE,
+            onSelectEndpoint: onSelectEndpoint,
+            onSelectTab: { dispatch(.selectTab($0)) },
+            onMoveTab: { tabID, destinationTabID in
+                dispatch(.moveTab(tabID, before: destinationTabID))
+            },
+            sessionMoveTargets: makeSessionMoveTargets(),
+            sessionMoveDestinations: makeSessionMoveDestinations(),
+            onMoveSession: { sessionID, destination in
+                dispatch(.moveSession(sessionID, to: destination))
+            },
+            canAddTab: presentation.workspace != nil || presentation.terminalGroup != nil,
+            isAddingTab: isAddingSession,
+            onAddTab: {
+                addSession(in: presentation)
+            },
+            onCloseTab: { dispatch(.closeTab($0)) },
+            onCloseOtherTabs: { dispatch(.closeOtherTabs($0)) },
+            onCloseAllTabs: { dispatch(.closeAllTabs) },
+            onRequestRename: presentRename,
+            onToggleSessionPin: { sessionID, pinned in
+                dispatch(.setSessionPinned(sessionID, pinned))
+            },
+            onDismissActivity: { sessionID, activity in
+                dispatch(.dismissActivity(sessionID, activity))
+            }
+        )
+    }
+
+    /// The workspace content row: terminal (with the file-diff overlay), the
+    /// optional inspector slot, and the optional Git panel. Kept as its own
+    /// expression so the root `body` stays type-checkable.
+    @ViewBuilder
+    private func workspaceContentArea(presentation: Presentation) -> some View {
+        HStack(spacing: 0) {
+            ZStack {
+                WarrenDesktopWorkspaceContent(
+                    workspace: presentation.contentWorkspace,
+                    terminalGroup: presentation.contentTerminalGroup,
+                    tab: presentation.tab,
+                    hasProjects: !projection.groups.isEmpty,
+                    connectionState: projection.connectionState,
+                    // Superset keeps the 28pt pane toolbar in workspace
+                    // mode too. It is pane chrome, not a duplicate top bar.
+                    showsPaneHeader: true,
+                    session: presentation.session,
+                    hostName: projection.host.name,
+                    titleTemplate: TerminalDisplayTitleTemplate(rawValue: terminalTitleTemplate),
+                    terminalFont: TerminalFontPreference(
+                        family: terminalFontFamily,
+                        size: terminalFontSize
+                    ),
+                    wantsTerminalFocus: !commandPalettePresented
+                        && !settingsPresented
+                        && !(gitPanelVisible && gitPanel?.fileView != nil),
+                    onAddProject: { dispatch(.addProject) },
+                    onImportSuperset: { dispatch(.importSuperset) },
+                    terminalSurface: terminalSurface
+                )
+                if gitPanelVisible, let gitPanel, gitPanel.fileView != nil {
+                    WarrenDesktopGitDiffView(model: gitPanel)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if inspectorVisible, let inspector = projection.inspector {
+                WarrenDesktopInspectorSlot(content: inspector)
+            }
+            if gitPanelVisible, let gitPanel, presentation.workspace != nil {
+                WarrenDesktopGitPanelView(
+                    workspaceName: presentation.workspace?.name ?? "",
+                    model: gitPanel,
+                    onClose: toggleGitPanel
+                )
+            }
+        }
+    }
+
     private func makePresentation() -> Presentation {
         let interval = WarrenDesktopPerformance.signposter.beginInterval("SwiftUI Presentation")
         defer { WarrenDesktopPerformance.signposter.endInterval("SwiftUI Presentation", interval) }
@@ -690,6 +782,30 @@ public struct WarrenDesktopRoot<TerminalSurface: View>: View {
     private func toggleInspector() {
         inspectorVisible.toggle()
         actions(.toggleInspector)
+    }
+
+    private func toggleGitPanel() {
+        gitPanelVisible.toggle()
+    }
+
+    private func updateGitPanelVisibility(_ isVisible: Bool, presentation: Presentation) {
+        if isVisible {
+            if let workspace = presentation.workspace {
+                gitPanel?.activate(workspaceID: workspace.id)
+            }
+        } else {
+            gitPanel?.deactivate()
+        }
+    }
+
+    private func updateGitPanelWorkspace(presentation: Presentation) {
+        guard gitPanelVisible else { return }
+        if let workspace = presentation.workspace {
+            gitPanel?.activate(workspaceID: workspace.id)
+        } else {
+            gitPanelVisible = false
+            gitPanel?.deactivate()
+        }
     }
 
     private func setCommandPalettePresented(_ presented: Bool) {
