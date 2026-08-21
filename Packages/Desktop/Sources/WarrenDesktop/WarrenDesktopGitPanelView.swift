@@ -187,6 +187,8 @@ private struct WarrenGitBranchSection: View {
         VStack(alignment: .leading, spacing: WarrenSpacing.compact) {
             Text("Branch")
                 .font(WarrenTypography.sectionLabel)
+                .kerning(0.3)
+                .textCase(.uppercase)
                 .foregroundStyle(tokens.mutedForeground)
                 .accessibilityAddTraits(.isHeader)
 
@@ -602,6 +604,8 @@ private struct WarrenGitChangesPane: View {
                 HStack(spacing: WarrenSpacing.small) {
                     Text("Staged (\(staged.count))")
                         .font(WarrenTypography.sectionLabel)
+                        .kerning(0.3)
+                        .textCase(.uppercase)
                         .foregroundStyle(tokens.mutedForeground)
                     WarrenGitDiffCounts(added: summary.added, deleted: summary.deleted)
                     Spacer(minLength: 0)
@@ -868,8 +872,10 @@ private struct WarrenGitPaneHeader: View {
                     .frame(width: 10)
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(WarrenTypography.paneHeader)
-                    .foregroundStyle(tokens.foreground)
+                    .font(WarrenTypography.sectionLabel)
+                    .kerning(0.3)
+                    .textCase(.uppercase)
+                    .foregroundStyle(hovered ? tokens.foreground : tokens.mutedForeground)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
@@ -878,6 +884,11 @@ private struct WarrenGitPaneHeader: View {
             .padding(.vertical, 6)
             .contentShape(.rect)
             .background(hovered ? tokens.fillHover : .clear)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(tokens.border.opacity(0.6))
+                    .frame(height: WarrenSpacing.hairline)
+            }
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -1134,22 +1145,26 @@ private struct WarrenGitUnifiedDiffView: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         let lines = WarrenDesktopGitDiffParser.parse(diff)
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    HStack(spacing: 0) {
-                        lineNumber(line.oldLine, tokens: tokens, width: 40)
-                        lineNumber(line.newLine, tokens: tokens, width: 40)
-                        Text(line.text.isEmpty ? " " : line.text)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(foreground(for: line.kind, tokens: tokens))
-                            .lineLimit(1)
-                            .textSelection(.enabled)
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        HStack(spacing: 0) {
+                            lineNumber(line.oldLine, tokens: tokens, width: 40)
+                            lineNumber(line.newLine, tokens: tokens, width: 40)
+                            Text(line.text.isEmpty ? " " : line.text)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(foreground(for: line.kind, tokens: tokens))
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(background(for: line.kind, tokens: tokens))
                     }
-                    .background(background(for: line.kind, tokens: tokens))
                 }
+                .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
+                .padding(.vertical, WarrenSpacing.xs)
             }
-            .padding(.vertical, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -1192,13 +1207,16 @@ private struct WarrenGitSplitDiffView: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         let lines = WarrenDesktopGitDiffParser.parse(diff)
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    splitRow(line, tokens: tokens)
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        splitRow(line, tokens: tokens)
+                    }
                 }
+                .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
+                .padding(.vertical, WarrenSpacing.xs)
             }
-            .padding(.vertical, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -1296,25 +1314,29 @@ private struct WarrenGitFileContentView: View {
     var body: some View {
         let tokens = WarrenColorTokens.resolved(for: colorScheme)
         let lines = content.components(separatedBy: "\n")
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                    HStack(spacing: 0) {
-                        Text("\(index + 1)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(tokens.mutedForeground.opacity(0.7))
-                            .frame(width: 44, alignment: .trailing)
-                            .padding(.horizontal, WarrenSpacing.xs)
-                            .accessibilityHidden(true)
-                        Text(line.isEmpty ? " " : line)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(tokens.foreground)
-                            .lineLimit(1)
-                            .textSelection(.enabled)
+        GeometryReader { proxy in
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        HStack(spacing: 0) {
+                            Text("\(index + 1)")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(tokens.mutedForeground.opacity(0.7))
+                                .frame(width: 44, alignment: .trailing)
+                                .padding(.horizontal, WarrenSpacing.xs)
+                                .accessibilityHidden(true)
+                            Text(line.isEmpty ? " " : line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(tokens.foreground)
+                                .lineLimit(1)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
+                .padding(.vertical, WarrenSpacing.xs)
             }
-            .padding(.vertical, WarrenSpacing.xs)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
