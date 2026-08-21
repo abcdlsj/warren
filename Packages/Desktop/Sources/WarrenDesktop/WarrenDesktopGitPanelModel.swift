@@ -110,7 +110,11 @@ public final class WarrenDesktopGitPanelModel {
         self.workspaceID = workspaceID
         resetData()
         restoreUI(workspaceID: workspaceID)
-        load(force: true)
+        // The daemon serves cached panel snapshots (LRU, 5-minute
+        // revalidation) unless force is set. Loading without force mirrors the
+        // web client so switching workspaces hits the cache instead of
+        // re-running git in the daemon.
+        load(force: false)
         startPolling()
     }
 

@@ -1195,23 +1195,7 @@ private struct WarrenGitSplitDiffView: View {
         ScrollView([.horizontal, .vertical]) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    HStack(spacing: 0) {
-                        side(
-                            number: line.kind == .del || line.kind == .context ? line.oldLine : nil,
-                            text: line.kind == .add ? "" : line.text,
-                            kind: line.kind,
-                            tokens: tokens,
-                            isOld: true
-                        )
-                        side(
-                            number: line.kind == .add || line.kind == .context ? line.newLine : nil,
-                            text: line.kind == .del ? "" : line.text,
-                            kind: line.kind,
-                            tokens: tokens,
-                            isOld: false
-                        )
-                    }
-                    .background(splitBackground(for: line.kind, tokens: tokens))
+                    splitRow(line, tokens: tokens)
                 }
             }
             .padding(.vertical, WarrenSpacing.xs)
@@ -1220,12 +1204,48 @@ private struct WarrenGitSplitDiffView: View {
         .accessibilityElement(children: .contain)
     }
 
+    @ViewBuilder
+    private func splitRow(_ line: WarrenDesktopGitDiffLine, tokens: WarrenColorTokens) -> some View {
+        if line.kind == .meta || line.kind == .hunk {
+            // Header rows span both columns once, matching the web client.
+            HStack(spacing: 0) {
+                Text(line.text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(splitForeground(for: line.kind, tokens: tokens))
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(splitBackground(for: line.kind, tokens: tokens))
+        } else {
+            HStack(spacing: 0) {
+                side(
+                    number: line.oldLine,
+                    text: line.kind == .add ? "" : line.text,
+                    kind: line.kind,
+                    tokens: tokens,
+                    isOld: true,
+                    highlighted: line.kind == .del
+                )
+                side(
+                    number: line.newLine,
+                    text: line.kind == .del ? "" : line.text,
+                    kind: line.kind,
+                    tokens: tokens,
+                    isOld: false,
+                    highlighted: line.kind == .add
+                )
+            }
+        }
+    }
+
     private func side(
         number: Int?,
         text: String,
         kind: WarrenDesktopGitDiffLineKind,
         tokens: WarrenColorTokens,
-        isOld: Bool
+        isOld: Bool,
+        highlighted: Bool
     ) -> some View {
         HStack(spacing: 0) {
             Text(number.map(String.init) ?? "")
@@ -1241,7 +1261,12 @@ private struct WarrenGitSplitDiffView: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isOld ? tokens.destructive.opacity(0.06) : tokens.success.opacity(0.06), ignoresSafeAreaEdges: [])
+        .background(
+            highlighted
+                ? (isOld ? tokens.destructive.opacity(0.12) : tokens.success.opacity(0.12))
+                : .clear,
+            ignoresSafeAreaEdges: []
+        )
     }
 
     private func splitForeground(for kind: WarrenDesktopGitDiffLineKind, tokens: WarrenColorTokens) -> Color {

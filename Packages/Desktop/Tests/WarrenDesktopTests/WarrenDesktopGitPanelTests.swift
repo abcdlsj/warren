@@ -10,6 +10,7 @@ private final class StubGitClient: WarrenDesktopGitClient {
     var error: Error?
 
     var panelCalls = 0
+    var panelRequests: [(fetch: Bool, force: Bool)] = []
     var pullCalls = 0
     var pushCalls = 0
     var checkoutCalls: [(branch: String, create: Bool)] = []
@@ -36,6 +37,7 @@ private final class StubGitClient: WarrenDesktopGitClient {
 
     func panel(workspaceID: String, fetch: Bool, force: Bool) async throws -> WarrenDesktopGitPanel {
         panelCalls += 1
+        panelRequests.append((fetch, force))
         try throwing()
         return panel
     }
@@ -156,6 +158,7 @@ final class WarrenDesktopGitPanelTests: XCTestCase {
         XCTAssertEqual(model.unstagedChanges.count, 1)
         XCTAssertEqual(model.changeCount, 2)
         XCTAssertEqual(client.panelCalls, 1)
+        XCTAssertEqual(client.panelRequests.map(\.force), [false], "Activating a workspace must not force a daemon refresh")
         model.deactivate()
     }
 
